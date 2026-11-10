@@ -1190,6 +1190,27 @@ void traditional_selected_display(const fs::path& config) {
         require(found != offered.end(), "the Traditional selection fixture offers its displayed word");
         composer.choose(static_cast<int>(found - offered.begin()));
     };
+    read("huanghou");
+    require(composer.text() == "皇后", "the complete Traditional phrase keeps its contextual spelling");
+    choose("皇");
+    if (!std::getenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY")) {
+        require(composer.text() == "皇后" && composer.candidates().front() == "后",
+                "a selected Traditional prefix supplies context to its default suffix");
+    }
+    choose("后");
+    require(composer.text() == "皇后" && composer.preedit() == "皇后",
+            "accepting the contextual suffix keeps both chosen surfaces");
+    read("hulianwanghuanghou");
+    choose("網際網路");
+    choose("皇");
+    choose("后");
+    require(composer.text() == "網際網路皇后",
+            "an expanded selected prefix does not shift suffix ownership");
+    read("hulianwang");
+    choose("互");
+    choose("聯網");
+    require(composer.text() == "互聯網",
+            "an ambiguous expansion across the pick converts its suffix separately");
     read("faxingnihao");
     choose("發");
     choose("型");

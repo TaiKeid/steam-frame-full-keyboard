@@ -37,14 +37,35 @@ int bonus(std::uint32_t uses) {
 constexpr int learned_frequency = 60;
 } // namespace
 
-std::string word_key(std::string_view word) {
+std::string word_key(std::string_view word, bool turkic) {
     if (!valid(word)) {
         return {};
+    }
+    std::string turkish;
+    if (turkic) {
+        // GLib lowers by the process's locale, never Turkish: İ would become
+        // i plus a combining dot, and I the i of another letter.
+        for (const char* p = word.data(); p < word.data() + word.size(); p = g_utf8_next_char(p)) {
+            const auto character = g_utf8_get_char(p);
+            if (character == U'I') {
+                turkish += "ı";
+            } else if (character == U'İ') {
+                turkish += 'i';
+            } else {
+                turkish.append(p, g_utf8_next_char(p));
+            }
+        }
+        word = turkish;
     }
     auto* lower = g_utf8_strdown(word.data(), static_cast<gssize>(word.size()));
     std::string key(lower);
     g_free(lower);
     return key;
+}
+bool turkic_case(std::string_view locale) {
+    const auto language = locale.substr(0, locale.find_first_of("-_"));
+    return language.size() == 2 && (g_ascii_strncasecmp(language.data(), "tr", 2) == 0 ||
+                                    g_ascii_strncasecmp(language.data(), "az", 2) == 0);
 }
 bool word_character(std::uint32_t character) {
     return g_unichar_isalpha(character) || g_unichar_ismark(character) || character == '\'' ||
@@ -61,17 +82,19 @@ void apply(const WordList::Respelling& respell, std::string& spelling) {
     }
 }
 } // namespace
-WordList WordList::parse(std::istream& input, const Respelling& respell, std::istream* offensive) {
+WordList WordList::parse(std::istream& input, const Respelling& respell, std::istream* offensive,
+                         bool turkic) {
     std::set<std::string, std::less<>> held_back;
     std::string line;
     while (offensive && std::getline(*offensive, line)) {
         if (!line.empty() && line.front() != '#') {
             apply(respell, line);
-            held_back.insert(word_key(line));
+            held_back.insert(word_key(line, turkic));
         }
     }
     WordList list;
     list.respell_ = respell;
+    list.turkic_ = turkic;
     // Every key and spelling goes straight into the list's one buffer: a
     // string for each word would take several times the list's memory.
     std::string spelling;
@@ -91,7 +114,7 @@ WordList WordList::parse(std::istream& input, const Respelling& respell, std::is
         }
         spelling.assign(line, 0, tab);
         apply(respell, spelling);
-        const auto key = word_key(spelling);
+        const auto key = word_key(spelling, turkic);
         if (key.empty() || key.size() > 0xffff || spelling.size() > 0xffff ||
             list.text_.size() + key.size() + spelling.size() > UINT32_MAX) {
             continue;
@@ -126,13 +149,15 @@ WordList WordList::parse(std::istream& input, const Respelling& respell, std::is
     list.text_.shrink_to_fit();
     return list;
 }
-WordList WordList::load(const fs::path& path, const Respelling& respell, const fs::path& offensive) {
+WordList WordList::load(const fs::path& path, const Respelling& respell, const fs::path& offensive,
+                        bool turkic) {
     std::ifstream input(path);
     std::ifstream held_back;
     if (!offensive.empty()) {
         held_back.open(offensive);
     }
-    return input ? parse(input, respell, held_back.is_open() ? &held_back : nullptr) : WordList{};
+    return input ? parse(input, respell, held_back.is_open() ? &held_back : nullptr, turkic)
+                 : WordList{};
 }
 WordList::Word WordList::word(const Entry& entry) const {
     return {std::string_view(text_).substr(entry.key, entry.key_length),
@@ -213,7 +238,7 @@ void LearnedWords::load() const {
         } catch (const std::exception&) {
             continue;
         }
-        use.key = word_key(use.spelling);
+        use.key = word_key(use.spelling, turkic_);
         clock_ = std::max(clock_, use.stamp);
         words_.try_emplace(use.key, std::move(use));
     }
@@ -223,7 +248,7 @@ void LearnedWords::record(std::string_view word) {
         return;
     }
     load();
-    auto key = word_key(word);
+    auto key = word_key(word, turkic_);
     if (const auto found = words_.find(key); found != words_.end()) {
         auto& use = found->second;
         use.uses = std::min<std::uint32_t>(use.uses + 1, 1000000);
@@ -334,9 +359,9 @@ void WordListLoader::run() {
             request = std::move(*std::exchange(waiting_, std::nullopt));
         }
         Result result{request.id,
-                      std::make_shared<const WordList>(
-                          WordList::load(request.list, request.respell, request.offensive)),
-                      LearnedWords(request.learned)};
+                      std::make_shared<const WordList>(WordList::load(
+                          request.list, request.respell, request.offensive, request.turkic)),
+                      LearnedWords(request.learned, request.turkic)};
         result.learned.size(); // Read here, not on the VR thread.
 #if defined(__GLIBC__)
         malloc_trim(0); // Parsing's spare memory goes back.
@@ -350,7 +375,7 @@ void WordListLoader::run() {
 
 std::vector<std::string> complete_word(const WordList& list, const LearnedWords& learned,
                                        std::string_view typed, std::size_t most) {
-    const auto key = word_key(typed);
+    const auto key = list.key(typed);
     if (key.empty() || most == 0) {
         return {};
     }
@@ -384,7 +409,7 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
         std::string_view spelling = use->spelling, use_key = use->key;
         if (list.respells()) {
             respelled_spelling = list.respelled(use->spelling);
-            respelled_key = word_key(respelled_spelling);
+            respelled_key = list.key(respelled_spelling);
             spelling = respelled_spelling;
             use_key = respelled_key;
         }
@@ -426,11 +451,17 @@ std::vector<std::string> complete_word(const WordList& list, const LearnedWords&
         const auto cut = static_cast<std::size_t>(
             g_utf8_offset_to_pointer(spelling.c_str(), static_cast<glong>(typed_length)) -
             spelling.c_str());
-        if (word_key(std::string_view(spelling).substr(0, cut)) != key) {
+        if (list.key(std::string_view(spelling).substr(0, cut)) != key) {
             continue; // Lower-casing changed its length: no safe split.
         }
         auto rest = spelling.substr(cut);
         if (capitals) {
+            if (list.turkic()) {
+                // As for keys: the capital of i is İ.
+                for (auto at = rest.find('i'); at != std::string::npos; at = rest.find('i', at + 2)) {
+                    rest.replace(at, 1, "İ");
+                }
+            }
             auto* upper = g_utf8_strup(rest.c_str(), -1);
             rest = upper;
             g_free(upper);

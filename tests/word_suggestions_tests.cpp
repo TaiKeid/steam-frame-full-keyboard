@@ -167,6 +167,38 @@ void respelling_tests() {
     require(offered == Words{"fussweg"} || offered == Words{"Fussweg"},
             "a word learned with ß is offered as the list writes it");
 }
+// Turkish and Azerbaijani: I is the capital of ı and İ of i (R135).
+void turkic_tests() {
+    char directory[] = "/tmp/framekeyboard-words-XXXXXX";
+    require(mkdtemp(directory), "temporary words folder");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    require(turkic_case("tr-TR") && turkic_case("az_AZ") && !turkic_case("en-US") &&
+                !turkic_case("tt-RU"),
+            "Turkish and Azerbaijani case I their own way");
+    require(word_key("İyi", true) == "iyi" && word_key("IŞIK", true) == "ışık" &&
+                word_key("Iyi") == "iyi",
+            "Turkic keys lower İ to i and I to ı; others keep GLib's casing");
+    std::istringstream input("iyi\t200\niçin\t190\nışık\t120\nılık\t100\nİngiliz\t80\n");
+    std::istringstream offensive("ILIK\n"); // A stand-in, matched by its Turkic key.
+    const auto turkish = WordList::parse(input, {}, &offensive, true);
+    const LearnedWords none;
+    require(turkish.find("ılık")->offensive, "offensive words are matched by Turkic keys");
+    require(complete_word(turkish, none, "İ", 2) == Words{"İyi", "İçin"},
+            "İ completes words spelled with i");
+    require(complete_word(turkish, none, "I", 2) == Words{"Işık", "Ilık"},
+            "I completes words spelled with ı, never i");
+    require(complete_word(turkish, none, "İY", 1) == Words{"İYİ"}, "capitals keep the dotted İ");
+    LearnedWords learned(fs::path(directory) / "tr-tr.tsv", true);
+    learned.record("İyi");
+    learned.record("iyi");
+    learned.record("Işık");
+    require(learned.size() == 2 && learned.uses("iyi") == 2 && learned.uses("ışık") == 1 &&
+                learned.uses("işık") == 0,
+            "a word is learned once whatever its first capital");
+}
 // The loader hands over the latest request only, and ends with its owner.
 void loader_tests() {
     char directory[] = "/tmp/framekeyboard-words-XXXXXX";
@@ -203,6 +235,7 @@ int main() {
         learning_tests();
         offensive_tests();
         respelling_tests();
+        turkic_tests();
         loader_tests();
         std::cout << "Word lists, completion and learned words passed.\n";
     } catch (const std::exception& error) {

@@ -661,6 +661,8 @@ class App {
     bool suggesting() const;
     // The language's word list, loaded on a thread of its own on first need.
     void load_word_list(double now);
+    // Whether a lexicon's language cases I as Turkish does.
+    bool turkic_lexicon(const std::string& lexicon) const;
     LearnedWords& learned_words(const std::string& lexicon);
     // Follows the word being typed: text this keyboard typed, typed or
     // swiped, a Backspace, and anything that ends it or makes it unknown.

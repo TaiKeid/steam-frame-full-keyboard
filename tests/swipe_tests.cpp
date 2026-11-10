@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -473,6 +474,86 @@ void waiting_message() {
     app.down(0, x, y, 30);
     app.up(0, x, y);
     require(app.view().status.empty(), "a key pressed again ends it at once");
+}
+void turkic_swipe_case() {
+    for (const auto* language : {"tr-tr", "tr-tr-f", "az-az"}) {
+        TemporaryDirectory directory;
+        fs::create_directories(directory.path / "swipe/lexicons");
+        std::ofstream(directory.path / "swipe/lexicons" /
+                      (profiles().languages.at(language).swipe_lexicon + ".tsv"))
+            << "iki\t200\nılık\t100\n";
+        Settings settings;
+        settings.active = {"international-full", language, "graphite"};
+        settings.swipe_typing = true;
+        save_settings(directory.path, settings);
+        auto path = std::make_shared<std::vector<int>>();
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Ei;
+        options.start_enabled = true;
+        options.swipe_encoder = [path] {
+            auto encoder = std::make_unique<FakeEncoder>();
+            encoder->path = path;
+            encoder->calls = std::make_shared<int>(0);
+            return encoder;
+        };
+        TextSink sink;
+        App app(options, sink);
+        settle(app, [&] { return app.swipe_ready(); });
+        const auto keyboard = keyboard_for("international-full", language);
+        double now = 1;
+        for (const auto& [word, expected, mode] :
+             std::vector<std::tuple<std::u32string, std::string, int>>{
+                 {U"iki", "İki", 0}, {U"ılık", "Ilık", 0}, {U"iki", "İKİ", 1}, {U"iki", "İKİ", 2}}) {
+            std::vector<std::string> keys;
+            for (auto c : word) {
+                const auto index = letter(keyboard, c);
+                const auto found = std::find_if(keyboard.key_index.begin(), keyboard.key_index.end(),
+                                                [&](const auto& key) { return key.second == index; });
+                require(found != keyboard.key_index.end(), "the casing fixture has its physical key");
+                keys.push_back(found->first);
+            }
+            *path = path_of(keyboard, word);
+            const auto [sx, sy] = key_point(app, mode == 1 ? "CapsLock" : "ShiftLeft");
+            app.down(0, sx, sy, now++);
+            if (mode == 2) {
+                app.tick(now); // Hold Shift until it locks.
+            }
+            app.up(0, sx, sy);
+            sink.text.clear();
+            swipe(app, keys, now++);
+            settle(app, [&] { return !sink.text.empty(); });
+            require(!sink.text.empty() && sink.text.back() == expected,
+                    std::string(language) + " swipe capitalization preserves dotted and dotless i");
+            if (mode != 0) {
+                app.down(0, sx, sy, now++);
+                app.up(0, sx, sy);
+            }
+            const auto [x, y] = key_point(app, "Space");
+            app.down(0, x, y, now++);
+            app.up(0, x, y);
+        }
+        // A shell's autocapitalize=words follows the same casing (R152).
+        App::HostHints words;
+        words.autocapitalize = "words";
+        app.set_context(std::string("field"), words);
+        std::vector<std::string> keys;
+        for (auto c : std::u32string(U"iki")) {
+            const auto index = letter(keyboard, c);
+            keys.push_back(
+                std::find_if(keyboard.key_index.begin(), keyboard.key_index.end(), [&](const auto& key) {
+                    return key.second == index;
+                })->first);
+        }
+        *path = path_of(keyboard, U"iki");
+        sink.text.clear();
+        swipe(app, keys, now++);
+        settle(app, [&] { return !sink.text.empty(); });
+        require(!sink.text.empty() && sink.text.back() == "İki",
+                std::string(language) + " autocapitalized words keep the dotted İ");
+        app.set_context(std::nullopt);
+    }
 }
 void app_flow(bool ordered_replace) {
     TemporaryDirectory directory;
@@ -2434,6 +2515,10 @@ int main(int argc, char** argv) {
         if (mode == "--chinese") {
             return chinese_flow();
         }
+        if (mode == "--casing") {
+            turkic_swipe_case();
+            return 0;
+        }
         keyboard_geometry();
         dvorak_geometry();
         lexicon_paths();
@@ -2459,6 +2544,7 @@ int main(int argc, char** argv) {
         loading_does_not_block();
         app_flow(false);
         app_flow(true);
+        turkic_swipe_case();
         text_output_capture();
         waiting_message();
         swipes_between_keys();

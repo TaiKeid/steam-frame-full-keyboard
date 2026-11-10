@@ -3,6 +3,7 @@
 // state, settings, themes and dictation, as it does for its own panel.
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/updates.hpp"
+#include "framekeyboard/word_suggestions.hpp"
 
 #include <algorithm>
 #include <glib.h>
@@ -285,14 +286,18 @@ std::string App::hint_case(std::string text) const {
     if (!host_.context || text.empty() || !g_utf8_validate(text.c_str(), -1, nullptr)) {
         return text;
     }
+    // The typing language owns casing: Turkish and Azerbaijani pair i with İ
+    // and ı with I, which GLib's locale-free casing doesn't (R152).
+    const auto language = profiles_.languages.find(settings_.active.language);
+    const bool turkic = language != profiles_.languages.end() && turkic_case(language->second.locale);
     std::string result;
     bool start = true;
     for (const char* at = text.c_str(); *at; at = g_utf8_next_char(at)) {
         gunichar c = g_utf8_get_char(at);
         if (host_.hints.autocapitalize == "none" && at == text.c_str()) {
-            c = g_unichar_tolower(c);
+            c = turkic && c == U'I' ? U'ı' : g_unichar_tolower(c);
         } else if (host_.hints.autocapitalize == "words" && start) {
-            c = g_unichar_toupper(c);
+            c = turkic && c == U'i' ? U'İ' : g_unichar_toupper(c);
         }
         start = g_unichar_isspace(c);
         char buffer[8]{};

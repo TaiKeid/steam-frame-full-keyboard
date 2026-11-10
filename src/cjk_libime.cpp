@@ -4,6 +4,7 @@
 #include "cjk_engine.hpp"
 #include "cjk_module.hpp"
 #include "framekeyboard/private_file.hpp"
+#include "opencc_context.hpp"
 #include "pinyin_reranker.hpp"
 
 #include <libime/core/userlanguagemodel.h>
@@ -11,7 +12,8 @@
 #include <libime/pinyin/pinyindecoder.h>
 #include <libime/pinyin/pinyindictionary.h>
 #include <libime/pinyin/pinyinime.h>
-#include <opencc/opencc.h>
+#include <opencc/Config.hpp>
+#include <opencc/Exception.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -32,7 +34,6 @@ constexpr std::size_t max_candidates = 50;
 // Sentences the Zhuyin sentence experiment weighs (CjkEngine::prefer()).
 constexpr std::size_t proposed_sentences = 20;
 constexpr const char* sentences_method = "chinese-pinyin-traditional-sentences";
-const auto opencc_failed = reinterpret_cast<opencc_t>(-1);
 
 std::optional<PinyinReranker> experimental_reranker(const std::string& method) {
     const auto* directory = std::getenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY");
@@ -74,7 +75,7 @@ std::shared_ptr<const libime::StaticLanguageModelFile> static_model(const fs::pa
 struct Library {
     fs::path learning; // Empty, or after a learned file failed to load: nothing is saved.
     std::unique_ptr<libime::PinyinIME> ime;
-    opencc_t traditional = opencc_failed;
+    opencc::ConverterPtr traditional;
 
     Library(const fs::path& dir, std::size_t sentences) : learning(dir) {
         const auto data = engine_data_dir() / "libime";
@@ -114,27 +115,28 @@ struct Library {
         ime->setFuzzyFlags(fuzzy);
         ime->setNBest(sentences);
     }
-    ~Library() {
-        if (traditional != opencc_failed) {
-            opencc_close(traditional);
-        }
-    }
     void open_traditional() {
-        if (traditional == opencc_failed) {
-            traditional = opencc_open((engine_data_dir() / "opencc/s2twp.json").c_str());
-            if (traditional == opencc_failed) {
+        if (!traditional) {
+            try {
+                traditional =
+                    opencc::Config().NewFromFile((engine_data_dir() / "opencc/s2twp.json").string());
+            } catch (const opencc::Exception&) {
                 throw CjkMessage("ime.pinyin-dictionary-unavailable");
             }
         }
     }
-    std::string to_traditional(const std::string& text) const {
-        char* converted = opencc_convert_utf8(traditional, text.data(), text.size());
-        if (!converted) {
+    std::string to_traditional(const std::string& text, const std::string& prefix,
+                               const std::string& selected) const {
+        try {
+            if (!prefix.empty()) {
+                if (auto suffix = contextual_suffix(traditional, prefix, text, selected)) {
+                    return *suffix;
+                }
+            }
+            return traditional->Convert(text);
+        } catch (const opencc::Exception&) {
             return text;
         }
-        std::string result = converted;
-        opencc_convert_utf8_free(converted);
-        return result;
     }
     // Small files, written whole after each learned commit.
     void save() const {
@@ -386,7 +388,9 @@ class LibimeEngine final : public CjkEngine {
         return history.rawBigramFrequency(previous, {"</s>", ""}) > 0;
     }
     std::string shown(const std::string& text) const {
-        return traditional_ && !text.empty() ? library_->to_traditional(text) : text;
+        return traditional_ && !text.empty()
+                   ? library_->to_traditional(text, context_.selectedSentence(), selected_display())
+                   : text;
     }
     void refresh() {
         shown_.clear();
@@ -483,7 +487,15 @@ class LibimeEngine final : public CjkEngine {
         }
         const auto* first = candidates[default_source()].sentence().front();
         auto display = selected_display();
-        const auto first_display = shown(first->word());
+        auto first_display = shown(first->word());
+        // The row showed OpenCC's conversion of the whole sentence, which a
+        // phrase across the first word's end can change: send that row's
+        // own start where the conversion kept the length (R151).
+        const auto sentence = candidates[default_source()].toString();
+        if (const auto whole = shown(sentence);
+            !whole.starts_with(first_display) && utf8_length(whole) == utf8_length(sentence)) {
+            first_display = whole.substr(0, utf8_prefix(whole, utf8_length(first->word())));
+        }
         const auto before = context_.selectedLength();
         for (std::size_t i = 0; i < candidates.size(); ++i) {
             const auto& sentence = candidates[i].sentence();

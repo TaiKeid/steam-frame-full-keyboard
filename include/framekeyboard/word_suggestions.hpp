@@ -15,7 +15,10 @@
 
 namespace framekeyboard {
 // The key words are matched by: lower-cased, so Hel finds hello and HELLO.
-std::string word_key(std::string_view word);
+// `turkic` lowers I to ı and İ to i, as Turkish and Azerbaijani write them.
+std::string word_key(std::string_view word, bool turkic = false);
+// Whether a language, by its locale (tr-TR), cases I as Turkish does.
+bool turkic_case(std::string_view locale);
 // Whether a character belongs to a word being typed: letters, combining
 // marks and an apostrophe inside it (don't, l'équipe).
 bool word_character(std::uint32_t character);
@@ -30,10 +33,11 @@ class WordList {
     using Respelling = std::map<std::string, std::string>;
     // `offensive` lists the words completions hold back, one per line
     // (swipe/lexicons/README.md, Offensive words).
+    // `turkic`: its keys follow Turkish casing (word_key()).
     static WordList parse(std::istream& input, const Respelling& respell = {},
-                          std::istream* offensive = nullptr);
+                          std::istream* offensive = nullptr, bool turkic = false);
     static WordList load(const std::filesystem::path& path, const Respelling& respell = {},
-                         const std::filesystem::path& offensive = {});
+                         const std::filesystem::path& offensive = {}, bool turkic = false);
     std::size_t size() const { return entries_.size(); }
     struct Word {
         std::string_view key, spelling;
@@ -48,6 +52,9 @@ class WordList {
     // `word` as this list writes its language, respelled.
     std::string respelled(std::string_view word) const;
     bool respells() const { return !respell_.empty(); }
+    // `word`'s key in this list's language.
+    std::string key(std::string_view word) const { return word_key(word, turkic_); }
+    bool turkic() const { return turkic_; }
 
   private:
     // Keys and spellings live in one buffer; most spellings are their key.
@@ -61,6 +68,7 @@ class WordList {
     std::string text_;
     std::vector<Entry> entries_; // By key.
     Respelling respell_;
+    bool turkic_{};
 };
 
 // The words the user finished in one language, how often and how lately,
@@ -68,7 +76,9 @@ class WordList {
 // most_words, the least recent going first. An empty path keeps nothing.
 class LearnedWords {
   public:
-    explicit LearnedWords(std::filesystem::path file = {}) : file_(std::move(file)) {}
+    // `turkic` as for its language's WordList.
+    explicit LearnedWords(std::filesystem::path file = {}, bool turkic = false)
+        : file_(std::move(file)), turkic_(turkic) {}
     void record(std::string_view word);
     std::uint32_t uses(std::string_view key) const;
     struct Use {
@@ -98,6 +108,7 @@ class LearnedWords {
   private:
     void load() const;
     std::filesystem::path file_;
+    bool turkic_{};
     mutable bool loaded_{};
     mutable std::map<std::string, Use, std::less<>> words_; // By key.
     mutable std::uint64_t clock_{};
@@ -115,6 +126,7 @@ class WordListLoader {
         std::string id; // Names the result.
         std::filesystem::path list, offensive, learned;
         WordList::Respelling respell;
+        bool turkic{};
     };
     struct Result {
         std::string id;

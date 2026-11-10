@@ -5631,7 +5631,7 @@ void App::load_word_list(double now) {
              learned_words_.contains(lexicon) || options_.config_dir.empty()
                  ? std::filesystem::path()
                  : options_.config_dir / "words" / (lexicon + ".tsv"),
-             language->second.swipe_replace});
+             language->second.swipe_replace, turkic_case(language->second.locale)});
     }
     if (auto result = word_list_loader_.take(); result && result->id == word_list_id_) {
         word_list_ = std::move(result->list);
@@ -5642,6 +5642,12 @@ void App::load_word_list(double now) {
         update_typing_suggestions();
     }
 }
+// Layouts of one language share a lexicon, so any of them tells its casing.
+bool App::turkic_lexicon(const std::string& lexicon) const {
+    return std::any_of(profiles_.languages.begin(), profiles_.languages.end(), [&](const auto& entry) {
+        return entry.second.swipe_lexicon == lexicon && turkic_case(entry.second.locale);
+    });
+}
 LearnedWords& App::learned_words(const std::string& lexicon) {
     auto found = learned_words_.find(lexicon);
     if (found == learned_words_.end()) {
@@ -5649,7 +5655,8 @@ LearnedWords& App::learned_words(const std::string& lexicon) {
             learned_words_
                 .emplace(lexicon, LearnedWords(options_.config_dir.empty()
                                                    ? std::filesystem::path()
-                                                   : options_.config_dir / "words" / (lexicon + ".tsv")))
+                                                   : options_.config_dir / "words" / (lexicon + ".tsv"),
+                                               turkic_lexicon(lexicon)))
                 .first;
     }
     return found->second;
@@ -5732,7 +5739,7 @@ std::string App::current_word() const {
 std::string App::finished_word() const {
     auto word = current_word();
     // A closing quote isn't part of the word, unless the list spells it so (goin').
-    while (!word.empty() && (!word_list_ || !word_list_->find(word_key(word)))) {
+    while (!word.empty() && (!word_list_ || !word_list_->find(word_list_->key(word)))) {
         const auto last = g_utf8_find_prev_char(word.c_str(), word.c_str() + word.size());
         if (!last || !apostrophe(g_utf8_get_char(last))) {
             break;
@@ -6310,15 +6317,25 @@ void App::apply_swipe(const SwipeService::Result& result) {
         return;
     }
     swipe_candidates_.clear();
+    const bool dotted_i = turkic_case(profiles_.languages.at(settings_.active.language).locale);
     for (const auto& word : result.words) {
         std::string cased = word;
         if (swipe_caps_) {
-            auto* upper = g_utf8_strup(word.c_str(), -1);
+            if (dotted_i) {
+                // Keep GLib's full uppercase expansions, but choose the
+                // dotted form from the typing language for every ASCII i.
+                for (auto at = cased.find('i'); at != std::string::npos; at = cased.find('i', at + 2)) {
+                    cased.replace(at, 1, "İ");
+                }
+            }
+            auto* upper = g_utf8_strup(cased.c_str(), -1);
             cased = upper;
             g_free(upper);
         } else if (swipe_shifted_) {
             char first[8]{};
-            g_unichar_to_utf8(g_unichar_toupper(g_utf8_get_char(word.c_str())), first);
+            const auto initial = g_utf8_get_char(word.c_str());
+            // The typing language owns casing, independent of the interface or process locale.
+            g_unichar_to_utf8(dotted_i && initial == 'i' ? U'İ' : g_unichar_toupper(initial), first);
             cased = first + std::string(g_utf8_next_char(word.c_str()));
         } else {
             cased = hint_case(cased);
