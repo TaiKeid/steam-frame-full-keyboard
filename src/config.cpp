@@ -363,6 +363,40 @@ Language parse_language(const std::string& json) {
     read_kana("kana_shift", l.kana_shift);
     read_kana("composition_keys", l.composition_keys);
     read_kana("composition_shift", l.composition_shift);
+    auto read_punctuation = [&](const char* field_name, auto& map) {
+        auto* entries = field(o, field_name, json_type_object, true);
+        if (!entries) {
+            return;
+        }
+        if (!l.input_method.starts_with("chinese-")) {
+            throw std::runtime_error("punctuation needs a Chinese input method");
+        }
+        json_object_object_foreach(entries, key, value) {
+            std::vector<std::string> texts;
+            if (json_object_is_type(value, json_type_string)) {
+                texts.push_back(text(entries, key));
+            } else if (json_object_is_type(value, json_type_array) &&
+                       json_object_array_length(value) == 2) {
+                for (std::size_t i = 0; i < 2; ++i) {
+                    auto* item = json_object_array_get_idx(value, i);
+                    if (!json_object_is_type(item, json_type_string)) {
+                        throw std::runtime_error("invalid punctuation mapping");
+                    }
+                    texts.emplace_back(json_object_get_string(item));
+                }
+            }
+            if (texts.empty() || !key_code(key) ||
+                std::any_of(texts.begin(), texts.end(), [](const std::string& t) {
+                    return t.empty() || t.size() > 12 ||
+                           std::any_of(t.begin(), t.end(), [](unsigned char c) { return c < 32; });
+                })) {
+                throw std::runtime_error("invalid punctuation mapping");
+            }
+            map[key] = std::move(texts);
+        }
+    };
+    read_punctuation("punctuation", l.punctuation);
+    read_punctuation("punctuation_shift", l.punctuation_shift);
     l.latin_toggle = text(o, "latin_toggle", "", true);
     if (!l.latin_toggle.empty() && (l.input_method != "korean-2set" || !key_code(l.latin_toggle))) {
         throw std::runtime_error("latin_toggle needs two-set Korean and a key action name");

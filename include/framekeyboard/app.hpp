@@ -614,6 +614,20 @@ class App {
     bool cjk_key(const Key& key, bool execute, const std::set<int>& mods);
     // Two-set Hangul letters, which send each syllable as the next one starts.
     bool hangul_key(const Key& key, const std::set<int>& mods);
+    // The Chinese punctuation a key types (Language::punctuation), or null:
+    // also for the key's plain character after a digit, as in 3.5 and 10:30.
+    const std::vector<std::string>* chinese_punctuation(const Key& key, const std::set<int>& mods) const;
+    // The key types Chinese punctuation, which goes to the target as text.
+    bool punctuation_key(const Key& key, const std::set<int>& mods) const;
+    // `turn_key` names the key and its Shift state in punctuation_turns_.
+    void type_chinese_punctuation(const std::string& turn_key, const std::vector<std::string>& texts);
+    // - and = page the candidates, five at a time.
+    void page_cjk(int direction);
+    // Zhuyin's cursor, choosing and one-step Esc (McBopomofo); false for keys
+    // that type or send as usual.
+    bool zhuyin_key(const std::string& code, bool execute, const std::set<int>& mods);
+    // Zhuyin punctuation into the reading at the cursor, to convert with it.
+    bool insert_punctuation(const Key& key, const std::set<int>& mods, const std::string& text);
     bool latin_toggle(const Key& key) const;
     // What a local IME press tells the keyboard state: 한/영 stands in right
     // Alt's place but must not latch as a modifier.
@@ -1115,6 +1129,11 @@ class App {
     // 한/영 switched two-set Korean to the layout's own letters. Never saved,
     // and a change of language or layout returns it to Hangul.
     bool hangul_latin_{};
+    // The last key typed a digit, so Chinese , . and : type themselves.
+    bool after_digit_{};
+    // Punctuation with two texts that take turns, as “ and ”: by key action,
+    // Shift ones with a +, the next text's index.
+    std::map<std::string, std::size_t> punctuation_turns_;
     bool japanese_latin_{};
     bool flick_digits_{}; // With japanese_latin_: the flick digits.
     // The flick kana are katakana (the script key, Flick Katakana (JP)).
@@ -1225,7 +1244,7 @@ class App {
     std::uint64_t layouts_rebuilt_{};
     // Null without Extended key collision, and on a flick page.
     const std::vector<KeyArea>* key_areas(const PanelView& view) const;
-    std::string swipe_prepared_;                          // Layout, language and word list in swipe_.
+    std::string swipe_prepared_; // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};
         std::string key; // The tapped key, for Pinyin composition.

@@ -58,6 +58,24 @@
       "Digit7": "˙"
     }
   },
+  "punctuation": {
+    "Quote": "、",
+    "BracketLeft": "「",
+    "BracketRight": "」"
+  },
+  "punctuation_shift": {
+    "Comma": "，",
+    "Period": "。",
+    "Slash": "？",
+    "Digit1": "！",
+    "Semicolon": "：",
+    "Quote": "；",
+    "Digit9": "（",
+    "Digit0": "）",
+    "BracketLeft": "『",
+    "BracketRight": "』",
+    "Backquote": "～"
+  },
   "font_families": [
     "Noto Sans CJK TC",
     "Noto Sans",

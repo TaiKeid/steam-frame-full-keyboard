@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,8 +37,10 @@ class CjkComposer {
     bool phonetic_keys() const;
     // A quote separates syllables (Pinyin).
     bool syllables() const;
-    // Two-set Hangul finishes a syllable once the next one starts. The app
-    // sends it at once and drops it; until then it stays part of text().
+    // Two-set Hangul finishes a syllable once the next one starts, a full
+    // Quick code once the next starts, and a long Pinyin or Zhuyin reading its
+    // front. The app sends it at once and drops it; until then it stays part
+    // of text().
     std::string finished() const;
     void drop_finished();
     // Drops only the open syllable; refused finished text still commits.
@@ -47,6 +50,28 @@ class CjkComposer {
     void committed(bool learn);
     // Space is the first tone of an open Zhuyin syllable, not a choice.
     bool takes_space() const;
+    // Enter types Pinyin's letters as typed, not their conversion: text()
+    // gives them until the reading changes. Other methods keep the conversion.
+    void as_typed();
+    // Zhuyin's cursor inside the reading: move() takes it that many
+    // syllables, stopping at the ends, and the candidates follow the phrase
+    // there. Other methods have none.
+    bool has_cursor() const;
+    void move(int syllables);
+    void delete_forward();
+    // Choosing a candidate for the phrase at the cursor (Zhuyin), which Space
+    // and ↓ start; any change to the reading ends it.
+    bool choosing() const;
+    void set_choosing(bool choosing);
+    // Punctuation into Zhuyin's reading at the cursor, by the key's character
+    // and the text it types; false where it can't go there.
+    bool insert_symbol(char symbol, const std::string& text);
+    // The phrase the candidates are for and the cursor, as byte offsets into
+    // preedit(); none without a cursor or while a syllable is open.
+    struct Highlight {
+        std::size_t begin{}, end{}, caret{};
+    };
+    std::optional<Highlight> highlight() const;
     // The engine composing: its module's name (pinyin for PyZy, libime,
     // mcbopomofo, hangul) or table for Cangjie and Quick.
     const std::string& engine() const;

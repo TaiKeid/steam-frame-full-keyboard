@@ -161,10 +161,25 @@ that accepts Gamescope's text delivery.
 
 Traditional Chinese also offers Zhuyin, Cangjie and Quick, whose keys show their
 symbols or radicals. Zhuyin uses the standard keyboard, including the digit and
-punctuation keys, and converts phrases; finish a syllable with a tone key, and Space
-chooses the highlighted candidate. With McBopomofo (below), Space also gives a
-syllable still open the first tone. Cangjie takes up to five keys and Quick two. Each
-shows the keys as radicals, lists matching characters, longer codes after exact ones,
+punctuation keys, and converts phrases as you type; finish a syllable with a tone
+key, or Space for the first tone. With McBopomofo (below) it works as McBopomofo's
+defaults do:
+
+- The reading has a cursor, which starts at the end. ←/→ move it a syllable,
+  Home and End to the ends, and none of them leave the reading.
+- The candidates are for the phrase before the cursor, which the reading line
+  highlights. Space or ↓ starts choosing: the five around the highlighted
+  candidate are numbered, Space and ↓/↑ move on, 1–5 or Enter pick, and Esc
+  stops. A tap picks at any time.
+- A pick replaces that phrase and the reading stays open, with the cursor where
+  it was, to fix others. Space never sends: only Enter, outside choosing, sends
+  the whole line.
+- New syllables and punctuation (Shift+`,` for ，) go in at the cursor and
+  convert with the rest. Backspace takes the syllable before the cursor and
+  Delete the one after it. Esc takes one step at a time: choosing, then a
+  syllable still open, then the whole reading. Cangjie takes up to five keys and Quick two; a third
+Quick key types the highlighted character and starts the next code, as Microsoft's
+Quick does. Each shows the keys as radicals, lists matching characters, longer codes after exact ones,
 and types one character at a time. A code's characters come in the table's own
 frequency order, which also puts a character's main codes before its second ones.
 Where the table gives characters the same frequency, the commonest in Taiwan or
@@ -205,13 +220,40 @@ nothing, and the keys wait while it is open. The keys do the
 rest, with no Commit or Cancel buttons.
 
 For Chinese, type Pinyin without tone numbers. Use `v` for ü and an apostrophe
-for syllable separation where needed. Arrow Up/Down change the highlighted
-candidate. Space, number keys 1–5, or tapping a candidate selects it; the five
-around the highlighted one are numbered (Zhuyin, whose digits are tones, has no
-numbers). If it covers the whole reading, selection commits the text. Otherwise
-the remaining reading stays available for the next selection. Enter submits the
-current conversion; Escape discards it. A second Enter sends an ordinary Enter.
-Both script profiles use Pinyin; Traditional here does not mean a Zhuyin layout.
+for syllable separation where needed; the reading line shows the syllables
+apart, as `ni hao`. Arrow Up/Down change the highlighted candidate, and `-` and
+`=` move five back or on (not in Zhuyin, whose `-` is ㄦ). Space, number keys 1–5, or tapping a candidate selects it; the five
+around the highlighted one are numbered (in Zhuyin, whose digits are tones, only
+while choosing). If it covers the whole reading, selection commits the text (not in Zhuyin, below). Otherwise
+the remaining reading stays available for the next selection. In Pinyin, Enter
+types what is left of the reading as the letters typed, after any characters
+chosen, as on a PC (`steam`, `gg`); in Zhuyin, Cangjie and Quick it submits the
+current conversion. Escape discards it. A second Enter sends an ordinary Enter.
+Letters typed with Shift or Caps Lock type themselves, a capital at once, after
+any reading. A reading longer than 30 keys (Pinyin) or syllables (Zhuyin) sends
+its converted front ahead and goes on, so no key is lost. Both script profiles
+use Pinyin; Traditional here does not mean a Zhuyin layout.
+
+Chinese types Chinese punctuation, as a PC input method does in its Chinese
+mode, from the `punctuation` tables of its language file
+([configuration](configuration.md)), after any reading; in Zhuyin it goes into
+the reading instead:
+
+| Keys | Simplified Pinyin | Traditional Pinyin, Cangjie, Quick | Zhuyin |
+|---|---|---|---|
+| `,` `.` `?` `!` | ，。？！ | ，。？！ | Shift+`,` `.` `/` `1`: ，。？！ |
+| `;` `:` | ；： | ；： | Shift+`'` `;`: ；： |
+| `\` | 、 | 、 | `'`: 、 |
+| `'` `"` | ‘ ’, “ ” in turn | ‘ ’, “ ” in turn | |
+| `(` `)` | （） | （） | （） |
+| `[` `]` | 【】 | 「」 | 「」 |
+| `{` `}` | | 『』 | 『』 |
+| `<` `>` | 《》 | 《》 | |
+| `$` `^` `_` `~` | ￥ …… —— ～ | `$` …… —— ～ | ～ |
+
+After a digit, `.`, `,` and `:` type themselves, for 3.5, 1,000 and 10:30.
+Other keys, such as `@`, `#`, `%` and `/`, type themselves too; for English
+punctuation, add an English layout. The keys keep their usual legends.
 
 For Korean, type the displayed two-set jamo. As on a PC, each syllable goes into
 the field as soon as the next one starts, so only the syllable being typed waits
@@ -234,11 +276,12 @@ it when you change language or layout or reload the config. Punctuation uses
 ordinary US keys. A saved selection of the former Korean 12-key (천지인) keyboard,
 including an additional language, opens as two-set Korean on US QWERTY.
 
-Chinese types its own script only, as its keyboards do; for English, add an
+Chinese types its own script, its punctuation, and the letters typed with Shift
+or Caps Lock; for English words, Pinyin's Enter types the letters, or add an
 English layout as an additional language and switch with the language button.
 
-Pinyin and Zhuyin keep a bounded preedit. Commit before the
-30-input-character limit; Cangjie and Quick use the retained-text bound above.
+Pinyin and Zhuyin keep a bounded preedit, sending its front ahead at the
+limit; Cangjie and Quick use the retained-text bound above.
 Korean's only waits while the app can't take its syllables.
 Shortcuts and navigation that leave composition commit first; if output refuses
 the composition before admission, the preedit stays visible and the forwarding

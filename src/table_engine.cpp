@@ -12,8 +12,8 @@
 #include <mutex>
 #include <stdexcept>
 #include <string_view>
-#include <unordered_map>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace framekeyboard {
@@ -56,8 +56,7 @@ struct Sqlite {
         ready = symbol(open, "sqlite3_open_v2") && symbol(prepare, "sqlite3_prepare_v2") &&
                 symbol(bind, "sqlite3_bind_text") && symbol(step, "sqlite3_step") &&
                 symbol(column, "sqlite3_column_text") && symbol(column_int, "sqlite3_column_int64") &&
-                symbol(finalize, "sqlite3_finalize") &&
-                symbol(close, "sqlite3_close");
+                symbol(finalize, "sqlite3_finalize") && symbol(close, "sqlite3_close");
     }
 };
 const Sqlite& sqlite() {
@@ -117,24 +116,35 @@ Ranks read_ranks(const std::filesystem::path& file) {
 // usage, by rank; the rest of the list's repertoire (Big5-HKSCS), by place;
 // ideographs outside it, by block; compatibility ideographs; and symbols.
 // Only Ranked counts as common (Table::find()).
-enum class CharacterClass : std::uint64_t { Ranked, Listed, Unified, ExtensionA, Later, Compatibility, Other };
+enum class CharacterClass : std::uint64_t {
+    Ranked,
+    Listed,
+    Unified,
+    ExtensionA,
+    Later,
+    Compatibility,
+    Other
+};
 CharacterClass character_class(std::string_view text, const Ranks& ranks) {
     const auto point = g_utf8_get_char(text.data());
     if ((point >= 0xF900 && point <= 0xFAFF) || (point >= 0x2F800 && point <= 0x2FA1F)) {
         return CharacterClass::Compatibility;
     }
-    const bool unified = point >= 0x4E00 && point <= 0x9FFF, extension_a = point >= 0x3400 && point <= 0x4DBF,
+    const bool unified = point >= 0x4E00 && point <= 0x9FFF,
+               extension_a = point >= 0x3400 && point <= 0x4DBF,
                later = point >= 0x20000 && point <= 0x3FFFF;
     if (!unified && !extension_a && !later) {
         return CharacterClass::Other;
     }
     // A phrase ranks by its first character.
-    const auto first = std::string(text.substr(0, static_cast<std::size_t>(
-                                                       g_utf8_next_char(text.data()) - text.data())));
+    const auto first = std::string(
+        text.substr(0, static_cast<std::size_t>(g_utf8_next_char(text.data()) - text.data())));
     if (const auto place = ranks.places.find(first); place != ranks.places.end()) {
         return place->second < ranks.ranked ? CharacterClass::Ranked : CharacterClass::Listed;
     }
-    return unified ? CharacterClass::Unified : extension_a ? CharacterClass::ExtensionA : CharacterClass::Later;
+    return unified       ? CharacterClass::Unified
+           : extension_a ? CharacterClass::ExtensionA
+                         : CharacterClass::Later;
 }
 } // namespace
 
@@ -151,7 +161,7 @@ std::optional<InputTable> table_for(const std::string& method) {
         return InputTable{directory / "cangjie5.db", 5};
     }
     if (method == "chinese-quick") {
-        return InputTable{directory / "quick5.db", 2};
+        return InputTable{directory / "quick5.db", 2, true};
     }
     return {};
 }
@@ -182,7 +192,8 @@ struct TableEngine::Database {
     template <class Row> bool each(Row&& row) {
         const auto& api = sqlite();
         void* query{};
-        if (api.prepare(handle, "SELECT tabkeys, phrase, freq, id FROM phrases", -1, &query, nullptr) != 0) {
+        if (api.prepare(handle, "SELECT tabkeys, phrase, freq, id FROM phrases", -1, &query, nullptr) !=
+            0) {
             return false;
         }
         while (api.step(query) == sqlite_row) {
@@ -215,9 +226,9 @@ struct TableEngine::Database {
 // its id. Without ranks, only the tier and id count, as the tables order.
 struct TableEngine::Table {
     struct Row {
-        std::uint32_t text{};     // Offset into texts.
-        std::uint16_t length{};   // Bytes of text.
-        std::uint8_t keys{};      // Bytes of code.
+        std::uint32_t text{};   // Offset into texts.
+        std::uint16_t length{}; // Bytes of text.
+        std::uint8_t keys{};    // Bytes of code.
         std::array<char, 6> code{};
         std::uint64_t order{};
         std::string_view code_view() const { return {code.data(), keys}; }
@@ -233,7 +244,9 @@ struct TableEngine::Table {
     // matches before completions. Up to 50 are offered, or every exact
     // match, and each character once.
     std::vector<std::string> find(std::string_view keys) const {
-        const auto by_code = [](const Row& row, std::string_view code) { return row.code_view() < code; };
+        const auto by_code = [](const Row& row, std::string_view code) {
+            return row.code_view() < code;
+        };
         const auto begin = std::lower_bound(rows.begin(), rows.end(), keys, by_code);
         const auto end_key = std::string(keys) + '{'; // Keys are a to z; { sorts after them.
         const auto end = std::lower_bound(begin, rows.end(), std::string_view(end_key), by_code);
@@ -272,8 +285,8 @@ struct TableEngine::Table {
             }
             const auto first = [](const Row* a, const Row* b) { return a->order < b->order; };
             const auto sorted = std::min(longer.size(), wanted + 16);
-            std::partial_sort(longer.begin(), longer.begin() + static_cast<std::ptrdiff_t>(sorted), longer.end(),
-                              first);
+            std::partial_sort(longer.begin(), longer.begin() + static_cast<std::ptrdiff_t>(sorted),
+                              longer.end(), first);
             std::unordered_set<std::string_view> taken;
             for (std::size_t i = 0; i < sorted && taken.size() < wanted; ++i) {
                 if (!taken.insert(text(*longer[i])).second) {
@@ -305,7 +318,8 @@ struct TableEngine::Table {
 };
 
 std::shared_ptr<const TableEngine::Table> TableEngine::load(const std::filesystem::path& file) {
-    static std::map<std::pair<std::filesystem::path, std::filesystem::path>, std::weak_ptr<const Table>> loaded;
+    static std::map<std::pair<std::filesystem::path, std::filesystem::path>, std::weak_ptr<const Table>>
+        loaded;
     static std::pair<std::filesystem::path, std::shared_ptr<const Ranks>> ranks_read;
     std::lock_guard lock(tables_mutex());
     const auto key = std::pair{file, ranks_file()};
@@ -318,7 +332,8 @@ std::shared_ptr<const TableEngine::Table> TableEngine::load(const std::filesyste
     const auto& ranks = *ranks_read.second;
     auto table = std::make_shared<Table>();
     Database database(file);
-    const bool read = database.each([&](const char* code, const char* text, std::int64_t freq, std::int64_t id) {
+    const bool read = database.each([&](const char* code, const char* text, std::int64_t freq,
+                                        std::int64_t id) {
         const std::string_view keys = code, characters = text;
         if (keys.empty() || keys.size() > 6 || characters.empty() || characters.size() > 0xFFFF ||
             !g_utf8_validate(text, static_cast<gssize>(characters.size()), nullptr)) {
@@ -336,13 +351,14 @@ std::shared_ptr<const TableEngine::Table> TableEngine::load(const std::filesyste
         if (!ranks.empty()) {
             kind = character_class(characters, ranks);
             if (kind == CharacterClass::Ranked || kind == CharacterClass::Listed) {
-                const auto first = std::string(characters.substr(
-                    0, static_cast<std::size_t>(g_utf8_next_char(text) - text)));
+                const auto first = std::string(
+                    characters.substr(0, static_cast<std::size_t>(g_utf8_next_char(text) - text)));
                 place = std::min<std::uint64_t>(ranks.places.at(first), 0xFFFFF);
             }
         }
-        row.order = tier << 48 | static_cast<std::uint64_t>(kind) << 44 | place << 24 |
-                    std::min<std::uint64_t>(static_cast<std::uint64_t>(std::max<std::int64_t>(id, 0)), 0xFFFFFF);
+        row.order =
+            tier << 48 | static_cast<std::uint64_t>(kind) << 44 | place << 24 |
+            std::min<std::uint64_t>(static_cast<std::uint64_t>(std::max<std::int64_t>(id, 0)), 0xFFFFFF);
         table->texts += characters;
         table->rows.push_back(row);
     });
@@ -368,16 +384,23 @@ bool TableEngine::available(const std::filesystem::path& table) {
         return false;
     }
 }
-TableEngine::TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys)
-    : table_(std::move(table)), max_keys_(max_keys) {}
+TableEngine::TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys, bool continues)
+    : table_(std::move(table)), max_keys_(max_keys), continues_(continues) {
+}
 TableEngine::~TableEngine() = default;
 void TableEngine::look_up() {
     candidates_ = keys_.empty() ? std::vector<std::string>{} : table_->find(keys_);
     selected_ = 0;
 }
 void TableEngine::type(char key) {
-    if (key < 'a' || key > 'z' || keys_.size() >= max_keys_) {
+    if (key < 'a' || key > 'z') {
         return;
+    }
+    if (keys_.size() >= max_keys_) {
+        if (!continues_ || candidates_.empty()) {
+            return;
+        }
+        choose(selected_); // It waits in finished() for the app to send.
     }
     if (static_cast<std::size_t>(g_utf8_strlen(chosen_.c_str(), -1)) >= retained_limit) {
         throw UiError(ui("ime.composition-full"));

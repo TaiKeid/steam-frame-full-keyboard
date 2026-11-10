@@ -68,6 +68,9 @@ struct Language {
     std::string input_method{"xkb"};
     std::map<std::string, std::string> kana, kana_shift;
     std::map<std::string, std::string> composition_keys, composition_shift;
+    // Chinese punctuation by key action, as a PC input method types it: one
+    // text, or two that take turns, as “ and ”.
+    std::map<std::string, std::vector<std::string>> punctuation, punctuation_shift;
     // The key that switches composition to the layout's own letters and
     // back, as Korean's 한/영 does in right Alt's place; its legend comes
     // from overrides. Empty for none.

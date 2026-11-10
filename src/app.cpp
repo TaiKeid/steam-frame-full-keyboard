@@ -182,8 +182,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
       profiles_(load_profiles(options.data_dir, options.config_dir)),
       settings_writer_(options.config_dir, std::move(write_preferences),
                        std::move(reconcile_preferences)),
-      japanese_worker_(japanese_factory(options)), output_(sink), text_output_(options.text_output ? options.text_output : &output_),
-      keyboard_(output_) {
+      japanese_worker_(japanese_factory(options)), output_(sink),
+      text_output_(options.text_output ? options.text_output : &output_), keyboard_(output_) {
     // The worker converts, with the converter japanese_factory() makes.
     composition_.defer_conversion();
     if (!owns_anthy()) {
@@ -906,8 +906,8 @@ void App::update_settings_ui() {
         typing_fields.push_back(haptic_effect);
         typing_fields.push_back(haptic_volume);
     }
-    typing_fields.push_back(
-        field(ControlKind::Vibration, checkbox("vibration", tr("setting.vibration"), pending_vibration_)));
+    typing_fields.push_back(field(ControlKind::Vibration,
+                                  checkbox("vibration", tr("setting.vibration"), pending_vibration_)));
     typing_fields.insert(typing_fields.end(),
                          {field(ControlKind::EmojiCloseOnSelect,
                                 checkbox("emoji-close-on-select", tr("setting.emoji-close-on-select"),
@@ -1265,6 +1265,12 @@ PanelView App::build_view(bool picker) const {
     if (cjk_) {
         v.composing = true;
         v.preedit = cjk_->preedit();
+        // Zhuyin's phrase the candidates are for, and its cursor.
+        if (const auto shown = cjk_->highlight()) {
+            v.preedit_active_begin = shown->begin;
+            v.preedit_active_end = shown->end;
+            v.preedit_cursor = shown->caret;
+        }
     }
     if (cjk_ && !hangul_latin_) {
         const auto mods = keyboard_.modifiers();
@@ -1860,7 +1866,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     const bool text_local = !ime_local && text_key(*key, modifiers);
     // A Hangul letter may finish a syllable, which goes to the target at once.
     const bool sends_text = (text_local && key->action != "CapsLock" && key->action != "NumLock") ||
-                            hangul_key(*key, modifiers);
+                            hangul_key(*key, modifiers) || punctuation_key(*key, modifiers);
     const bool cancel_accent = unicode_mode() && keymap_->composing() &&
                                (key->action == "Escape" || key->action == "Backspace");
     const bool retry_text = output_.retry_available() && key->action == "Enter";
@@ -1924,8 +1930,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     }
     // Enter's retry goes first and leaves an open reading as it is: what it
     // resends was typed before the reading.
-    if (!ime_local && !retry_text && (!composition_.empty() || (cjk_ && !cjk_->empty())) &&
-        sends_action) {
+    // Chinese punctuation, composed locally, still follows the reading this way.
+    if ((!ime_local || punctuation_key(*key, modifiers)) && !retry_text &&
+        (!composition_.empty() || (cjk_ && !cjk_->empty())) && sends_action) {
         // Commit before either native events or ordinary Unicode text. Spaces,
         // digits and punctuation must not overtake the unfinished IME word.
         try {
@@ -1956,6 +1963,9 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                                          chord ? std::optional(chord->modifiers) : std::nullopt);
     if (accepted) {
         clear_passing_status(); // Typing again: the wait it asked for is over.
+        if (!(key->action_kind == ActionKind::Key && is_modifier(key_code(key->action)))) {
+            after_digit_ = false; // A latched Shift waits with it, for 10:30.
+        }
         try {
             if (retry_text) {
                 retry_output();
@@ -1968,6 +1978,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
                 status_.clear();
             } else if (sends_text) {
                 const auto text = keymap_->compose(symbol);
+                after_digit_ = text.size() == 1 && g_ascii_isdigit(text[0]);
                 if (preview_input()) {
                     status_.clear();
                 } else {
@@ -3015,8 +3026,8 @@ bool App::chinese_learned() const {
     if (dir.empty()) {
         return false;
     }
-    for (auto entry = fs::recursive_directory_iterator(dir, error); !error && entry != fs::recursive_directory_iterator();
-         entry.increment(error)) {
+    for (auto entry = fs::recursive_directory_iterator(dir, error);
+         !error && entry != fs::recursive_directory_iterator(); entry.increment(error)) {
         if (entry->is_regular_file(error) && entry->file_size(error) > 0) {
             return true;
         }
@@ -3035,7 +3046,8 @@ void App::clear_chinese_learning() {
     fs::remove_all(chinese_learning_dir(), error);
     if (active) {
         try {
-            cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language), chinese_learning_dir());
+            cjk_ =
+                prepare_cjk(profiles_.languages.at(settings_.active.language), chinese_learning_dir());
         } catch (const std::exception& failure) {
             status_ = tr(failure);
         }
@@ -3168,7 +3180,8 @@ void App::japanese_step(JapaneseWorker::Step step, std::function<void(bool)> the
         // It converts: on the worker, from the composer as it was.
         composition_.adopt(std::move(before));
         const auto edits = composition_.edits();
-        const auto id = japanese_worker_.post(JapaneseWorker::Kind::Step, japanese_copy(), std::move(step));
+        const auto id =
+            japanese_worker_.post(JapaneseWorker::Kind::Step, japanese_copy(), std::move(step));
         if (id) {
             japanese_wait_ = JapaneseWait{id, edits, std::move(then)};
         }
@@ -4181,8 +4194,9 @@ void App::sync_candidates() {
         source = 1;
         owned = cjk_->candidates();
         selected = cjk_->selected();
-        if (cjk_->chinese() && !cjk_->phonetic_keys()) {
-            // 1–5 pick from the five around the selection, as numbered.
+        if (cjk_->chinese() && (!cjk_->phonetic_keys() || cjk_->choosing())) {
+            // 1–5 pick from the five around the selection, as numbered;
+            // Zhuyin's digits do only while choosing.
             const auto page = static_cast<std::size_t>(std::max(0, selected) / 5 * 5);
             for (std::size_t i = page; i < std::min(page + 5, owned.size()); ++i) {
                 owned[i] = std::to_string(i - page + 1) + " " + owned[i];
@@ -4206,8 +4220,8 @@ void App::sync_candidates() {
     // the same candidates, the strip already shows them.
     if (candidate_sync_ && !dirty && candidate_sync_->frames == frames_ &&
         candidate_sync_->source == source && candidate_sync_->selected == selected &&
-        candidate_sync_->list == candidate_list_ &&
-        candidate_sync_->shown == candidates_.shown() && candidate_sync_->texts == *texts) {
+        candidate_sync_->list == candidate_list_ && candidate_sync_->shown == candidates_.shown() &&
+        candidate_sync_->texts == *texts) {
         return;
     }
     auto given = *texts;
@@ -4415,6 +4429,9 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     if (execute && status_is(no_reading_status)) {
         status_.clear();
     }
+    if (composing && cjk_->has_cursor() && zhuyin_key(code, execute, mods)) {
+        return true;
+    }
     if (cjk_->phonetic_keys() && !mods.contains(key_code("ShiftLeft")) &&
         !mods.contains(key_code("ShiftRight"))) {
         // Zhuyin keeps its symbols on the digits and punctuation too.
@@ -4428,6 +4445,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         if (ch) {
             if (execute) {
                 cjk_->type(ch);
+                send_finished_syllables();
             }
             return true;
         }
@@ -4435,6 +4453,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         if (code == "Space" && cjk_->takes_space()) {
             if (execute) {
                 cjk_->type(' ');
+                send_finished_syllables();
             }
             return true;
         }
@@ -4469,17 +4488,33 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
             } else if (code == "Space" && !cjk_->candidates().empty()) {
                 choose_cjk(cjk_->selected());
             } else {
+                if (code != "Space") {
+                    cjk_->as_typed(); // Pinyin's Enter types the letters, as on a PC.
+                }
                 commit_cjk();
             }
         }
         return true;
     }
+    const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    // - and = page the candidates, as in PC Pinyin and the IBus tables; in
+    // Zhuyin - is ㄦ.
+    if (cjk_->chinese() && composing && !cjk_->phonetic_keys() && !shift &&
+        (code == "Minus" || code == "Equal") && !cjk_->candidates().empty()) {
+        if (execute) {
+            page_cjk(code == "Equal" ? 1 : -1);
+        }
+        return true;
+    }
     // Use physical US letter positions for Pinyin and two-set Hangul. Caps Lock
-    // does not choose doubled Korean jamo; only Shift does.
+    // does not choose doubled Korean jamo; only Shift does. In Chinese, Shift
+    // and Caps Lock letters type themselves, a capital at once, as in Sogou.
     if (code.starts_with("Key") && code.size() == 4) {
+        if (cjk_->chinese() && (shift || keyboard_.caps())) {
+            return false;
+        }
         char ch = g_ascii_tolower(code.back());
-        if (!cjk_->chinese() &&
-            (mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight")))) {
+        if (!cjk_->chinese() && shift) {
             ch = g_ascii_toupper(ch);
         }
         if (execute) {
@@ -4488,14 +4523,134 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
         }
         return true;
     }
-    if (cjk_->syllables() && code == "Quote" && composing && !mods.contains(key_code("ShiftLeft")) &&
-        !mods.contains(key_code("ShiftRight"))) {
+    if (cjk_->syllables() && code == "Quote" && composing && !shift) {
         if (execute) {
             cjk_->type('\'');
         }
         return true;
     }
+    if (const auto* texts = chinese_punctuation(key, mods)) {
+        if (execute &&
+            !(composing && cjk_->has_cursor() && insert_punctuation(key, mods, texts->front()))) {
+            type_chinese_punctuation(key.action + (shift ? "+" : ""), *texts);
+        }
+        return true;
+    }
     return false;
+}
+// Zhuyin's reading, as McBopomofo's and Microsoft's New Phonetic: the arrows,
+// Home and End move the cursor and never leave the reading; Space and ↓
+// start choosing for the phrase at the cursor, and while choosing they move
+// on, 1–5 and Enter pick, and Esc stops. Space never sends; Enter outside
+// choosing does (the caller). Esc takes one step at a time.
+bool App::zhuyin_key(const std::string& code, bool execute, const std::set<int>& mods) {
+    if (mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"))) {
+        return false;
+    }
+    const bool down = code == "Space" || code == "ArrowDown", up = code == "ArrowUp";
+    if (cjk_->choosing()) {
+        if (code.size() == 6 && code.starts_with("Digit") && code.back() >= '1' && code.back() <= '5') {
+            const int index = cjk_->selected() / 5 * 5 + code.back() - '1';
+            if (execute && index < static_cast<int>(cjk_->candidates().size())) {
+                choose_cjk(index);
+            }
+            return true;
+        }
+        if (down || up || code == "Enter" || code == "NumpadEnter" || code == "Escape") {
+            if (execute) {
+                if (down || up) {
+                    cjk_->cycle(up ? -1 : 1);
+                } else if (code == "Escape") {
+                    cjk_->set_choosing(false);
+                } else {
+                    choose_cjk(cjk_->selected());
+                }
+            }
+            return true;
+        }
+        return false; // Other keys go on typing; a change ends choosing.
+    }
+    if (down || up) {
+        if (code == "Space" && cjk_->takes_space()) {
+            return false; // The open syllable's first tone.
+        }
+        if (execute) {
+            cjk_->set_choosing(true);
+        }
+        return true;
+    }
+    const auto moves = code == "ArrowLeft"    ? -1
+                       : code == "ArrowRight" ? 1
+                       : code == "Home"       ? -1000
+                       : code == "End"        ? 1000
+                                              : 0;
+    if (moves || code == "Delete" || code == "Escape") {
+        if (execute) {
+            if (moves) {
+                cjk_->move(moves);
+            } else if (code == "Delete") {
+                cjk_->delete_forward();
+            } else {
+                cjk_->cancel_open();
+            }
+        }
+        return true;
+    }
+    return false;
+}
+bool App::insert_punctuation(const Key& key, const std::set<int>& mods, const std::string& text) {
+    const auto symbol =
+        xkb_keysym_to_utf32(keymap_->symbol(key, mods, keyboard_.caps(), keyboard_.num()));
+    return symbol > 32 && symbol < 127 && cjk_->insert_symbol(static_cast<char>(symbol), text);
+}
+const std::vector<std::string>* App::chinese_punctuation(const Key& key,
+                                                         const std::set<int>& mods) const {
+    if (!cjk_ || !cjk_->chinese() || key.action_kind != ActionKind::Key) {
+        return nullptr;
+    }
+    for (const auto* name :
+         {"ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"}) {
+        if (mods.contains(key_code(name))) {
+            return nullptr;
+        }
+    }
+    const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    if (after_digit_ && cjk_->empty() &&
+        (key.action == "Period" || key.action == "Comma" || (shift && key.action == "Semicolon"))) {
+        return nullptr;
+    }
+    const auto& language = profiles_.languages.at(settings_.active.language);
+    const auto& map = shift ? language.punctuation_shift : language.punctuation;
+    const auto it = map.find(key.action);
+    return it == map.end() ? nullptr : &it->second;
+}
+bool App::punctuation_key(const Key& key, const std::set<int>& mods) const {
+    // Pinyin's ' between syllables stays a separator, and Zhuyin's
+    // punctuation joins its reading.
+    const bool shift = mods.contains(key_code("ShiftLeft")) || mods.contains(key_code("ShiftRight"));
+    return chinese_punctuation(key, mods) && !(cjk_->has_cursor() && !cjk_->empty()) &&
+           !(cjk_->syllables() && !cjk_->empty() && key.action == "Quote" && !shift);
+}
+void App::type_chinese_punctuation(const std::string& turn_key, const std::vector<std::string>& texts) {
+    // The reading goes first, as for any other key; refused, it stays and the
+    // key is not typed.
+    commit_cjk();
+    if (!cjk_->empty()) {
+        return;
+    }
+    auto& turn = punctuation_turns_[turn_key];
+    const auto& text = texts[turn % texts.size()];
+    if (preview_output() || text_output_->commit_text(text)) {
+        turn = (turn + 1) % texts.size();
+    } else {
+        commit_failed();
+    }
+}
+void App::page_cjk(int direction) {
+    const int count = static_cast<int>(cjk_->candidates().size());
+    const int selected = cjk_->selected();
+    const int target = std::clamp((selected / 5 + direction) * 5, 0, (count - 1) / 5 * 5);
+    cjk_->cycle(target - selected);
 }
 void App::apply_settings() {
     const auto before = settings_;
@@ -5855,7 +6010,10 @@ bool App::key_flick_down(unsigned pointer, const Key& key, double x, double y, d
     }
     // The composers and the editor are local; text for the target needs a
     // place in its queue, as when it types on press.
-    const bool composes = japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers);
+    // Chinese punctuation, plain or pulled for Shift, is text too.
+    const bool composes = (japanese_key(key, false, modifiers) || cjk_key(key, false, modifiers)) &&
+                          !punctuation_key(key, modifiers) &&
+                          !punctuation_key(key, {key_code("ShiftLeft")});
     if (!composes && !dictation_open_) {
         refuse_without_target(now);
         if (!output_.admit(true, now)) {
@@ -6056,6 +6214,7 @@ void App::apply_swipe(const SwipeService::Result& result) {
             status_ = tr(error);
             return;
         }
+        send_finished_syllables(); // A long reading's front.
         status_.clear();
         reading_replaces_selection(was_open);
         if (dictation_open_) {
@@ -6842,6 +7001,10 @@ void App::set_dictation_view(PanelView& view) const {
         }
     } else if (cjk_ && !cjk_->empty()) {
         preedit = cjk_->preedit();
+        if (const auto shown = cjk_->highlight()) {
+            active = {shown->begin, shown->end};
+            caret = shown->caret;
+        }
     }
     if (!preedit.empty()) {
         const auto at = editor.cursor;

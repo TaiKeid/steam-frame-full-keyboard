@@ -3,10 +3,10 @@
 #include <cerrno>
 #include <cstddef>
 #include <dlfcn.h>
-#include <sys/stat.h>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <sys/stat.h>
 
 namespace framekeyboard {
 // The engines' libraries and data sit in chinese/ beside the module:
@@ -38,14 +38,17 @@ inline bool rare_character(std::string_view text) {
     if (text.empty()) {
         return false;
     }
-    const auto byte = [&](std::size_t i) { return static_cast<char32_t>(static_cast<unsigned char>(text[i])); };
+    const auto byte = [&](std::size_t i) {
+        return static_cast<char32_t>(static_cast<unsigned char>(text[i]));
+    };
     char32_t point = byte(0);
     if (point >= 0xF0 && text.size() >= 4) {
         point = (point & 0x07) << 18 | (byte(1) & 0x3F) << 12 | (byte(2) & 0x3F) << 6 | (byte(3) & 0x3F);
     } else if (point >= 0xE0 && text.size() >= 3) {
         point = (point & 0x0F) << 12 | (byte(1) & 0x3F) << 6 | (byte(2) & 0x3F);
     }
-    return (point >= 0x3400 && point <= 0x4DBF) || (point >= 0xF900 && point <= 0xFAFF) || point >= 0x20000;
+    return (point >= 0x3400 && point <= 0x4DBF) || (point >= 0xF900 && point <= 0xFAFF) ||
+           point >= 0x20000;
 }
 // Characters in UTF-8 text; the engines count positions in characters.
 inline std::size_t utf8_length(std::string_view text) {
@@ -54,5 +57,15 @@ inline std::size_t utf8_length(std::string_view text) {
         count += (static_cast<unsigned char>(byte) & 0xC0) != 0x80;
     }
     return count;
+}
+// Bytes of the first `characters` code points of UTF-8 text.
+inline std::size_t utf8_prefix(std::string_view text, std::size_t characters) {
+    std::size_t at = 0;
+    for (std::size_t seen = 0; at < text.size(); ++at) {
+        if ((static_cast<unsigned char>(text[at]) & 0xC0) != 0x80 && seen++ == characters) {
+            break;
+        }
+    }
+    return at;
 }
 } // namespace framekeyboard

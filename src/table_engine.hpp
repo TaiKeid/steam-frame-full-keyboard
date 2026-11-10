@@ -11,6 +11,9 @@ namespace framekeyboard {
 struct InputTable {
     std::filesystem::path path;
     std::size_t max_keys{};
+    // A key past a full code types the highlighted character and starts the
+    // next code, as Microsoft's Quick does.
+    bool continues{};
 };
 std::optional<InputTable> table_for(const std::string& method);
 
@@ -25,7 +28,7 @@ class TableEngine final : public CjkEngine {
     // Loads a table, or finds it already loaded. It takes its own lock, not
     // the engines' (CjkComposer), so reading a file holds up no typing.
     static std::shared_ptr<const Table> load(const std::filesystem::path& table);
-    TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys);
+    TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys, bool continues = false);
     ~TableEngine() override;
     // The table opens, holds characters, and SQLite is present.
     static bool available(const std::filesystem::path& table);
@@ -41,12 +44,17 @@ class TableEngine final : public CjkEngine {
     bool empty() const override { return keys_.empty() && chosen_.empty(); }
     bool has_reading() const override { return !keys_.empty(); }
     bool chinese() const override { return true; }
+    // Characters chosen and not yet delivered, as a full Quick code's
+    // character once the next code starts: the app sends them at once.
+    std::string finished() const override { return keys_.empty() ? std::string{} : chosen_; }
+    void drop_finished() override { chosen_.clear(); }
 
   private:
     struct Database;
     void look_up();
     std::shared_ptr<const Table> table_;
     std::size_t max_keys_{};
+    bool continues_{};
     std::string keys_, chosen_;
     std::vector<std::string> candidates_;
     int selected_{};

@@ -24,7 +24,8 @@ namespace fs = std::filesystem;
 namespace gram = Formosa::Gramambular2;
 using Formosa::Mandarin::BopomofoKeyboardLayout;
 using Formosa::Mandarin::BopomofoReadingBuffer;
-// As PyZy's adapter: a longer reading must be committed first.
+// A longer reading sends its converted front first, as McBopomofo does, and
+// goes on.
 constexpr std::size_t max_syllables = 30;
 constexpr std::size_t max_candidates = 50;
 // Syllables are joined so in the phrase data: ㄖㄨㄢˇ-ㄊㄧˇ.
@@ -103,7 +104,8 @@ struct Learning {
         auto walk = grid.walk();
         for (const auto& pick : picks) {
             const auto before = walk.copyWithFixedNodes();
-            if (!grid.overrideCandidate(pick.start, gram::ReadingGrid::Candidate(pick.reading, pick.value))) {
+            if (!grid.overrideCandidate(pick.start,
+                                        gram::ReadingGrid::Candidate(pick.reading, pick.value))) {
                 continue;
             }
             walk = grid.walk();
@@ -177,13 +179,19 @@ std::shared_ptr<Learning> learning_for(const fs::path& folder) {
     return learning;
 }
 
+// The reading converts as it is typed, and a cursor between its syllables
+// picks the phrase the candidates are for, as in McBopomofo and Microsoft's
+// New Phonetic: it starts at the end and the arrows move it. Space and ↓
+// start choosing for that phrase (the app's keys), and a pick replaces it and
+// leaves the reading open. Only Enter sends the line.
 class McBopomofoEngine final : public CjkEngine {
   public:
     McBopomofoEngine(const std::string& method, const fs::path& learning_dir)
         : learning_(method == "chinese-zhuyin"
                         ? learning_for(learning_dir.empty() ? fs::path{} : learning_dir / "mcbopomofo")
                         : nullptr),
-          reading_(BopomofoKeyboardLayout::StandardLayout()), grid_(learning_ ? learning_->model : nullptr) {
+          reading_(BopomofoKeyboardLayout::StandardLayout()),
+          grid_(learning_ ? learning_->model : nullptr) {
         if (!learning_) {
             throw CjkMessage("ime.engine-missing");
         }
@@ -191,7 +199,7 @@ class McBopomofoEngine final : public CjkEngine {
     }
     void type(char key) override {
         if (syllables_.size() + (reading_.isEmpty() ? 0 : 1) >= max_syllables) {
-            throw CjkMessage("ime.commit-first");
+            send_front();
         }
         if (key == ' ') {
             if (!reading_.isEmpty()) {
@@ -205,35 +213,37 @@ class McBopomofoEngine final : public CjkEngine {
         }
         refresh();
     }
+    // The open syllable's last key, else the syllable before the cursor.
     void backspace() override {
         if (!reading_.isEmpty()) {
             reading_.backspace();
-        } else if (fixed_ < syllables_.size()) {
-            grid_.setCursor(grid_.length());
-            grid_.deleteReadingBeforeCursor();
-            syllables_.pop_back();
-            while (fixed_ > syllables_.size()) {
-                fixed_ = chosen_.empty() ? 0 : chosen_.back();
-                if (!chosen_.empty()) {
-                    chosen_.pop_back();
-                }
-            }
-        } else if (!chosen_.empty()) {
-            // Nothing left to delete: the last choice is open again.
-            fixed_ = chosen_.back();
-            chosen_.pop_back();
+        } else if (cursor_ > 0) {
+            remove(cursor_ - 1);
         }
-        // Picks over what is open again, or deleted, no longer count.
-        std::erase_if(picks_, [&](const Pick& pick) { return pick.start >= fixed_; });
         refresh();
+    }
+    void delete_forward() override {
+        if (reading_.isEmpty() && cursor_ < syllables_.size()) {
+            remove(cursor_);
+            refresh();
+        }
+    }
+    // Esc takes one step: the open syllable, then the whole reading.
+    void cancel_open() override {
+        if (reading_.isEmpty()) {
+            cancel();
+        } else {
+            reading_.clear();
+            refresh();
+        }
     }
     void cancel() override {
         reading_.clear();
         grid_.clear();
         syllables_.clear();
-        fixed_ = 0;
-        chosen_.clear();
+        cursor_ = 0;
         picks_.clear();
+        front_.clear();
         refresh();
     }
     void cycle(int direction) override {
@@ -241,20 +251,26 @@ class McBopomofoEngine final : public CjkEngine {
             selected_ = (selected_ + direction % count + count) % count;
         }
     }
+    // A pick replaces the phrase at the cursor; the reading stays open, and so
+    // does the cursor where it is, as McBopomofo's default.
     void choose(int index) override {
         if (index < 0 || index >= static_cast<int>(shown_.size())) {
             return;
         }
-        const auto& choice = shown_[static_cast<std::size_t>(index)];
-        grid_.overrideCandidate(fixed_, gram::ReadingGrid::Candidate(choice.reading, choice.value));
-        picks_.push_back({fixed_, choice.reading, choice.value});
-        chosen_.push_back(fixed_);
-        fixed_ += choice.length;
+        const auto choice = shown_[static_cast<std::size_t>(index)];
+        const auto at = active();
+        if (grid_.overrideCandidate(at, gram::ReadingGrid::Candidate(choice.reading, choice.value)) &&
+            index > 0) {
+            picks_.push_back({at, choice.reading, choice.value});
+        }
         refresh();
     }
     std::string preedit() const override { return text(); }
-    // An open syllable goes as its symbols, as typed.
-    std::string text() const override { return converted_ + reading_.composedString(); }
+    // An open syllable goes as its symbols, as typed, at the cursor.
+    std::string text() const override {
+        const auto at = caret_byte();
+        return front_ + converted_.substr(0, at) + reading_.composedString() + converted_.substr(at);
+    }
     std::vector<std::string> candidates() const override {
         std::vector<std::string> result;
         for (const auto& choice : shown_) {
@@ -264,9 +280,69 @@ class McBopomofoEngine final : public CjkEngine {
     }
     int selected() const override { return selected_; }
     bool empty() const override { return syllables_.empty() && reading_.isEmpty(); }
-    bool has_reading() const override { return !reading_.isEmpty() || fixed_ < syllables_.size(); }
+    // A pick never ends the reading: only Enter sends it.
+    bool has_reading() const override { return !empty(); }
     bool chinese() const override { return true; }
     bool takes_space() const override { return !reading_.isEmpty(); }
+    std::string finished() const override { return front_; }
+    void drop_finished() override { front_.clear(); }
+    bool has_cursor() const override { return true; }
+    // An open syllable keeps the cursor where it is, as in McBopomofo.
+    void move(int syllables) override {
+        if (!reading_.isEmpty()) {
+            return;
+        }
+        const auto to = syllables < 0
+                            ? cursor_ - std::min(cursor_, static_cast<std::size_t>(-syllables))
+                            : std::min(syllables_.size(), cursor_ + static_cast<std::size_t>(syllables));
+        if (to != cursor_) {
+            cursor_ = to;
+            refresh();
+        }
+    }
+    bool choosing() const override { return choosing_; }
+    void set_choosing(bool choosing) override {
+        choosing_ = choosing && !shown_.empty();
+        selected_ = 0;
+    }
+    // McBopomofo's punctuation readings for the standard layout, as
+    // _punctuation_Standard_< for ，, or else its common ones; the text the
+    // language gives is the one shown, where the reading offers it.
+    bool insert_symbol(char symbol, const std::string& text) override {
+        if (syllables_.size() + 1 >= max_syllables) {
+            send_front();
+        }
+        if (!reading_.isEmpty()) {
+            finish_syllable(); // Its first tone, as Space gives it.
+            if (!reading_.isEmpty()) {
+                return false;
+            }
+        }
+        for (const auto& reading :
+             {std::string("_punctuation_Standard_") + symbol, std::string("_punctuation_") + symbol}) {
+            if (!learning_->model->hasUnigrams(reading)) {
+                continue;
+            }
+            const auto at = insert(reading);
+            if (!grid_.overrideCandidate(at, gram::ReadingGrid::Candidate(reading, text))) {
+                remove(at);
+                break;
+            }
+            refresh();
+            return true;
+        }
+        refresh();
+        return false;
+    }
+    bool highlight(std::size_t& begin, std::size_t& end, std::size_t& caret) const override {
+        if (syllables_.empty() || !reading_.isEmpty()) {
+            return false;
+        }
+        begin = front_.size() + active_begin_;
+        end = front_.size() + active_end_;
+        caret = front_.size() + caret_byte();
+        return true;
+    }
     // The picks of the text that reached the field teach the model.
     void committed(bool learn) override {
         if (learn && !picks_.empty() && !learning_->folder.empty()) {
@@ -275,85 +351,161 @@ class McBopomofoEngine final : public CjkEngine {
     }
 
   private:
-    // A phrase for the syllables from fixed_: its reading and how many.
+    // A phrase over the active syllable: its reading and value.
     struct Choice {
         std::string value, reading;
-        std::size_t length{};
     };
     std::shared_ptr<Learning> learning_; // Before grid_, which reads its model.
-    BopomofoReadingBuffer reading_;      // The open syllable.
+    BopomofoReadingBuffer reading_;      // The open syllable, at the cursor.
     gram::ReadingGrid grid_;
     std::vector<std::string> syllables_; // Finished syllables, as in the grid.
-    std::size_t fixed_{};                // Syllables chosen so far.
-    std::vector<std::size_t> chosen_;    // fixed_ before each choice.
+    std::size_t cursor_{};               // Syllables before the cursor.
     std::vector<Pick> picks_;            // This reading's picks, to learn once committed.
+    bool choosing_{};                    // Choosing for the phrase at the cursor.
     std::string converted_;              // The grid's best walk.
+    // Bytes of converted_: the active phrase, and each syllable boundary the
+    // cursor can stand on (none inside a phrase whose text isn't a
+    // character a syllable).
+    std::size_t active_begin_{}, active_end_{};
+    std::vector<std::size_t> boundaries_;
+    std::string front_; // Sent ahead of a long reading (finished()).
     std::vector<Choice> shown_;
     int selected_{};
 
+    // The syllable the candidates are for: the one before the cursor, or the
+    // first with the cursor at the start.
+    std::size_t active() const { return cursor_ > 0 ? cursor_ - 1 : 0; }
+    std::size_t caret_byte() const {
+        return cursor_ < boundaries_.size() ? boundaries_[cursor_] : converted_.size();
+    }
     // A syllable the data doesn't know stays open, to be corrected. One it
-    // knows may take what the user picked there before, as in McBopomofo.
+    // knows goes in at the cursor, and may take what the user picked there
+    // before, as in McBopomofo.
     void finish_syllable() {
         const auto syllable = reading_.syllable().composedString();
         if (!learning_->model->hasUnigrams(syllable)) {
             return;
         }
-        grid_.setCursor(grid_.length());
-        grid_.insertReading(syllable);
-        syllables_.push_back(syllable);
+        const auto at = insert(syllable);
         reading_.clear();
-        const auto last = grid_.length() - 1;
-        const auto suggestion = learning_->overrides.suggest(grid_.walk(), last, now());
+        const auto suggestion = learning_->overrides.suggest(grid_.walk(), at, now());
         if (!suggestion.empty()) {
-            grid_.overrideCandidate(last, suggestion.candidate,
-                                    suggestion.forceHighScoreOverride
-                                        ? gram::ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore
-                                        : gram::ReadingGrid::Node::OverrideType::kOverrideValueWithScoreFromTopUnigram);
+            grid_.overrideCandidate(
+                at, suggestion.candidate,
+                suggestion.forceHighScoreOverride
+                    ? gram::ReadingGrid::Node::OverrideType::kOverrideValueWithHighScore
+                    : gram::ReadingGrid::Node::OverrideType::kOverrideValueWithScoreFromTopUnigram);
         }
     }
-    // The walk's phrase at fixed_ comes first, so Space keeps it; then every
-    // phrase starting there, longest first, each by score.
+    // A reading the data knows goes in at the cursor, which moves past it;
+    // picks after it move along. Returns where it went.
+    std::size_t insert(const std::string& reading) {
+        grid_.setCursor(cursor_);
+        grid_.insertReading(reading);
+        syllables_.insert(syllables_.begin() + static_cast<std::ptrdiff_t>(cursor_), reading);
+        for (auto& pick : picks_) {
+            pick.start += pick.start >= cursor_ ? 1 : 0;
+        }
+        return cursor_++;
+    }
+    // Takes out the syllable at `at`, before the cursor or at it; a pick over
+    // it no longer counts.
+    void remove(std::size_t at) {
+        grid_.setCursor(at + 1);
+        grid_.deleteReadingBeforeCursor();
+        syllables_.erase(syllables_.begin() + static_cast<std::ptrdiff_t>(at));
+        std::erase_if(picks_, [&](const Pick& pick) { return pick.start == at; });
+        for (auto& pick : picks_) {
+            pick.start -= pick.start > at ? 1 : 0;
+        }
+        cursor_ -= cursor_ > at ? 1 : 0;
+    }
+    // The reading is full: the walk's first phrase goes ahead, to the field
+    // (finished()), and leaves the grid. Picks in it are not learned.
+    void send_front() {
+        const auto walk = grid_.walk();
+        if (walk.nodes.empty()) {
+            throw CjkMessage("ime.commit-first");
+        }
+        const auto length = walk.nodes.front()->spanningLength();
+        front_ += walk.nodes.front()->value();
+        grid_.setCursor(length);
+        for (std::size_t i = 0; i < length; ++i) {
+            grid_.deleteReadingBeforeCursor();
+        }
+        syllables_.erase(syllables_.begin(), syllables_.begin() + static_cast<std::ptrdiff_t>(length));
+        std::erase_if(picks_, [&](const Pick& pick) { return pick.start < length; });
+        for (auto& pick : picks_) {
+            pick.start -= length;
+        }
+        cursor_ = cursor_ > length ? cursor_ - length : 0;
+        refresh();
+    }
+    // The walk's phrase over the active syllable comes first, where choosing
+    // starts; then every phrase over it, longest first, each by score.
     void refresh() {
         shown_.clear();
         selected_ = 0;
+        choosing_ = false;
         converted_.clear();
+        boundaries_.assign(1, 0);
+        active_begin_ = active_end_ = 0;
         const auto walk = grid_.walk();
+        const auto at = active();
         std::size_t start = 0;
         for (const auto& node : walk.nodes) {
-            converted_ += node->value();
-            if (start == fixed_ && reading_.isEmpty()) {
-                shown_.push_back({node->value(), node->reading(), node->spanningLength()});
+            const auto& value = node->value();
+            const auto length = node->spanningLength();
+            const bool covers = at >= start && at < start + length;
+            if (covers) {
+                active_begin_ = converted_.size();
+                active_end_ = converted_.size() + value.size();
+                if (reading_.isEmpty()) {
+                    shown_.push_back({value, node->reading()});
+                }
             }
-            start += node->spanningLength();
+            // A phrase of one character a syllable has a boundary after each;
+            // another only at its end.
+            const bool even = utf8_length(value) == length;
+            for (std::size_t i = 1; i <= length; ++i) {
+                boundaries_.push_back(converted_.size() + (even ? utf8_prefix(value, i) : value.size()));
+            }
+            converted_ += value;
+            start += length;
         }
-        if (!reading_.isEmpty() || fixed_ >= syllables_.size()) {
+        if (!reading_.isEmpty() || syllables_.empty()) {
             shown_.clear();
             return;
         }
-        const auto longest = std::min(syllables_.size() - fixed_, gram::ReadingGrid::kMaximumSpanLength);
+        const auto count = syllables_.size();
+        const auto longest = std::min(count, gram::ReadingGrid::kMaximumSpanLength);
         for (std::size_t length = longest; length > 0 && shown_.size() < max_candidates; --length) {
-            std::string reading;
-            for (std::size_t i = fixed_; i < fixed_ + length; ++i) {
-                reading += (i > fixed_ ? separator : "") + syllables_[i];
-            }
-            auto unigrams = learning_->model->getUnigrams(reading);
-            std::stable_sort(unigrams.begin(), unigrams.end(),
-                             [](const auto& a, const auto& b) { return a.score() > b.score(); });
-            for (const auto& unigram : unigrams) {
-                // Macros (dates and the like) need McBopomofo's front end.
-                if (unigram.value().starts_with("MACRO@") || shown_.size() >= max_candidates ||
-                    std::any_of(shown_.begin(), shown_.end(),
-                                [&](const Choice& choice) { return choice.value == unigram.value(); })) {
-                    continue;
+            for (std::size_t first = at + 1 >= length ? at + 1 - length : 0;
+                 first <= at && first + length <= count; ++first) {
+                std::string reading;
+                for (std::size_t i = first; i < first + length; ++i) {
+                    reading += (i > first ? separator : "") + syllables_[i];
                 }
-                shown_.push_back({unigram.value(), reading, length});
+                auto unigrams = learning_->model->getUnigrams(reading);
+                std::stable_sort(unigrams.begin(), unigrams.end(),
+                                 [](const auto& a, const auto& b) { return a.score() > b.score(); });
+                for (const auto& unigram : unigrams) {
+                    // Macros (dates and the like) need McBopomofo's front end.
+                    if (unigram.value().starts_with("MACRO@") || shown_.size() >= max_candidates ||
+                        std::any_of(shown_.begin(), shown_.end(), [&](const Choice& choice) {
+                            return choice.value == unigram.value();
+                        })) {
+                        continue;
+                    }
+                    shown_.push_back({unigram.value(), reading});
+                }
             }
         }
         // A rare single character waits behind the rest: ㄨㄛˇ offers 我 婐 捰
         // before 䂺. The conversion's own phrase stays first.
         if (shown_.size() > 1) {
             std::stable_partition(shown_.begin() + 1, shown_.end(), [](const Choice& choice) {
-                return choice.length > 1 || utf8_length(choice.value) > 1 || !rare_character(choice.value);
+                return utf8_length(choice.value) > 1 || !rare_character(choice.value);
             });
         }
     }

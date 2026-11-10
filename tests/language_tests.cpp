@@ -856,8 +856,10 @@ void engines(const std::string& group = "") {
             type(quick, "cq");
             const auto keys = quick.candidates();
             require(std::find(keys.begin(), keys.end(), "鍵") != keys.end(), "Quick looks up two keys");
+            const auto first = keys.front();
             type(quick, "a");
-            require(quick.preedit() == "金手", "Quick stops at two keys");
+            require(quick.finished() == first && quick.preedit() == first + "日",
+                    "a third Quick key types the highlighted character and starts the next code");
             quick.cancel();
         }
         if (CjkComposer::supported("chinese-pinyin-simplified")) {
@@ -877,7 +879,9 @@ void engines(const std::string& group = "") {
                 chinese.choose(0);
                 require(chinese.text() == "你好", "selected phrase retained without engine learning");
                 chinese.backspace();
-                require(chinese.preedit() == "nihao", "undo chosen Pinyin segment");
+                // libime shows the syllables apart.
+                require(chinese.preedit() == (chinese.engine() == "libime" ? "ni hao" : "nihao"),
+                        "undo chosen Pinyin segment");
                 chinese.cancel();
                 type(chinese, "zhongguo");
                 const std::string expected =
@@ -898,7 +902,8 @@ void engines(const std::string& group = "") {
 // FRAMEKEYBOARD_CHINESE_ENGINE picks one. Each converts, chooses a phrase's
 // start, and learns into its folder only when allowed.
 void chinese_engines() {
-    const auto dir = fs::temp_directory_path() / ("framekeyboard-chinese-test-" + std::to_string(getpid()));
+    const auto dir =
+        fs::temp_directory_path() / ("framekeyboard-chinese-test-" + std::to_string(getpid()));
     struct Cleanup {
         fs::path path;
         ~Cleanup() {
@@ -924,20 +929,37 @@ void chinese_engines() {
             const auto first = std::find(candidates.begin(), candidates.end(), "我");
             require(first != candidates.end(), "libime offers a sentence's first word");
             pinyin.choose(static_cast<int>(first - candidates.begin()));
-            require(pinyin.has_reading() && pinyin.preedit() == "我xiangmaiyitaidiannao",
-                    "the rest of the reading stays after a partial choice");
+            require(pinyin.has_reading() && pinyin.preedit() == "我xiang mai yi tai dian nao",
+                    "the rest of the reading stays after a partial choice, its syllables apart");
+            pinyin.as_typed();
+            require(pinyin.text() == "我xiangmaiyitaidiannao", "Enter types the rest as typed");
             pinyin.backspace();
-            require(pinyin.preedit() == "我xiangmaiyitaidianna", "Backspace takes a key of the rest first");
+            // libime splits dianna as 狄安娜's di an na.
+            require(pinyin.preedit() == "我xiang mai yi tai di an na" &&
+                        pinyin.text() != "我xiangmaiyitaidianna",
+                    "Backspace takes a key of the rest first, and the conversion is back");
             pinyin.cancel();
             type(pinyin, "nihao");
             pinyin.choose(0);
             pinyin.backspace();
-            require(pinyin.preedit() == "nihao", "with nothing left, Backspace undoes the choice");
+            require(pinyin.preedit() == "ni hao", "with nothing left, Backspace undoes the choice");
+            pinyin.cancel();
+            // A reading past 30 keys sends its converted front and goes on.
+            type(pinyin, "wojintianwanshangyaoqupengyoujiachifan");
+            require(!pinyin.finished().empty() && pinyin.text().starts_with(pinyin.finished()) &&
+                        pinyin.preedit().ends_with("chi fan"),
+                    "no key of a long reading is lost");
+            pinyin.drop_finished();
             pinyin.committed(false);
             require(!learned("libime"), "nothing is learned where learning isn't allowed");
             pinyin.cancel();
         }
         CjkComposer pinyin("chinese-pinyin-simplified", dir);
+        type(pinyin, "steam");
+        pinyin.as_typed();
+        pinyin.committed(true);
+        require(!learned("libime"), "letters typed as they are teach nothing");
+        pinyin.cancel();
         type(pinyin, "nihao");
         pinyin.committed(true);
         require(fs::exists(dir / "libime/user.history"), "a commit is learned into the folder");
@@ -950,20 +972,65 @@ void chinese_engines() {
     setenv("FRAMEKEYBOARD_CHINESE_ENGINE", "mcbopomofo", 1);
     if (CjkComposer::supported("chinese-zhuyin")) {
         CjkComposer zhuyin("chinese-zhuyin", dir);
-        require(zhuyin.engine() == "mcbopomofo" && zhuyin.phonetic_keys(), "the override picks McBopomofo");
+        require(zhuyin.engine() == "mcbopomofo" && zhuyin.phonetic_keys(),
+                "the override picks McBopomofo");
         // ㄋㄧˇ ㄏㄠˇ: a tone finishes each syllable.
         type(zhuyin, "su3cl3");
         require(zhuyin.text() == "你好" && !zhuyin.takes_space(), "Zhuyin converts a phrase");
         const auto candidates = zhuyin.candidates();
-        require(!candidates.empty() && candidates.front() == "你好", "the conversion comes first, for Space");
-        const auto first = std::find(candidates.begin(), candidates.end(), "你");
-        require(first != candidates.end(), "a phrase offers its first character alone");
-        zhuyin.choose(static_cast<int>(first - candidates.begin()));
-        require(zhuyin.has_reading() && zhuyin.text() == "你好", "the rest stays open after a partial choice");
+        require(!candidates.empty() && candidates.front() == "你好",
+                "the conversion comes first, for Space");
+        // The cursor starts at the end, under the phrase just typed.
+        auto shown = zhuyin.highlight();
+        require(zhuyin.has_cursor() && shown && shown->begin == 0 && shown->end == 6 &&
+                    shown->caret == 6,
+                "the last phrase is highlighted, the cursor after it");
+        require(std::find(candidates.begin(), candidates.end(), "你") == candidates.end(),
+                "the candidates are for the phrase at the cursor");
+        zhuyin.move(-1);
+        const auto at_ni = zhuyin.candidates();
+        const auto first = std::find(at_ni.begin(), at_ni.end(), "你");
+        require(at_ni.front() == "你好" && first != at_ni.end() && zhuyin.highlight()->caret == 3,
+                "← moves the cursor a syllable; the phrase over it, then its first character alone");
+        zhuyin.choose(static_cast<int>(first - at_ni.begin()));
+        shown = zhuyin.highlight();
+        require(zhuyin.has_reading() && zhuyin.text() == "你好" && shown->begin == 0 && shown->end == 3,
+                "a pick replaces that phrase and the reading stays open");
+        zhuyin.move(1);
+        zhuyin.move(1); // At the end: it stays.
+        require(zhuyin.highlight()->caret == 6, "→ moves back to the end");
+        zhuyin.set_choosing(true);
+        require(zhuyin.choosing() && zhuyin.selected() == 0, "choosing starts on the phrase there");
+        zhuyin.choose(0);
+        require(zhuyin.has_reading() && !zhuyin.choosing() && zhuyin.text() == "你好",
+                "a pick never ends the reading: only Enter sends it");
+        // Punctuation goes into the reading at the cursor, as McBopomofo's.
+        require(zhuyin.insert_symbol('<', "，") && zhuyin.text() == "你好，" &&
+                    zhuyin.highlight()->caret == 9,
+                "Shift+, puts ， in the reading");
+        zhuyin.move(-1000);
+        zhuyin.delete_forward();
+        require(zhuyin.text() == "好，" && zhuyin.highlight()->caret == 0,
+                "Home goes to the start, and Delete takes the syllable after the cursor");
+        zhuyin.move(1000);
+        type(zhuyin, "a8");
+        zhuyin.cancel_open();
+        require(zhuyin.text() == "好，", "Esc takes the open syllable first");
+        zhuyin.cancel_open();
+        require(zhuyin.empty(), "then the whole reading");
+        // Typing goes in at the cursor, and Backspace takes the syllable before it.
+        type(zhuyin, "su3cl3");
+        zhuyin.move(-1);
+        type(zhuyin, "cl3");
+        require(g_utf8_strlen(zhuyin.text().c_str(), -1) == 3 && zhuyin.highlight()->caret == 6,
+                "a syllable typed in the middle goes in at the cursor");
+        zhuyin.backspace();
+        require(zhuyin.text() == "你好", "Backspace takes the syllable before the cursor");
         zhuyin.cancel();
         // ㄇㄚ with Space as its first tone.
         type(zhuyin, "a8");
-        require(zhuyin.takes_space() && zhuyin.preedit() == "ㄇㄚ", "an open syllable shows its symbols");
+        require(zhuyin.takes_space() && zhuyin.preedit() == "ㄇㄚ",
+                "an open syllable shows its symbols");
         zhuyin.type(' ');
         require(!zhuyin.takes_space() && !zhuyin.text().empty() && zhuyin.text() != "ㄇㄚ",
                 "Space finishes the syllable in the first tone");
@@ -992,7 +1059,8 @@ void chinese_engines() {
         };
         pick(false);
         type(zhuyin, "su3cl3");
-        require(zhuyin.text() == "你好" && !learned("mcbopomofo"), "a pick not allowed to teach teaches nothing");
+        require(zhuyin.text() == "你好" && !learned("mcbopomofo"),
+                "a pick not allowed to teach teaches nothing");
         zhuyin.cancel();
         pick(true);
         require(fs::exists(dir / "mcbopomofo/picks.tsv"), "a committed pick is saved");
@@ -1023,8 +1091,8 @@ void chinese_report() {
     const auto all = report({{}, {"pyzy", "libime", "mcbopomofo"}, 3});
     for (const auto* engine : {"libime", "mcbopomofo"}) {
         setenv("FRAMEKEYBOARD_CHINESE_ENGINE", engine, 1);
-        const bool built = CjkComposer::supported(std::string(engine) == "libime" ? "chinese-pinyin-simplified"
-                                                                                 : "chinese-zhuyin");
+        const bool built = CjkComposer::supported(
+            std::string(engine) == "libime" ? "chinese-pinyin-simplified" : "chinese-zhuyin");
         unsetenv("FRAMEKEYBOARD_CHINESE_ENGINE");
         require(!built || all.find("(" + std::string(engine) + ")  ") != std::string::npos,
                 "each engine built is compared");
@@ -1033,6 +1101,79 @@ void chinese_report() {
                 all.find("chinese-pinyin-simplified (mcbopomofo)") == std::string::npos,
             "an engine without the method is left out");
     require(!std::getenv("FRAMEKEYBOARD_CHINESE_ENGINE"), "the report puts the engine choice back");
+}
+// Chinese keys as a PC input method's: Chinese punctuation after the reading,
+// plain . , : after a digit, Pinyin's letters as typed with Enter, Shift
+// letters at once, and - = paging the candidates.
+void chinese_keys() {
+    const auto path =
+        fs::temp_directory_path() / ("framekeyboard-chinese-keys-" + std::to_string(getpid()));
+    fs::create_directories(path);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{path};
+    Options options;
+    options.config_dir = path;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    Sink sink;
+    App app(options, sink);
+    // Keys in order; "Shift+" latches Shift first.
+    const auto press = [&](std::initializer_list<std::string> keys) {
+        sink.events.clear();
+        for (auto key : keys) {
+            if (key.starts_with("Shift+")) {
+                click(app, "ShiftLeft");
+                key.erase(0, 6);
+            }
+            click(app, key);
+        }
+    };
+    using Typed = std::vector<std::string>;
+    app.apply({"en-us-full", "zh-cn-pinyin", "graphite"});
+    press({"KeyN", "KeyI", "Comma"});
+    require(sink.events == Typed{"你", "，"}, "a comma types the reading, then ，");
+    press({"Shift+Quote", "Shift+Quote", "Shift+Digit1", "Backslash", "Shift+Digit4"});
+    require(sink.events == Typed{"“", "”", "！", "、", "￥"}, "quotes take turns; ！ 、 ￥");
+    press({"Digit3", "Period", "Digit5", "Shift+Semicolon", "Comma"});
+    require(sink.events == Typed{"3", ".", "5", ":", "，"}, "after a digit, . and : type themselves");
+    press({"KeyS", "KeyT", "KeyE", "KeyA", "KeyM", "Enter"});
+    require(sink.events == Typed{"steam"} && app.view().preedit.empty(), "Enter types Pinyin's letters");
+    press({"Shift+KeyO", "KeyK"});
+    require(sink.events == Typed{"O"} && app.view().preedit == "k",
+            "a Shift letter types itself at once");
+    click(app, "Escape");
+    press({"KeyS", "KeyH", "KeyI", "Equal", "Equal", "Minus"});
+    require(sink.events.empty() && app.view().preedit == "shi", "- and = page, typing nothing");
+    click(app, "Escape");
+    if (CjkComposer::supported("chinese-zhuyin")) {
+        app.apply({"en-us-full", "zh-tw-zhuyin", "graphite"});
+        press({"Shift+Comma", "Quote", "Shift+Period", "BracketLeft"});
+        require(sink.events == Typed{"，", "、", "。", "「"}, "Zhuyin's punctuation, as McBopomofo's");
+        // ← moves Zhuyin's cursor inside the reading, sending nothing.
+        press({"KeyS", "KeyU", "Digit3", "KeyC", "KeyL", "Digit3", "ArrowLeft"});
+        const auto view = app.view();
+        require(sink.events.empty() && view.preedit == "你好" && view.preedit_cursor == 3u &&
+                    view.preedit_active_begin == 0 && view.preedit_active_end == 6,
+                "← moves the cursor, and the phrase over it is highlighted");
+        press({"Space"});
+        app.tick(2); // The row follows on the next frame.
+        require(sink.events.empty() && app.view().candidates &&
+                    app.view().candidates->chips.front().text == "1 你好",
+                "Space starts choosing, numbered for 1–5, and sends nothing");
+        press({"Escape", "Shift+Comma", "End"});
+        require(sink.events.empty() && app.view().preedit == "你，好",
+                "Esc stops choosing; ， goes into the reading at the cursor");
+        press({"Enter"});
+        require(sink.events == Typed{"你，好"}, "Enter sends the whole line");
+    }
+    app.apply({"en-us-full", "zh-tw-pinyin", "graphite"});
+    press({"BracketLeft", "Shift+BracketRight"});
+    require(sink.events == Typed{"「", "』"}, "Traditional quotes are corner brackets");
+    app.apply({"en-us-full", "en-us", "graphite"});
 }
 // Traditional Chinese through real key presses: digits are Zhuyin symbols, but
 // choose a candidate in Cangjie and Quick.
@@ -1059,12 +1200,18 @@ void app_traditional() {
         const char* typed;
     };
     // PyZy shows the syllable's symbols; the newer engines its character.
-    const char* zhuyin_reading = !CjkComposer::supported("chinese-zhuyin") ||
-                                         CjkComposer("chinese-zhuyin").engine() == "pinyin"
-                                     ? "ㄋㄧˇ"
-                                     : "你";
+    const char* zhuyin_reading =
+        !CjkComposer::supported("chinese-zhuyin") || CjkComposer("chinese-zhuyin").engine() == "pinyin"
+            ? "ㄋㄧˇ"
+            : "你";
     const std::vector<Case> cases{
-        {"chinese-zhuyin", "zh-tw-zhuyin", {"KeyS", "KeyU", "Digit3"}, zhuyin_reading, "Space", "你"},
+        // McBopomofo's Space chooses; only Enter sends.
+        {"chinese-zhuyin",
+         "zh-tw-zhuyin",
+         {"KeyS", "KeyU", "Digit3"},
+         zhuyin_reading,
+         std::string(zhuyin_reading) == "你" ? "Enter" : "Space",
+         "你"},
         {"chinese-cangjie",
          "zh-tw-cangjie",
          {"KeyC", "KeyN", "KeyK", "KeyQ"},
@@ -1284,7 +1431,8 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                     app.down(4, r.x + r.width / 2, r.y + r.height / 2, 2.6);
                     app.up(4, r.x + r.width / 2, r.y + r.height / 2);
                 }
-                require(!app.view().candidates->list && app.view().preedit == "nihao" &&
+                require(!app.view().candidates->list &&
+                            (app.view().preedit == "nihao" || app.view().preedit == "ni hao") &&
                             sink.events.empty(),
                         "a press outside the menu closes it, choosing nothing");
                 require(tap("ime-more") && app.view().candidates->list, "∨ opens it again");
@@ -1451,7 +1599,10 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
                 "failed composition commit blocks following Unicode character");
         sink.accept = true;
         click(app, "Comma");
-        require(sink.events.size() == 2 && sink.events.back() == "," && app.view().preedit.empty(),
+        // Chinese types its own comma.
+        require(sink.events.size() == 2 &&
+                    sink.events.back() == (std::string(id).starts_with("zh-") ? "，" : ",") &&
+                    app.view().preedit.empty(),
                 "retry commits composition before punctuation exactly once");
         click(app, "KeyR");
         app.set_interaction_active(false);
@@ -1581,6 +1732,7 @@ int main(int argc, char** argv) {
             }
             if (group == "--chinese") {
                 app_traditional();
+                chinese_keys();
                 chinese_engines();
                 chinese_report();
             }

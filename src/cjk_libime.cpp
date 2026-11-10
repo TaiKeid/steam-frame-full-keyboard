@@ -20,7 +20,8 @@
 namespace framekeyboard {
 namespace {
 namespace fs = std::filesystem;
-// As PyZy's adapter: a longer reading must be committed first.
+// A longer reading sends its converted front first, as a PC input method
+// does, and goes on.
 constexpr std::size_t max_keys = 30;
 // Bounds candidate work and the menu for controller interaction.
 constexpr std::size_t max_candidates = 50;
@@ -130,9 +131,10 @@ class LibimeEngine final : public CjkEngine {
     }
     void type(char key) override {
         if (context_.size() >= max_keys) {
-            throw CjkMessage("ime.commit-first");
+            send_front();
         }
-        context_.type(std::string(1, static_cast<char>(key >= 'A' && key <= 'Z' ? key - 'A' + 'a' : key)));
+        context_.type(
+            std::string(1, static_cast<char>(key >= 'A' && key <= 'Z' ? key - 'A' + 'a' : key)));
         refresh();
     }
     void backspace() override {
@@ -142,12 +144,16 @@ class LibimeEngine final : public CjkEngine {
             // Nothing left to delete: the last choice is undone instead.
             context_.cancelTill(chosen_.back());
             chosen_.pop_back();
+            picked_.resize(std::min(picked_.size(), context_.selectedWords().size()));
         }
         refresh();
     }
     void cancel() override {
         context_.clear();
         chosen_.clear();
+        picked_.clear();
+        defaults_ = false;
+        front_.clear();
         refresh();
     }
     void cycle(int direction) override {
@@ -159,31 +165,77 @@ class LibimeEngine final : public CjkEngine {
         if (index < 0 || index >= static_cast<int>(shown_.size())) {
             return;
         }
+        const auto before = context_.selectedWords().size();
+        // After an earlier choice, the top candidate for the rest is what
+        // the user accepted, not picked: 来, 一局, then Space for 马.
+        defaults_ |= index == 0 && !chosen_.empty();
         chosen_.push_back(context_.selectedLength());
         context_.select(source_[static_cast<std::size_t>(index)]);
+        const auto words = context_.selectedWords();
+        picked_.resize(before);
+        for (std::size_t i = before; i < words.size(); ++i) {
+            picked_.push_back(index != 0);
+        }
         refresh();
     }
+    // The syllables shown apart, as libime splits them: ni hao. Without a
+    // conversion libime shows none of them, so they show as typed.
     std::string preedit() const override {
-        return shown(context_.selectedSentence()) + context_.userInput().substr(context_.selectedLength());
+        const auto chosen = context_.selectedSentence();
+        auto rest = context_.preedit(libime::PinyinPreeditMode::RawText).substr(chosen.size());
+        if (rest.empty()) {
+            rest = context_.userInput().substr(context_.selectedLength());
+        }
+        return front_ + shown(chosen) + rest;
     }
-    std::string text() const override { return shown(context_.sentence()); }
+    std::string text() const override {
+        if (typed_) {
+            return front_ + shown(context_.selectedSentence()) +
+                   context_.userInput().substr(context_.selectedLength());
+        }
+        return front_ + shown(context_.sentence());
+    }
+    std::string finished() const override { return front_; }
+    void drop_finished() override { front_.clear(); }
+    void as_typed() override { typed_ = true; }
     std::vector<std::string> candidates() const override { return shown_; }
     int selected() const override { return selected_; }
     bool empty() const override { return context_.empty(); }
     bool has_reading() const override { return context_.size() > context_.selectedLength(); }
     bool chinese() const override { return true; }
     void committed(bool learn) override {
-        if (!learn || library_->learning.empty()) {
+        if (!learn || library_->learning.empty() || (typed_ && !context_.selected())) {
+            return; // Letters typed as they are teach nothing.
+        }
+        // Without Enter's letters, the top candidate for what was left went
+        // in; it counts as accepted.
+        for (std::size_t i = 0; i < max_keys && !context_.selected() && !context_.candidates().empty();
+             ++i) {
+            context_.select(0);
+            defaults_ |= !chosen_.empty();
+            chosen_.push_back(context_.selectedLength());
+        }
+        if (!context_.selected()) {
             return;
         }
-        // Enter took the top candidate for what was left; learn it as chosen.
-        for (std::size_t i = 0; i < max_keys && !context_.selected() && !context_.candidates().empty(); ++i) {
-            context_.select(0);
+        if (!defaults_) {
+            context_.learn(); // The whole sentence, as a word of its own if picked in parts.
+        } else {
+            // Only the words picked are remembered, without the sentence:
+            // an accepted 马 after 来 and 一局 must not come first next time.
+            const auto words = context_.selectedWords();
+            std::vector<std::string> picked;
+            for (std::size_t i = 0; i < words.size() && i < picked_.size(); ++i) {
+                if (picked_[i]) {
+                    picked.push_back(words[i]);
+                }
+            }
+            if (picked.empty()) {
+                return;
+            }
+            library_->ime->model()->history().add(picked);
         }
-        if (context_.selected()) {
-            context_.learn();
-            library_->save();
-        }
+        library_->save();
     }
 
   private:
@@ -192,6 +244,10 @@ class LibimeEngine final : public CjkEngine {
     bool traditional_;
     int selected_{};
     std::vector<std::size_t> chosen_; // selectedLength() before each choice.
+    std::vector<bool> picked_;        // Each selected word: picked, not the top candidate.
+    bool defaults_{};                 // A top candidate was taken after an earlier choice.
+    bool typed_{};                    // Enter: the rest goes as typed (as_typed()).
+    std::string front_;               // Sent ahead of a long reading (finished()).
     // Candidates as shown, Traditional ones once each, and libime's index of each.
     std::vector<std::string> shown_;
     std::vector<std::size_t> source_;
@@ -203,14 +259,54 @@ class LibimeEngine final : public CjkEngine {
         shown_.clear();
         source_.clear();
         selected_ = 0;
+        typed_ = false;
         const auto& candidates = context_.candidates();
-        for (std::size_t i = 0; i < candidates.size() && shown_.size() < max_candidates; ++i) {
+        std::vector<std::pair<std::string, std::size_t>> rows;
+        for (std::size_t i = 0; i < candidates.size() && rows.size() < max_candidates; ++i) {
             auto text = shown(candidates[i].toString());
-            if (std::find(shown_.begin(), shown_.end(), text) == shown_.end()) {
-                shown_.push_back(std::move(text));
-                source_.push_back(i);
+            if (std::none_of(rows.begin(), rows.end(),
+                             [&](const auto& row) { return row.first == text; })) {
+                rows.emplace_back(std::move(text), i);
             }
         }
+        // A rare single character waits behind the rest: neng offers 能 and
+        // its common homophones before 㲌. The conversion stays first.
+        if (rows.size() > 1) {
+            std::stable_partition(rows.begin() + 1, rows.end(), [](const auto& row) {
+                return utf8_length(row.first) > 1 || !rare_character(row.first);
+            });
+        }
+        for (auto& [text, index] : rows) {
+            shown_.push_back(std::move(text));
+            source_.push_back(index);
+        }
+    }
+    // The reading is full: the best conversion's first word goes ahead, to
+    // the field (finished()), and the rest is typed again behind it.
+    void send_front() {
+        const auto& candidates = context_.candidates();
+        if (candidates.empty() || candidates.front().sentence().empty()) {
+            throw CjkMessage("ime.commit-first"); // Nothing converts: it must be corrected.
+        }
+        const auto* first = candidates.front().sentence().front();
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+            const auto& sentence = candidates[i].sentence();
+            if (sentence.size() == 1 && sentence.front()->word() == first->word() &&
+                sentence.front()->to()->index() == first->to()->index()) {
+                context_.select(i);
+                break;
+            }
+        }
+        if (!context_.selectedLength()) {
+            throw CjkMessage("ime.commit-first");
+        }
+        front_ += shown(context_.selectedSentence());
+        const auto rest = context_.userInput().substr(context_.selectedLength());
+        context_.clear();
+        chosen_.clear();
+        picked_.clear();
+        defaults_ = false;
+        context_.type(rest);
     }
 };
 } // namespace

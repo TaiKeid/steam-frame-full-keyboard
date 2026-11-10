@@ -242,7 +242,7 @@ struct TextSink : KeySink {
     // stays pending; it fails once `polls_until_failure` more checks reach 0.
     bool hold{}, held_pending{};
     int polls_until_failure{-1};
-    bool offline{}; // The input connection is lost.
+    bool offline{};        // The input connection is lost.
     bool keys_known{true}; // SteamOS's Desktop hasn't said which app is active yet.
     bool edit_keys_known() const override { return keys_known; }
     std::vector<std::size_t> replaced;
@@ -1308,22 +1308,21 @@ int chinese_flow() {
     require(app.view().preedit == before, "a Pinyin tap waits for release");
     app.up(0, x, y);
     require(app.view().preedit != before && sink.text.empty(), "a Pinyin tap types into the composer");
-    // The composer holds 30 keys. Swiped words beyond that are refused whole,
-    // and taps at the limit report it; neither may end the process.
+    // Past 30 keys the reading sends its converted front and goes on, as a PC
+    // input method does: no swiped word or tap is refused, and none ends the process.
     for (int i = 0; i < 8; ++i) {
-        const auto full = app.view().preedit;
+        const auto before_swipe = app.view().preedit;
         swipe(app, {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}, 3 + i);
-        settle(app, [&] { return app.view().preedit != full || !app.view().status.empty(); });
+        settle(app, [&] { return app.view().preedit != before_swipe || !app.view().status.empty(); });
     }
-    require(!app.view().status.empty(), "a swipe past the composition limit is refused with a notice");
+    require(!sink.text.empty() && app.view().status.empty(),
+            "a swipe past 30 keys sends the reading's front and goes on");
     for (int i = 0; i < 10; ++i) {
-        app.down(0, x, y, 20 + i); // Fill the remaining room with taps.
+        const auto before_tap = app.view().preedit;
+        app.down(0, x, y, 20 + i);
         app.up(0, x, y);
+        require(app.view().preedit != before_tap && app.view().status.empty(), "so does a tap");
     }
-    const auto full = app.view().preedit;
-    app.down(0, x, y, 40);
-    app.up(0, x, y);
-    require(app.view().preedit == full && !app.view().status.empty(), "a tap at the limit is refused");
     app.cancel();
     return 0;
 }

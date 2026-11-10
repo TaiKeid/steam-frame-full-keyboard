@@ -103,7 +103,9 @@ struct CjkComposer::State {
     State(const std::string& method, const std::filesystem::path& learning_dir,
           std::shared_ptr<const TableEngine::Table> table) {
         if (table) {
-            engine = std::make_unique<TableEngine>(std::move(table), table_for(method)->max_keys);
+            const auto input_table = table_for(method);
+            engine = std::make_unique<TableEngine>(std::move(table), input_table->max_keys,
+                                                   input_table->continues);
             return;
         }
         module = load(method);
@@ -219,6 +221,50 @@ void CjkComposer::committed(bool learn) {
 bool CjkComposer::takes_space() const {
     std::lock_guard lock(engine_mutex());
     return state_->engine && state_->engine->takes_space();
+}
+void CjkComposer::as_typed() {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->as_typed();
+    }
+}
+bool CjkComposer::has_cursor() const {
+    std::lock_guard lock(engine_mutex());
+    return state_->engine && state_->engine->has_cursor();
+}
+void CjkComposer::move(int syllables) {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->move(syllables);
+    }
+}
+void CjkComposer::delete_forward() {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->delete_forward();
+    }
+}
+bool CjkComposer::choosing() const {
+    std::lock_guard lock(engine_mutex());
+    return state_->engine && state_->engine->choosing();
+}
+void CjkComposer::set_choosing(bool choosing) {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->set_choosing(choosing);
+    }
+}
+bool CjkComposer::insert_symbol(char symbol, const std::string& text) {
+    std::lock_guard lock(engine_mutex());
+    return state_->engine && engine_call([&] { return state_->engine->insert_symbol(symbol, text); });
+}
+std::optional<CjkComposer::Highlight> CjkComposer::highlight() const {
+    std::lock_guard lock(engine_mutex());
+    Highlight shown;
+    if (state_->engine && state_->engine->highlight(shown.begin, shown.end, shown.caret)) {
+        return shown;
+    }
+    return std::nullopt;
 }
 const std::string& CjkComposer::engine() const {
     return state_->name;

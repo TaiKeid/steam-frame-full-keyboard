@@ -43,6 +43,36 @@
       "KeyZ": "重"
     }
   },
+  "punctuation": {
+    "Comma": "，",
+    "Period": "。",
+    "Semicolon": "；",
+    "Quote": [
+      "‘",
+      "’"
+    ],
+    "Backslash": "、",
+    "BracketLeft": "「",
+    "BracketRight": "」"
+  },
+  "punctuation_shift": {
+    "Digit1": "！",
+    "Digit6": "……",
+    "Digit9": "（",
+    "Digit0": "）",
+    "Minus": "——",
+    "Semicolon": "：",
+    "Quote": [
+      "“",
+      "”"
+    ],
+    "Comma": "《",
+    "Period": "》",
+    "Slash": "？",
+    "BracketLeft": "『",
+    "BracketRight": "』",
+    "Backquote": "～"
+  },
   "font_families": [
     "Noto Sans CJK TC",
     "Noto Sans",
