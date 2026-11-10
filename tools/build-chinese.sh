@@ -154,6 +154,19 @@ configure libime "$source_dir/libime" "${ecm[@]}" -DBUILD_SHARED_LIBS=ON \
     -DENABLE_TEST=OFF -DENABLE_DOC=OFF -DENABLE_DATA=$data -DENABLE_TOOLS=$data
 build libime
 install_to_prefix "$build_root/libime"
+if [[ $data == ON ]]; then
+    # The language model again, pruned (libime_LM_PRUNE), as libime builds its
+    # own. Its prediction model goes: the keyboard doesn't predict.
+    rm -f -- "$prefix/lib/libime/zh_CN.lm.predict"
+    if [[ $libime_LM_PRUNE != 0 ]]; then
+        pruned="$build_root/lm_sc.pruned.arpa"
+        python3 "$project_dir/tools/prune_chinese_lm.py" "$build_root/libime/data/lm_sc.arpa" \
+            "$pruned" "$libime_LM_PRUNE"
+        LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/libime_slm_build_binary" -s -a 22 -q 4 trie \
+            "$pruned" "$prefix/lib/libime/zh_CN.lm"
+        rm -f -- "$pruned"
+    fi
+fi
 
 # McBopomofo: its engine has no install rules; keep its static libraries,
 # headers and plain-text data.

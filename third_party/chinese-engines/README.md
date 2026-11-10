@@ -8,7 +8,7 @@ conversion, and of everything built into them. The sources are not vendored.
 | Component | Pin | Built as | Licence | File here |
 |---|---|---|---|---|
 | libime | 1.1.17 | shared libraries | LGPL-2.1-or-later | `LGPL-2.1-or-later.txt` |
-| libime dictionary and language model (`dict-20260907`, `lm_sc.arpa-20260629`) | SHA-256 in libime's `data/CMakeLists.txt` | data files | LGPL-2.1-or-later | `LGPL-2.1-or-later.txt` |
+| libime dictionary and language model (`dict-20260907`, `lm_sc.arpa-20260629`) | SHA-256 in libime's `data/CMakeLists.txt` | data files; the model modified: pruned by `tools/prune_chinese_lm.py` (`libime_LM_PRUNE` in `tools/chinese-pins.sh`) and built with libime's `slm_build_binary` | LGPL-2.1-or-later | `LGPL-2.1-or-later.txt` |
 | KenLM, inside libime | libime's submodule | part of libime | LGPL-2.1-or-later, BSD-3-Clause for double-conversion | `kenlm-LICENSE`, `kenlm-double-conversion-LICENSE` |
 | fcitx5 utility library (`Fcitx5Utils` only) | 5.1.23 | shared library | LGPL-2.1-or-later | `LGPL-2.1-or-later.txt` |
 | McBopomofo engine and data (fcitx5-mcbopomofo `src/Engine`, `data/`) | 3.1.1 | static libraries, data files | MIT | `mcbopomofo-LICENSE` |

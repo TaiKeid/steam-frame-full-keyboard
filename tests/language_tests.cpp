@@ -1673,8 +1673,10 @@ void pinyin_reranking() {
         short_choices();
         if (!simplified) {
             traditional_selected_display(dir / "traditional-display-normal");
-            // This corrected first word has no separate prefix row. At the
-            // limit only the already selected 我 can be sent ahead.
+            // At the limit, after the selected 我, the first word goes ahead
+            // only if it has a prefix row of its own: whether it does depends
+            // on the language model. Either way each key stays exactly once:
+            // what went ahead is out of the reading, the rest is in it.
             const std::string reading = "wodiangaonihaonihaonihaonihaon";
             CjkComposer fuzzy("chinese-pinyin-traditional");
             type(fuzzy, reading);
@@ -1683,12 +1685,15 @@ void pinyin_reranking() {
             require(prefix != offered.end(), "the fuzzy-front fixture offers its selected prefix");
             fuzzy.choose(static_cast<int>(prefix - offered.begin()));
             fuzzy.type('a');
-            require(fuzzy.finished() == "我", "front sending never appends an unconsumed fuzzy word");
+            const auto front = fuzzy.finished();
+            require(front.starts_with("我"), "the selected prefix goes ahead");
             fuzzy.drop_finished();
             auto remaining = fuzzy.preedit();
             std::erase(remaining, ' ');
-            require(remaining == reading.substr(2) + "a",
-                    "the unconsumed fuzzy word and new key remain exactly once");
+            const auto keys = reading + "a";
+            require(keys.ends_with(remaining) && (front == "我" ? remaining.size() == keys.size() - 2
+                                                                : remaining.size() < keys.size() - 2),
+                    "front sending never appends an unconsumed fuzzy word; each key remains once");
         }
         setenv("FRAMEKEYBOARD_PINYIN_NBEST", "20", 1);
         short_choices();

@@ -316,7 +316,7 @@ The retained engines are built from the revisions pinned in
 
 | Engine | Module | Input methods |
 |---|---|---|
-| libime, with an n-gram model, as in Fcitx 5 | `framekeyboard-libime` | Pinyin; Traditional through OpenCC's Taiwan phrases (`s2twp`) |
+| libime, with Fcitx 5's n-gram model, pruned by 40% to fit the download | `framekeyboard-libime` | Pinyin; Traditional through OpenCC's Taiwan phrases (`s2twp`) |
 | McBopomofo's engine, with its Taiwan phrase data | `framekeyboard-mcbopomofo` | Zhuyin |
 
 Each method requires its module and data. `FRAMEKEYBOARD_CHINESE_ENGINE`

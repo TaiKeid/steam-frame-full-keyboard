@@ -32,6 +32,11 @@ libime_URL=https://github.com/fcitx/libime.git
 libime_TAG=1.1.17
 libime_COMMIT=171edcf137001e8eb8274f53ec010058cda70b09
 libime_SUBMODULES="src/libime/core/kenlm=4cb443e60b7bf2c0ddf3c745378f76cb59e254e5"
+# The share of libime's bigrams and trigrams tools/prune_chinese_lm.py drops,
+# so a release stays under the 64 MiB archive 0.16.0's updater accepts. On
+# benchmark set 3 it costs 2.4 points of Simplified Pinyin top-1 (46.2% to
+# 43.8%) and 1.5 of Traditional. 0 keeps libime's own model.
+libime_LM_PRUNE=0.4
 
 # Zhuyin: McBopomofo's portable engine and Taiwan data (MIT). Only src/Engine is built.
 mcbopomofo_URL=https://github.com/openvanilla/fcitx5-mcbopomofo.git
