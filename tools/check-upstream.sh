@@ -81,5 +81,18 @@ row "Swipe word lists" "${heliboard:0:12}" "${h_head:0:12}" "$(same "$heliboard"
 u_ver=$(curl -fsS --max-time 20 https://unicode.org/Public/emoji/latest/emoji-test.txt 2>/dev/null |
     grep -m1 -oE '^# Version: [0-9.]+' | cut -d' ' -f3)
 row "Unicode emoji" "$emoji" "$u_ver" "$(same "$emoji" "$u_ver")"
+# Chinese engines: tools/chinese-pins.sh holds a URL, tag and commit for each.
+# shellcheck source=tools/chinese-pins.sh
+source "$root/tools/chinese-pins.sh"
+declare -A chinese_tags=([zstd]='^v[0-9]+\.[0-9]+\.[0-9]+$' [ecm]='^v[0-9]+\.[0-9]+\.[0-9]+$'
+    [fcitx5]='^[0-9]+\.[0-9]+\.[0-9]+$' [libime]='^[0-9]+\.[0-9]+\.[0-9]+$'
+    [mcbopomofo]='^[0-9]+(\.[0-9]+)+$' [opencc]='^ver\.[0-9]+\.[0-9]+\.[0-9]+$')
+for name in "${chinese_git_sources[@]}"; do
+    url=${name}_URL tag=${name}_TAG commit=${name}_COMMIT
+    c_tag=$(latest_tag "${!url}" "${chinese_tags[$name]}")
+    row "$name (Chinese)" "${!tag}" "$c_tag" "$(same "${!commit}" "$(tag_commit "${!url}" "$c_tag")")"
+done
+b_tag=$(latest_tag https://github.com/boostorg/boost.git '^boost-[0-9]+\.[0-9]+\.[0-9]+$')
+row "Boost (Chinese)" "$boost_DIR" "$b_tag" "$(same "$boost_DIR" "$b_tag")"
 echo
 echo "CHECK means upstream moved or could not be reached; docs/upkeep.md says what to rerun."

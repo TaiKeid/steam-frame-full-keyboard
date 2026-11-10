@@ -1,5 +1,6 @@
 #include "../src/table_engine.hpp"
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/chinese_candidates.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -7,6 +8,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -811,7 +813,10 @@ void engines(const std::string& group = "") {
         }
     }
     if (group != "--korean") {
-        if (CjkComposer::supported("chinese-zhuyin")) {
+        // PyZy keeps a syllable as symbols until it is chosen; the newer
+        // engines convert it at once (chinese_engines()).
+        if (CjkComposer::supported("chinese-zhuyin") &&
+            CjkComposer("chinese-zhuyin").engine() == "pinyin") {
             // Digits and punctuation are symbols here: ㄋㄧˇ ㄏㄠˇ.
             CjkComposer zhuyin("chinese-zhuyin");
             require(zhuyin.phonetic_keys(), "Zhuyin reads digits as symbols");
@@ -889,6 +894,135 @@ void engines(const std::string& group = "") {
         }
     }
 }
+// The engines being compared to replace PyZy, each where its module was built:
+// FRAMEKEYBOARD_CHINESE_ENGINE picks one. Each converts, chooses a phrase's
+// start, and learns into its folder only when allowed.
+void chinese_engines() {
+    const auto dir = fs::temp_directory_path() / ("framekeyboard-chinese-test-" + std::to_string(getpid()));
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() {
+            unsetenv("FRAMEKEYBOARD_CHINESE_ENGINE");
+            fs::remove_all(path);
+        }
+    } cleanup{dir};
+    const auto learned = [&](const char* engine) {
+        std::error_code error;
+        return !fs::is_empty(dir / engine, error) && !error;
+    };
+    setenv("FRAMEKEYBOARD_CHINESE_ENGINE", "libime", 1);
+    if (CjkComposer::supported("chinese-pinyin-simplified")) {
+        for (const auto* method : {"chinese-pinyin-simplified", "chinese-pinyin-traditional"}) {
+            CjkComposer pinyin(method, dir);
+            require(pinyin.engine() == "libime", "the override picks libime");
+            type(pinyin, "woxiangmaiyitaidiannao");
+            const bool simplified = std::string(method).ends_with("simplified");
+            // OpenCC's Taiwan phrases write the official 臺, not the common 台.
+            require(pinyin.text() == (simplified ? "我想买一台电脑" : "我想買一臺電腦"),
+                    "libime converts a sentence, and OpenCC makes it Traditional");
+            const auto candidates = pinyin.candidates();
+            const auto first = std::find(candidates.begin(), candidates.end(), "我");
+            require(first != candidates.end(), "libime offers a sentence's first word");
+            pinyin.choose(static_cast<int>(first - candidates.begin()));
+            require(pinyin.has_reading() && pinyin.preedit() == "我xiangmaiyitaidiannao",
+                    "the rest of the reading stays after a partial choice");
+            pinyin.backspace();
+            require(pinyin.preedit() == "我xiangmaiyitaidianna", "Backspace takes a key of the rest first");
+            pinyin.cancel();
+            type(pinyin, "nihao");
+            pinyin.choose(0);
+            pinyin.backspace();
+            require(pinyin.preedit() == "nihao", "with nothing left, Backspace undoes the choice");
+            pinyin.committed(false);
+            require(!learned("libime"), "nothing is learned where learning isn't allowed");
+            pinyin.cancel();
+        }
+        CjkComposer pinyin("chinese-pinyin-simplified", dir);
+        type(pinyin, "nihao");
+        pinyin.committed(true);
+        require(fs::exists(dir / "libime/user.history"), "a commit is learned into the folder");
+        CjkComposer elsewhere("chinese-pinyin-simplified");
+        type(elsewhere, "nihao");
+        elsewhere.committed(true); // No folder: nothing is written anywhere.
+    } else {
+        std::cout << "libime skipped: build lacks the module\n";
+    }
+    setenv("FRAMEKEYBOARD_CHINESE_ENGINE", "mcbopomofo", 1);
+    if (CjkComposer::supported("chinese-zhuyin")) {
+        CjkComposer zhuyin("chinese-zhuyin", dir);
+        require(zhuyin.engine() == "mcbopomofo" && zhuyin.phonetic_keys(), "the override picks McBopomofo");
+        // ㄋㄧˇ ㄏㄠˇ: a tone finishes each syllable.
+        type(zhuyin, "su3cl3");
+        require(zhuyin.text() == "你好" && !zhuyin.takes_space(), "Zhuyin converts a phrase");
+        const auto candidates = zhuyin.candidates();
+        require(!candidates.empty() && candidates.front() == "你好", "the conversion comes first, for Space");
+        const auto first = std::find(candidates.begin(), candidates.end(), "你");
+        require(first != candidates.end(), "a phrase offers its first character alone");
+        zhuyin.choose(static_cast<int>(first - candidates.begin()));
+        require(zhuyin.has_reading() && zhuyin.text() == "你好", "the rest stays open after a partial choice");
+        zhuyin.cancel();
+        // ㄇㄚ with Space as its first tone.
+        type(zhuyin, "a8");
+        require(zhuyin.takes_space() && zhuyin.preedit() == "ㄇㄚ", "an open syllable shows its symbols");
+        zhuyin.type(' ');
+        require(!zhuyin.takes_space() && !zhuyin.text().empty() && zhuyin.text() != "ㄇㄚ",
+                "Space finishes the syllable in the first tone");
+        zhuyin.backspace();
+        require(zhuyin.empty(), "Backspace removes the syllable");
+        // A pick is learned once its text reached the field, and only then.
+        const auto pick = [&](bool learn) {
+            type(zhuyin, "su3cl3");
+            const auto offered = zhuyin.candidates();
+            const auto other = std::find(offered.begin(), offered.end(), "妳好");
+            require(other != offered.end(), "Zhuyin offers 妳好 beside 你好");
+            zhuyin.choose(static_cast<int>(other - offered.begin()));
+            zhuyin.committed(learn);
+            zhuyin.cancel();
+        };
+        pick(false);
+        type(zhuyin, "su3cl3");
+        require(zhuyin.text() == "你好" && !learned("mcbopomofo"), "a pick not allowed to teach teaches nothing");
+        zhuyin.cancel();
+        pick(true);
+        require(fs::exists(dir / "mcbopomofo/picks.tsv"), "a committed pick is saved");
+        type(zhuyin, "su3cl3");
+        require(zhuyin.text() == "妳好", "the learned pick comes back for the same reading");
+        zhuyin.cancel();
+    } else {
+        std::cout << "McBopomofo skipped: build lacks the module\n";
+    }
+}
+// The simulator's --chinese-candidates: each method by the line's script, then
+// every engine where it has the method.
+void chinese_report() {
+    const auto report = [](const ChineseCandidatesOptions& options) {
+        std::istringstream readings("nihao\n# a note\n\nㄋㄧˇ ㄏㄠˇ\n");
+        std::ostringstream out;
+        report_chinese_candidates(readings, out, options);
+        return out.str();
+    };
+    const auto plain = report({});
+    require(plain.find("# a note\n\n") != std::string::npos, "notes and empty lines are copied");
+    require(plain.find("  chinese-pinyin-simplified (") != std::string::npos &&
+                plain.find("  chinese-pinyin-traditional (") != std::string::npos,
+            "a Latin line is typed with both Pinyin methods");
+    const auto zhuyin = plain.find("ㄋㄧˇ ㄏㄠˇ\n  chinese-zhuyin (");
+    require(zhuyin != std::string::npos && plain.find("你好", zhuyin) != std::string::npos,
+            "Zhuyin symbols are typed as Zhuyin, and convert");
+    const auto all = report({{}, {"pyzy", "libime", "mcbopomofo"}, 3});
+    for (const auto* engine : {"libime", "mcbopomofo"}) {
+        setenv("FRAMEKEYBOARD_CHINESE_ENGINE", engine, 1);
+        const bool built = CjkComposer::supported(std::string(engine) == "libime" ? "chinese-pinyin-simplified"
+                                                                                 : "chinese-zhuyin");
+        unsetenv("FRAMEKEYBOARD_CHINESE_ENGINE");
+        require(!built || all.find("(" + std::string(engine) + ")  ") != std::string::npos,
+                "each engine built is compared");
+    }
+    require(all.find("chinese-zhuyin (libime)") == std::string::npos &&
+                all.find("chinese-pinyin-simplified (mcbopomofo)") == std::string::npos,
+            "an engine without the method is left out");
+    require(!std::getenv("FRAMEKEYBOARD_CHINESE_ENGINE"), "the report puts the engine choice back");
+}
 // Traditional Chinese through real key presses: digits are Zhuyin symbols, but
 // choose a candidate in Cangjie and Quick.
 void app_traditional() {
@@ -913,8 +1047,13 @@ void app_traditional() {
         const char* finish;
         const char* typed;
     };
+    // PyZy shows the syllable's symbols; the newer engines its character.
+    const char* zhuyin_reading = !CjkComposer::supported("chinese-zhuyin") ||
+                                         CjkComposer("chinese-zhuyin").engine() == "pinyin"
+                                     ? "ㄋㄧˇ"
+                                     : "你";
     const std::vector<Case> cases{
-        {"chinese-zhuyin", "zh-tw-zhuyin", {"KeyS", "KeyU", "Digit3"}, "ㄋㄧˇ", "Space", "你"},
+        {"chinese-zhuyin", "zh-tw-zhuyin", {"KeyS", "KeyU", "Digit3"}, zhuyin_reading, "Space", "你"},
         {"chinese-cangjie",
          "zh-tw-cangjie",
          {"KeyC", "KeyN", "KeyK", "KeyQ"},
@@ -1431,6 +1570,8 @@ int main(int argc, char** argv) {
             }
             if (group == "--chinese") {
                 app_traditional();
+                chinese_engines();
+                chinese_report();
             }
             std::cout << method << ": engine and delivery ordering passed\n";
             return 0;

@@ -203,6 +203,37 @@ void candidate_profile() {
     run("--mozc-server", 1); // A failed server makes the report throw after creating its profile.
     run("--anthy-only", 0);
 }
+// The Chinese report runs from the command line and leaves no settings
+// folder: it learns nothing.
+void chinese_candidate_report() {
+    Profile profile;
+    const auto config = profile.path / "settings";
+    const auto binary = fs::read_symlink("/proc/self/exe").parent_path() / "framekeyboard-simulator";
+    int input[2];
+    require(pipe(input) == 0, "pipe for the readings");
+    const auto child = fork();
+    require(child >= 0, "fork Chinese report");
+    if (child == 0) {
+        dup2(input[0], STDIN_FILENO);
+        close(input[0]);
+        close(input[1]);
+        const int null = open("/dev/null", O_RDWR);
+        dup2(null, STDOUT_FILENO);
+        close(null);
+        execl(binary.c_str(), binary.c_str(), "--chinese-candidates", "--chinese-engine", "all",
+              "--config-dir", config.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    close(input[0]);
+    const std::string readings = "nihao\n# a note\nㄋㄧˇ ㄏㄠˇ\n";
+    require(write(input[1], readings.data(), readings.size()) == static_cast<ssize_t>(readings.size()),
+            "write the readings");
+    close(input[1]);
+    int status = 0;
+    require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "the Chinese report runs");
+    require(!fs::exists(config), "the Chinese report writes no settings");
+}
 double clock_now = 10;
 void wait(Simulator& simulator, double seconds = .1) {
     for (const double end = clock_now + seconds; clock_now < end; clock_now += .01) {
@@ -441,6 +472,7 @@ int main() {
     try {
         injected_converter();
         candidate_profile();
+        chinese_candidate_report();
         editing();
         slow_field();
         japanese_reopen(false);

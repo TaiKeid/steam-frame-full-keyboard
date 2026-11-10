@@ -49,11 +49,16 @@ bool same_keymap(const Language& a, const Language& b) {
     return std::tie(a.rules, a.model, a.keymap, a.variant, a.options) ==
            std::tie(b.rules, b.model, b.keymap, b.variant, b.options);
 }
-std::unique_ptr<CjkComposer> prepare_cjk(const Language& language) {
+std::unique_ptr<CjkComposer> prepare_cjk(const Language& language, const fs::path& learning_dir) {
     if (language.input_method == "korean-2set" || language.input_method.starts_with("chinese-")) {
-        return std::make_unique<CjkComposer>(language.input_method);
+        return std::make_unique<CjkComposer>(language.input_method, learning_dir);
     }
     return {};
+}
+// Pinyin and Zhuyin load dictionaries worth keeping; Cangjie and Quick read
+// small tables as they are used.
+bool phonetic_chinese(const std::string& method) {
+    return method.starts_with("chinese-pinyin-") || method == "chinese-zhuyin";
 }
 // The language a newly chosen layout most likely serves: the current one if it
 // fits, then a favorite pair, a variant of the same language (ja-flick ->
@@ -220,7 +225,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     }
     try {
         keymap_ = std::make_unique<LanguageMap>(profiles_.languages.at(settings_.active.language));
-        cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language));
+        cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language), chinese_learning_dir());
     } catch (const std::exception& error) {
         fallback_status(tr("status.saved-language-failed", {{"error", tr(error)}}));
         settings_.active.language = "en-us";
@@ -311,6 +316,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         configure_anthy({false, anthy_home()});
     }
     sync_mozc();
+    sync_chinese();
     pending_focus_tooltip_ = settings_.focus_tooltip;
     pending_desktop_unicode_paste_ = settings_.desktop_unicode_paste;
     pending_dictation_send_gap_ = settings_.dictation_send_gap;
@@ -2638,7 +2644,7 @@ void App::activate(Selection selection, bool keep_reading) {
     allow_slow_work();
     validate_selection_profiles(profiles_, selection);
     auto keymap = std::make_unique<LanguageMap>(profiles_.languages.at(selection.language));
-    auto cjk = prepare_cjk(profiles_.languages.at(selection.language));
+    auto cjk = prepare_cjk(profiles_.languages.at(selection.language), chinese_learning_dir());
     close_emoji();
     release_input(!keep_reading);
     if (keep_reading && cjk_) {
@@ -2739,6 +2745,7 @@ void App::apply(Selection selection) {
     rebuild_cycle_entries();
     save();
     sync_mozc();
+    sync_chinese();
 }
 void App::rebuild_cycle_entries() {
     std::vector<Selection> entries;
@@ -2798,7 +2805,7 @@ void App::reload() {
     validate_selection_profiles(candidate, settings_.active);
     // Preparing a keymap can fail. Finish that work before releasing the old model.
     auto keymap = std::make_unique<LanguageMap>(candidate.languages.at(settings_.active.language));
-    auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language));
+    auto cjk = prepare_cjk(candidate.languages.at(settings_.active.language), chinese_learning_dir());
     close_emoji(); // Its layout comes from profiles about to be replaced.
     cancel();
     // Reload may change where phrases go and with which model, but only a new
@@ -2847,6 +2854,7 @@ void App::reload() {
         katakana_ = katakana_ && settings_.flick_katakana;
         apply_learning();
         sync_mozc();
+        sync_chinese();
         settings_.focus_tooltip = updated_settings.focus_tooltip;
         settings_.desktop_unicode_paste = updated_settings.desktop_unicode_paste;
         settings_.dictation_send_gap = updated_settings.dictation_send_gap;
@@ -2969,6 +2977,68 @@ void App::sync_mozc() {
         mozc_starting_ = false;
         sync_mozc(); // The wish may have changed meanwhile.
     });
+}
+void App::sync_chinese() {
+    std::set<std::string> methods;
+    if (owns_anthy()) {
+        const auto add = [&](const std::string& id) {
+            const auto found = profiles_.languages.find(id);
+            if (found != profiles_.languages.end() && phonetic_chinese(found->second.input_method)) {
+                methods.insert(found->second.input_method);
+            }
+        };
+        add(default_.language);
+        add(settings_.active.language);
+        for (const auto& favorite : settings_.favorites) {
+            add(favorite.selection.language);
+        }
+    }
+    std::erase_if(chinese_engines_, [&](const auto& engine) { return !methods.contains(engine.first); });
+    for (const auto& method : methods) {
+        if (!chinese_engines_.contains(method)) {
+            try {
+                chinese_engines_[method] = std::make_unique<CjkComposer>(method, chinese_learning_dir());
+            } catch (const std::exception&) {
+                // Nothing to keep loaded; the language reports why once it is used.
+            }
+        }
+    }
+}
+fs::path App::chinese_learning_dir() const {
+    return owns_anthy() && !options_.config_dir.empty() ? options_.config_dir / "chinese" : fs::path{};
+}
+bool App::chinese_learned() const {
+    std::error_code error;
+    const auto dir = chinese_learning_dir();
+    if (dir.empty()) {
+        return false;
+    }
+    for (auto entry = fs::recursive_directory_iterator(dir, error); !error && entry != fs::recursive_directory_iterator();
+         entry.increment(error)) {
+        if (entry->is_regular_file(error) && entry->file_size(error) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+// The engines save what they learn after each commit, not as they go, so
+// once they are gone the files can go; the composers come back empty.
+void App::clear_chinese_learning() {
+    const bool active = cjk_ && cjk_->chinese();
+    chinese_engines_.clear();
+    if (active) {
+        cjk_.reset();
+    }
+    std::error_code error;
+    fs::remove_all(chinese_learning_dir(), error);
+    if (active) {
+        try {
+            cjk_ = prepare_cjk(profiles_.languages.at(settings_.active.language), chinese_learning_dir());
+        } catch (const std::exception& failure) {
+            status_ = tr(failure);
+        }
+    }
+    sync_chinese();
 }
 void App::tick_mozc_save(double now) {
     mozc_clock_ = now;
@@ -3363,13 +3433,17 @@ std::vector<App::LearnedRow> App::learned_rows() {
         // Steam's keyboard's. Titled like the word lists, by English name.
         rows.push_back({"japanese", "Japanese", tr("popup.clear-learned.row.conversions")});
     }
+    if (chinese_learned()) {
+        // What the Pinyin and Zhuyin engines learned, in our config folder only.
+        rows.push_back({"chinese", "Chinese", tr("popup.clear-learned.row.conversions")});
+    }
     std::sort(rows.begin(), rows.end(),
               [](const LearnedRow& a, const LearnedRow& b) { return a.title < b.title; });
     return rows;
 }
 bool App::anything_learned() {
     // Asked for each Settings update: it reads no words file, only their sizes.
-    if (learned_) {
+    if (learned_ || chinese_learned()) {
         return true;
     }
     for (const auto& [lexicon, learned] : learned_words_) {
@@ -3402,6 +3476,8 @@ void App::clear_learned(const std::vector<LearnedRow>& rows) {
     for (const auto& row : rows) {
         if (row.on && row.id == "japanese") {
             japanese = true;
+        } else if (row.on && row.id == "chinese") {
+            clear_chinese_learning();
         } else if (row.on) {
             learned_words(row.id).clear();
         }
@@ -3997,6 +4073,8 @@ void App::commit_cjk() {
     }
     // In dictation mode the editor takes the text, even in a preview.
     if (!text.empty() && (preview_output() || text_output_->commit_text(text))) {
+        // A preview's text goes nowhere, so nothing is learned from it.
+        cjk_->committed(!preview_output() && learning_allowed());
         cjk_->cancel();
         status_.clear();
     } else {
@@ -4351,6 +4429,13 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
             }
             return true;
         }
+        // An open syllable takes Space as its first tone (McBopomofo).
+        if (code == "Space" && cjk_->takes_space()) {
+            if (execute) {
+                cjk_->type(' ');
+            }
+            return true;
+        }
     } else if (cjk_->chinese() && composing && code.size() == 6 && code.starts_with("Digit") &&
                code.back() >= '1' && code.back() <= '5' && !mods.contains(key_code("ShiftLeft")) &&
                !mods.contains(key_code("ShiftRight")) && !cjk_->candidates().empty()) {
@@ -4468,6 +4553,7 @@ void App::apply_settings() {
     katakana_ = katakana_ && settings_.flick_katakana; // Without its key, back to hiragana.
     apply_learning();
     sync_mozc();
+    sync_chinese();
     settings_.focus_tooltip = pending_focus_tooltip_;
     settings_.desktop_unicode_paste = pending_desktop_unicode_paste_;
     settings_.dictation_send_gap = pending_dictation_send_gap_;

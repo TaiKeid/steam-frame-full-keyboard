@@ -73,7 +73,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/session_environment.cpp src/app.cpp src/app_languages.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/session_environment.cpp src/app.cpp src/app_languages.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -208,9 +208,78 @@ else()
         message(STATUS "Mozc unavailable: set FRAMEKEYBOARD_MOZC_SERVER to convert Japanese with it")
     endif()
 endif()
+# Chinese engines replacing PyZy: libime for Pinyin, with OpenCC for
+# Traditional, and McBopomofo for Zhuyin (docs/languages.md, Chinese engines). They come
+# from a prefix tools/build-chinese.sh made, outside Git. Each is a module, and
+# their libraries and data go in chinese/ beside the modules: engines/chinese
+# here, linked to the prefix, and lib/framekeyboard/chinese in a package.
+set(FRAMEKEYBOARD_CHINESE_PREFIX "" CACHE PATH "Prefix with the Chinese engines, from tools/build-chinese.sh")
+set(CHINESE_OUT "${CMAKE_CURRENT_BINARY_DIR}/engines/chinese")
+if(FRAMEKEYBOARD_CHINESE_PREFIX)
+    set(chinese "${FRAMEKEYBOARD_CHINESE_PREFIX}")
+    if(NOT EXISTS "${chinese}/share/framekeyboard/chinese-pins.sh")
+        message(FATAL_ERROR "FRAMEKEYBOARD_CHINESE_PREFIX is not a prefix from tools/build-chinese.sh")
+    endif()
+    function(framekeyboard_chinese_module name)
+        add_library(cjk_${name} MODULE src/cjk_${name}.cpp ${ARGN})
+        target_include_directories(cjk_${name} PRIVATE include)
+        target_compile_options(cjk_${name} PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+        # The engines' shared libraries sit in chinese/ beside the module.
+        # They are linked even where a symbol isn't used directly, so the
+        # module's run path finds them before they look for each other.
+        target_link_options(cjk_${name} PRIVATE LINKER:--no-as-needed)
+        if(CMAKE_CROSSCOMPILING)
+            target_link_options(cjk_${name} PRIVATE -fuse-ld=lld)
+        endif()
+        set_target_properties(cjk_${name} PROPERTIES
+            PREFIX "" OUTPUT_NAME "framekeyboard-${name}"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/engines"
+            # The build tree's run path would name the prefix too; the
+            # installed one is all a copy, such as the AppImage's, needs.
+            BUILD_WITH_INSTALL_RPATH YES INSTALL_RPATH "\$ORIGIN/chinese"
+            CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+        add_dependencies(keyboard_core cjk_${name})
+        install(TARGETS cjk_${name} LIBRARY DESTINATION lib/framekeyboard)
+    endfunction()
+    framekeyboard_chinese_module(libime src/private_file.cpp)
+    target_include_directories(cjk_libime SYSTEM PRIVATE "${chinese}/include" "${chinese}/include/LibIME"
+        "${chinese}/include/Fcitx5/Utils")
+    target_link_libraries(cjk_libime PRIVATE "${chinese}/lib/libIMEPinyin.so" "${chinese}/lib/libIMECore.so"
+        "${chinese}/lib/libFcitx5Utils.so" "${chinese}/lib/libopencc.a" "${chinese}/lib/libmarisa.a")
+    framekeyboard_chinese_module(mcbopomofo src/private_file.cpp)
+    target_include_directories(cjk_mcbopomofo SYSTEM PRIVATE "${chinese}/include/mcbopomofo")
+    target_link_libraries(cjk_mcbopomofo PRIVATE "${chinese}/lib/mcbopomofo/libMcBopomofoLMLib.a"
+        "${chinese}/lib/mcbopomofo/libgramambular2_lib.a" "${chinese}/lib/mcbopomofo/libMandarinLib.a")
+    # The files each engine reads, by where the modules look for them.
+    set(chinese_files
+        "libime/sc.dict=share/libime/sc.dict" "libime/extb.dict=share/libime/extb.dict"
+        "libime/zh_CN.lm=lib/libime/zh_CN.lm" "libime/zh_CN.lm.predict=lib/libime/zh_CN.lm.predict"
+        "mcbopomofo/data.txt=share/mcbopomofo/data.txt")
+    foreach(library libFcitx5Utils.so.2 libIMECore.so.0 libIMEPinyin.so.0)
+        list(APPEND chinese_files "${library}=lib/${library}")
+    endforeach()
+    file(REMOVE_RECURSE "${CHINESE_OUT}")
+    foreach(entry ${chinese_files})
+        string(REPLACE "=" ";" pair "${entry}")
+        list(GET pair 0 destination)
+        list(GET pair 1 source)
+        file(REAL_PATH "${chinese}/${source}" real)
+        get_filename_component(folder "${destination}" DIRECTORY)
+        get_filename_component(filename "${destination}" NAME)
+        file(MAKE_DIRECTORY "${CHINESE_OUT}/${folder}")
+        file(CREATE_LINK "${real}" "${CHINESE_OUT}/${destination}" SYMBOLIC)
+        install(FILES "${real}" DESTINATION "lib/framekeyboard/chinese/${folder}" RENAME "${filename}")
+    endforeach()
+    # OpenCC's Taiwan configuration with the dictionaries it names.
+    file(CREATE_LINK "${chinese}/share/opencc" "${CHINESE_OUT}/opencc" SYMBOLIC)
+    install(DIRECTORY "${chinese}/share/opencc/" DESTINATION "lib/framekeyboard/chinese/opencc")
+else()
+    file(REMOVE_RECURSE "${CHINESE_OUT}")
+    message(STATUS "New Chinese engines unavailable: set FRAMEKEYBOARD_CHINESE_PREFIX to build them")
+endif()
 # Packaging follows this configuration even if old engine files were left in the tree.
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/simulator-engines.conf"
-    CONTENT "pack_mozc=$<BOOL:${FRAMEKEYBOARD_MOZC_SERVER}>\npack_swipe=$<BOOL:${FRAMEKEYBOARD_SWIPE_ENGINE}>\n")
+    CONTENT "pack_mozc=$<BOOL:${FRAMEKEYBOARD_MOZC_SERVER}>\npack_swipe=$<BOOL:${FRAMEKEYBOARD_SWIPE_ENGINE}>\npack_chinese=$<BOOL:${FRAMEKEYBOARD_CHINESE_PREFIX}>\n")
 file(GLOB SWIPE_LEXICONS CONFIGURE_DEPENDS swipe/lexicons/*.tsv)
 foreach(lexicon ${SWIPE_LEXICONS})
     get_filename_component(name "${lexicon}" NAME)
@@ -575,6 +644,10 @@ if(BUILD_TESTING)
     # that the caller has focused and verifies before every command.
     add_executable(text-replace-probe tests/text_replace_probe.cpp)
     target_link_libraries(text-replace-probe PRIVATE keyboard_core)
+    # Compares the Chinese engines' answers, time and memory where the
+    # simulator isn't built, as on the Frame; sends nothing.
+    add_executable(chinese-candidates-probe tests/chinese_candidates_probe.cpp)
+    target_link_libraries(chinese-candidates-probe PRIVATE keyboard_core)
     if(FRAMEKEYBOARD_VR)
         # Opt-in read-only validation against the installed Frame controller models.
         add_executable(stick-component-probe tests/stick_component_probe.cpp)

@@ -162,7 +162,8 @@ that accepts Gamescope's text delivery.
 Traditional Chinese also offers Zhuyin, Cangjie and Quick, whose keys show their
 symbols or radicals. Zhuyin uses the standard keyboard, including the digit and
 punctuation keys, and converts phrases; finish a syllable with a tone key, and Space
-chooses the highlighted candidate. Cangjie takes up to five keys and Quick two. Each
+chooses the highlighted candidate. With McBopomofo (below), Space also gives a
+syllable still open the first tone. Cangjie takes up to five keys and Quick two. Each
 shows the keys as radicals, lists matching characters, longer codes after exact ones,
 and types one character at a time. Cangjie and Quick read the tables SteamOS installs
 in `/usr/share/ibus-table/tables`; without them those languages stay listed, and choosing
@@ -237,14 +238,47 @@ resizing, pinning and recentring the panel, and opening Settings, keep it. A hel
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
 Both are loaded only when their language is selected. Missing libraries disable
 that composition profile, not the whole keyboard.
-No IBus daemon configuration, system language setting, clipboard access, network
-service, or persistent typing history is used. PyZy's conversion/selection
+No IBus daemon configuration, system language setting, clipboard access or network
+service is used, and PyZy and libhangul keep no typing history. PyZy's conversion/selection
 learning APIs are deliberately avoided. Its startup database uses private
 RAM-backed storage that is removed before typing; the active user database is
 in memory. If private memory-backed storage is unavailable, the profile reports
 an error rather than using persistent storage. A build without an engine rejects its profile on Apply while retaining the
 previous profile. A saved unsupported composition profile falls back to English
 at launch with an error message.
+
+### Chinese engines
+
+PyZy is being replaced, and its candidates for Traditional Chinese come from
+the mainland dictionary. A blind benchmark chose these engines, built from
+the revisions pinned in `tools/chinese-pins.sh` ([building](building.md#dependencies)):
+
+| Engine | Module | Input methods |
+|---|---|---|
+| libime, with an n-gram model, as in Fcitx 5 | `framekeyboard-libime` | Pinyin; Traditional through OpenCC's Taiwan phrases (`s2twp`) |
+| McBopomofo's engine, with its Taiwan phrase data | `framekeyboard-mcbopomofo` | Zhuyin |
+
+Each method takes its engine when that module is installed, else PyZy.
+`FRAMEKEYBOARD_CHINESE_ENGINE` names the engine to use instead, for comparing
+them: `pyzy`, `libime` or `mcbopomofo`. Hanyu Pinyin through McBopomofo isn't
+offered, because it needs tone numbers, and 1–5 choose candidates here.
+
+Zhuyin converts a syllable as soon as its tone is typed, and takes the tones
+as written in the dictionary or as spoken (不客氣 with ㄅㄨˋ or ㄅㄨˊ). The
+first candidate is the conversion as it stands, so Space keeps it; the others
+are the phrases starting there, longest first. The engines' dictionaries stay
+loaded while a Chinese language is added, main or additional, and are freed
+when it is removed, as Mozc's server is. Traditional Pinyin's OpenCC needs
+about 50 MB more than Simplified while it is added.
+
+Both engines learn, as on Steam's keyboard. They learn from text once it
+reaches the field, never in a password, PIN or terminal field, and never in a
+preview. libime learns the words you choose and the sentences you commit.
+McBopomofo learns the candidates you pick over its conversion, as McBopomofo
+does, and keeps them across restarts, each fading over weeks. What they learn
+stays in Full Keyboard's config folder, in `chinese/libime` and
+`chinese/mcbopomofo`, owner-only. **Clear learned words** lists it as
+Chinese and deletes it.
 
 Automated tests cover profile legends, sample letters, AltGr levels and dead
 keys of every national keymap, Chinese script conversion/candidates,

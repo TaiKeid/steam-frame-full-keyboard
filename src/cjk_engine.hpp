@@ -34,6 +34,14 @@ class CjkEngine {
     virtual void drop_finished() {}
     // Drops what is still open, keeping finished text for its commit.
     virtual void cancel_open() { cancel(); }
+    // text() reached the field; the app clears the reading next. An engine
+    // that learns does so only when `learn` is set (never in a password, PIN
+    // or terminal field) and it was given a folder to keep it in.
+    virtual void committed(bool learn) { (void)learn; }
+    // Zhuyin engines whose open syllable takes Space as its first tone.
+    virtual bool takes_space() const { return false; }
 };
-using CreateCjkEngine = CjkEngine* (*)(const char*);
+// The method's ID, and the folder for what the engine learns: empty learns
+// nothing and writes nothing.
+using CreateCjkEngine = CjkEngine* (*)(const char* method, const char* learning_dir);
 } // namespace framekeyboard

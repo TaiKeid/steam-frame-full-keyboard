@@ -1,6 +1,7 @@
 // The desktop simulator's window (docs/simulator.md): SDL events become the
 // Simulator's pointer calls, and its canvas is shown scaled to the window.
 #include "candidate_profile.hpp"
+#include "framekeyboard/chinese_candidates.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/emoji_words.hpp"
 #include "framekeyboard/japanese_candidates.hpp"
@@ -41,6 +42,12 @@ void help() {
               << "  --japanese-candidates     Read phrases from standard input, one a line, kana or\n"
               << "                            romaji, and print what Japanese input offers for each,\n"
               << "                            without a window or learning\n"
+              << "  --chinese-candidates      Read Pinyin or Zhuyin readings from standard input, one\n"
+              << "                            a line, and print the conversion and candidates of each\n"
+              << "                            method, without a window or learning\n"
+              << "  --chinese-engine NAME     Compare this engine there (pyzy, libime, mcbopomofo,\n"
+              << "                            or all); again for more\n"
+              << "  --chinese-method ID       Type the readings with this method only; again for more\n"
               << "  --candidates N            How many candidates it lists, 12 live and 6 a segment\n"
               << "  --mozc-server PATH        Convert with this mozc_server, not the bundled one\n"
               << "  --anthy-only              Convert with Anthy alone, to compare\n"
@@ -80,6 +87,8 @@ int main(int argc, char** argv) {
         sim::Setup setup;
         bool list = false, candidates = false, mozc_chosen = false;
         fk::JapaneseCandidatesOptions candidate_options;
+        fk::ChineseCandidatesOptions chinese_options;
+        bool chinese_candidates = false;
         double duration = 0;
         fs::path dictionary;
         if (const char* path = std::getenv("FRAMEKEYBOARD_EMOJI_DICTIONARY"); path && *path) {
@@ -127,6 +136,17 @@ int main(int argc, char** argv) {
                 setup.data_dir = value();
             } else if (argument == "--japanese-candidates") {
                 candidates = true;
+            } else if (argument == "--chinese-candidates") {
+                chinese_candidates = true;
+            } else if (argument == "--chinese-engine") {
+                const auto engine = value();
+                if (engine == "all") {
+                    chinese_options.engines = {"pyzy", "libime", "mcbopomofo"};
+                } else {
+                    chinese_options.engines.push_back(engine);
+                }
+            } else if (argument == "--chinese-method") {
+                chinese_options.methods.push_back(value());
             } else if (argument == "--no-word-forms") {
                 candidate_options.word_forms = false;
             } else if (argument == "--mozc-server") {
@@ -142,7 +162,7 @@ int main(int argc, char** argv) {
                 if (end != count.size() || number == 0) {
                     throw std::runtime_error("--candidates needs a positive number");
                 }
-                candidate_options.live = candidate_options.segment = number;
+                candidate_options.live = candidate_options.segment = chinese_options.count = number;
             } else if (argument == "--duration") {
                 const auto seconds = value();
                 std::size_t end = 0;
@@ -187,6 +207,11 @@ int main(int argc, char** argv) {
                 std::cerr << "Full Keyboard simulator: " << problem
                           << ". Japanese conversion may be unavailable.\n";
             }
+        }
+        if (chinese_candidates) {
+            // Nothing is learned or written: the composers get no learning folder.
+            fk::report_chinese_candidates(std::cin, std::cout, chinese_options);
+            return 0;
         }
         fs::create_directories(setup.config_dir);
         if (candidates) {

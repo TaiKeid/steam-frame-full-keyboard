@@ -16,6 +16,10 @@
 #                                   the host build (docs/building.md)
 #   FRAMEKEYBOARD_MOZC_HOST         optional: Mozc's server, so Japanese
 #                                   converts with Mozc (docs/building.md)
+#   FRAMEKEYBOARD_CHINESE_HOST      optional: the Chinese engines' host
+#                                   prefix, so Pinyin and Zhuyin convert with
+#                                   libime and McBopomofo
+#                                   (docs/building.md)
 set -euo pipefail
 shopt -s nullglob
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -56,6 +60,11 @@ for engine in "$build"/engines/*.so; do
     if [[ ${engine##*/} == framekeyboard-swipe.so && $pack_swipe == 0 ]]; then
         continue
     fi
+    case ${engine##*/} in
+    framekeyboard-libime.so | framekeyboard-mcbopomofo.so)
+        [[ $pack_chinese == 1 ]] || continue
+        ;;
+    esac
     install -m 644 "$engine" "$appdir/usr/lib/framekeyboard/"
     strip --strip-unneeded "$appdir/usr/lib/framekeyboard/${engine##*/}"
 done
@@ -65,6 +74,16 @@ if [[ $pack_swipe == 1 ]]; then
     cp -r swipe/lexicons "$appdir/usr/share/framekeyboard/swipe/" # with their sources and licenses
 else
     echo 'Packing without the swipe engine: swipe typing will stay off.' >&2
+fi
+# The Chinese engines' libraries and data sit in chinese/ beside their modules;
+# the build tree links them to the prefix, so they are copied as files.
+if [[ $pack_chinese == 1 ]]; then
+    cp -rL "$build/engines/chinese" "$appdir/usr/lib/framekeyboard/"
+    for library in "$appdir"/usr/lib/framekeyboard/chinese/*.so.*; do
+        strip --strip-unneeded "$library"
+    done
+else
+    echo 'Packing without the new Chinese engines: Pinyin and Zhuyin convert with PyZy where it is installed.' >&2
 fi
 # Japanese converts with Mozc's server where the build has it, Anthy otherwise.
 if [[ $pack_mozc == 1 ]]; then
@@ -102,7 +121,8 @@ bundle_libraries() {
         while read -r name arrow path _; do
             [[ $arrow == '=>' && $path == /* ]] || continue
             name=${name##*/} # the loader shows as a path
-            if system_library "$name" || [[ -e $appdir/usr/lib/$name ]]; then
+            # Libraries the image already carries, such as the Chinese engines' own.
+            if system_library "$name" || [[ -e $appdir/usr/lib/$name || $path == "$project_dir/$appdir"/* ]]; then
                 continue
             fi
             cp -L "$path" "$appdir/usr/lib/$name"
@@ -128,6 +148,9 @@ cp LICENSE third_party/README.md "$appdir/usr/share/licenses/framekeyboard/"
 cp -r third_party/libei third_party/gamescope third_party/wlr-protocols third_party/wayland-protocols \
     third_party/unicode third_party/mozc \
     "$appdir/usr/share/licenses/framekeyboard/third_party/"
+if [[ $pack_chinese == 1 ]]; then
+    cp -r third_party/chinese-engines "$appdir/usr/share/licenses/framekeyboard/third_party/"
+fi
 if [[ -f $appdir/usr/lib/framekeyboard/framekeyboard-swipe.so ]]; then
     cp -r third_party/futo-swipe third_party/executorch "$appdir/usr/share/licenses/framekeyboard/third_party/"
     rm -f "$appdir/usr/share/licenses/framekeyboard/third_party/futo-swipe/model_fp32.pte"

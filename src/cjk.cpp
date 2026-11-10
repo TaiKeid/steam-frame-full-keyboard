@@ -3,6 +3,7 @@
 #include "framekeyboard/localization.hpp"
 #include "table_engine.hpp"
 
+#include <cstdlib>
 #include <dlfcn.h>
 #include <filesystem>
 #include <map>
@@ -12,9 +13,9 @@
 namespace framekeyboard {
 namespace {
 // A shell preview builds its own App, and engine, on a worker thread. Engines
-// share process-wide state: the module map below, the cached Pinyin library and
-// PyZy's single database and init/finalize. So every engine creation, call and
-// destruction, on any thread, holds this one lock.
+// share process-wide state: the module map below, each module's loaded
+// dictionaries and models, and PyZy's single database and init/finalize. So
+// every engine creation, call and destruction, on any thread, holds this one lock.
 std::mutex& engine_mutex() {
     static std::mutex mutex;
     return mutex;
@@ -29,9 +30,10 @@ template <class Call> auto engine_call(Call&& call) {
     }
 }
 struct Module {
+    std::string name;
     void* handle{};
     CreateCjkEngine create{};
-    explicit Module(const std::string& name) {
+    explicit Module(const std::string& module) : name(module) {
         const auto executable = std::filesystem::read_symlink("/proc/self/exe").parent_path();
         const auto filename = "framekeyboard-" + name + ".so";
         // Only load sibling modules, never working-directory or system-path
@@ -44,7 +46,7 @@ struct Module {
         if (!handle) {
             throw UiError(ui("ime.engine-unavailable", {{"engine", name}}));
         }
-        create = reinterpret_cast<CreateCjkEngine>(dlsym(handle, "framekeyboard_create_cjk_v2"));
+        create = reinterpret_cast<CreateCjkEngine>(dlsym(handle, "framekeyboard_create_cjk_v3"));
         if (!create) {
             dlclose(handle);
             throw UiError(ui("ime.engine-incompatible", {{"engine", name}}));
@@ -52,15 +54,23 @@ struct Module {
     }
     ~Module() { dlclose(handle); }
 };
-std::shared_ptr<Module> load(const std::string& method) {
-    const std::string name = method == "korean-2set" ? "hangul"
-                             : method == "chinese-pinyin-simplified" ||
-                                     method == "chinese-pinyin-traditional" || method == "chinese-zhuyin"
-                                 ? "pinyin"
-                                 : "";
-    if (name.empty()) {
+// The modules that may compose a method, best first. framekeyboard-pinyin is
+// PyZy's adapter; the override names one engine alone (CjkComposer).
+std::vector<std::string> module_names(const std::string& method) {
+    if (method == "korean-2set") {
+        return {"hangul"};
+    }
+    const bool pinyin = method == "chinese-pinyin-simplified" || method == "chinese-pinyin-traditional";
+    if (!pinyin && method != "chinese-zhuyin") {
         throw std::runtime_error("Unknown Chinese/Korean input method");
     }
+    if (const char* engine = std::getenv("FRAMEKEYBOARD_CHINESE_ENGINE"); engine && *engine) {
+        const std::string name = engine;
+        return {name == "pyzy" ? "pinyin" : name};
+    }
+    return {pinyin ? "libime" : "mcbopomofo", "pinyin"};
+}
+std::shared_ptr<Module> load_module(const std::string& name) {
     // Applying a profile briefly keeps old and new contexts alive together.
     // Share their module, then unload after its last context is destroyed.
     static std::map<std::string, std::weak_ptr<Module>> modules;
@@ -71,17 +81,32 @@ std::shared_ptr<Module> load(const std::string& method) {
     }
     return module;
 }
+// The first module that loads; a newer engine's absence falls back to PyZy.
+std::shared_ptr<Module> load(const std::string& method) {
+    const auto names = module_names(method);
+    for (std::size_t i = 0;; ++i) {
+        try {
+            return load_module(names[i]);
+        } catch (const UiError&) {
+            if (i + 1 == names.size()) {
+                throw;
+            }
+        }
+    }
+}
 } // namespace
 struct CjkComposer::State {
     std::shared_ptr<Module> module;
     std::unique_ptr<CjkEngine> engine; // Reverse destruction keeps module code alive.
-    explicit State(const std::string& method) {
+    std::string name = "table";
+    State(const std::string& method, const std::filesystem::path& learning_dir) {
         if (const auto table = table_for(method)) {
             engine = std::make_unique<TableEngine>(table->path, table->max_keys);
             return;
         }
         module = load(method);
-        engine.reset(engine_call([&] { return module->create(method.c_str()); }));
+        name = module->name;
+        engine.reset(engine_call([&] { return module->create(method.c_str(), learning_dir.c_str()); }));
         if (!engine) {
             throw std::runtime_error("Could not create composition engine");
         }
@@ -98,10 +123,10 @@ bool CjkComposer::supported(const std::string& method) {
         return false;
     }
 }
-CjkComposer::CjkComposer(const std::string& method)
+CjkComposer::CjkComposer(const std::string& method, const std::filesystem::path& learning_dir)
     : state_([&] {
           std::lock_guard lock(engine_mutex());
-          return std::make_unique<State>(method);
+          return std::make_unique<State>(method, learning_dir);
       }()),
       phonetic_keys_(method == "chinese-zhuyin"), syllables_(method.starts_with("chinese-pinyin-")) {
 }
@@ -176,6 +201,19 @@ void CjkComposer::drop_finished() {
 void CjkComposer::cancel_open() {
     std::lock_guard lock(engine_mutex());
     state_->engine->cancel_open();
+}
+void CjkComposer::committed(bool learn) {
+    std::lock_guard lock(engine_mutex());
+    if (state_->engine) {
+        state_->engine->committed(learn);
+    }
+}
+bool CjkComposer::takes_space() const {
+    std::lock_guard lock(engine_mutex());
+    return state_->engine && state_->engine->takes_space();
+}
+const std::string& CjkComposer::engine() const {
+    return state_->name;
 }
 bool CjkComposer::phonetic_keys() const {
     return phonetic_keys_;

@@ -289,7 +289,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Native rendering and hit regions | `src/panel.cpp`; Extended key collision areas `src/key_areas.cpp` |
 | Settings, profile changes and composition dispatch | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp`; conversion worker `src/japanese_worker.cpp`; Mozc `src/mozc.cpp`; candidate row `src/candidates.cpp`; next phrases `src/next_words.cpp`; emoji candidates `src/emoji_words.cpp`; the simulator's candidates report `src/japanese_candidates.cpp` |
-| Chinese and Korean composition | `src/cjk.cpp` (module loading and the shared lock); adapters `src/cjk_engine.cpp`; Cangjie and Quick `src/table_engine.cpp` |
+| Chinese and Korean composition | `src/cjk.cpp` (module loading, engine choice and the shared lock); adapters `src/cjk_engine.cpp` (PyZy, libhangul), `src/cjk_libime.cpp`, `src/cjk_mcbopomofo.cpp`; Cangjie and Quick `src/table_engine.cpp` |
 | Dashboard focus and the out-of-sight cue | `include/framekeyboard/focus_visibility.hpp`; focus watchers `src/desktop_focus.cpp`; sampling in `src/vr.cpp` |
 | Native keyboard replacement | `src/native_replacement.cpp`, `bridge/native_bridge.py`, `bridge/steam_bridge.js`; recovery guard `src/native_restore_guard.cpp` |
 | Swipe keys, word lists, decoding and worker | `src/swipe.cpp`, `include/framekeyboard/swipe.hpp`; encoder module `src/swipe_engine.cpp` |
@@ -312,8 +312,12 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 
 `CjkComposer` loads a bundled engine adapter on demand with `dlopen`. The
 main executable has no PyZy/libhangul startup dependency. Each adapter links its
-own system library and exposes a versioned factory, `framekeyboard_create_cjk_v2`,
-returning the private `CjkEngine` interface (`src/cjk_engine.hpp`).
+own engine library and exposes a versioned factory, `framekeyboard_create_cjk_v3`,
+which takes the method and a learning folder and returns the private `CjkEngine`
+interface (`src/cjk_engine.hpp`). The libime and McBopomofo modules
+carry their engines' libraries and data in `chinese/` beside them, found
+through the module's own path; each shares its loaded dictionaries between its
+contexts.
 Adapters and host are built together; engine objects are destroyed before their
 module is unloaded. A missing engine rejects Apply, or falls back to English at
 startup without overwriting the saved profile. Cangjie and Quick use

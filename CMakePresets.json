@@ -10,7 +10,8 @@
       "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug",
                          "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}",
                          "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_HOST}",
-                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}"}
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}",
+                         "FRAMEKEYBOARD_CHINESE_PREFIX": "$env{FRAMEKEYBOARD_CHINESE_HOST}"}
     },
     {
       "name": "sanitized",
@@ -35,7 +36,8 @@
                          "FRAMEKEYBOARD_VR": "OFF",
                          "BUILD_TESTING": "OFF",
                          "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_HOST}",
-                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}"}
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_HOST}",
+                         "FRAMEKEYBOARD_CHINESE_PREFIX": "$env{FRAMEKEYBOARD_CHINESE_HOST}"}
     },
     {
       "name": "frame-arm64",
@@ -46,7 +48,8 @@
       "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo",
                          "FRAMEKEYBOARD_EXECUTORCH_DIR": "$env{FRAMEKEYBOARD_EXECUTORCH_FRAME}",
                          "FRAMEKEYBOARD_WHISPER_DIR": "$env{FRAMEKEYBOARD_WHISPER_FRAME}",
-                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_FRAME}"}
+                         "FRAMEKEYBOARD_MOZC_SERVER": "$env{FRAMEKEYBOARD_MOZC_FRAME}",
+                         "FRAMEKEYBOARD_CHINESE_PREFIX": "$env{FRAMEKEYBOARD_CHINESE_FRAME}"}
     },
     {
       "name": "frame-arm64-release",

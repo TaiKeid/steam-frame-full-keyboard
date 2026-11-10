@@ -381,7 +381,8 @@ void Engine::cancel_open() {
 
 // This factory is the only exported entry point. The module and host ship in
 // the same release and share this internal C++ interface, not PyZy's ABI.
+// PyZy and Hangul learn nothing, so the learning folder goes unused.
 extern "C" __attribute__((visibility("default"))) framekeyboard::CjkEngine*
-framekeyboard_create_cjk_v2(const char* method) {
+framekeyboard_create_cjk_v3(const char* method, const char*) {
     return new framekeyboard::Engine(method);
 }

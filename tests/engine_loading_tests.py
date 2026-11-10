@@ -23,7 +23,9 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-engines-") as directory:
         # Force dlopen's dependency resolution to fail without altering the OS.
         libraries = root / "unavailable"
         libraries.mkdir()
-        for name in ("libpyzy-1.0.so.0", "libhangul.so.1"):
+        # LD_LIBRARY_PATH comes before the new Chinese modules' run path.
+        for name in ("libpyzy-1.0.so.0", "libhangul.so.1", "libIMEPinyin.so.0", "libIMECore.so.0",
+                     "libFcitx5Utils.so.2"):
             (libraries / name).write_bytes(b"unavailable library test fixture")
         subprocess.run([str(probe), "--without-engines"], check=True,
                        env=dict(os.environ, LD_LIBRARY_PATH=str(libraries)))

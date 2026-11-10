@@ -69,6 +69,8 @@ Japanese conversion uses Mozc's server, `mozc_server` from Mozc 3.35.6354.2, shi
 
 The Japanese common-word list, `japanese/words.tsv`, and kaomoji list, `japanese/kaomoji.tsv`, are derived from Mozc's open-source dictionary and emoticon data (BSD 3-Clause; IPAdic, ICOT Free Software and the public-domain Okinawa dictionary). `mozc/LICENSE` holds those notices; `japanese/README.md` the pinned commit, file hashes and how it is built.
 
+The Chinese engines replacing PyZy are libime with OpenCC, and McBopomofo's engine. `tools/build-chinese.sh` builds them, with their dictionaries and the libraries they need, from the revisions pinned in `tools/chinese-pins.sh`. Their sources are not vendored. `chinese-engines/` holds their licences and lists what each one covers: LGPL-2.1-or-later for libime, KenLM and fcitx5's utility library, which stay shared libraries. The rest is MIT, Apache-2.0, BSD and BSL-1.0.
+
 Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.
 Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.
 Neither library nor dictionary is redistributed. PyZy engine interaction was checked

@@ -40,6 +40,19 @@ export FRAMEKEYBOARD_MOZC_FRAME=/path/to/mozc-arm64/mozc_server
 
 Arch Linux ARM keeps no archive of old packages, so keep the downloaded package in `/path/to/mozc-arm64.download`: once Arch Linux ARM updates fcitx5-mozc, it is the only copy of the pinned version. To move the pin, check the new packages' signatures first, Arch Linux's against its keyring and Arch Linux ARM's against its build system key (`68B3537F39A313B3E574D06777193F152BDBE6A6`, certified by its master keys in [archlinuxarm-keyring](https://github.com/archlinuxarm/archlinuxarm-keyring)), then set the version and both SHA-256 values in `tools/fetch-mozc.sh` ([upkeep](upkeep.md)).
 
+The new Chinese engines are built from pinned sources into one prefix per target. They are libime for Pinyin, OpenCC for Traditional output and McBopomofo's engine for Zhuyin ([languages](languages.md#chinese-engines)). The presets take a prefix from `FRAMEKEYBOARD_CHINESE_HOST` or `FRAMEKEYBOARD_CHINESE_FRAME` (`FRAMEKEYBOARD_CHINESE_PREFIX`) and build a module for each engine. Their libraries and data go in `engines/chinese` beside the modules, linked to the prefix, and in `lib/framekeyboard/chinese` in a package. Builds without a prefix compose Pinyin and Zhuyin with PyZy. `tools/fetch-chinese.sh` clones the revisions pinned in `tools/chinese-pins.sh` and checks Boost's source archive against its SHA-256. `tools/build-chinese.sh` builds them with 4 jobs unless `CMAKE_BUILD_PARALLEL_LEVEL` says otherwise. The engines' dictionaries and language models are made by their own tools, which run only on the host, so the frame-arm64 build copies them from a host prefix built from the same pins:
+
+```sh
+tools/fetch-chinese.sh /path/to/chinese-src
+tools/build-chinese.sh host /path/to/chinese-src /path/to/chinese-host
+FRAMEKEYBOARD_SYSROOT=/path/to/sysroot FRAMEKEYBOARD_CHINESE_HOST=/path/to/chinese-host \
+  tools/build-chinese.sh frame-arm64 /path/to/chinese-src /path/to/chinese-arm64
+export FRAMEKEYBOARD_CHINESE_HOST=/path/to/chinese-host
+export FRAMEKEYBOARD_CHINESE_FRAME=/path/to/chinese-arm64
+```
+
+The LGPL engines (libime, fcitx5's utility library) are shared libraries. zstd, Boost, McBopomofo and OpenCC are static. Licences are in `third_party/chinese-engines/`.
+
 The OpenVR header is vendored, but `libopenvr_api.so` comes from an installed SteamVR runtime or a separately supplied SDK library. The build searches common Linux Steam paths. Override discovery with `-DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so` when configuring CMake.
 
 ```sh
@@ -138,7 +151,7 @@ ssh "$FRAME_HOST" '/tmp/keyboard-tests && /tmp/placement-instance-tests && FRAME
 
 `japanese-tests` starts the stand-in Mozc server, `fake-mozc`, from its own folder, so copy the two together.
 
-Optional probes are excluded from CTest. `uinput-smoke-test` exclusively grabs its own device before emitting events. `ei-target-probe` and `japanese-target-probe` require focus in their own disposable Xwayland receiver. `vr-panel-probe` requires a specific input-disabled instance before posting UI events. `stick-component-probe` checks model calculations; `haptics-probe` physically vibrates controllers. Read each probe's source and usage before running it. Do not run input probes against the user's active typing session.
+Optional probes are excluded from CTest. `uinput-smoke-test` exclusively grabs its own device before emitting events. `ei-target-probe` and `japanese-target-probe` require focus in their own disposable Xwayland receiver. `vr-panel-probe` requires a specific input-disabled instance before posting UI events. `stick-component-probe` checks model calculations; `haptics-probe` physically vibrates controllers. `chinese-candidates-probe` is the simulator's [`--chinese-candidates`](simulator.md#chinese-candidates) for builds without the simulator, such as the Frame's, to compare the Chinese engines' answers, time and memory there; it sends nothing. Read each probe's source and usage before running it. Do not run input probes against the user's active typing session.
 
 ### Host memory-safety checks
 

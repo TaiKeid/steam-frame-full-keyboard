@@ -926,6 +926,17 @@ class App {
     // Mozc's server runs only while Japanese is added: started when it is,
     // kept running, and stopped when it is removed, not to use its memory.
     void sync_mozc();
+    // Likewise the Pinyin and Zhuyin engines of the Chinese languages added:
+    // a composer for each keeps its dictionaries loaded while another
+    // language is in use, and goes when the language is removed.
+    void sync_chinese();
+    std::map<std::string, std::unique_ptr<CjkComposer>> chinese_engines_; // By input method.
+    // Where the Chinese engines keep what they learn; empty for an image
+    // export, which learns nothing.
+    fs::path chinese_learning_dir() const;
+    bool chinese_learned() const;
+    // Clear learned words, for Chinese: its composers go, then their files.
+    void clear_chinese_learning();
     // The server's state last asked of the worker, and whether that start
     // or stop is still under way there.
     std::optional<bool> mozc_wanted_ = false;
