@@ -137,7 +137,7 @@ struct Library {
             try {
                 converter =
                     opencc::Config().NewFromFile((engine_data_dir() / "opencc/s2twp.json").string());
-            } catch (const opencc::Exception&) {
+            } catch (...) { // OpenCC's own, or its dictionaries' (a corrupt .ocd2).
                 throw CjkMessage("ime.pinyin-dictionary-unavailable");
             }
             traditional = converter;
@@ -165,7 +165,7 @@ struct Library {
         unsaved = false;
         try {
             save();
-        } catch (const std::exception&) {
+        } catch (...) {
             // Kept in memory; the next learned commit tries again.
         }
     }

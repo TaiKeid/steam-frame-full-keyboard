@@ -102,9 +102,24 @@ std::shared_ptr<Module> load_module(const std::string& name) {
 std::shared_ptr<Module> load(const std::string& method) {
     return load_module(module_name(method));
 }
+// An engine from the module. Any exception it throws becomes the app's own
+// here, while the module is loaded: one of the module's types (a corrupt
+// dictionary's) would outlive it once the State unwinding drops the
+// module's last reference (R150).
+CjkEngine* create_engine(const Module& module, const std::string& method,
+                         const std::string& learning_dir) {
+    try {
+        return module.create(method.c_str(), learning_dir.c_str());
+    } catch (const CjkMessage& message) {
+        throw UiError(ui(message.what()));
+    } catch (...) {
+        throw UiError(ui("ime.engine-unavailable", {{"engine", module.name}}));
+    }
+}
 // A module's data for the method, loaded before the engines' lock so a
 // preview's engine holds up no typing (R140); create() then finds it loaded.
-// The handle goes after the lock is released.
+// The handle goes after the lock is released. Without one the module itself
+// is kept: dropped here it would be unloaded and loaded again (R157).
 std::shared_ptr<void> prepare_engine(const std::string& method,
                                      const std::filesystem::path& learning_dir) {
     std::shared_ptr<Module> module;
@@ -118,7 +133,7 @@ std::shared_ptr<void> prepare_engine(const std::string& method,
     }
     void* prepared = module->prepare ? module->prepare(method.c_str(), learning_dir.c_str()) : nullptr;
     if (!prepared) {
-        return {};
+        return {module, nullptr};
     }
     return {prepared, [module](void* handle) { module->release(handle); }};
 }
@@ -137,7 +152,7 @@ struct CjkComposer::State {
     State(const std::string& module_name, const std::string& method) {
         module = load_module(module_name);
         name = module->name;
-        engine.reset(engine_call([&] { return module->create(method.c_str(), ""); }));
+        engine.reset(create_engine(*module, method, ""));
         if (!engine) {
             throw std::runtime_error("Could not create composition engine");
         }
@@ -154,7 +169,7 @@ struct CjkComposer::State {
         }
         module = load(method);
         name = module->name;
-        engine.reset(engine_call([&] { return module->create(method.c_str(), learning_dir.c_str()); }));
+        engine.reset(create_engine(*module, method, learning_dir.string()));
         if (!engine) {
             throw std::runtime_error("Could not create composition engine");
         }
@@ -200,7 +215,13 @@ CjkComposer::CjkComposer(const std::string& method, const std::filesystem::path&
               prepared = prepare_engine(method, learning_dir);
           }
           std::lock_guard lock(engine_mutex());
-          return std::make_unique<State>(method, learning_dir, std::move(table));
+          try {
+              return std::make_unique<State>(method, learning_dir, std::move(table));
+          } catch (...) {
+              // Its last reference may unload the module: under the lock.
+              prepared.reset();
+              throw;
+          }
       }()),
       phonetic_keys_(method == "chinese-zhuyin"), syllables_(method.starts_with("chinese-pinyin-")) {
     // Being compared: Zhuyin through libime's sentences, the tones choosing.
