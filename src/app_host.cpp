@@ -61,6 +61,9 @@ std::pair<std::string, std::string> App::check_hints(const HostHints& hints) con
 }
 
 void App::set_context(std::optional<std::string> context, const HostHints& hints) {
+    if (context != host_.context || hints.purpose != host_.hints.purpose) {
+        clear_table_context(); // Clear future context; already-presented choices stay fixed.
+    }
     if (context != host_.context) {
         // Nothing addressed to the old field may reach the new one: Type as
         // I speak phrases, swipe results and corrections, held keys and

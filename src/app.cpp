@@ -1644,6 +1644,7 @@ bool App::move(unsigned pointer, double x, double y) {
 }
 
 bool App::down(unsigned pointer, double x, double y, double now) {
+    observe_table_context();
     if (dragging_ || !interaction_active_) {
         return false;
     }
@@ -2031,6 +2032,7 @@ bool App::up(unsigned pointer, double x, double y) {
         held_pointers_.erase(pointer);
         return true;
     }
+    observe_table_context();
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
     }
@@ -2152,6 +2154,7 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
         held_pointers_.erase(pointer);
         return;
     }
+    clear_table_context();
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         editor_drag_.reset();
     }
@@ -2242,6 +2245,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     emoji_.cancel();
     candidates_.cancel();
     lose_word();
+    clear_table_context();
     reopen_.reset();
     follow_up_.reset();
     last_commit_.reset(); // a pair is learned within one field session
@@ -2458,6 +2462,9 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= keyboard_.tick(now); // a held Shift locks
     dirty |= output_.tick(now);
+    if (table_context_.waiting()) {
+        observe_table_context();
+    }
     finish_reopen(); // Its last Backspace may have just been delivered.
     expire_reopen(now);
     dirty |= tick_dictation(now);
@@ -4082,6 +4089,7 @@ void App::commit_cjk() {
         return;
     }
     const auto text = cjk_->text();
+    const auto table_delivery = begin_table_delivery();
     if (text.empty()) {
         status_ = tr(no_reading_status); // It stays to be corrected, and the key is refused.
         return;
@@ -4091,8 +4099,10 @@ void App::commit_cjk() {
         // A preview's text goes nowhere, so nothing is learned from it.
         cjk_->committed(!preview_output() && learning_allowed());
         cjk_->cancel();
+        finish_table_delivery(table_delivery, text);
         status_.clear();
     } else {
+        observe_table_context();
         commit_failed();
     }
 }
@@ -4101,10 +4111,13 @@ void App::send_finished_syllables() {
     if (text.empty()) {
         return;
     }
+    const auto table_delivery = begin_table_delivery();
     // Refused, it stays ahead of the open syllable, to go with the next commit.
     if (preview_output() || text_output_->commit_text(text)) {
         cjk_->drop_finished();
+        finish_table_delivery(table_delivery, text);
     } else {
+        observe_table_context();
         commit_failed();
     }
 }
@@ -4406,6 +4419,9 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
     if (!cjk_ || key.action_kind != ActionKind::Key) {
         return false;
     }
+    if (execute) {
+        observe_table_context();
+    }
     if (latin_toggle(key)) {
         if (execute) {
             commit_cjk(); // as the language button does
@@ -4476,6 +4492,7 @@ bool App::cjk_key(const Key& key, bool execute, const std::set<int>& mods) {
             if (code == "Backspace") {
                 cjk_->backspace();
             } else if (code == "Escape") {
+                clear_table_context();
                 // In the editor, Korean's Esc takes the open syllable first;
                 // syllables the editor refused, when full, go with the next.
                 if (!cjk_->chinese() && cjk_->preedit().size() > cjk_->finished().size()) {

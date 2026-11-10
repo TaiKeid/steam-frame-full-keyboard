@@ -96,9 +96,24 @@ std::shared_ptr<Module> load(const std::string& method) {
 }
 } // namespace
 struct CjkComposer::State {
+    TableEngine* table_engine{}; // Built-in table only; no module ABI change.
     std::shared_ptr<Module> module;
     std::unique_ptr<CjkEngine> engine; // Reverse destruction keeps module code alive.
     std::string name = "table";
+    // Zhuyin's sentence experiment: libime proposing sentences (propose()),
+    // and the runs it last converted, which a key that finishes no syllable
+    // leaves as they were.
+    std::unique_ptr<State> sentences;
+    std::vector<std::string> proposed_for;
+    // An engine of a named module, for a method only it has.
+    State(const std::string& module_name, const std::string& method) {
+        module = load_module(module_name);
+        name = module->name;
+        engine.reset(engine_call([&] { return module->create(method.c_str(), ""); }));
+        if (!engine) {
+            throw std::runtime_error("Could not create composition engine");
+        }
+    }
     // A table method's table comes loaded (TableEngine::load()).
     State(const std::string& method, const std::filesystem::path& learning_dir,
           std::shared_ptr<const TableEngine::Table> table) {
@@ -106,6 +121,7 @@ struct CjkComposer::State {
             const auto input_table = table_for(method);
             engine = std::make_unique<TableEngine>(std::move(table), input_table->max_keys,
                                                    input_table->continues);
+            table_engine = static_cast<TableEngine*>(engine.get());
             return;
         }
         module = load(method);
@@ -139,6 +155,36 @@ CjkComposer::CjkComposer(const std::string& method, const std::filesystem::path&
           return std::make_unique<State>(method, learning_dir, std::move(table));
       }()),
       phonetic_keys_(method == "chinese-zhuyin"), syllables_(method.starts_with("chinese-pinyin-")) {
+    // Being compared: Zhuyin through libime's sentences, the tones choosing.
+    const char* sentences = std::getenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES");
+    if (method == "chinese-zhuyin" && state_->name == "mcbopomofo" && sentences &&
+        std::string(sentences) == "1") {
+        std::lock_guard lock(engine_mutex());
+        try {
+            state_->sentences =
+                std::make_unique<State>("libime", "chinese-pinyin-traditional-sentences");
+        } catch (const std::exception&) {
+            // Without libime, McBopomofo converts alone.
+        }
+    }
+}
+// libime's Traditional sentences for each run of the reading, for Zhuyin to
+// keep the best that fits its tones (CjkEngine::prefer()). Under the lock.
+void CjkComposer::propose() {
+    if (!state_->sentences) {
+        return;
+    }
+    auto runs = state_->engine->pinyin_runs();
+    if (runs == state_->proposed_for) {
+        return;
+    }
+    std::vector<std::vector<std::string>> sentences;
+    for (const auto& run : runs) {
+        state_->sentences->engine->type_reading(run);
+        sentences.push_back(state_->sentences->engine->candidates());
+    }
+    state_->engine->prefer(sentences);
+    state_->proposed_for = std::move(runs);
 }
 CjkComposer::~CjkComposer() {
     std::lock_guard lock(engine_mutex());
@@ -148,15 +194,18 @@ void CjkComposer::type(char key) {
     std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         engine_call([&] { state_->engine->type(key); });
+        propose();
     }
 }
 void CjkComposer::backspace() {
     std::lock_guard lock(engine_mutex());
     state_->engine->backspace();
+    propose();
 }
 void CjkComposer::cancel() {
     std::lock_guard lock(engine_mutex());
     state_->engine->cancel();
+    state_->proposed_for.clear(); // The engine dropped what it was given.
 }
 void CjkComposer::cycle(int direction) {
     std::lock_guard lock(engine_mutex());
@@ -211,11 +260,28 @@ void CjkComposer::drop_finished() {
 void CjkComposer::cancel_open() {
     std::lock_guard lock(engine_mutex());
     state_->engine->cancel_open();
+    propose();
 }
 void CjkComposer::committed(bool learn) {
     std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         state_->engine->committed(learn);
+    }
+}
+bool CjkComposer::table_context_enabled() const {
+    std::lock_guard lock(engine_mutex());
+    return state_->table_engine && state_->table_engine->context_enabled();
+}
+void CjkComposer::set_table_context(const std::string& previous) {
+    std::lock_guard lock(engine_mutex());
+    if (state_->table_engine) {
+        state_->table_engine->set_context(previous);
+    }
+}
+void CjkComposer::clear_table_context() {
+    std::lock_guard lock(engine_mutex());
+    if (state_->table_engine) {
+        state_->table_engine->clear_context();
     }
 }
 bool CjkComposer::takes_space() const {
@@ -242,6 +308,7 @@ void CjkComposer::delete_forward() {
     std::lock_guard lock(engine_mutex());
     if (state_->engine) {
         state_->engine->delete_forward();
+        propose();
     }
 }
 bool CjkComposer::choosing() const {
@@ -256,7 +323,12 @@ void CjkComposer::set_choosing(bool choosing) {
 }
 bool CjkComposer::insert_symbol(char symbol, const std::string& text) {
     std::lock_guard lock(engine_mutex());
-    return state_->engine && engine_call([&] { return state_->engine->insert_symbol(symbol, text); });
+    const bool inserted =
+        state_->engine && engine_call([&] { return state_->engine->insert_symbol(symbol, text); });
+    if (inserted) {
+        propose();
+    }
+    return inserted;
 }
 std::optional<CjkComposer::Highlight> CjkComposer::highlight() const {
     std::lock_guard lock(engine_mutex());

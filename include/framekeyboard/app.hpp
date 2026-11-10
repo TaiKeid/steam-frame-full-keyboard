@@ -2,6 +2,7 @@
 
 #include "cjk.hpp"
 #include "clipboard.hpp"
+#include "delivered_context.hpp"
 #include "dictation.hpp"
 #include "dictation_editor.hpp"
 #include "dictation_mode.hpp"
@@ -147,10 +148,11 @@ class App {
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
     // A decoding word, suggestions, the next word's space, or what the keys
     // typed while completions show: what a pointer leaving the keyboard
-    // discards (cancel_pointer). Pointing away with the trigger at rest
-    // keeps it, as the cursor stays.
+    // discards (cancel_pointer), including acknowledged/pending table text.
+    // This also enables the existing off-key/caret watch for Chinese, without
+    // a new timer. Pointing away at rest keeps adjacency until an observed edit.
     bool holds_swipe_state() const {
-        return swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
+        return table_context_.active() || swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
                ((!typing_suggestions_.empty() || word_open()) && suggesting());
     }
     // clicked: the pointer pulled its trigger off the keyboard, so it may
@@ -1126,6 +1128,19 @@ class App {
     // it back while its start is typed again (JapaneseComposer::set_learned).
     NextWords japanese_completions_;
     std::unique_ptr<CjkComposer> cjk_;
+    DeliveredContext table_context_;
+    std::uint32_t table_context_window_{};
+    bool table_context_allowed() const;
+    void clear_table_context();
+    void observe_table_context();
+    struct TableDelivery {
+        DeliveredContext::Ticket receipt;
+        std::uint32_t window{};
+        std::optional<std::string> field;
+        const CjkComposer* composer{};
+    };
+    std::optional<TableDelivery> begin_table_delivery();
+    void finish_table_delivery(const std::optional<TableDelivery>& ticket, const std::string& text);
     // 한/영 switched two-set Korean to the layout's own letters. Never saved,
     // and a change of language or layout returns it to Hangul.
     bool hangul_latin_{};

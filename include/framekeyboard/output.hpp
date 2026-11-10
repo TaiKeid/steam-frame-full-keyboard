@@ -39,6 +39,7 @@ class OutputController : public KeySink, public TextOutput {
     std::uint64_t completed() const { return completed_; }
     // Counts entries ever queued: unchanged means nothing was sent since.
     std::uint64_t queued() const { return queued_; }
+    std::size_t pending_entries() const { return queue_.size(); }
     // Counts cancels, each of which drops whatever was still queued.
     std::uint64_t cancels() const { return cancels_; }
     // Whether the retry's first character may already have arrived: it was

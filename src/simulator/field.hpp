@@ -91,6 +91,9 @@ class FieldSink : public KeySink, public Clipboard {
     void send(int code, int value) override { apply_key(code, value); }
     Delivery deliver_key(int code, int value) override;
     bool text_available() override { return true; }
+    std::uint32_t focused_window() const override {
+        return 1;
+    } // One private receiver, not an OS window.
     bool commit_text(const std::string& text) override { return deliver_text(0, text); }
     bool replaces_text() override { return true; }
     bool replace_text(std::size_t delete_before, const std::string& text) override {

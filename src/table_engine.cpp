@@ -1,10 +1,12 @@
 #include "table_engine.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/localization.hpp"
+#include "table_context_counts.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <dlfcn.h>
 #include <fstream>
 #include <glib.h>
@@ -18,6 +20,25 @@
 
 namespace framekeyboard {
 namespace {
+std::shared_ptr<const TableContextCounts> context_counts() {
+    const auto* file = std::getenv("FRAMEKEYBOARD_TABLE_CONTEXT_COUNTS");
+    if (!file || !*file) {
+        return {};
+    }
+    static std::mutex mutex;
+    static std::filesystem::path cached_path;
+    static std::weak_ptr<const TableContextCounts> cached;
+    std::lock_guard lock(mutex);
+    if (cached_path == file) {
+        if (auto value = cached.lock()) {
+            return value;
+        }
+    }
+    auto value = TableContextCounts::load(file);
+    cached_path = file;
+    cached = value;
+    return value;
+}
 // The radical each letter key stands for, shown while composing.
 constexpr std::array<const char*, 26> radicals{"日", "月", "金", "木", "水", "火", "土", "竹", "戈",
                                                "十", "大", "中", "一", "弓", "人", "心", "手", "口",
@@ -243,7 +264,7 @@ struct TableEngine::Table {
     // before characters outside it, compatibility forms, symbols), exact
     // matches before completions. Up to 50 are offered, or every exact
     // match, and each character once.
-    std::vector<std::string> find(std::string_view keys) const {
+    std::vector<std::string> find(std::string_view keys, std::size_t* protected_exact = nullptr) const {
         const auto by_code = [](const Row& row, std::string_view code) {
             return row.code_view() < code;
         };
@@ -270,6 +291,9 @@ struct TableEngine::Table {
             } else {
                 rare.emplace_back(false, &*row);
             }
+        }
+        if (protected_exact) {
+            *protected_exact = result.size();
         }
         const auto exact_count = static_cast<std::size_t>(exact - begin);
         const auto wanted = std::min<std::size_t>(50 - std::min<std::size_t>(50, exact_count),
@@ -385,12 +409,46 @@ bool TableEngine::available(const std::filesystem::path& table) {
     }
 }
 TableEngine::TableEngine(std::shared_ptr<const Table> table, std::size_t max_keys, bool continues)
-    : table_(std::move(table)), max_keys_(max_keys), continues_(continues) {
+    : table_(std::move(table)), max_keys_(max_keys), continues_(continues),
+      context_counts_(context_counts()) {
 }
 TableEngine::~TableEngine() = default;
 void TableEngine::look_up() {
-    candidates_ = keys_.empty() ? std::vector<std::string>{} : table_->find(keys_);
+    std::size_t protected_exact{};
+    candidates_ = keys_.empty() ? std::vector<std::string>{} : table_->find(keys_, &protected_exact);
+    if (context_counts_ && !previous_.empty() && !candidates_.empty()) {
+        const auto protect = continues_ ? std::size_t{1} : protected_exact;
+        const double weight = continues_ ? 8. : 4.;
+        std::vector<std::pair<double, std::size_t>> order;
+        for (std::size_t i = protect; i < candidates_.size(); ++i) {
+            order.emplace_back(
+                -static_cast<double>(i) + weight * context_counts_->bonus(previous_, candidates_[i]), i);
+        }
+        std::stable_sort(order.begin(), order.end(),
+                         [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<std::string> ranked;
+        ranked.reserve(candidates_.size());
+        for (std::size_t i = 0; i < protect; ++i) {
+            ranked.push_back(std::move(candidates_[i]));
+        }
+        for (const auto& [score, index] : order) {
+            ranked.push_back(std::move(candidates_[index]));
+        }
+        candidates_ = std::move(ranked);
+    }
     selected_ = 0;
+}
+void TableEngine::set_context(const std::string& previous) {
+    if (!context_counts_ || previous.size() > 8 ||
+        !g_utf8_validate(previous.c_str(), static_cast<gssize>(previous.size()), nullptr) ||
+        g_utf8_strlen(previous.c_str(), -1) > 2) {
+        previous_.clear();
+        return;
+    }
+    previous_ = previous;
+}
+void TableEngine::clear_context() {
+    previous_.clear(); // Presented choices stay fixed until the next normal reading mutation.
 }
 void TableEngine::type(char key) {
     if (key < 'a' || key > 'z') {

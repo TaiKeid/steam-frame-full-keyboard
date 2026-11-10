@@ -352,6 +352,19 @@ changes the system IBus selection. See [language setup](languages.md).
 
 ## Independent Unicode character output
 
+The optional table-context experiment keeps its last two acknowledged characters
+in App, separate from local composition. A bounded receipt ledger uses the
+output queue's pending-entry count and completion/failure/cancel generations.
+Successful composer resets preserve acknowledged adjacency; field/input-session
+invalidation clears it. Quick's front delivery uses the same path. Both receipts
+and invalidation affect future lookups; an already-presented candidate list stays
+fixed until normal reading mutation, so pointer, Space and digit acceptance keep
+the same displayed identity. Existing field/profile resets still discard composition.
+The existing off-key caret watch includes this table adjacency state. There is
+no additional timer or text-field query, and sensitive/unknown targets do not
+retain context. Counts are shared immutable public data; personal context is not
+persisted.
+
 `LanguageMap::symbol` resolves the selected XKB profile without legend overrides.
 Its compose state handles dead accents locally. `App` sends printable characters
 through the Gamescope text connection and retains a failed commit for retry.

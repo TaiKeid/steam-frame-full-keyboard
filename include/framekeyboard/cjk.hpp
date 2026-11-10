@@ -48,6 +48,10 @@ class CjkComposer {
     // text() reached the field, before cancel(); `learn` lets the engine learn
     // from it.
     void committed(bool learn);
+    bool table_context_enabled() const;
+    void set_table_context(const std::string& previous);
+    // Clears future context without reordering a presented lookup.
+    void clear_table_context();
     // Space is the first tone of an open Zhuyin syllable, not a choice.
     bool takes_space() const;
     // Enter types Pinyin's letters as typed, not their conversion: text()
@@ -79,6 +83,7 @@ class CjkComposer {
 
   private:
     struct State;
+    void propose();
     std::unique_ptr<State> state_;
     bool phonetic_keys_{}, syllables_{};
 };

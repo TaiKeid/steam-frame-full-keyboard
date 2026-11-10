@@ -6,6 +6,7 @@
 #include <optional>
 
 namespace framekeyboard {
+class TableContextCounts;
 // Cangjie and Quick look characters up in the tables SteamOS installs for
 // IBus. Reading the system's file keeps it out of this project, as with Anthy.
 struct InputTable {
@@ -48,6 +49,11 @@ class TableEngine final : public CjkEngine {
     // character once the next code starts: the app sends them at once.
     std::string finished() const override { return keys_.empty() ? std::string{} : chosen_; }
     void drop_finished() override { chosen_.clear(); }
+    bool context_enabled() const { return static_cast<bool>(context_counts_); }
+    // Delivery acknowledgements affect only the next normal lookup, never a
+    // visible candidate list beneath a press. Clear also leaves that list fixed.
+    void set_context(const std::string& previous);
+    void clear_context();
 
   private:
     struct Database;
@@ -58,5 +64,7 @@ class TableEngine final : public CjkEngine {
     std::string keys_, chosen_;
     std::vector<std::string> candidates_;
     int selected_{};
+    std::shared_ptr<const TableContextCounts> context_counts_;
+    std::string previous_;
 };
 } // namespace framekeyboard

@@ -234,6 +234,11 @@ any reading. A reading longer than 30 keys (Pinyin) or syllables (Zhuyin) sends
 its converted front ahead and goes on, so no key is lost. Both script profiles
 use Pinyin; Traditional here does not mean a Zhuyin layout.
 
+In Traditional Pinyin, a candidate you select keeps exactly the characters
+displayed. Later suffix choices, more typing and committing the reading do not
+change those selected characters. Unselected words still use their usual
+Traditional spellings.
+
 Chinese types Chinese punctuation, as a PC input method does in its Chinese
 mode, from the `punctuation` tables of its language file
 ([configuration](configuration.md)), after any reading; in Zhuyin it goes into
@@ -286,7 +291,9 @@ Korean's only waits while the app can't take its syllables.
 Shortcuts and navigation that leave composition commit first; if output refuses
 the composition before admission, the preedit stays visible and the forwarding
 action is blocked. An admitted long batch uses the output retry behavior above.
-Hiding, changing profiles, and closing discard unfinished preedit, as with Japanese; moving,
+The toolbar's language button commits the current reading before switching;
+if the field refuses it, the reading and language stay. Applying a different
+profile in Settings, hiding and closing discard unfinished preedit, as with Japanese; moving,
 resizing, pinning and recentring the panel, and opening Settings, keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms. With Chinese it stops once the preedit is empty; the press stays local, so it never goes on to delete the target's text. Korean's goes on, as on a PC: at the open syllable's end it pauses for a fresh 0.5 s, then deletes in the field every 40 ms until you let go. Other composition keys do not repeat.
 
 Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.

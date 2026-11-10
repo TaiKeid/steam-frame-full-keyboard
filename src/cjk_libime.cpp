@@ -4,15 +4,19 @@
 #include "cjk_engine.hpp"
 #include "cjk_module.hpp"
 #include "framekeyboard/private_file.hpp"
+#include "pinyin_reranker.hpp"
 
 #include <libime/core/userlanguagemodel.h>
 #include <libime/pinyin/pinyincontext.h>
+#include <libime/pinyin/pinyindecoder.h>
 #include <libime/pinyin/pinyindictionary.h>
 #include <libime/pinyin/pinyinime.h>
 #include <opencc/opencc.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -25,7 +29,44 @@ namespace fs = std::filesystem;
 constexpr std::size_t max_keys = 30;
 // Bounds candidate work and the menu for controller interaction.
 constexpr std::size_t max_candidates = 50;
+// Sentences the Zhuyin sentence experiment weighs (CjkEngine::prefer()).
+constexpr std::size_t proposed_sentences = 20;
+constexpr const char* sentences_method = "chinese-pinyin-traditional-sentences";
 const auto opencc_failed = reinterpret_cast<opencc_t>(-1);
+
+std::optional<PinyinReranker> experimental_reranker(const std::string& method) {
+    const auto* directory = std::getenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY");
+    if (!directory || !*directory ||
+        (method != "chinese-pinyin-simplified" && method != "chinese-pinyin-traditional")) {
+        return std::nullopt;
+    }
+    // Both scripts write the same learning files. A half-valid bundle must
+    // not split their mutable Libraries between n-best=2 and n-best=20.
+    auto simplified = PinyinReranker::load(fs::path(directory) / "simplified.fkpr");
+    auto traditional = PinyinReranker::load(fs::path(directory) / "traditional.fkpr");
+    if (!simplified || !traditional) {
+        return std::nullopt;
+    }
+    return method == "chinese-pinyin-simplified" ? std::move(simplified) : std::move(traditional);
+}
+
+bool experimental_search() {
+    const auto* value = std::getenv("FRAMEKEYBOARD_PINYIN_NBEST");
+    return value && std::string_view(value) == "20";
+}
+
+// Dictionaries and learned history belong to each Library. The immutable
+// model does not: Pinyin and Zhuyin's proposer can share it even with different
+// learning folders and n-best counts. The last context still releases it.
+std::shared_ptr<const libime::StaticLanguageModelFile> static_model(const fs::path& data) {
+    static std::weak_ptr<const libime::StaticLanguageModelFile> cached;
+    auto model = cached.lock();
+    if (!model) {
+        model = std::make_shared<libime::StaticLanguageModelFile>((data / "zh_CN.lm").c_str());
+        cached = model;
+    }
+    return model;
+}
 
 // The dictionaries, model and what was learned, loaded once for each learning
 // folder and shared by its contexts: a profile change briefly has two, and an
@@ -35,7 +76,7 @@ struct Library {
     std::unique_ptr<libime::PinyinIME> ime;
     opencc_t traditional = opencc_failed;
 
-    explicit Library(const fs::path& dir) : learning(dir) {
+    Library(const fs::path& dir, std::size_t sentences) : learning(dir) {
         const auto data = engine_data_dir() / "libime";
         auto dict = std::make_unique<libime::PinyinDictionary>();
         std::unique_ptr<libime::UserLanguageModel> model;
@@ -46,7 +87,7 @@ struct Library {
             dict->addEmptyDict();
             dict->load(libime::PinyinDictionary::UserDict + 1, (data / "extb.dict").c_str(),
                        libime::PinyinDictFormat::Binary);
-            model = std::make_unique<libime::UserLanguageModel>((data / "zh_CN.lm").c_str());
+            model = std::make_unique<libime::UserLanguageModel>(static_model(data));
         } catch (const std::exception&) {
             throw CjkMessage("ime.pinyin-dictionary-unavailable");
         }
@@ -71,7 +112,7 @@ struct Library {
         fuzzy |= libime::PinyinFuzzyFlag::InnerShort;
         fuzzy |= libime::PinyinFuzzyFlag::PartialFinal;
         ime->setFuzzyFlags(fuzzy);
-        ime->setNBest(2);
+        ime->setNBest(sentences);
     }
     ~Library() {
         if (traditional != opencc_failed) {
@@ -107,21 +148,29 @@ struct Library {
         write_private_file(learning / "user.dict", user.str());
     }
 };
-std::shared_ptr<Library> library_for(const fs::path& learning) {
-    static std::map<fs::path, std::weak_ptr<Library>> libraries;
-    auto library = libraries[learning].lock();
+// By learning folder and the number of whole sentences offered.
+std::shared_ptr<Library> library_for(const fs::path& learning, std::size_t sentences) {
+    static std::map<std::pair<fs::path, std::size_t>, std::weak_ptr<Library>> libraries;
+    auto& slot = libraries[{learning, sentences}];
+    auto library = slot.lock();
     if (!library) {
-        library = std::make_shared<Library>(learning);
-        libraries[learning] = library;
+        library = std::make_shared<Library>(learning, sentences);
+        slot = library;
     }
     return library;
 }
 
 class LibimeEngine final : public CjkEngine {
   public:
+    // The sentences method proposes Traditional sentences for Zhuyin: many,
+    // learning nothing, and with no limit on the reading.
     LibimeEngine(const std::string& method, const fs::path& learning_dir)
-        : library_(library_for(learning_dir.empty() ? fs::path{} : learning_dir / "libime")),
-          context_(library_->ime.get()), traditional_(method == "chinese-pinyin-traditional") {
+        : sentences_(method == sentences_method), reranker_(experimental_reranker(method)),
+          wider_search_(!sentences_ && (reranker_.has_value() || experimental_search())),
+          library_(library_for(learning_dir.empty() || sentences_ ? fs::path{} : learning_dir / "libime",
+                               sentences_ || wider_search_ ? proposed_sentences : 2)),
+          context_(library_->ime.get()),
+          traditional_(method == "chinese-pinyin-traditional" || sentences_) {
         if (method != "chinese-pinyin-simplified" && !traditional_) {
             throw CjkMessage("ime.engine-missing");
         }
@@ -130,7 +179,10 @@ class LibimeEngine final : public CjkEngine {
         }
     }
     void type(char key) override {
-        if (context_.size() >= max_keys) {
+        if (context_.empty() && front_.empty()) {
+            front_produced_ = false; // A new reading after an emptied/cancelled composition.
+        }
+        if (context_.size() >= max_keys && !sentences_) {
             send_front();
         }
         context_.type(
@@ -144,6 +196,7 @@ class LibimeEngine final : public CjkEngine {
             // Nothing left to delete: the last choice is undone instead.
             context_.cancelTill(chosen_.back());
             chosen_.pop_back();
+            chosen_display_.pop_back();
             picked_.resize(std::min(picked_.size(), context_.selectedWords().size()));
         }
         refresh();
@@ -151,9 +204,11 @@ class LibimeEngine final : public CjkEngine {
     void cancel() override {
         context_.clear();
         chosen_.clear();
+        chosen_display_.clear();
         picked_.clear();
         defaults_ = false;
         front_.clear();
+        front_produced_ = false;
         refresh();
     }
     void cycle(int direction) override {
@@ -170,6 +225,7 @@ class LibimeEngine final : public CjkEngine {
         // the user accepted, not picked: 来, 一局, then Space for 马.
         defaults_ |= index == 0 && !chosen_.empty();
         chosen_.push_back(context_.selectedLength());
+        chosen_display_.push_back(shown_[static_cast<std::size_t>(index)]);
         context_.select(source_[static_cast<std::size_t>(index)]);
         const auto words = context_.selectedWords();
         picked_.resize(before);
@@ -186,18 +242,22 @@ class LibimeEngine final : public CjkEngine {
         if (rest.empty()) {
             rest = context_.userInput().substr(context_.selectedLength());
         }
-        return front_ + shown(chosen) + rest;
+        return front_ + selected_display() + rest;
     }
     std::string text() const override {
         if (typed_) {
-            return front_ + shown(context_.selectedSentence()) +
-                   context_.userInput().substr(context_.selectedLength());
+            return front_ + selected_display() + context_.userInput().substr(context_.selectedLength());
         }
-        return front_ + shown(context_.sentence());
+        return front_ + default_text();
     }
     std::string finished() const override { return front_; }
     void drop_finished() override { front_.clear(); }
     void as_typed() override { typed_ = true; }
+    void type_reading(const std::string& keys) override {
+        cancel();
+        context_.type(keys);
+        refresh();
+    }
     std::vector<std::string> candidates() const override { return shown_; }
     int selected() const override { return selected_; }
     bool empty() const override { return context_.empty(); }
@@ -211,9 +271,13 @@ class LibimeEngine final : public CjkEngine {
         // in; it counts as accepted.
         for (std::size_t i = 0; i < max_keys && !context_.selected() && !context_.candidates().empty();
              ++i) {
-            context_.select(0);
+            // The delivered default may differ from libime's original row 0.
+            // Select exactly that source before learning its words/history.
             defaults_ |= !chosen_.empty();
             chosen_.push_back(context_.selectedLength());
+            chosen_display_.push_back(shown_.front());
+            context_.select(default_source());
+            refresh();
         }
         if (!context_.selected()) {
             return;
@@ -221,37 +285,91 @@ class LibimeEngine final : public CjkEngine {
         if (!defaults_) {
             context_.learn(); // The whole sentence, as a word of its own if picked in parts.
         } else {
-            // Only the words picked are remembered, without the sentence:
-            // an accepted 马 after 来 and 一局 must not come first next time.
-            const auto words = context_.selectedWords();
-            std::vector<std::string> picked;
-            for (std::size_t i = 0; i < words.size() && i < picked_.size(); ++i) {
-                if (picked_[i]) {
-                    picked.push_back(words[i]);
-                }
-            }
-            if (picked.empty()) {
+            // Learn each pick alone, with no sentence transitions: even a
+            // contiguous 来, 一局 run can promote an accepted 马 tail.
+            if (!remember_picked_words(context_.selectedWords(), picked_, [&](const auto& word) {
+                    library_->ime->model()->history().add(word);
+                })) {
                 return;
             }
-            library_->ime->model()->history().add(picked);
         }
         library_->save();
     }
 
   private:
+    bool sentences_; // Before library_, which it chooses.
+    std::optional<PinyinReranker> reranker_;
+    bool wider_search_;
     std::shared_ptr<Library> library_; // Before context_, which uses its IME.
     libime::PinyinContext context_;
     bool traditional_;
     int selected_{};
     std::vector<std::size_t> chosen_; // selectedLength() before each choice.
-    std::vector<bool> picked_;        // Each selected word: picked, not the top candidate.
-    bool defaults_{};                 // A top candidate was taken after an earlier choice.
-    bool typed_{};                    // Enter: the rest goes as typed (as_typed()).
-    std::string front_;               // Sent ahead of a long reading (finished()).
+    // The displayed script belongs to the user's selection. Keep it apart
+    // from libime's Simplified words/readings, which still own learning.
+    std::vector<std::string> chosen_display_; // Aligned with chosen_ for undo.
+    std::vector<bool> picked_;                // Each selected word: picked, not the top candidate.
+    bool defaults_{};                         // A top candidate was taken after an earlier choice.
+    bool typed_{};                            // Enter: the rest goes as typed (as_typed()).
+    bool front_produced_{};                   // Survives drop_finished() until this reading ends.
+    std::string front_;                       // Sent ahead of a long reading (finished()).
     // Candidates as shown, Traditional ones once each, and libime's index of each.
     std::vector<std::string> shown_;
     std::vector<std::size_t> source_;
 
+    std::size_t default_source() const { return source_.empty() ? 0 : source_.front(); }
+    std::string selected_display() const {
+        std::string result;
+        for (const auto& text : chosen_display_) {
+            result += text;
+        }
+        return result;
+    }
+    std::string default_text() const {
+        const auto& candidates = context_.candidates();
+        // OpenCC may choose a contextual spelling for the unselected suffix.
+        // It must never reinterpret an already displayed and selected prefix.
+        return selected_display() +
+               (candidates.empty() ? std::string{} : shown(candidates[default_source()].toString()));
+    }
+    bool complete(const libime::SentenceResult& candidate) const {
+        const auto& sentence = candidate.sentence();
+        // Lattice endpoints are relative to the unselected suffix.
+        return !sentence.empty() &&
+               sentence.back()->to()->index() + context_.selectedLength() == context_.size();
+    }
+
+    bool learned_default(const libime::SentenceResult& candidate) const {
+        if (library_->learning.empty()) {
+            return false;
+        }
+        std::string code;
+        for (const auto* node : candidate.sentence()) {
+            const auto& part = node->as<libime::PinyinLatticeNode>().encodedPinyin();
+            if (part.empty() || part.size() % 2 != 0) {
+                return false;
+            }
+            code += part;
+        }
+        const auto& history = library_->ime->model()->history();
+        if (history.rawUnigramFrequency({candidate.toString(), code}) > 0) {
+            return true;
+        }
+        // Native history may store a correction as several words. Require
+        // its entire coded path, including both native sentence boundaries;
+        // familiar components alone are insufficient. This honors n-gram
+        // preference, not proof that a recombined sentence was seen verbatim.
+        using Word = libime::HistoryBigram::WordWithCodeView;
+        Word previous{"<s>", ""};
+        for (const auto* node : candidate.sentence()) {
+            const Word current{node->word(), node->as<libime::PinyinLatticeNode>().encodedPinyin()};
+            if (history.rawBigramFrequency(previous, current) <= 0) {
+                return false;
+            }
+            previous = current;
+        }
+        return history.rawBigramFrequency(previous, {"</s>", ""}) > 0;
+    }
     std::string shown(const std::string& text) const {
         return traditional_ && !text.empty() ? library_->to_traditional(text) : text;
     }
@@ -262,16 +380,76 @@ class LibimeEngine final : public CjkEngine {
         typed_ = false;
         const auto& candidates = context_.candidates();
         std::vector<std::pair<std::string, std::size_t>> rows;
-        for (std::size_t i = 0; i < candidates.size() && rows.size() < max_candidates; ++i) {
+        // Reserve room for the extra search proposals without displacing the
+        // normal fifty correction choices from the expanded menu.
+        const auto menu_limit = max_candidates + (wider_search_ ? proposed_sentences : 0);
+        // Search may consider twenty sentences. Keep the winner first, then
+        // ordinary words before the other multiword sentence hypotheses.
+        // Full-input single words and short-reading homophones remain choices.
+        std::size_t winner = 0;
+        // Retain isolated-character frequency and a native winner positively
+        // learned as a whole reading. Do not infer a whole-reading preference
+        // from selected prefixes, a long reading's tail or familiar components.
+        const bool native_preference =
+            reranker_ && context_.selectedLength() == 0 && !front_produced_ && !candidates.empty() &&
+            complete(candidates.front()) &&
+            (utf8_length(candidates.front().toString()) == 1 || learned_default(candidates.front()));
+        if (reranker_ && !candidates.empty() && !native_preference) {
+            double best = -std::numeric_limits<double>::infinity();
+            double base = 0;
+            std::size_t rank = 0;
+            std::vector<std::string> seen;
+            for (std::size_t i = 0; i < candidates.size() && rank < max_candidates; ++i) {
+                if (!complete(candidates[i])) {
+                    continue;
+                }
+                if (!rank) {
+                    base = candidates[i].score();
+                }
+                const auto text = shown(candidates[i].toString());
+                const auto current_rank = rank++;
+                if (std::find(seen.begin(), seen.end(), text) != seen.end()) {
+                    continue;
+                }
+                seen.push_back(text);
+                std::vector<std::string_view> words;
+                for (const auto* node : candidates[i].sentence()) {
+                    words.push_back(node->word());
+                }
+                const auto score =
+                    reranker_->score(text, words, current_rank, candidates[i].score(), base);
+                if (score > best) {
+                    best = score;
+                    winner = i;
+                }
+            }
+        }
+        if (wider_search_ && !candidates.empty()) {
+            rows.emplace_back(shown(candidates[winner].toString()), winner);
+        }
+        for (std::size_t i = 0; i < candidates.size() && rows.size() < menu_limit; ++i) {
+            // Alternative syllable splits can consume the same reading with
+            // different numbers of characters. Only the input endpoint tells
+            // whether this is a whole sentence rather than a prefix word.
+            const bool full = complete(candidates[i]);
+            if (sentences_ && !full) {
+                continue;
+            }
             auto text = shown(candidates[i].toString());
             if (std::none_of(rows.begin(), rows.end(),
                              [&](const auto& row) { return row.first == text; })) {
                 rows.emplace_back(std::move(text), i);
             }
         }
+        if (wider_search_ && rows.size() > 1) {
+            std::stable_partition(rows.begin() + 1, rows.end(), [&](const auto& row) {
+                const auto& candidate = candidates[row.second];
+                return !complete(candidate) || candidate.sentence().size() == 1;
+            });
+        }
         // A rare single character waits behind the rest: neng offers 能 and
         // its common homophones before 㲌. The conversion stays first.
-        if (rows.size() > 1) {
+        if (!sentences_ && rows.size() > 1) {
             std::stable_partition(rows.begin() + 1, rows.end(), [](const auto& row) {
                 return utf8_length(row.first) > 1 || !rare_character(row.first);
             });
@@ -285,10 +463,13 @@ class LibimeEngine final : public CjkEngine {
     // the field (finished()), and the rest is typed again behind it.
     void send_front() {
         const auto& candidates = context_.candidates();
-        if (candidates.empty() || candidates.front().sentence().empty()) {
+        if (candidates.empty() || candidates[default_source()].sentence().empty()) {
             throw CjkMessage("ime.commit-first"); // Nothing converts: it must be corrected.
         }
-        const auto* first = candidates.front().sentence().front();
+        const auto* first = candidates[default_source()].sentence().front();
+        auto display = selected_display();
+        const auto first_display = shown(first->word());
+        const auto before = context_.selectedLength();
         for (std::size_t i = 0; i < candidates.size(); ++i) {
             const auto& sentence = candidates[i].sentence();
             if (sentence.size() == 1 && sentence.front()->word() == first->word() &&
@@ -300,10 +481,18 @@ class LibimeEngine final : public CjkEngine {
         if (!context_.selectedLength()) {
             throw CjkMessage("ime.commit-first");
         }
-        front_ += shown(context_.selectedSentence());
+        // A corrected/fuzzy first word need not have a separate prefix row.
+        // In that case only the already selected prefix can be sent; adding
+        // the unselected first word here would duplicate it in the remainder.
+        if (context_.selectedLength() > before) {
+            display += first_display;
+        }
+        front_ += display;
+        front_produced_ = true;
         const auto rest = context_.userInput().substr(context_.selectedLength());
         context_.clear();
         chosen_.clear();
+        chosen_display_.clear();
         picked_.clear();
         defaults_ = false;
         context_.type(rest);

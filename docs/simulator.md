@@ -111,6 +111,106 @@ nihao
 
 PyZy's module is `pinyin`.
 
+#### Experimental Pinyin ranking
+
+Pinyin's residual-ranking experiment is off by default and ships without model
+weights. `FRAMEKEYBOARD_PINYIN_NBEST=20` tests wider libime search alone.
+`FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY=/path/to/models` enables wider search and
+residual ranking when both method models load. The directory holds
+`simplified.fkpr` and `traditional.fkpr`. Legacy files start with the eight ASCII
+bytes `FKPYR001`, followed by exactly 32,768 little-endian IEEE float32 weights.
+Counted version `FKPYR002` adds a little-endian unsigned 32-bit feature count
+after the magic, then exactly that many float32 weights. Only 32,768 and
+131,072 features are supported. Hashing uses each loaded model's actual size.
+The two scripts may use different supported sizes; both files must validate
+before either model is enabled, and native mutable learning remains shared.
+The selected wider Traditional experiment uses the unchanged validated 32k
+Simplified model beside the frozen 131k Traditional model. The rejected wider
+Simplified research candidate is not part of that runtime bundle.
+Missing, malformed or nonfinite weights in either file leave residual ranking
+off for both methods, so they keep shared learning ownership. Keep the model
+bundle fixed while the simulator runs. Unset both variables to return to normal search.
+
+The experiment scores complete-input candidates and keeps the winning sentence
+first. Prefix words and full-word correction choices precede the other multiword
+sentence hypotheses, which remain reachable in the expanded list. Its menu is
+bounded to 70 choices to leave room for the extra hypotheses alongside the normal
+50 choices. Selected words stay selected. Space, candidate selection, punctuation,
+learning and sending the front of a long reading use the same winning source.
+Enter still types Pinyin's remaining letters as entered.
+
+An isolated complete native conversion of one character keeps libime's own
+default, including its learned preference. The residual is meant to compare
+sentences. This guard does not change a reading with a selected prefix or text
+already sent from its front, and every homophone remains selectable.
+
+The experiment also keeps a complete native winner backed by learned whole-word
+frequency or a fully supported learned word-transition path, including both
+sentence boundaries and the candidate's canonical Pinyin. Familiar components
+alone do not qualify. This respects libime's existing personal preferences;
+it adds no personal-text file. A supported transition path can recombine earlier
+transitions, so it does not prove that the entire sentence was previously typed.
+Existing learning controls, profile separation and clearing still apply.
+
+Use a scratch simulator config and fixed model hashes when comparing normal
+search, wider search and residual ranking. Model training and benchmark data are
+not part of the package. Accuracy, incremental decoding cost and headset behavior
+need separate measurement before enabling this experiment by default.
+
+#### Experimental Zhuyin residual ranking
+
+With `FRAMEKEYBOARD_ZHUYIN_SENTENCES=1`, setting
+`FRAMEKEYBOARD_ZHUYIN_RERANK_MODEL=/path/to/model.fkzr` also enables a fixed
+residual over tone-compatible proposals and McBopomofo's unforced conversion.
+The separate model starts with `FKZYR001` and exactly 32,768 little-endian
+IEEE float32 weights. Pinyin models, missing files, malformed payloads and
+nonfinite weights leave the existing sentence experiment unchanged. Weights
+are external and are not included in the package. Both experiments remain off
+by default.
+
+This model uses character ngrams, proposal order, length, native-source identity
+and the existing phrase-fit heuristic. It does not use libime word segmentation
+or native language-model scores. Its native hypothesis comes from a fresh grid
+with user and learned overrides only, never from an earlier proposed sentence.
+Runs with user or learned choices keep the existing hybrid policy. Punctuation
+separates runs; unsafe native spans or incompatible readings use that policy too.
+
+Scoring follows the existing completed-reading proposal cache. Starting or
+clearing an unfinished syllable preserves the last converted prefix and keeps
+the raw symbols at the cursor. Completing a syllable or changing completed
+readings can recompute the unselected text, including after a long reading sends
+its front. No new per-key inference, timer or personal history is added.
+Use a scratch profile and measure live key-by-key output and incremental cost
+separately from offline candidate scoring before considering a default change.
+
+#### Experimental table context
+
+`FRAMEKEYBOARD_TABLE_CONTEXT_COUNTS=/path/to/context-counts.bin` enables the
+default-off contextual Quick/Cangjie experiment. The external file contains
+sorted little-endian records of four unsigned 32-bit values: three Unicode
+code points and a positive public-corpus count. A zero first code point marks
+a bigram. Duplicate, unsorted, invalid or oversized data falls back to native
+ordering. Data is not included in the AppImage; the experiment uses the same
+pinned [CC BY 4.0 source](../third_party/chinese-ranks/README.md) as the ranks.
+Keep the counts file fixed while the process runs; restart after changing it.
+
+The frozen ranking weights are eight for Quick and four for Cangjie, with a
+half-weight trigram only after two prior characters. Quick's first choice and
+Cangjie's common exact matches stay ahead of reordered alternatives. Offered
+characters remain selectable.
+
+Context comes from acknowledged output, including Quick's automatic front
+sending. Admission alone is insufficient. Acknowledgements affect the next
+normal code lookup, never a menu beneath a press. Observed caret/native edits,
+field/window/profile changes, sensitive fields, cancellation and uncertain
+delivery clear future context. Already-presented choices remain fixed until
+normal reading mutation; actual target/profile resets retain their existing
+composition-discard policy. New lookups for unknown direct targets use native ordering. The
+simulator identifies its own single private receiver; clicking its field or
+Clear field invalidates context. No field or system clipboard text is read,
+and no personal context file is written. Out-of-band edits without an existing
+input/focus/pointer signal cannot be inferred.
+
 ## AppImage
 
 An AppImage holds the simulator, the libraries it needs and Japanese completion's words and kaomoji, and optionally Mozc, swipe typing, the Chinese engines, Anthy with its dictionary, the emoji dictionary and the Cangjie and Quick tables, in one file that runs without installing anything:

@@ -64,6 +64,22 @@ class CjkEngine {
         (void)symbol, (void)text;
         return false;
     }
+    // Zhuyin's sentences (FRAMEKEYBOARD_ZHUYIN_SENTENCES, being compared):
+    // another engine proposes whole sentences for the reading, and Zhuyin
+    // keeps the best that fits the tones typed. pinyin_runs() gives the
+    // reading's runs of syllables between punctuation as toneless Pinyin, with
+    // apostrophes between syllables; prefer() takes each run's sentences, in
+    // that order, and leaves alone what the user picked. The proposer must
+    // exclude prefix words by their consumed-input endpoint, not text length.
+    virtual std::vector<std::string> pinyin_runs() const { return {}; }
+    virtual void prefer(const std::vector<std::vector<std::string>>& sentences) { (void)sentences; }
+    // A whole reading at once, replacing what was typed (for proposing sentences).
+    virtual void type_reading(const std::string& keys) {
+        cancel();
+        for (const char key : keys) {
+            type(key);
+        }
+    }
     // In preedit(), as byte offsets: the phrase the candidates are for, and
     // the cursor. False when there is nothing to show.
     virtual bool highlight(std::size_t& begin, std::size_t& end, std::size_t& caret) const {

@@ -1,3 +1,5 @@
+#include "../src/cjk_module.hpp"
+#include "../src/pinyin_reranker.hpp"
 #include "../src/table_engine.hpp"
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/chinese_candidates.hpp"
@@ -902,6 +904,18 @@ void engines(const std::string& group = "") {
 // FRAMEKEYBOARD_CHINESE_ENGINE picks one. Each converts, chooses a phrase's
 // start, and learns into its folder only when allowed.
 void chinese_engines() {
+    std::vector<std::vector<std::string>> remembered;
+    const auto remember = [&](const auto& words) { remembered.push_back(words); };
+    require(remember_picked_words({"甲", "乙", "丙"}, {true, false, true}, remember) &&
+                remembered == std::vector<std::vector<std::string>>{{"甲"}, {"丙"}},
+            "pick, accept, pick never learns adjacency across the accepted word");
+    remembered.clear();
+    require(remember_picked_words({"来", "一局", "马"}, {true, true}, remember) &&
+                remembered == std::vector<std::vector<std::string>>{{"来"}, {"一局"}},
+            "an accepted tail is not part of a picked run");
+    remembered.clear();
+    require(!remember_picked_words({"你好"}, {}, remember) && remembered.empty(),
+            "an unpicked default after an earlier choice writes no history");
     const auto dir =
         fs::temp_directory_path() / ("framekeyboard-chinese-test-" + std::to_string(getpid()));
     struct Cleanup {
@@ -963,9 +977,40 @@ void chinese_engines() {
         type(pinyin, "nihao");
         pinyin.committed(true);
         require(fs::exists(dir / "libime/user.history"), "a commit is learned into the folder");
+        pinyin.cancel();
+        type(pinyin, "laiyijuma");
+        for (const auto* word : {"来", "一局", "马"}) {
+            const auto offered = pinyin.candidates();
+            const auto found = std::find(offered.begin(), offered.end(), word);
+            require(found != offered.end(), "the mixed pick/default regression words are available");
+            pinyin.choose(static_cast<int>(found - offered.begin()));
+        }
+        pinyin.committed(true);
+        pinyin.cancel();
+        type(pinyin, "laiyijuma");
+        require(pinyin.text() != "来一局马", "an accepted default tail does not teach a whole word");
         CjkComposer elsewhere("chinese-pinyin-simplified");
         type(elsewhere, "nihao");
         elsewhere.committed(true); // No folder: nothing is written anywhere.
+        // Exercise the private proposer too: cufan has complete two- and
+        // three-character sentences interleaved before its prefix words.
+        const auto module_path =
+            fs::read_symlink("/proc/self/exe").parent_path() / "engines" / "framekeyboard-libime.so";
+        void* module = dlopen(module_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        require(module != nullptr, "the tested libime module can be opened");
+        const auto create =
+            reinterpret_cast<CreateCjkEngine>(dlsym(module, "framekeyboard_create_cjk_v3"));
+        require(create != nullptr, "the libime module exposes its factory");
+        {
+            std::unique_ptr<CjkEngine> sentences(create("chinese-pinyin-traditional-sentences", ""));
+            sentences->type_reading("cufan");
+            const auto offered = sentences->candidates();
+            require(std::find(offered.begin(), offered.end(), "醋飯") != offered.end(),
+                    "a complete shorter sentence survives other syllable splits");
+            require(std::find(offered.begin(), offered.end(), "醋") == offered.end(),
+                    "the proposer excludes words that consume only an input prefix");
+        }
+        dlclose(module);
     } else {
         std::cout << "libime skipped: build lacks the module\n";
     }
@@ -1070,6 +1115,726 @@ void chinese_engines() {
     } else {
         std::cout << "McBopomofo skipped: build lacks the module\n";
     }
+}
+void traditional_selected_display(const fs::path& config) {
+    CjkComposer composer("chinese-pinyin-traditional");
+    const auto read = [&](const std::string& keys) {
+        composer.cancel();
+        type(composer, keys);
+    };
+    const auto choose = [&](const std::string& word) {
+        const auto offered = composer.candidates();
+        const auto found = std::find(offered.begin(), offered.end(), word);
+        require(found != offered.end(), "the Traditional selection fixture offers its displayed word");
+        composer.choose(static_cast<int>(found - offered.begin()));
+    };
+    read("faxingnihao");
+    choose("發");
+    choose("型");
+    require(composer.text().starts_with("發型") && composer.preedit().starts_with("發型"),
+            "later suffix selection preserves the exact displayed Traditional prefix");
+    composer.type('a');
+    require(composer.text().starts_with("發型") && composer.preedit().starts_with("發型"),
+            "continued typing cannot reinterpret selected Traditional characters");
+    composer.backspace();
+    composer.as_typed();
+    require(composer.text() == "發型nihao", "Enter's letters follow the selected display unchanged");
+    for (int i = 0; i < 10 && composer.has_reading(); ++i) {
+        composer.backspace();
+    }
+    require(composer.preedit() == "發型", "Backspace in the suffix retains selected display segments");
+    composer.backspace();
+    require(composer.preedit().starts_with("發") && !composer.preedit().starts_with("發型"),
+            "undoing a selection removes only its display checkpoint");
+    composer.cancel();
+    require(composer.text().empty() && composer.preedit().empty(),
+            "cancellation releases all selected display segments");
+    type(composer, "faxing");
+    const auto cold = composer.text();
+    choose("髮型");
+    require(composer.text() == "髮型" && composer.preedit() == "髮型",
+            "the ordinary whole-word spelling still converts normally");
+    composer.backspace();
+    require(composer.text() == cold, "undoing the whole choice restores the cold conversion");
+    read("faxingnihao");
+    choose("發");
+    choose("型");
+    type(composer, "nihaonihaonihaonihaonihaonihao");
+    require(composer.finished().starts_with("發型") && composer.text().starts_with(composer.finished()),
+            "long-reading front sending preserves selected Traditional display");
+    composer.drop_finished();
+    require(!composer.preedit().starts_with("發型"), "a sent selected prefix is not duplicated");
+
+    Options options;
+    options.config_dir = config;
+    options.input = InputBackend::Ei;
+    options.mode = Mode::Vr;
+    options.target_language = "en-us";
+    options.start_enabled = true;
+    Sink sink;
+    App app(options, sink);
+    app.apply({"en-us-full", "zh-tw-pinyin", "graphite"});
+    const auto app_choose = [&](const std::string& word) {
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            app.tick(2);
+            const auto view = app.view();
+            if (view.candidates) {
+                for (const auto& chip : view.candidates->chips) {
+                    if (chip.text == word || chip.text.ends_with(" " + word)) {
+                        const auto x = chip.bounds.x + chip.bounds.width / 2;
+                        const auto y = chip.bounds.y + chip.bounds.height / 2;
+                        app.down(0, x, y, 3);
+                        app.up(0, x, y);
+                        return;
+                    }
+                }
+            }
+            for (const auto& control : view.controls) {
+                if (control.id == "ime-more") {
+                    const auto x = control.bounds.x + control.bounds.width / 2;
+                    const auto y = control.bounds.y + control.bounds.height / 2;
+                    app.down(0, x, y, 3);
+                    app.up(0, x, y);
+                    break;
+                }
+            }
+        }
+        throw std::runtime_error("the Traditional App fixture cannot find its displayed choice");
+    };
+    const auto app_read = [&] {
+        sink.events.clear();
+        for (const auto* key :
+             {"KeyF", "KeyA", "KeyX", "KeyI", "KeyN", "KeyG", "KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
+            click(app, key);
+        }
+        app_choose("發");
+        app_choose("型");
+        app.tick(2);
+    };
+    const auto default_text = [&] {
+        const auto view = app.view();
+        require(view.candidates && !view.candidates->chips.empty(), "the remaining default is visible");
+        const auto& label = view.candidates->chips.front().text;
+        return "發型" + label.substr(label.find(' ') + 1);
+    };
+    app_read();
+    const auto punctuation_text = default_text();
+    click(app, "Comma");
+    require(sink.events == std::vector<std::string>{punctuation_text, "，"},
+            "implicit punctuation delivers selected Traditional surfaces and the visible suffix");
+    app_read();
+    click(app, "Enter");
+    require(sink.events == std::vector<std::string>{"發型nihao"},
+            "App Enter preserves selected Traditional display before the remaining letters");
+    app_read();
+    const auto space_text = default_text();
+    click(app, "Space");
+    require(sink.events == std::vector<std::string>{space_text},
+            "App default commit preserves selected Traditional display");
+}
+void zhuyin_reranking() {
+    const auto dir =
+        fs::temp_directory_path() / ("framekeyboard-zhuyin-reranking-" + std::to_string(getpid()));
+    fs::create_directories(dir);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() {
+            unsetenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES");
+            unsetenv("FRAMEKEYBOARD_ZHUYIN_RERANK_MODEL");
+            fs::remove_all(path);
+        }
+    } cleanup{dir};
+    const auto write_model = [&](std::string_view magic, float own_bonus = 0,
+                                 std::string_view character = "妳") {
+        std::vector<float> weights(PinyinReranker::weight_count);
+        weights[PinyinReranker::feature_index("1:" + std::string(character))] = 100;
+        weights[3] = own_bonus;
+        std::ofstream file(dir / "model.fkzr", std::ios::binary);
+        file << magic;
+        for (const float weight : weights) {
+            const auto bits = std::bit_cast<std::uint32_t>(weight);
+            for (int shift = 0; shift < 32; shift += 8) {
+                file.put(static_cast<char>(bits >> shift));
+            }
+        }
+    };
+    write_model("FKZYR001", 7);
+    const auto model = PinyinReranker::load(dir / "model.fkzr", "FKZYR001");
+    require(model && model->score("妳好", {}, 20, -20, 0, true) == 87 &&
+                !PinyinReranker::load(dir / "model.fkzr"),
+            "Zhuyin has a strict separate identity and source-indicator feature");
+    write_model("FKPYR001");
+    require(!PinyinReranker::load(dir / "model.fkzr", "FKZYR001"),
+            "a Pinyin model cannot silently enable a different feature contract");
+    write_model("FKZYR001");
+    const auto module_path =
+        fs::read_symlink("/proc/self/exe").parent_path() / "engines" / "framekeyboard-mcbopomofo.so";
+    void* module = dlopen(module_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!module) {
+        std::cout << "McBopomofo reranking skipped: module unavailable\n";
+        return;
+    }
+    const auto create = reinterpret_cast<CreateCjkEngine>(dlsym(module, "framekeyboard_create_cjk_v3"));
+    require(create != nullptr, "McBopomofo exposes its existing factory");
+    const auto make = [&] { return std::unique_ptr<CjkEngine>(create("chinese-zhuyin", "")); };
+    const auto read = [](CjkEngine& engine, std::string_view keys) {
+        for (char key : keys) {
+            engine.type(key);
+        }
+    };
+    setenv("FRAMEKEYBOARD_ZHUYIN_RERANK_MODEL", (dir / "model.fkzr").c_str(), 1);
+    unsetenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES");
+    {
+        auto off = make();
+        read(*off, "su3cl3");
+        off->prefer({{"你好", "妳好"}});
+        require(off->text() == "你好", "the model path alone leaves the hybrid unchanged");
+    }
+    setenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES", "1", 1);
+    {
+        auto engine = make();
+        read(*engine, "su3cl3");
+        engine->prefer({{"你好", "妳好"}});
+        require(engine->text() == "妳好" && engine->candidates().front() == "妳好",
+                "the synthetic model wins consistently in text and candidates");
+        read(*engine, "a8");
+        require(engine->text() == "妳好ㄇㄚ", "an ordinary unfinished syllable keeps the ranked prefix");
+        engine->backspace();
+        engine->cancel_open();
+        require(engine->text() == "妳好", "clearing only the partial syllable keeps that prefix");
+        engine->prefer({{"你好"}});
+        require(engine->text() == "你好", "native own is rebuilt without stale preferred feedback");
+        engine->prefer({{"你好", "妳好"}});
+        const auto choices = engine->candidates();
+        const auto ni = std::find(choices.begin(), choices.end(), "你好");
+        require(ni != choices.end(), "the native correction remains selectable");
+        engine->choose(static_cast<int>(ni - choices.begin()));
+        engine->prefer({{"妳好", "你好"}});
+        require(engine->text() == "你好", "an explicit choice outranks the global residual");
+        engine->move(-1);
+        read(*engine, "a8");
+        require(engine->text() == "你ㄇㄚ好", "raw partial symbols stay at the middle cursor");
+        engine->cancel_open();
+        engine->move(1000);
+        require(engine->insert_symbol('<', "，"), "punctuation can separate ranked runs");
+        read(*engine, "su3cl3");
+        engine->prefer({{"你好", "妳好"}, {"你好", "妳好"}});
+        require(engine->text() == "你好，妳好", "fixed choices and punctuation isolate each run");
+        engine->cancel();
+        require(engine->text().empty() && engine->pinyin_runs().empty(), "cancel discards ranked state");
+    }
+    write_model("FKZYR001", 1000);
+    {
+        auto engine = make();
+        read(*engine, "su3cl3");
+        engine->prefer({{"你好", "妳好"}});
+        require(engine->text() == "妳好",
+                "own already proposed keeps proposal features without duplication");
+        engine->prefer({{"妳好"}});
+        require(engine->text() == "你好",
+                "a winning separate own hypothesis leaves the native grid unforced");
+        engine->prefer({{"wrong reading"}});
+        require(engine->text() == "你好", "no fitting proposal keeps the exact-fit native conversion");
+    }
+    write_model("FKZYR001");
+    {
+        // Pick and persist a native correction, then make the global model
+        // prefer its competitor. The saved native override still wins.
+        const auto learning = dir / "learning";
+        {
+            std::unique_ptr<CjkEngine> engine(create("chinese-zhuyin", learning.c_str()));
+            read(*engine, "su3cl3");
+            const auto choices = engine->candidates();
+            const auto other = std::find(choices.begin(), choices.end(), "妳好");
+            require(other != choices.end(), "the learned-choice fixture offers its correction");
+            engine->choose(static_cast<int>(other - choices.begin()));
+            engine->committed(true);
+        }
+        write_model("FKZYR001", 0, "你");
+        std::string native_learned;
+        unsetenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES");
+        {
+            std::unique_ptr<CjkEngine> native(create("chinese-zhuyin", learning.c_str()));
+            read(*native, "su3cl3");
+            native->prefer({{"你好", "妳好"}});
+            native_learned = native->text();
+        }
+        setenv("FRAMEKEYBOARD_ZHUYIN_SENTENCES", "1", 1);
+        {
+            std::unique_ptr<CjkEngine> reloaded(create("chinese-zhuyin", learning.c_str()));
+            read(*reloaded, "su3cl3");
+            reloaded->prefer({{"你好", "妳好"}});
+            require(reloaded->text() == native_learned && native_learned == "妳好",
+                    "reloaded native learning bypasses the opposed residual");
+        }
+        fs::remove_all(learning);
+        {
+            std::unique_ptr<CjkEngine> cleared(create("chinese-zhuyin", learning.c_str()));
+            read(*cleared, "su3cl3");
+            cleared->prefer({{"你好", "妳好"}});
+            require(cleared->text() == "你好", "clearing learned words restores the cold conversion");
+        }
+        write_model("FKZYR001");
+    }
+    {
+        auto long_reading = make();
+        for (int i = 0; i < 29; ++i) {
+            read(*long_reading, "su3");
+        }
+        long_reading->prefer({{std::string()}}); // No fitting proposal: native own remains usable.
+        read(*long_reading, "a");
+        const auto before = long_reading->text();
+        read(*long_reading, "8"); // Sends a completed front while the raw syllable remains open.
+        long_reading->prefer({{}});
+        require(long_reading->text() == before + "ㄚ" && !long_reading->finished().empty(),
+                "long-front processing preserves all completed text and the separate partial tail");
+        const auto sent = long_reading->finished();
+        long_reading->drop_finished();
+        require(sent + long_reading->text() == before + "ㄚ",
+                "dropping the delivered front never duplicates or loses ranked text");
+    }
+    write_model("FKPYR001");
+    {
+        auto invalid = make();
+        read(*invalid, "su3cl3");
+        invalid->prefer({{"你好", "妳好"}});
+        require(invalid->text() == "你好", "invalid model identity retains old hybrid behavior");
+    }
+    dlclose(module);
+}
+void pinyin_reranking() {
+    const auto dir =
+        fs::temp_directory_path() / ("framekeyboard-pinyin-reranking-" + std::to_string(getpid()));
+    fs::create_directories(dir);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() {
+            unsetenv("FRAMEKEYBOARD_PINYIN_NBEST");
+            unsetenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY");
+            unsetenv("FRAMEKEYBOARD_CHINESE_ENGINE");
+            fs::remove_all(path);
+        }
+    } cleanup{dir};
+    require(PinyinReranker::feature_index("123456789") ==
+                32 + (0xcbf43926U % (PinyinReranker::weight_count - 32)),
+            "residual features use the specified CRC32 mapping");
+    const auto write_model = [&](const char* name, std::string_view character,
+                                 std::size_t count = PinyinReranker::weight_count,
+                                 bool counted = false) {
+        std::vector<float> weights(count);
+        weights[PinyinReranker::feature_index("1:" + std::string(character), count)] = 100;
+        std::ofstream file(dir / name, std::ios::binary);
+        if (counted || count != PinyinReranker::weight_count) {
+            file << PinyinReranker::counted_magic;
+            for (int shift = 0; shift < 32; shift += 8) {
+                file.put(static_cast<char>(count >> shift));
+            }
+        } else {
+            file << PinyinReranker::magic;
+        }
+        for (const float weight : weights) {
+            const auto bits = std::bit_cast<std::uint32_t>(weight);
+            for (int shift = 0; shift < 32; shift += 8) {
+                file.put(static_cast<char>(bits >> shift));
+            }
+        }
+    };
+    write_model("simplified.fkpr", "拟");
+    write_model("traditional.fkpr", "擬");
+    write_model("wide.fkpr", "擬", PinyinReranker::wide_weight_count);
+    write_model("counted32.fkpr", "拟", PinyinReranker::weight_count, true);
+    auto wide = PinyinReranker::load(dir / "wide.fkpr");
+    auto counted = PinyinReranker::load(dir / "counted32.fkpr");
+    require(wide && wide->score("擬好", {"拟好"}, 0, -3., -3.) == 100. && counted &&
+                counted->score("拟好", {"拟好"}, 0, -3., -3.) == 100.,
+            "counted models use their actual feature width while supporting both frozen sizes");
+    require(PinyinReranker::feature_index("1:擬", PinyinReranker::wide_weight_count) !=
+                PinyinReranker::feature_index("1:擬"),
+            "the wide fixture distinguishes actual-width hashing from legacy modulo");
+    {
+        std::ofstream file(dir / "bad-count.fkpr", std::ios::binary);
+        file << PinyinReranker::counted_magic;
+        for (const unsigned char byte : {0, 0, 1, 0}) {
+            file.put(static_cast<char>(byte)); // 65536 is not a frozen supported width.
+        }
+    }
+    require(!PinyinReranker::load(dir / "bad-count.fkpr"),
+            "unsupported widths are rejected before allocation");
+    fs::copy_file(dir / "wide.fkpr", dir / "wide-trailing.fkpr");
+    {
+        std::ofstream file(dir / "wide-trailing.fkpr", std::ios::binary | std::ios::app);
+        file.put('x');
+    }
+    require(!PinyinReranker::load(dir / "wide-trailing.fkpr"), "wide trailing bytes are rejected");
+    fs::copy_file(dir / "wide.fkpr", dir / "wide-nan.fkpr");
+    {
+        std::fstream file(dir / "wide-nan.fkpr", std::ios::binary | std::ios::in | std::ios::out);
+        file.seekp(12);
+        for (const unsigned char byte : {0, 0, 0xc0, 0x7f}) {
+            file.put(static_cast<char>(byte));
+        }
+    }
+    require(!PinyinReranker::load(dir / "wide-nan.fkpr"), "nonfinite wide model weights are rejected");
+    {
+        std::ofstream file(dir / "wide-truncated.fkpr", std::ios::binary);
+        file << PinyinReranker::counted_magic;
+        file.write("\0\0\2\0", 4);
+        file << "short";
+    }
+    require(!PinyinReranker::load(dir / "wide-truncated.fkpr"),
+            "truncated counted payloads are rejected");
+    auto model = PinyinReranker::load(dir / "simplified.fkpr");
+    require(model && model->score("拟好", {"拟好"}, 0, -3., -3.) == 100.,
+            "the fixed scorer matches the synthetic UTF-8 feature model");
+    std::ofstream(dir / "broken.fkpr") << PinyinReranker::magic << "short";
+    require(!PinyinReranker::load(dir / "missing.fkpr") && !PinyinReranker::load(dir / "broken.fkpr"),
+            "missing and truncated experimental models are rejected");
+    {
+        std::ofstream file(dir / "simplified.fkpr", std::ios::binary | std::ios::app);
+        file.put('x');
+    }
+    require(!PinyinReranker::load(dir / "simplified.fkpr"), "a model with trailing data is rejected");
+    write_model("simplified.fkpr", "拟");
+    setenv("FRAMEKEYBOARD_CHINESE_ENGINE", "libime", 1);
+    if (!CjkComposer::supported("chinese-pinyin-simplified")) {
+        return;
+    }
+    for (const auto* method : {"chinese-pinyin-simplified", "chinese-pinyin-traditional"}) {
+        const bool simplified = std::string(method).ends_with("simplified");
+        const std::vector<std::string> homophones = simplified
+                                                        ? std::vector<std::string>{"师", "诗", "使"}
+                                                        : std::vector<std::string>{"師", "詩", "使"};
+        std::vector<std::pair<std::string, std::string>> native_short_defaults;
+        for (const auto* keys : {"shi", "ni", "wo", "de", "le", "hao", "zai"}) {
+            CjkComposer native(method);
+            type(native, keys);
+            require(utf8_length(native.text()) == 1, "the isolated-character fixture is one character");
+            native_short_defaults.emplace_back(keys, native.text());
+        }
+        const auto preserved_short_defaults = [&] {
+            for (const auto& [keys, expected] : native_short_defaults) {
+                CjkComposer isolated(method);
+                type(isolated, keys);
+                require(isolated.text() == expected && isolated.candidates().front() == expected,
+                        "isolated characters keep the native frequency/preference default");
+            }
+        };
+        std::vector<std::pair<std::string, std::vector<std::string>>> baseline_choices;
+        for (const auto* keys : {"shi", "shishi", "woxiangmaiyitaidiannao"}) {
+            CjkComposer baseline(method);
+            type(baseline, keys);
+            baseline_choices.emplace_back(keys, baseline.candidates());
+        }
+        const auto retained_choices = [&] {
+            for (const auto& [keys, baseline] : baseline_choices) {
+                CjkComposer expanded(method);
+                type(expanded, keys);
+                const auto offered = expanded.candidates();
+                for (const auto& choice : baseline) {
+                    require(std::find(offered.begin(), offered.end(), choice) != offered.end(),
+                            "extra sentence hypotheses never displace baseline correction choices");
+                }
+            }
+        };
+        const auto short_choices = [&] {
+            CjkComposer short_reading(method);
+            type(short_reading, "shi");
+            for (const auto& word : homophones) {
+                const auto offered = short_reading.candidates();
+                const auto found = std::find(offered.begin(), offered.end(), word);
+                require(found != offered.end(),
+                        "non-leading short-reading homophones remain offered in every search mode");
+                short_reading.choose(static_cast<int>(found - offered.begin()));
+                require(short_reading.text() == word && !short_reading.has_reading(),
+                        "a non-leading short-reading homophone remains selectable");
+                short_reading.cancel();
+                type(short_reading, "shi");
+            }
+        };
+        short_choices();
+        if (!simplified) {
+            traditional_selected_display(dir / "traditional-display-normal");
+            // This corrected first word has no separate prefix row. At the
+            // limit only the already selected 我 can be sent ahead.
+            const std::string reading = "wodiangaonihaonihaonihaonihaon";
+            CjkComposer fuzzy("chinese-pinyin-traditional");
+            type(fuzzy, reading);
+            const auto offered = fuzzy.candidates();
+            const auto prefix = std::find(offered.begin(), offered.end(), "我");
+            require(prefix != offered.end(), "the fuzzy-front fixture offers its selected prefix");
+            fuzzy.choose(static_cast<int>(prefix - offered.begin()));
+            fuzzy.type('a');
+            require(fuzzy.finished() == "我", "front sending never appends an unconsumed fuzzy word");
+            fuzzy.drop_finished();
+            auto remaining = fuzzy.preedit();
+            std::erase(remaining, ' ');
+            require(remaining == reading.substr(2) + "a",
+                    "the unconsumed fuzzy word and new key remain exactly once");
+        }
+        setenv("FRAMEKEYBOARD_PINYIN_NBEST", "20", 1);
+        short_choices();
+        preserved_short_defaults();
+        retained_choices();
+        if (!simplified) {
+            traditional_selected_display(dir / "traditional-display-wide");
+        }
+        {
+            CjkComposer search(method);
+            type(search, "nihao");
+            require(search.text() == "你好", "wider search alone preserves the familiar default");
+            const auto offered = search.candidates();
+            require(std::find(offered.begin(), offered.end(), "你") != offered.end(),
+                    "wider search preserves prefix-word correction choices");
+        }
+        setenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY", dir.c_str(), 1);
+        short_choices();
+        preserved_short_defaults();
+        retained_choices();
+        if (!simplified) {
+            traditional_selected_display(dir / "traditional-display-ranked");
+        }
+        {
+            CjkComposer prefixed(method);
+            type(prefixed, "woni");
+            const auto offered = prefixed.candidates();
+            const auto prefix = std::find(offered.begin(), offered.end(), "我");
+            require(prefix != offered.end(), "the boundary fixture offers its explicit prefix");
+            prefixed.choose(static_cast<int>(prefix - offered.begin()));
+            require(prefixed.text() == (simplified ? "我拟" : "我擬"),
+                    "the isolated guard does not silently apply to a selected-prefix composition");
+            prefixed.cancel();
+            type(prefixed, "ni");
+            require(prefixed.text() == "你", "cancellation restores isolated-character handling");
+        }
+        const auto short_learning = dir / method / "short-preference";
+        fs::create_directories(short_learning);
+        {
+            CjkComposer personal(method, short_learning);
+            type(personal, "ni");
+            const auto offered = personal.candidates();
+            const auto correction = std::find(offered.begin(), offered.end(), "倪");
+            require(correction != offered.end(), "a nondefault isolated character remains selectable");
+            personal.choose(static_cast<int>(correction - offered.begin()));
+            personal.committed(true);
+        }
+        {
+            CjkComposer personal(method, short_learning);
+            type(personal, "ni");
+            require(personal.text() == "倪", "the isolated guard preserves native learning on reload");
+            CjkComposer other(method);
+            type(other, "ni");
+            require(other.text() == "你", "isolated personal preference stays in its own profile");
+        }
+        fs::remove_all(short_learning);
+        {
+            CjkComposer cleared(method, short_learning);
+            type(cleared, "ni");
+            require(cleared.text() == "你", "clearing native learning restores the cold default");
+        }
+        const auto whole_learning = dir / method / "whole-preference";
+        fs::create_directories(whole_learning);
+        {
+            CjkComposer personal(method, whole_learning);
+            type(personal, "nihao");
+            require(personal.text() != "你好", "the synthetic global model opposes this correction");
+            const auto offered = personal.candidates();
+            const auto correction = std::find(offered.begin(), offered.end(), "你好");
+            require(correction != offered.end(), "the whole-word correction remains selectable");
+            personal.choose(static_cast<int>(correction - offered.begin()));
+            personal.committed(true);
+            personal.cancel();
+            type(personal, "nihao");
+            require(personal.text() == "你好", "global residuals respect a learned whole native winner");
+        }
+        {
+            CjkComposer reloaded(method, whole_learning);
+            type(reloaded, "nihao");
+            require(reloaded.text() == "你好", "whole-reading preference survives native reload");
+            CjkComposer other(method);
+            type(other, "nihao");
+            require(other.text() != "你好", "whole-reading preference stays inside its profile");
+        }
+        fs::remove_all(whole_learning);
+        {
+            CjkComposer cleared(method, whole_learning);
+            type(cleared, "nihao");
+            require(cleared.text() != "你好", "native clearing removes whole-reading protection");
+        }
+        const auto component_learning = dir / method / "component-preference";
+        fs::create_directories(component_learning);
+        {
+            CjkComposer component(method, component_learning);
+            type(component, "ni");
+            component.committed(true);
+            component.cancel();
+            type(component, "hao");
+            component.committed(true);
+            component.cancel();
+            type(component, "nihao");
+            require(component.text() != "你好",
+                    "known components and boundaries cannot replace a missing internal transition");
+        }
+        for (const auto& [keys, phrase] : std::vector<std::pair<std::string, std::string>>{
+                 {"wonihao", "我你好"}, {"nihaowo", "你好我"}}) {
+            const auto learning = dir / method / ("boundary-" + keys);
+            fs::create_directories(learning);
+            CjkComposer boundary(method, learning);
+            type(boundary, keys);
+            const auto offered = boundary.candidates();
+            const auto picked = std::find(offered.begin(), offered.end(), phrase);
+            require(picked != offered.end(), "the boundary fixture offers its complete phrase");
+            boundary.choose(static_cast<int>(picked - offered.begin()));
+            boundary.committed(true);
+            boundary.cancel();
+            type(boundary, "nihao");
+            require(boundary.text() != "你好",
+                    "an internal learned transition without both sentence boundaries is insufficient");
+        }
+        const auto legacy_learning = dir / method / "legacy-preference";
+        fs::create_directories(legacy_learning);
+        {
+            CjkComposer legacy(method, legacy_learning);
+            type(legacy, "nirenma");
+            const auto offered = legacy.candidates();
+            const auto phrase = std::find(offered.begin(), offered.end(), "泥人");
+            require(phrase != offered.end(), "the legacy-history fixture offers its picked word");
+            legacy.choose(static_cast<int>(phrase - offered.begin()));
+            require(legacy.has_reading() && !legacy.candidates().empty(),
+                    "the legacy fixture has a default tail to accept");
+            legacy.choose(0);
+            legacy.committed(true); // Mixed picks save 泥人 alone without a Pinyin code.
+        }
+        {
+            CjkComposer legacy(method, legacy_learning);
+            type(legacy, "niren");
+            require(legacy.text() == "泥人", "whole-reading protection includes legacy uncoded history");
+        }
+        CjkComposer ranked(method, dir / method);
+        type(ranked, "nihao");
+        const auto delivered = ranked.text();
+        require(delivered != "你好" && delivered == ranked.candidates().front(),
+                "the synthetic residual changes the actual default and its visible row together");
+        ranked.choose(0);
+        require(ranked.text() == delivered && !ranked.has_reading(),
+                "choosing the first visible candidate selects its mapped source sentence");
+        ranked.cancel();
+        type(ranked, "nihao");
+        require(ranked.text() == delivered, "the fresh default is stable");
+        ranked.committed(true);
+        require(ranked.text() == delivered && !ranked.has_reading(),
+                "implicit delivery learns the delivered residual sentence rather than native row zero");
+        ranked.cancel();
+        type(ranked, "nihaoma");
+        const auto offered = ranked.candidates();
+        const auto prefix = std::find(offered.begin(), offered.end(), "你");
+        require(prefix != offered.end(), "a deliberate prefix correction remains accessible");
+        ranked.choose(static_cast<int>(prefix - offered.begin()));
+        require(ranked.text().starts_with("你"), "reranking preserves a selected prefix");
+        ranked.type('n');
+        require(ranked.text().starts_with("你"), "later input cannot reinterpret that prefix");
+        ranked.cancel();
+        type(ranked, "nihaonihaonihaonihaonihaonihao");
+        const auto before_front = ranked.text();
+        ranked.type('n');
+        require(!ranked.finished().empty() && before_front.starts_with(ranked.finished()),
+                "front sending consumes the same default sentence shown before the limit");
+        {
+            Options options;
+            options.config_dir = dir / method / "app";
+            options.input = InputBackend::Ei;
+            options.mode = Mode::Vr;
+            options.target_language = "en-us";
+            options.start_enabled = true;
+            Sink sink;
+            App app(options, sink);
+            app.apply({"en-us-full",
+                       std::string(method).ends_with("simplified") ? "zh-cn-pinyin" : "zh-tw-pinyin",
+                       "graphite"});
+            const auto reading = [&] {
+                for (const auto* key : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
+                    click(app, key);
+                }
+                app.tick(2);
+            };
+            reading();
+            click(app, "Space");
+            require(sink.events == std::vector<std::string>{delivered},
+                    "App Space delivers the visible residual default");
+            sink.events.clear();
+            reading();
+            const auto view = app.view();
+            require(view.candidates && !view.candidates->chips.empty(),
+                    "App displays the residual candidate row");
+            const auto bounds = view.candidates->chips.front().bounds;
+            app.down(0, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, 3);
+            app.up(0, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+            require(sink.events == std::vector<std::string>{delivered},
+                    "clicking the first App candidate delivers the same sentence as Space");
+            sink.events.clear();
+            reading();
+            click(app, "Comma");
+            require(sink.events == std::vector<std::string>{delivered, "，"},
+                    "implicit punctuation delivers the residual sentence before its punctuation");
+            sink.events.clear();
+            reading();
+            click(app, "Enter");
+            require(sink.events == std::vector<std::string>{"nihao"},
+                    "Enter still sends Pinyin as typed while residual ranking is enabled");
+        }
+        unsetenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY");
+        unsetenv("FRAMEKEYBOARD_PINYIN_NBEST");
+    }
+    const auto mixed = dir / "mixed-models";
+    fs::create_directory(mixed);
+    write_model("mixed-models/simplified.fkpr", "拟");
+    write_model("mixed-models/traditional.fkpr", "擬", PinyinReranker::wide_weight_count);
+    setenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY", mixed.c_str(), 1);
+    {
+        CjkComposer small("chinese-pinyin-simplified", dir / "mixed-learning");
+        CjkComposer large("chinese-pinyin-traditional", dir / "mixed-learning");
+        type(small, "nihao");
+        type(large, "nihao");
+        require(small.text() == "拟好" && large.text() == "擬好",
+                "a mixed-size bundle loads both scripts");
+        const auto offered = small.candidates();
+        const auto pick = std::find(offered.begin(), offered.end(), "你好");
+        require(pick != offered.end(), "the mixed-size correction remains offered");
+        small.choose(static_cast<int>(pick - offered.begin()));
+        small.committed(true);
+        large.cancel();
+        type(large, "nihao");
+        require(large.text() == "你好", "mixed sizes share native mutable learning ownership");
+    }
+    const auto partial = dir / "partial-models";
+    fs::create_directory(partial);
+    fs::copy_file(dir / "simplified.fkpr", partial / "simplified.fkpr");
+    setenv("FRAMEKEYBOARD_PINYIN_RERANK_DIRECTORY", partial.c_str(), 1);
+    // A live Traditional context must observe Simplified's learning when
+    // both methods use one folder, even with a half-present model bundle.
+    CjkComposer simplified("chinese-pinyin-simplified", dir / "shared-learning");
+    CjkComposer traditional("chinese-pinyin-traditional", dir / "shared-learning");
+    CjkComposer isolated("chinese-pinyin-traditional", dir / "other-learning");
+    type(simplified, "nihao");
+    type(traditional, "nihao");
+    require(simplified.text() == "你好" && traditional.text() == "你好",
+            "a half-present model bundle disables residual ranking atomically");
+    traditional.cancel();
+    const auto offered = simplified.candidates();
+    const auto corrected = std::find(offered.begin(), offered.end(), "拟好");
+    require(corrected != offered.end(), "the shared-learning fixture offers its explicit correction");
+    simplified.choose(static_cast<int>(corrected - offered.begin()));
+    simplified.committed(true);
+    type(traditional, "nihao");
+    type(isolated, "nihao");
+    require(traditional.text() == "擬好" && isolated.text() == "你好",
+            "partial-bundle fallback shares live learning by folder while isolating other profiles");
+    std::ofstream(partial / "traditional.fkpr") << "invalid";
+    CjkComposer invalid_simplified("chinese-pinyin-simplified", dir / "invalid-learning");
+    CjkComposer invalid_traditional("chinese-pinyin-traditional", dir / "invalid-learning");
+    type(invalid_simplified, "nihao");
+    type(invalid_traditional, "nihao");
+    require(invalid_simplified.text() == "你好" && invalid_traditional.text() == "你好",
+            "an invalid model in either script disables the whole residual bundle");
 }
 // The simulator's --chinese-candidates: each method by the line's script, then
 // every engine where it has the method.
@@ -1734,6 +2499,8 @@ int main(int argc, char** argv) {
                 app_traditional();
                 chinese_keys();
                 chinese_engines();
+                pinyin_reranking();
+                zhuyin_reranking();
                 chinese_report();
             }
             std::cout << method << ": engine and delivery ordering passed\n";

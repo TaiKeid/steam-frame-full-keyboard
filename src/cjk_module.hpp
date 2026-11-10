@@ -7,8 +7,25 @@
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+#include <vector>
 
 namespace framekeyboard {
+// In a partly accepted sentence, remember each explicit pick on its own.
+// Joining picks across a default invents adjacency. Even contiguous picks
+// can promote the wrong accepted tail through history's sentence transitions.
+// The mask can stop before the words: the unmarked tail was accepted too.
+template <class Remember>
+bool remember_picked_words(const std::vector<std::string>& words, const std::vector<bool>& picked,
+                           Remember&& remember) {
+    bool remembered = false;
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        if (i < picked.size() && picked[i]) {
+            remember(std::vector<std::string>{words[i]});
+            remembered = true;
+        }
+    }
+    return remembered;
+}
 // The engines' libraries and data sit in chinese/ beside the module:
 // engines/chinese in a build tree, lib/framekeyboard/chinese in a package
 // (tools/build-chinese.sh makes them). The engines were built with no path of
