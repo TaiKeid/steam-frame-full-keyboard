@@ -296,33 +296,30 @@ if the field refuses it, the reading and language stay. Applying a different
 profile in Settings, hiding and closing discard unfinished preedit, as with Japanese; moving,
 resizing, pinning and recentring the panel, and opening Settings, keep it. A held Backspace repeats on the preedit after 0.5 s, every 40 ms. With Chinese it stops once the preedit is empty; the press stays local, so it never goes on to delete the target's text. Korean's goes on, as on a PC: at the open syllable's end it pauses for a fresh 0.5 s, then deletes in the field every 40 ms until you let go. Other composition keys do not repeat.
 
-Chinese uses the Frame's PyZy library and dictionary; Korean uses libhangul.
-Both are loaded only when their language is selected. Missing libraries disable
-that composition profile, not the whole keyboard.
-No IBus daemon configuration, system language setting, clipboard access or network
-service is used, and PyZy and libhangul keep no typing history. PyZy's conversion/selection
-learning APIs are deliberately avoided. Its startup database uses private
-RAM-backed storage that is removed before typing; the active user database is
-in memory. If private memory-backed storage is unavailable, the profile reports
-an error rather than using persistent storage. A build without an engine rejects its profile on Apply while retaining the
+Chinese uses bundled libime/OpenCC for Pinyin and McBopomofo for Zhuyin;
+Korean uses the Frame's libhangul. Engines load only while their language is
+selected or added. Missing libraries or data disable that composition profile,
+not the whole keyboard. No IBus daemon configuration, system language setting,
+clipboard access or network service is used. Chinese learning stays in the
+keyboard's own profile, as described below; libhangul keeps no typing history.
+A build without an engine rejects its profile on Apply while retaining the
 previous profile. A saved unsupported composition profile falls back to English
 at launch with an error message.
 
 ### Chinese engines
 
-PyZy is being replaced, and its candidates for Traditional Chinese come from
-the mainland dictionary. A blind benchmark chose these engines, built from
-the revisions pinned in `tools/chinese-pins.sh` ([building](building.md#dependencies)):
+The retained engines are built from the revisions pinned in
+`tools/chinese-pins.sh` ([building](building.md#dependencies)):
 
 | Engine | Module | Input methods |
 |---|---|---|
 | libime, with an n-gram model, as in Fcitx 5 | `framekeyboard-libime` | Pinyin; Traditional through OpenCC's Taiwan phrases (`s2twp`) |
 | McBopomofo's engine, with its Taiwan phrase data | `framekeyboard-mcbopomofo` | Zhuyin |
 
-Each method takes its engine when that module is installed, else PyZy.
-`FRAMEKEYBOARD_CHINESE_ENGINE` names the engine to use instead, for comparing
-them: `pyzy`, `libime` or `mcbopomofo`. Hanyu Pinyin through McBopomofo isn't
-offered, because it needs tone numbers, and 1–5 choose candidates here.
+Each method requires its module and data. `FRAMEKEYBOARD_CHINESE_ENGINE`
+can name `libime` or `mcbopomofo` for receiver-free comparisons where that
+engine supports the method. Hanyu Pinyin through McBopomofo is not offered,
+because it needs tone numbers, and 1–5 choose candidates here.
 
 Zhuyin converts a syllable as soon as its tone is typed, and takes the tones
 as written in the dictionary or as spoken (不客氣 with ㄅㄨˋ or ㄅㄨˊ). The

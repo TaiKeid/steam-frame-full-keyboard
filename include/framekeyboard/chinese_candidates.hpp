@@ -12,7 +12,7 @@ struct ChineseCandidatesOptions {
     // Input methods to type each line with; empty picks by the line: Zhuyin
     // for Zhuyin symbols, both Pinyin methods for Latin letters.
     std::vector<std::string> methods;
-    // The engines to compare (pyzy, libime, mcbopomofo), each where
+    // The engines to compare (libime, mcbopomofo), each where
     // it has the method; empty is the one the keyboard uses.
     std::vector<std::string> engines;
     std::size_t count = 12; // Candidates listed for each line.

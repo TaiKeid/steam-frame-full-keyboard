@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
             const std::string value = argv[++i];
             if (argument == "--chinese-engine") {
                 if (value == "all") {
-                    options.engines = {"pyzy", "libime", "mcbopomofo"};
+                    options.engines = {"libime", "mcbopomofo"};
                 } else {
                     options.engines.push_back(value);
                 }

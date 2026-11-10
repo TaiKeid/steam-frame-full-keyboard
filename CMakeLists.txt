@@ -91,37 +91,35 @@ if(PIPEWIRE_FOUND)
 else()
     message(WARNING "PipeWire headers not found: haptic sounds will stay silent in this build.")
 endif()
-# Frame already supplies these engines. Minimal host builds can still run the
-# ordinary keyboard; unsupported composition profiles fail explicitly on Apply.
+# Frame supplies libhangul. Minimal host builds can still run the ordinary
+# keyboard; unsupported composition profiles fail explicitly on Apply.
 pkg_check_modules(GLIB REQUIRED IMPORTED_TARGET glib-2.0)
-pkg_check_modules(PYZY QUIET IMPORTED_TARGET pyzy-1.0)
 pkg_check_modules(HANGUL QUIET IMPORTED_TARGET libhangul)
-foreach(engine PYZY HANGUL)
-    if(${engine}_FOUND)
-        if(engine STREQUAL "PYZY")
-            set(module pinyin)
-        else()
-            set(module hangul)
-        endif()
-        add_library(cjk_${module} MODULE src/cjk_engine.cpp)
-        target_link_libraries(cjk_${module} PRIVATE PkgConfig::GLIB PkgConfig::${engine})
-        target_compile_definitions(cjk_${module} PRIVATE FRAMEKEYBOARD_HAVE_${engine}=1)
-        target_compile_options(cjk_${module} PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
-        if(CMAKE_CROSSCOMPILING)
-            target_link_options(cjk_${module} PRIVATE -fuse-ld=lld)
-        endif()
-        set_target_properties(cjk_${module} PROPERTIES
-            PREFIX "" OUTPUT_NAME "framekeyboard-${module}"
-            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/engines"
-            CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-        add_dependencies(keyboard_core cjk_${module})
-        install(TARGETS cjk_${module} LIBRARY DESTINATION lib/framekeyboard)
-    elseif(CMAKE_CROSSCOMPILING)
-        message(FATAL_ERROR "Frame releases require ${engine} headers and libraries in the sysroot")
-    else()
-        message(STATUS "${engine} unavailable: this host build cannot compose that language")
+# Remove retired adapters from this active build tree. Packaging also names
+# retained modules explicitly, so stale files can never become release assets.
+file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-pinyin.so"
+            "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-pyzy.so"
+            "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-chewing.so")
+if(HANGUL_FOUND)
+    add_library(cjk_hangul MODULE src/cjk_hangul.cpp)
+    target_link_libraries(cjk_hangul PRIVATE PkgConfig::GLIB PkgConfig::HANGUL)
+    target_compile_options(cjk_hangul PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
+    if(CMAKE_CROSSCOMPILING)
+        target_link_options(cjk_hangul PRIVATE -fuse-ld=lld)
     endif()
-endforeach()
+    set_target_properties(cjk_hangul PROPERTIES
+        PREFIX "" OUTPUT_NAME "framekeyboard-hangul"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/engines"
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(keyboard_core cjk_hangul)
+    install(TARGETS cjk_hangul LIBRARY DESTINATION lib/framekeyboard)
+else()
+    file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-hangul.so")
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR "Frame releases require libhangul headers and libraries in the sysroot")
+    endif()
+    message(STATUS "libhangul unavailable: this host build cannot compose Korean")
+endif()
 
 # Optional swipe typing engine: the FUTO Swipe encoder through a pinned
 # ExecuTorch build (tools/build-executorch.sh). Without it the build still
@@ -208,7 +206,7 @@ else()
         message(STATUS "Mozc unavailable: set FRAMEKEYBOARD_MOZC_SERVER to convert Japanese with it")
     endif()
 endif()
-# Chinese engines replacing PyZy: libime for Pinyin, with OpenCC for
+# Chinese engines: libime for Pinyin, with OpenCC for
 # Traditional, and McBopomofo for Zhuyin (docs/languages.md, Chinese engines). They come
 # from a prefix tools/build-chinese.sh made, outside Git. Each is a module, and
 # their libraries and data go in chinese/ beside the modules: engines/chinese
@@ -263,6 +261,9 @@ if(FRAMEKEYBOARD_CHINESE_PREFIX)
         string(REPLACE "=" ";" pair "${entry}")
         list(GET pair 0 destination)
         list(GET pair 1 source)
+        if(NOT EXISTS "${chinese}/${source}" OR IS_DIRECTORY "${chinese}/${source}")
+            message(FATAL_ERROR "Chinese engine prefix is missing required asset: ${source}")
+        endif()
         file(REAL_PATH "${chinese}/${source}" real)
         get_filename_component(folder "${destination}" DIRECTORY)
         get_filename_component(filename "${destination}" NAME)
@@ -271,16 +272,33 @@ if(FRAMEKEYBOARD_CHINESE_PREFIX)
         install(FILES "${real}" DESTINATION "lib/framekeyboard/chinese/${folder}" RENAME "${filename}")
     endforeach()
     # OpenCC's Taiwan configuration with the dictionaries it names.
+    set(opencc "${chinese}/share/opencc")
+    if(NOT EXISTS "${opencc}/s2twp.json")
+        message(FATAL_ERROR "Chinese engine prefix is missing OpenCC s2twp.json")
+    endif()
+    file(READ "${opencc}/s2twp.json" opencc_config)
+    string(REGEX MATCHALL "\"file\"[ \t\r\n]*:[ \t\r\n]*\"[^\"]+\"" opencc_dictionaries "${opencc_config}")
+    foreach(entry ${opencc_dictionaries})
+        string(REGEX REPLACE "^.*:[ \t\r\n]*\"([^\"]+)\"$" "\\1" dictionary "${entry}")
+        if(NOT EXISTS "${opencc}/${dictionary}" OR IS_DIRECTORY "${opencc}/${dictionary}")
+            message(FATAL_ERROR "Chinese engine prefix is missing OpenCC dictionary: ${dictionary}")
+        endif()
+    endforeach()
     file(CREATE_LINK "${chinese}/share/opencc" "${CHINESE_OUT}/opencc" SYMBOLIC)
     install(DIRECTORY "${chinese}/share/opencc/" DESTINATION "lib/framekeyboard/chinese/opencc")
     install(DIRECTORY third_party/chinese-engines/ DESTINATION third_party/chinese-engines)
 else()
     file(REMOVE_RECURSE "${CHINESE_OUT}")
-    message(STATUS "New Chinese engines unavailable: set FRAMEKEYBOARD_CHINESE_PREFIX to build them")
+    file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-libime.so"
+                "${CMAKE_CURRENT_BINARY_DIR}/engines/framekeyboard-mcbopomofo.so")
+    if(CMAKE_CROSSCOMPILING)
+        message(FATAL_ERROR "Frame releases require FRAMEKEYBOARD_CHINESE_PREFIX (tools/build-chinese.sh)")
+    endif()
+    message(STATUS "Chinese engines unavailable: set FRAMEKEYBOARD_CHINESE_PREFIX to build them")
 endif()
 # Packaging follows this configuration even if old engine files were left in the tree.
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/simulator-engines.conf"
-    CONTENT "pack_mozc=$<BOOL:${FRAMEKEYBOARD_MOZC_SERVER}>\npack_swipe=$<BOOL:${FRAMEKEYBOARD_SWIPE_ENGINE}>\npack_chinese=$<BOOL:${FRAMEKEYBOARD_CHINESE_PREFIX}>\n")
+    CONTENT "pack_hangul=$<BOOL:${HANGUL_FOUND}>\npack_mozc=$<BOOL:${FRAMEKEYBOARD_MOZC_SERVER}>\npack_swipe=$<BOOL:${FRAMEKEYBOARD_SWIPE_ENGINE}>\npack_chinese=$<BOOL:${FRAMEKEYBOARD_CHINESE_PREFIX}>\n")
 file(GLOB SWIPE_LEXICONS CONFIGURE_DEPENDS swipe/lexicons/*.tsv)
 foreach(lexicon ${SWIPE_LEXICONS})
     get_filename_component(name "${lexicon}" NAME)
@@ -363,11 +381,6 @@ if(BUILD_TESTING)
     target_include_directories(key-sound-activity-tests PRIVATE include)
     target_compile_options(key-sound-activity-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME key-sound-activity COMMAND key-sound-activity-tests)
-    add_executable(ram-directory-tests tests/ram_directory_tests.cpp)
-    target_compile_options(ram-directory-tests PRIVATE -Wall -Wextra -Wpedantic)
-    target_link_options(ram-directory-tests PRIVATE "-Wl,--wrap=mkdtemp")
-    add_test(NAME ram-directory COMMAND ram-directory-tests)
-    set_tests_properties(ram-directory PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(vr-lifecycle-tests tests/vr_lifecycle_tests.cpp)
     target_link_libraries(vr-lifecycle-tests PRIVATE keyboard_core)
     target_compile_options(vr-lifecycle-tests PRIVATE -Wall -Wextra -Wpedantic)

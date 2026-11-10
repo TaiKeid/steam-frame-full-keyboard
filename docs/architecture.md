@@ -289,7 +289,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Native rendering and hit regions | `src/panel.cpp`; Extended key collision areas `src/key_areas.cpp` |
 | Settings, profile changes and composition dispatch | `src/app.cpp`, `src/settings_ui.cpp` |
 | Japanese reading and conversion | `src/japanese.cpp`; conversion worker `src/japanese_worker.cpp`; Mozc `src/mozc.cpp`; candidate row `src/candidates.cpp`; next phrases `src/next_words.cpp`; emoji candidates `src/emoji_words.cpp`; the simulator's candidates report `src/japanese_candidates.cpp` |
-| Chinese and Korean composition | `src/cjk.cpp` (module loading, engine choice and the shared lock); adapters `src/cjk_engine.cpp` (PyZy, libhangul), `src/cjk_libime.cpp`, `src/cjk_mcbopomofo.cpp`; Cangjie and Quick `src/table_engine.cpp` |
+| Chinese and Korean composition | `src/cjk.cpp` (module loading, engine choice and the shared lock); adapters `src/cjk_hangul.cpp` (libhangul), `src/cjk_libime.cpp`, `src/cjk_mcbopomofo.cpp`; Cangjie and Quick `src/table_engine.cpp` |
 | Dashboard focus and the out-of-sight cue | `include/framekeyboard/focus_visibility.hpp`; focus watchers `src/desktop_focus.cpp`; sampling in `src/vr.cpp` |
 | Native keyboard replacement | `src/native_replacement.cpp`, `bridge/native_bridge.py`, `bridge/steam_bridge.js`; recovery guard `src/native_restore_guard.cpp` |
 | Swipe keys, word lists, decoding and worker | `src/swipe.cpp`, `include/framekeyboard/swipe.hpp`; encoder module `src/swipe_engine.cpp` |
@@ -311,7 +311,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 ## Chinese and Korean composition
 
 `CjkComposer` loads a bundled engine adapter on demand with `dlopen`. The
-main executable has no PyZy/libhangul startup dependency. Each adapter links its
+main executable has no composition-library startup dependency. Each adapter links its
 own engine library and exposes a versioned factory, `framekeyboard_create_cjk_v3`,
 which takes the method and a learning folder and returns the private `CjkEngine`
 interface (`src/cjk_engine.hpp`). The libime and McBopomofo modules
@@ -325,7 +325,8 @@ startup without overwriting the saved profile. Cangjie and Quick use
 through SQLite loaded on demand.
 
 The engine keeps bounded Pinyin or Zhuyin state, or two-set Hangul's open
-syllable. PyZy supplies Chinese candidates and script conversion; libhangul
+syllable. Libime supplies Pinyin candidates, OpenCC converts Traditional output,
+and McBopomofo supplies Zhuyin conversion; libhangul
 supplies Korean syllable assembly and finishes a syllable once the next one
 starts, which the app sends at once, as a PC's Korean IME does: `finished()`
 reports it, and it stays part of the engine's text until `drop_finished()`
@@ -337,18 +338,21 @@ a completed Pinyin reading; an open Hangul syllable commits before forwarding ke
 Profile Apply prepares engines before changing the active model. Missing build
 support or dictionaries leaves the prior profile usable.
 
-PyZy's learning methods are not called. Candidate selection reads its conversion
-and remaining phonetic text, saves local undo state, and rebuilds the remaining
-reading. Initialization uses a private, owner-only directory on a verified Linux
-TMPFS/RAMFS filesystem. PyZy clones its metadata-only startup user database into
-an in-memory database and closes the startup file; the adapter removes the
-directory before creating any typing context. The special-phrase configuration path remains a
-non-directory, and native learning APIs are not called, so personal history is
-neither read nor persisted. No persistent filesystem fallback is allowed. This
-avoids the installed library's failed-open SQLite-handle leak without retaining
-its dictionary after the last context is destroyed. Shell previews build their own engine on a worker thread, so one process-wide lock serializes every engine creation, call and destruction across the module map, the cached Pinyin library and PyZy's shared database. Korean Backspace takes a jamo
-of the open syllable through libhangul; sent syllables are the target's to delete. Neither engine
-changes the system IBus selection. See [language setup](languages.md).
+Libime and McBopomofo can learn from accepted, non-preview commits when learning
+is allowed and a private learning folder was supplied. The composer owns choices
+and pending text until output admission. A synchronous refusal keeps the preedit;
+after admission the composer clears and `OutputController` owns pending delivery.
+Learning may already have occurred if that later delivery fails or is cancelled.
+Chinese learning and the opt-in fixed-model experiments are described in
+[language setup](languages.md#chinese-engines) and the
+[simulator guide](simulator.md#chinese-candidates).
+
+Shell previews build their own engine on a worker thread. One process-wide lock
+serializes engine creation, calls and destruction across the module map and
+shared dictionaries/models. Korean Backspace takes a jamo of the open syllable
+through libhangul; sent syllables are the target's to delete. Hangul has its own
+adapter and retains no Chinese state or initialization storage. No engine changes
+the system IBus selection.
 
 ## Independent Unicode character output
 

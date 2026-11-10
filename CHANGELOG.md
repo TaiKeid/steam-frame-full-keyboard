@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the unused PyZy fallback and its initialization-only storage helper. Chinese composition now uses libime/OpenCC for Pinyin and McBopomofo for Zhuyin. Two-set Hangul keeps its own adapter, and packaging includes only retained engine modules.
+
 - Added a separate opt-in Zhuyin residual experiment with an external fixed model over tone-compatible sentences and the native conversion. It protects user and learned choices, separates punctuation runs, and preserves converted text while an ordinary syllable is unfinished. It is off by default and includes no weights.
 - The opt-in Pinyin ranker accepts bounded counted models as well as its original 32k format, including mixed-size script pairs without splitting native learning ownership. The wider Traditional experiment retains the validated Simplified model.
 - Added an opt-in contextual ranking experiment for Quick and Cangjie, using only the last two confirmed characters delivered by the keyboard. Quick keeps its first choice and Cangjie keeps common exact matches. Context clears on observed edits, target/profile changes and uncertain delivery; late acknowledgements never move a presented candidate menu. No extra text history is saved.

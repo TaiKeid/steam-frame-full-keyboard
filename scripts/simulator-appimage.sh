@@ -56,15 +56,17 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/lib/framekeyboard" "$appdir/usr/share/li
 install -m 755 "$build/framekeyboard-simulator" "$appdir/usr/bin/"
 strip "$appdir/usr/bin/framekeyboard-simulator"
 # Composition engines and swipe typing load from lib/framekeyboard beside bin.
-for engine in "$build"/engines/*.so; do
-    if [[ ${engine##*/} == framekeyboard-swipe.so && $pack_swipe == 0 ]]; then
-        continue
-    fi
-    case ${engine##*/} in
-    framekeyboard-libime.so | framekeyboard-mcbopomofo.so)
-        [[ $pack_chinese == 1 ]] || continue
-        ;;
-    esac
+engines=()
+if [[ $pack_hangul == 1 ]]; then
+    engines+=("$build/engines/framekeyboard-hangul.so")
+fi
+if [[ $pack_chinese == 1 ]]; then
+    engines+=("$build/engines/framekeyboard-libime.so" "$build/engines/framekeyboard-mcbopomofo.so")
+fi
+if [[ $pack_swipe == 1 ]]; then
+    engines+=("$build/engines/framekeyboard-swipe.so")
+fi
+for engine in "${engines[@]}"; do
     install -m 644 "$engine" "$appdir/usr/lib/framekeyboard/"
     strip --strip-unneeded "$appdir/usr/lib/framekeyboard/${engine##*/}"
 done
@@ -83,7 +85,7 @@ if [[ $pack_chinese == 1 ]]; then
         strip --strip-unneeded "$library"
     done
 else
-    echo 'Packing without the new Chinese engines: Pinyin and Zhuyin convert with PyZy where it is installed.' >&2
+    echo 'Packing without Chinese engines: Pinyin and Zhuyin profiles are unavailable.' >&2
 fi
 # Japanese converts with Mozc's server where the build has it, Anthy otherwise.
 if [[ $pack_mozc == 1 ]]; then

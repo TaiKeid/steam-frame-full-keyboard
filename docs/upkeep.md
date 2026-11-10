@@ -48,7 +48,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 These are linked or used as the Frame provides them, never bundled:
 - Anthy;
 - libibus (`libibus-1.0.so.5`) and `/usr/share/ibus/dicts/emoji-ja.dict` (Japanese emoji candidates);
-- PyZy and libhangul;
+- libhangul;
 - libsqlite3 and the `cangjie5` and `quick5` tables in `/usr/share/ibus-table/tables` (Cangjie and Quick);
 - Cairo, Pango, HarfBuzz and GLib;
 - json-c, xkbcommon, XCB and the Wayland client;
@@ -62,7 +62,7 @@ After a SteamOS update:
 
 - Refresh the [ARM64 sysroot](building.md#arm64-sysroot) from the Frame, rebuild, and run the ARM64 core tests on the Frame ([tests](building.md#tests)), with `FRAMEKEYBOARD_TEST_ANTHY_REQUIRED=1`.
 - Build releases against the stable SteamOS libraries. A sysroot copied from a beta Frame can tie binaries to newer symbol versions that stable SteamOS can't load, such as glibc 2.43's `acosf` and `sqrtf` in the swipe and whisper engines. Keep such a copy apart until stable catches up, and check release binaries with `objdump -T` for symbol versions newer than stable's.
-- Package again: `scripts/package.sh` checks that the release binaries are AArch64, stripped and free of build paths (`tools/check_release_binary.py`), that the executable needs neither PyZy, libhangul nor the system libei, and that the sysroot has every library version Mozc's prebuilt server needs (`tools/check_frame_libraries.py`).
+- Package again: `scripts/package.sh` checks that the release binaries are AArch64, stripped and free of build paths (`tools/check_release_binary.py`), that the executable has no composition-library or system-libei startup dependency, and that the sysroot has every library version Mozc's prebuilt server needs (`tools/check_frame_libraries.py`).
 - Check that every bundled script still renders in the headset, including Arabic, Hebrew, Devanagari, Thai, Greek, CJK and emoji. A missing font shows blank keys.
 
 ## Private behavior

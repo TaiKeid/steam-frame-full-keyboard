@@ -20,11 +20,28 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-engines-") as directory:
     modules = binary.parent / "engines"
     if modules.is_dir():
         shutil.copytree(modules, probe.parent / "engines")
+        # Stale aliases must not restore a removed fallback or accept a
+        # retired override. Use real retained modules, so the fixtures would
+        # actually load if runtime selection still admitted those names.
+        copied = probe.parent / "engines"
+        held = root / "retained"
+        held.mkdir()
+        for source, retired in [("libime", "pinyin"), ("mcbopomofo", "chewing")]:
+            module = copied / f"framekeyboard-{source}.so"
+            if module.exists():
+                shutil.copy2(module, copied / f"framekeyboard-{retired}.so")
+        for name in ("hangul", "libime", "mcbopomofo"):
+            module = copied / f"framekeyboard-{name}.so"
+            if module.exists():
+                module.rename(held / module.name)
+        subprocess.run([str(probe), "--without-engines"], check=True)
+        for module in held.iterdir():
+            module.rename(copied / module.name)
         # Force dlopen's dependency resolution to fail without altering the OS.
         libraries = root / "unavailable"
         libraries.mkdir()
-        # LD_LIBRARY_PATH comes before the new Chinese modules' run path.
-        for name in ("libpyzy-1.0.so.0", "libhangul.so.1", "libIMEPinyin.so.0", "libIMECore.so.0",
+        # LD_LIBRARY_PATH comes before the Chinese modules' run path.
+        for name in ("libhangul.so.1", "libIMEPinyin.so.0", "libIMECore.so.0",
                      "libFcitx5Utils.so.2"):
             (libraries / name).write_bytes(b"unavailable library test fixture")
         subprocess.run([str(probe), "--without-engines"], check=True,

@@ -46,7 +46,7 @@ void help() {
               << "  --chinese-candidates      Read Pinyin or Zhuyin readings from standard input, one\n"
               << "                            a line, and print the conversion and candidates of each\n"
               << "                            method, without a window or learning\n"
-              << "  --chinese-engine NAME     Compare this engine there (pyzy, libime, mcbopomofo,\n"
+              << "  --chinese-engine NAME     Compare this engine there (libime, mcbopomofo,\n"
               << "                            or all); again for more\n"
               << "  --chinese-method ID       Type the readings with this method only, such as\n"
               << "                            chinese-zhuyin or chinese-quick; again for more\n"
@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
             } else if (argument == "--chinese-engine") {
                 const auto engine = value();
                 if (engine == "all") {
-                    chinese_options.engines = {"pyzy", "libime", "mcbopomofo"};
+                    chinese_options.engines = {"libime", "mcbopomofo"};
                 } else {
                     chinese_options.engines.push_back(engine);
                 }

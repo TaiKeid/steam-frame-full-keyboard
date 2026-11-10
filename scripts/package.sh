@@ -18,9 +18,9 @@ if grep -q -a -e 'Display key collision' -e 'Mark Anthy suggestions' "$package_d
 fi
 python3 tools/check_release_binary.py "$package_dir/bin/framekeyboard" \
     "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
-# The two adapters are release assets even though their system dependencies
+# The retained adapters are release assets even though their system dependencies
 # are optional at runtime. Check stripping and path hygiene for them too.
-for engine in pinyin hangul; do
+for engine in libime mcbopomofo hangul; do
     python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/framekeyboard-$engine.so" \
         "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
 done
@@ -54,7 +54,7 @@ python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/framekeybo
 # versions against the Frame's.
 python3 tools/check_frame_libraries.py "$package_dir/lib/framekeyboard/framekeyboard-mozc" \
     "$FRAMEKEYBOARD_SYSROOT"
-if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libpyzy|libhangul)'; then
+if readelf -d "$package_dir/bin/framekeyboard" | grep -E 'NEEDED.*(libIME|libFcitx5Utils|libhangul)'; then
     echo 'Optional language libraries must not be startup dependencies.' >&2
     exit 1
 fi

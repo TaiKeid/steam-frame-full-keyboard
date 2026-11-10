@@ -126,7 +126,6 @@
     "ime.hint.romaji": "ローマ字入力 → スペース: 変換 · Enter: 確定 · Esc: キャンセル",
     "ime.hint.zhuyin": "注音 → Space/↓: choose · ←→: move · Enter: commit · Esc: back",
     "ime.pinyin-dictionary-unavailable": "Pinyin dictionary unavailable",
-    "ime.pinyin-unavailable": "Pinyin engine unavailable",
     "ime.table-empty": "The input table is empty",
     "ime.table-invalid-text": "The input table contains invalid text.",
     "ime.table-needs-sqlite": "Table input needs the SQLite library",

@@ -48,7 +48,7 @@ With `FRAMEKEYBOARD_SIMULATOR_TRACE=1` set, the simulator writes the window's po
 | `--duration SECONDS` | Quit after this time |
 | `--japanese-candidates` | Print what Japanese input offers for phrases read from standard input, without a window; see [Japanese candidates](#japanese-candidates) |
 | `--chinese-candidates` | Print the conversion and candidates of Pinyin or Zhuyin readings read from standard input, without a window; see [Chinese candidates](#chinese-candidates) |
-| `--chinese-engine NAME` | With `--chinese-candidates`, compare this engine too: `pyzy`, `libime`, `mcbopomofo`, or `all`; give it again for more |
+| `--chinese-engine NAME` | With `--chinese-candidates`, compare this engine too: `libime`, `mcbopomofo`, or `all`; give it again for more |
 | `--chinese-method ID` | With `--chinese-candidates`, type the readings with this input method only, such as `chinese-zhuyin`; give it again for more |
 | `--candidates N` | How many candidates it lists for each phrase and segment, 12 live and 6 a segment by default, 12 for each Chinese reading |
 | `--mozc-server PATH` | With `--japanese-candidates`, convert with this `mozc_server` rather than the bundled one, Anthy only while it can't answer |
@@ -100,16 +100,11 @@ printf 'nihao\nㄋㄧˇ ㄏㄠˇ\n' | ./Full_Keyboard_simulator-*.AppImage --chi
 
 ```text
 nihao
-  chinese-pinyin-simplified (pinyin)  你好  [你好 | 利好 | 你 | 里 | 李 | … 45 more]
   chinese-pinyin-simplified (libime)  你好  [你好 | 拟好 | 你毫 | 你 | 拟 | … 45 more]
-  chinese-pinyin-traditional (pinyin)  你好  [你好 | 利好 | 你 | 里 | 李 | … 45 more]
   chinese-pinyin-traditional (libime)  你好  [你好 | 擬好 | 你毫 | 你 | 擬 | … 45 more]
 ㄋㄧˇ ㄏㄠˇ
-  chinese-zhuyin (pinyin)  你好  [你好 | 利好 | 你 | 里 | 李 | … 45 more]
   chinese-zhuyin (mcbopomofo)  你好  [你好 | 妳好 | 你 | 妳 | 擬 | … 26 more]
 ```
-
-PyZy's module is `pinyin`.
 
 #### Experimental Pinyin ranking
 
@@ -233,7 +228,7 @@ It takes the same options as the simulator and keeps its settings in the same fo
 | `FRAMEKEYBOARD_IBUS_TABLE_ROOT` | Optional: an unpacked `ibus-table-chinese` package, with `usr/share/ibus-table/tables/cangjie5.db` and `quick5.db`, to bundle for Cangjie and Quick, which the Steam Frame has of its own. `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder of tables at run time |
 | `FRAMEKEYBOARD_EXECUTORCH_HOST` | Optional: includes swipe typing, as for a [host build](building.md#dependencies) |
 | `FRAMEKEYBOARD_MOZC_HOST` | Optional: includes Mozc's server, so Japanese converts with Mozc, as for a [host build](building.md#dependencies); without it, Anthy converts alone |
-| `FRAMEKEYBOARD_CHINESE_HOST` | Optional: the Chinese engines' host prefix ([building](building.md#dependencies)). Includes libime, OpenCC and McBopomofo with their libraries, data and licences; without it, Pinyin and Zhuyin need a PyZy on the system |
+| `FRAMEKEYBOARD_CHINESE_HOST` | Optional: the Chinese engines' host prefix ([building](building.md#dependencies)). Includes libime, OpenCC and McBopomofo with their libraries, data and licences; without it, Pinyin and Zhuyin profiles are unavailable |
 
 The optional Anthy, IBus and Chinese-table roots must match the pinned package
 payloads in `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256`.
@@ -246,7 +241,7 @@ Download the tool and the runtime outside the source tree, check their SHA-256, 
 
 ## Korean and Chinese
 
-Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engine when pkg-config finds `libhangul`, and without it choosing two-set Korean says the Hangul engine is unavailable. Chinese Pinyin and Zhuyin need PyZy (`pyzy-1.0`) the same way. Install the development files, then configure and build again. Cangjie and Quick need no build support, but read SQLite (`libsqlite3.so.0`) tables installed by ibus-table in `/usr/share/ibus-table/tables` ([languages](languages.md#chinese-and-korean-composition)); `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder holding `cangjie5.db` and `quick5.db`, such as an unpacked `ibus-table-chinese` package's, and the AppImage brings its own.
+Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engine when pkg-config finds `libhangul`, and without it choosing two-set Korean says the Hangul engine is unavailable. Chinese Pinyin and Zhuyin need the pinned Chinese engine prefix described above. After providing the dependency, configure and build again. Cangjie and Quick need no build support, but read SQLite (`libsqlite3.so.0`) tables installed by ibus-table in `/usr/share/ibus-table/tables` ([languages](languages.md#chinese-and-korean-composition)); `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder holding `cangjie5.db` and `quick5.db`, such as an unpacked `ibus-table-chinese` package's, and the AppImage brings its own.
 
 ## What it does not simulate
 

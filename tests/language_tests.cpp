@@ -815,29 +815,6 @@ void engines(const std::string& group = "") {
         }
     }
     if (group != "--korean") {
-        // PyZy keeps a syllable as symbols until it is chosen; the newer
-        // engines convert it at once (chinese_engines()).
-        if (CjkComposer::supported("chinese-zhuyin") &&
-            CjkComposer("chinese-zhuyin").engine() == "pinyin") {
-            // Digits and punctuation are symbols here: ㄋㄧˇ ㄏㄠˇ.
-            CjkComposer zhuyin("chinese-zhuyin");
-            require(zhuyin.phonetic_keys(), "Zhuyin reads digits as symbols");
-            type(zhuyin, "su3");
-            require(zhuyin.preedit() == "ㄋㄧˇ", "Zhuyin shows its symbols, not the keys");
-            const auto one = zhuyin.candidates();
-            require(std::find(one.begin(), one.end(), "你") != one.end(), "Zhuyin finds a character");
-            type(zhuyin, "cl3");
-            require(zhuyin.text() == "你好", "Zhuyin converts a phrase");
-            const auto both = zhuyin.candidates();
-            const auto first = std::find(both.begin(), both.end(), "你");
-            require(first != both.end(), "a phrase offers its first character alone");
-            zhuyin.choose(static_cast<int>(first - both.begin()));
-            require(zhuyin.has_reading() && zhuyin.preedit() == "你ㄏㄠˇ",
-                    "the rest of the reading stays after a partial choice");
-            zhuyin.backspace();
-            zhuyin.cancel();
-            require(zhuyin.empty(), "Zhuyin cancels");
-        }
         // The real tables on a system that has them, or in
         // FRAMEKEYBOARD_TEST_TABLE_DIRECTORY; the fixture test covers logic.
         require(
@@ -882,8 +859,7 @@ void engines(const std::string& group = "") {
                 require(chinese.text() == "你好", "selected phrase retained without engine learning");
                 chinese.backspace();
                 // libime shows the syllables apart.
-                require(chinese.preedit() == (chinese.engine() == "libime" ? "ni hao" : "nihao"),
-                        "undo chosen Pinyin segment");
+                require(chinese.preedit() == "ni hao", "undo chosen Pinyin segment");
                 chinese.cancel();
                 type(chinese, "zhongguo");
                 const std::string expected =
@@ -896,11 +872,11 @@ void engines(const std::string& group = "") {
             }
         } else {
             require(!std::getenv("FRAMEKEYBOARD_TEST_CJK_REQUIRED"), "Chinese engine required");
-            std::cout << "Chinese integration skipped: build lacks PyZy\n";
+            std::cout << "Chinese integration skipped: build lacks libime\n";
         }
     }
 }
-// The engines being compared to replace PyZy, each where its module was built:
+// The retained phonetic engines, each where its module was built:
 // FRAMEKEYBOARD_CHINESE_ENGINE picks one. Each converts, chooses a phrase's
 // start, and learns into its folder only when allowed.
 void chinese_engines() {
@@ -1853,7 +1829,7 @@ void chinese_report() {
     const auto zhuyin = plain.find("ㄋㄧˇ ㄏㄠˇ\n  chinese-zhuyin (");
     require(zhuyin != std::string::npos && plain.find("你好", zhuyin) != std::string::npos,
             "Zhuyin symbols are typed as Zhuyin, and convert");
-    const auto all = report({{}, {"pyzy", "libime", "mcbopomofo"}, 3});
+    const auto all = report({{}, {"libime", "mcbopomofo"}, 3});
     for (const auto* engine : {"libime", "mcbopomofo"}) {
         setenv("FRAMEKEYBOARD_CHINESE_ENGINE", engine, 1);
         const bool built = CjkComposer::supported(
@@ -1964,19 +1940,9 @@ void app_traditional() {
         const char* finish;
         const char* typed;
     };
-    // PyZy shows the syllable's symbols; the newer engines its character.
-    const char* zhuyin_reading =
-        !CjkComposer::supported("chinese-zhuyin") || CjkComposer("chinese-zhuyin").engine() == "pinyin"
-            ? "ㄋㄧˇ"
-            : "你";
     const std::vector<Case> cases{
         // McBopomofo's Space chooses; only Enter sends.
-        {"chinese-zhuyin",
-         "zh-tw-zhuyin",
-         {"KeyS", "KeyU", "Digit3"},
-         zhuyin_reading,
-         std::string(zhuyin_reading) == "你" ? "Enter" : "Space",
-         "你"},
+        {"chinese-zhuyin", "zh-tw-zhuyin", {"KeyS", "KeyU", "Digit3"}, "你", "Enter", "你"},
         {"chinese-cangjie",
          "zh-tw-cangjie",
          {"KeyC", "KeyN", "KeyK", "KeyQ"},
@@ -2510,6 +2476,15 @@ int main(int argc, char** argv) {
             require(!CjkComposer::supported("korean-2set") &&
                         !CjkComposer::supported("chinese-pinyin-simplified"),
                     "isolated test must have no usable optional engines");
+            // Removed engines must stay unavailable even if stale adapter
+            // files are present in this executable's private module directory.
+            for (const auto* retired : {"pyzy", "pinyin", "chewing"}) {
+                setenv("FRAMEKEYBOARD_CHINESE_ENGINE", retired, 1);
+                require(!CjkComposer::supported("chinese-pinyin-simplified") &&
+                            !CjkComposer::supported("chinese-zhuyin"),
+                        "retired engine overrides never load stale modules");
+            }
+            unsetenv("FRAMEKEYBOARD_CHINESE_ENGINE");
             unicode_input();
             app_composition(profiles);
             std::cout

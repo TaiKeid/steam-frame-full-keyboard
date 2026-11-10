@@ -69,22 +69,15 @@ Japanese conversion uses Mozc's server, `mozc_server` from Mozc 3.35.6354.2, shi
 
 The Japanese common-word list, `japanese/words.tsv`, and kaomoji list, `japanese/kaomoji.tsv`, are derived from Mozc's open-source dictionary and emoticon data (BSD 3-Clause; IPAdic, ICOT Free Software and the public-domain Okinawa dictionary). `mozc/LICENSE` holds those notices; `japanese/README.md` the pinned commit, file hashes and how it is built.
 
-The Chinese engines replacing PyZy are libime with OpenCC, and McBopomofo's engine. `tools/build-chinese.sh` builds them, with their dictionaries and the libraries they need, from the revisions pinned in `tools/chinese-pins.sh`. Their sources are not vendored. `chinese-engines/` holds their licences and lists what each one covers: LGPL-2.1-or-later for libime, KenLM and fcitx5's utility library, which stay shared libraries. The rest is MIT, Apache-2.0, BSD and BSL-1.0.
+The Chinese engines are libime with OpenCC, and McBopomofo's engine. `tools/build-chinese.sh` builds them, with their dictionaries and the libraries they need, from the revisions pinned in `tools/chinese-pins.sh`. Their sources are not vendored. `chinese-engines/` holds their licences and lists what each one covers: LGPL-2.1-or-later for libime, KenLM and fcitx5's utility library, which stay shared libraries. The rest is MIT, Apache-2.0, BSD and BSL-1.0.
 
 Cangjie and Quick order a code's characters by `chinese/char-ranks.txt`. It is derived from McBopomofo's phrase data (MIT) and rime-cantonese's Cantonese frequencies (CC BY 4.0) by `tools/build_chinese_ranks.py`. `chinese-ranks/` holds both notices and the attribution; they ship with every build, as the list does.
 
-Chinese conversion links the installed PyZy public C++ API, under LGPL-2.1-or-later.
-Korean composition links the installed libhangul public C API, under LGPL-2.1-or-later.
-Neither library nor dictionary is redistributed. PyZy engine interaction was checked
-against https://github.com/pyzy/pyzy commit `6d9c3cdff364e0da75e1c26222240f26370ebf73` and the installed
-Frame headers. No commit/selectCandidate learning APIs are called. Initialization
-uses private, verified TMPFS/RAMFS storage for a metadata-only startup user database,
-then removes it before creating a context. The active user database remains in memory;
-special-phrase configuration still uses `/dev/null`. There is no persistent
-storage fallback. This avoids a failed-open error-handle leak in the pinned
-PyZy fallback path while preserving on-demand dictionary teardown and disabled
-learning. Candidate selection reads conversion/rest text and rebuilds the remaining
-reading. libhangul API reference: https://libhangul.github.io/libhangul-doc/git/group__hangulic.html.
+Korean composition links the installed libhangul public C API, under
+LGPL-2.1-or-later. Frame builds use its system library. The simulator AppImage
+can bundle the build host's copy, with package details and notices recorded in
+its `usr/share/licenses/`. The adapter keeps no typing history.
+API reference: https://libhangul.github.io/libhangul-doc/git/group__hangulic.html.
 
 ## IBus dictionaries and tables
 

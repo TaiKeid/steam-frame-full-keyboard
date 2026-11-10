@@ -14,7 +14,7 @@ namespace framekeyboard {
 namespace {
 // A shell preview builds its own App, and engine, on a worker thread. Engines
 // share process-wide state: the module map below, each module's loaded
-// dictionaries and models, and PyZy's single database and init/finalize. So
+// dictionaries and models. So
 // every engine creation, call and destruction, on any thread, holds this one lock.
 std::mutex& engine_mutex() {
     static std::mutex mutex;
@@ -54,11 +54,10 @@ struct Module {
     }
     ~Module() { dlclose(handle); }
 };
-// The modules that may compose a method, best first. framekeyboard-pinyin is
-// PyZy's adapter; the override names one engine alone (CjkComposer).
-std::vector<std::string> module_names(const std::string& method) {
+// Each phonetic method has one retained engine; no legacy fallback is loaded.
+std::string module_name(const std::string& method) {
     if (method == "korean-2set") {
-        return {"hangul"};
+        return "hangul";
     }
     const bool pinyin = method == "chinese-pinyin-simplified" || method == "chinese-pinyin-traditional";
     if (!pinyin && method != "chinese-zhuyin") {
@@ -66,9 +65,12 @@ std::vector<std::string> module_names(const std::string& method) {
     }
     if (const char* engine = std::getenv("FRAMEKEYBOARD_CHINESE_ENGINE"); engine && *engine) {
         const std::string name = engine;
-        return {name == "pyzy" ? "pinyin" : name};
+        if (name != "libime" && name != "mcbopomofo") {
+            throw UiError(ui("ime.engine-unavailable", {{"engine", name}}));
+        }
+        return name;
     }
-    return {pinyin ? "libime" : "mcbopomofo", "pinyin"};
+    return pinyin ? "libime" : "mcbopomofo";
 }
 std::shared_ptr<Module> load_module(const std::string& name) {
     // Applying a profile briefly keeps old and new contexts alive together.
@@ -81,18 +83,8 @@ std::shared_ptr<Module> load_module(const std::string& name) {
     }
     return module;
 }
-// The first module that loads; a newer engine's absence falls back to PyZy.
 std::shared_ptr<Module> load(const std::string& method) {
-    const auto names = module_names(method);
-    for (std::size_t i = 0;; ++i) {
-        try {
-            return load_module(names[i]);
-        } catch (const UiError&) {
-            if (i + 1 == names.size()) {
-                throw;
-            }
-        }
-    }
+    return load_module(module_name(method));
 }
 } // namespace
 struct CjkComposer::State {

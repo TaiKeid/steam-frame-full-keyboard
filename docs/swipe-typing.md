@@ -61,7 +61,7 @@ The language profile gains an optional `swipe` object, for example `{"lexicon": 
 
 ### Build
 
-- ExecuTorch v1.5.1 (commit `3b60683923245cf472b7323426920e15623ba361`, BSD-3) with XNNPACK. Built from a pinned source by a script into a separate prefix for host and ARM64, then linked statically into the swipe engine module. Builds without that prefix skip the module, as builds without PyZy skip Chinese.
+- ExecuTorch v1.5.1 (commit `3b60683923245cf472b7323426920e15623ba361`, BSD-3) with XNNPACK. Built from a pinned source by a script into a separate prefix for host and ARM64, then linked statically into the swipe engine module. Builds without that prefix skip the module, as builds without the Chinese engine prefix skip Pinyin and Zhuyin.
 - `cmake/steam-frame-aarch64.cmake` must set `CMAKE_ASM_COMPILER`, `CMAKE_ASM_COMPILER_TARGET` and the matching `--gcc-toolchain` flags. Without them, XNNPACK's `.S` kernels are assembled for x86 and the build fails.
 - Third-party notices: ExecuTorch, XNNPACK, cpuinfo, pthreadpool and FP16 (BSD); flatbuffers and KleidiAI (Apache-2.0); FUTO Swipe weights (FUTO Model Weights License 1.0); word list attributions.
 

@@ -108,7 +108,7 @@ class EngineChoice {
 // The methods each engine has (docs/languages.md, Chinese engines).
 bool has_method(const std::string& engine, const std::string& method) {
     const bool zhuyin = method == "chinese-zhuyin";
-    return engine == "pyzy" || (engine == "libime" && !zhuyin) || (engine == "mcbopomofo" && zhuyin);
+    return (engine == "libime" && !zhuyin) || (engine == "mcbopomofo" && zhuyin);
 }
 std::string report_line(const std::string& method, const std::string& keys, std::size_t count) {
     CjkComposer composer(method);

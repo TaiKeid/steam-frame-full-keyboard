@@ -10,11 +10,9 @@ namespace framekeyboard {
 // Local Pinyin, Zhuyin, Cangjie, Quick and Hangul composition. The app owns delivery and only clears
 // this state after a successful text commit.
 //
-// Pinyin and Zhuyin are being moved off PyZy (docs/languages.md, Chinese
-// engines). Each method takes its newer engine when that module is installed:
-// libime for Pinyin, McBopomofo for Zhuyin, else PyZy. For comparing them,
-// FRAMEKEYBOARD_CHINESE_ENGINE names the engine to use instead (pyzy, libime
-// or mcbopomofo) where it has the method.
+// Pinyin uses libime with OpenCC for Traditional output; Zhuyin uses
+// McBopomofo. FRAMEKEYBOARD_CHINESE_ENGINE can name either retained engine
+// for receiver-free comparisons, where it supports the requested method.
 class CjkComposer {
   public:
     // What an engine learns goes in `learning_dir`, its own subfolder for each
@@ -76,7 +74,7 @@ class CjkComposer {
         std::size_t begin{}, end{}, caret{};
     };
     std::optional<Highlight> highlight() const;
-    // The engine composing: its module's name (pinyin for PyZy, libime,
+    // The engine composing: its module's name (libime,
     // mcbopomofo, hangul) or table for Cangjie and Quick.
     const std::string& engine() const;
     static bool supported(const std::string& method);
