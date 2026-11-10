@@ -21,7 +21,7 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 2. **Capture.** `App::move` already receives OpenVR `MouseMove` events while the trigger is held. A `SwipeTracker` stores time-stamped case coordinates for the owning pointer. One swipe is active at a time; a second controller's press cancels nothing and is ignored for swiping.
 3. **Decode.** On release, decoding runs on a worker thread, never on the VR loop: resample to 60 Hz and then 64 points, normalise to the letter block, encoder, beam search, rescoring.
 4. **Commit.** Open decision, below.
-5. **Shift and Caps.** A latched Shift capitalises the first letter; Caps Lock or a locked Shift uppercases the word. Otherwise the word list's own capitalisation is used, so German nouns stay capitalised.
+5. **Shift and Caps.** A latched Shift capitalises the first letter; Caps Lock or a locked Shift uppercases the word, with Turkish and Azerbaijani i capitalised to İ, as is a word a shell asks to capitalise. Otherwise the word list's own capitalisation is used, so German nouns stay capitalised.
 6. **Auto-space.** A space goes before a swiped word when the previous action was a swiped word. Punctuation keys follow normal rules.
 7. **Cancellation.** Hide, drag, recentre, target change, profile change and shutdown discard an unfinished swipe and any pending alternatives. A laser leaving the panel keeps the alternatives and the next word's space while its trigger rests; a pull off the keys, the other hand taking the laser, or an unreadable trigger counts as leaving, and a word still decoding then is discarded rather than typed at a cursor that may have moved. Lost tracking cancels a swipe like a held key. They release nothing extra, because a swipe holds no backend key.
 

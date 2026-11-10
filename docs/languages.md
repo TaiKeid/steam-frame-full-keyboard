@@ -326,21 +326,24 @@ because it needs tone numbers, and 1–5 choose candidates here.
 
 Zhuyin converts a syllable as soon as its tone is typed, and takes the tones
 as written in the dictionary or as spoken (不客氣 with ㄅㄨˋ or ㄅㄨˊ). The
-first candidate is the conversion as it stands, so Space keeps it; the others
-are the phrases starting there, longest first, with characters from
+first candidate is the conversion as it stands; the others are the phrases
+starting there, longest first, with characters from
 Extension A and later last. The engines' dictionaries stay
 loaded while a Chinese language is added, main or additional, and are freed
 when it is removed, as Mozc's server is. Traditional Pinyin's OpenCC needs
 about 50 MB more than Simplified while it is added.
 
 Both engines learn, as on Steam's keyboard. They learn from text once it
-reaches the field, never in a password, PIN or terminal field, and never in a
-preview. libime learns the words you choose and the sentences you commit.
-McBopomofo learns the candidates you pick over its conversion, as McBopomofo
-does, and keeps them across restarts, each fading over weeks. What they learn
-stays in Full Keyboard's config folder, in `chinese/libime` and
-`chinese/mcbopomofo`, owner-only. **Clear learned words** lists it as
-Chinese and deletes it.
+reaches the field, never in a password, PIN or terminal field, a terminal the
+keyboard recognises on the desktop included, and never in a preview. libime
+learns the words you choose and the sentences you commit, with the Pinyin
+each was picked with, and writes them once typing pauses for 3 s, the panel
+hides, Settings opens or the keyboard quits. McBopomofo learns the candidates
+you pick over its conversion, as McBopomofo does, and keeps them across
+restarts, each fading over weeks. What they learn stays in Full Keyboard's
+config folder, in `chinese/libime` and `chinese/mcbopomofo`, owner-only.
+**Clear learned words** lists it as Chinese; the engines forget it at once,
+keeping a reading left open, and the folder is deleted.
 
 Automated tests cover profile legends, sample letters, AltGr levels and dead
 keys of every national keymap, Chinese script conversion/candidates,

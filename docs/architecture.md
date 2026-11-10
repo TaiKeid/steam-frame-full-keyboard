@@ -314,7 +314,14 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 main executable has no composition-library startup dependency. Each adapter links its
 own engine library and exposes a versioned factory, `framekeyboard_create_cjk_v3`,
 which takes the method and a learning folder and returns the private `CjkEngine`
-interface (`src/cjk_engine.hpp`). The libime and McBopomofo modules
+interface (`src/cjk_engine.hpp`). A module may also export
+`framekeyboard_prepare_cjk_v1` and its release, which load what the factory
+will need before the engines' lock (libime's dictionaries and OpenCC, under
+libime's own mutex, so a shell preview holds up no typing),
+`framekeyboard_save_cjk_v1`, which writes what was learned and not yet saved,
+and `framekeyboard_clear_cjk_v1`, which forgets a learning folder in memory.
+Every exception from the factory becomes the app's own before its module can
+unload. The libime and McBopomofo modules
 carry their engines' libraries and data in `chinese/` beside them, found
 through the module's own path; each shares its loaded dictionaries between its
 contexts.
@@ -331,7 +338,8 @@ supplies Korean syllable assembly and finishes a syllable once the next one
 starts, which the app sends at once, as a PC's Korean IME does: `finished()`
 reports it, and it stays part of the engine's text until `drop_finished()`
 after delivery; `cancel_open()` drops only the open syllable, keeping finished
-text for its commit.
+text for its commit. Pinyin and Zhuyin take Esc's steps the same way: the
+reading, then, with nothing else left, front text the field refused.
 The app releases physical holds and gates commits using the same transport rules
 as Japanese. Failed commits retain preedit. Space or a candidate selection commits
 a completed Pinyin reading; an open Hangul syllable commits before forwarding keys, Esc excepted, which drops it.
@@ -339,7 +347,9 @@ Profile Apply prepares engines before changing the active model. Missing build
 support or dictionaries leaves the prior profile usable.
 
 Libime and McBopomofo can learn from accepted, non-preview commits when learning
-is allowed and a private learning folder was supplied. The composer owns choices
+is allowed and a private learning folder was supplied. libime marks its
+Library unsaved and the app saves it after a 3 s pause, on hide and on
+opening Settings; a Library still unsaved saves when its last engine goes. The composer owns choices
 and pending text until output admission. A synchronous refusal keeps the preedit;
 after admission the composer clears and `OutputController` owns pending delivery.
 Learning may already have occurred if that later delivery fails or is cancelled.
@@ -349,7 +359,8 @@ Chinese learning and the opt-in fixed-model experiments are described in
 
 Shell previews build their own engine on a worker thread. One process-wide lock
 serializes engine creation, calls and destruction across the module map and
-shared dictionaries/models. Korean Backspace takes a jamo of the open syllable
+shared engine state; tables and libime's prepared dictionaries load before it,
+and a module stays loaded until its composer holds it. Korean Backspace takes a jamo of the open syllable
 through libhangul; sent syllables are the target's to delete. Hangul has its own
 adapter and retains no Chinese state or initialization storage. No engine changes
 the system IBus selection.
