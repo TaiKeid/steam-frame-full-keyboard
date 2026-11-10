@@ -251,7 +251,7 @@ if(FRAMEKEYBOARD_CHINESE_PREFIX)
     # The files each engine reads, by where the modules look for them.
     set(chinese_files
         "libime/sc.dict=share/libime/sc.dict" "libime/extb.dict=share/libime/extb.dict"
-        "libime/zh_CN.lm=lib/libime/zh_CN.lm" "libime/zh_CN.lm.predict=lib/libime/zh_CN.lm.predict"
+        "libime/zh_CN.lm=lib/libime/zh_CN.lm"
         "mcbopomofo/data.txt=share/mcbopomofo/data.txt")
     foreach(library libFcitx5Utils.so.2 libIMECore.so.0 libIMEPinyin.so.0)
         list(APPEND chinese_files "${library}=lib/${library}")
