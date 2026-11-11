@@ -16,6 +16,7 @@
 #include <glib.h>
 #include <json-c/json.h>
 #include <mutex>
+#include <optional>
 #include <sys/file.h>
 #include <sys/wait.h>
 #include <thread>
@@ -90,6 +91,42 @@ int run(const std::vector<std::string>& arguments,
     while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
     }
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+// Starts a program on its own, stdio on /dev/null, and waits up to `seconds`
+// for it to exit. Returns its exit status, or nullopt while it still runs:
+// it is left running and outlives the installer.
+std::optional<int> launch(const std::vector<std::string>& arguments, double seconds) {
+    std::vector<char*> argv; // built before fork, as in run()
+    for (const auto& argument : arguments) {
+        argv.push_back(const_cast<char*>(argument.c_str()));
+    }
+    argv.push_back(nullptr);
+    const pid_t child = fork();
+    if (child == 0) {
+        setsid();
+        const int null = open("/dev/null", O_RDWR);
+        dup2(null, 0);
+        dup2(null, 1);
+        dup2(null, 2);
+        execvp(argv[0], argv.data());
+        _exit(127);
+    }
+    if (child < 0) {
+        return -1;
+    }
+    for (int tries = static_cast<int>(seconds * 10); tries >= 0; --tries) {
+        int status = 0;
+        const pid_t done = waitpid(child, &status, WNOHANG);
+        if (done == child) {
+            return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        }
+        if (done < 0 && errno != EINTR) {
+            return -1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return std::nullopt;
 }
 
 // systemctl --user, and again through the main session bus for a nested
@@ -325,12 +362,17 @@ class SystemBackend : public Backend {
                 return;
             }
             // The service starts hidden; a second launch then shows it, as a
-            // launch of a running keyboard recenters and summons it.
+            // launch of a running keyboard recenters and summons it and exits.
             manager({"start", unit});
             if (!wait_until(keyboard_running, 20)) {
                 throw UiError(ui("installer.error.start"));
             }
-            run({(home() / ".local/bin/framekeyboard").string()});
+            // Bounded: if the service's keyboard died in between, this launch
+            // becomes the keyboard and keeps running, which is fine too.
+            const auto shown = launch({(home() / ".local/bin/framekeyboard").string()}, 10);
+            if (shown && *shown != 0) {
+                throw UiError(ui("installer.error.start"));
+            }
         });
     }
 

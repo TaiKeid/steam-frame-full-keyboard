@@ -309,6 +309,11 @@ int main(int argc, char** argv) {
             texture.reset(SDL_CreateTexture(renderer.get(), SDL_PIXELFORMAT_ARGB8888,
                                             SDL_TEXTUREACCESS_STREAMING, installer.canvas_width(),
                                             installer.canvas_height()));
+            // A new texture starts empty: give it the picture at once, as a
+            // still screen may not repaint until something changes.
+            auto* canvas = installer.canvas();
+            SDL_UpdateTexture(texture.get(), nullptr, cairo_image_surface_get_data(canvas),
+                              cairo_image_surface_get_stride(canvas));
             SDL_RenderSetLogicalSize(renderer.get(), installer.canvas_width(),
                                      installer.canvas_height());
         };

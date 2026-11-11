@@ -982,7 +982,7 @@ void Installer::paint_home() {
 
     if (!installed_.empty()) {
         button({530, 706, 220, 56}, Action::Uninstall, 0, tr("installer.uninstall"), false,
-               !uninstalling && !list_failed, 20);
+               !uninstalling, 20); // Removing needs nothing from GitHub.
     }
     if (versions_open_) {
         paint_versions();
