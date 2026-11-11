@@ -95,6 +95,12 @@ After any update above, run these in order and stop at the first failure:
 
 ## Last check
 
+2026-11-10, for 0.17.0:
+- **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, and every Chinese engine pin: zstd v1.5.7, ECM v6.31.0, fcitx5 5.1.23, libime 1.1.17, McBopomofo 3.1.1, OpenCC 1.4.2, the rime-cantonese ranks and Boost 1.92.0.
+- **ExecuTorch:** v1.6.0 is out; the pin stays on the v1.5.1-era build for this release and moves after it, with the swipe checks above.
+- **frame-perf-overlay, Mozc dictionary and kaomoji data, Unicode emoji:** as for 0.15.0 below; the pins stay.
+- **AppImage runtime:** release 20251108, needing only FUSE 3, which SteamOS has.
+
 2026-11-06, for 0.15.0:
 - **Current:** whisper.cpp v1.9.5, ExecuTorch v1.5.1, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1 and the word lists.
 - **frame-perf-overlay:** no new upstream commits since the 0.14.1 comparison; the pinned texture code stays.
