@@ -156,7 +156,6 @@
     "installer.loading": "Procurando versões…",
     "installer.next": "Próximo",
     "installer.no": "Não",
-    "installer.page-count": "{page} de {count}",
     "installer.page.pull": "Ativar Puxar para Shift?",
     "installer.page.pull.text": "Puxe uma tecla para baixo para digitar o caractere com Shift, sem apertar Shift.",
     "installer.page.replace": "Substituir o teclado nativo?",

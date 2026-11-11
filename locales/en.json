@@ -154,7 +154,6 @@
     "installer.loading": "Looking for versions…",
     "installer.next": "Next",
     "installer.no": "No",
-    "installer.page-count": "{page} of {count}",
     "installer.page.pull": "Enable Pull for Shift?",
     "installer.page.pull.text": "Pull a key down to type its Shift character, without pressing Shift.",
     "installer.page.replace": "Replace the native keyboard?",

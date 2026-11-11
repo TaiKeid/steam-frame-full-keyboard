@@ -155,7 +155,6 @@
     "installer.loading": "Versionen werden gesucht…",
     "installer.next": "Weiter",
     "installer.no": "Nein",
-    "installer.page-count": "{page} von {count}",
     "installer.page.pull": "Umschalt durch Ziehen aktivieren?",
     "installer.page.pull.text": "Ziehen Sie eine Taste nach unten, um ihr Umschalt-Zeichen zu tippen, ohne Umschalt zu drücken.",
     "installer.page.replace": "Native Tastatur ersetzen?",

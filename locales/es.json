@@ -155,7 +155,6 @@
     "installer.loading": "Buscando versiones…",
     "installer.next": "Siguiente",
     "installer.no": "No",
-    "installer.page-count": "{page} de {count}",
     "installer.page.pull": "¿Activar Tirar para Mayús?",
     "installer.page.pull.text": "Tira de una tecla hacia abajo para escribir su carácter con Mayús, sin pulsar Mayús.",
     "installer.page.replace": "¿Reemplazar el teclado nativo?",

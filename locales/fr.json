@@ -155,7 +155,6 @@
     "installer.loading": "Recherche des versions…",
     "installer.next": "Suivant",
     "installer.no": "Non",
-    "installer.page-count": "{page} sur {count}",
     "installer.page.pull": "Activer Tirer pour Maj ?",
     "installer.page.pull.text": "Tirez une touche vers le bas pour taper son caractère Maj, sans appuyer sur Maj.",
     "installer.page.replace": "Remplacer le clavier natif ?",

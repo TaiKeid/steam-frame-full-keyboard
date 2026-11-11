@@ -159,7 +159,6 @@
     "installer.loading": "Пошук версій…",
     "installer.next": "Далі",
     "installer.no": "Ні",
-    "installer.page-count": "{page} з {count}",
     "installer.page.pull": "Увімкнути Shift відтягуванням?",
     "installer.page.pull.text": "Потягніть клавішу донизу, щоб ввести її символ із Shift, не натискаючи Shift.",
     "installer.page.replace": "Замінити вбудовану клавіатуру?",

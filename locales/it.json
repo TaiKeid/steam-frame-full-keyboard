@@ -155,7 +155,6 @@
     "installer.loading": "Ricerca delle versioni…",
     "installer.next": "Avanti",
     "installer.no": "No",
-    "installer.page-count": "{page} di {count}",
     "installer.page.pull": "Attivare Tira per Maiusc?",
     "installer.page.pull.text": "Tira un tasto in basso per scrivere il suo carattere con Maiusc, senza premere Maiusc.",
     "installer.page.replace": "Sostituire la tastiera nativa?",

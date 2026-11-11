@@ -153,7 +153,6 @@
     "installer.loading": "버전을 찾는 중…",
     "installer.next": "다음",
     "installer.no": "아니요",
-    "installer.page-count": "{page} / {count}",
     "installer.page.pull": "당겨서 Shift를 켤까요?",
     "installer.page.pull.text": "키를 아래로 당기면 Shift를 누르지 않고 Shift 문자를 입력합니다.",
     "installer.page.replace": "기본 키보드를 대체할까요?",

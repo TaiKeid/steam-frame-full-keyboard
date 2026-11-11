@@ -155,7 +155,6 @@
     "installer.loading": "正在查找版本…",
     "installer.next": "下一步",
     "installer.no": "否",
-    "installer.page-count": "{page} / {count}",
     "installer.page.pull": "要启用“下拉输入 Shift 字符”吗？",
     "installer.page.pull.text": "将按键向下拉即可输入其 Shift 字符，无需按 Shift。",
     "installer.page.replace": "要替换原生键盘吗？",

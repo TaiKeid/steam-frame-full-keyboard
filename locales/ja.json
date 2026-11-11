@@ -153,7 +153,6 @@
     "installer.loading": "バージョンを確認しています…",
     "installer.next": "次へ",
     "installer.no": "いいえ",
-    "installer.page-count": "{page} / {count}",
     "installer.page.pull": "「下に引いて Shift」を有効にしますか？",
     "installer.page.pull.text": "キーを下に引くと、Shift を押さずに Shift 側の文字を入力できます。",
     "installer.page.replace": "ネイティブキーボードを置き換えますか？",

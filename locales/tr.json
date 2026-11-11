@@ -155,7 +155,6 @@
     "installer.loading": "Sürümler aranıyor…",
     "installer.next": "İleri",
     "installer.no": "Hayır",
-    "installer.page-count": "{page}/{count}",
     "installer.page.pull": "Çekerek Shift açılsın mı?",
     "installer.page.pull.text": "Shift'e basmadan Shift karakterini yazmak için tuşu aşağı çekin.",
     "installer.page.replace": "Yerel klavye değiştirilsin mi?",

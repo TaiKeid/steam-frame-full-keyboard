@@ -159,7 +159,6 @@
     "installer.loading": "Поиск версий…",
     "installer.next": "Далее",
     "installer.no": "Нет",
-    "installer.page-count": "{page} из {count}",
     "installer.page.pull": "Включить Shift оттягиванием?",
     "installer.page.pull.text": "Потяните клавишу вниз, чтобы ввести её символ с Shift, не нажимая Shift.",
     "installer.page.replace": "Заменить встроенную клавиатуру?",

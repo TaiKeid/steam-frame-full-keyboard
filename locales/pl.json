@@ -159,7 +159,6 @@
     "installer.loading": "Szukanie wersji…",
     "installer.next": "Dalej",
     "installer.no": "Nie",
-    "installer.page-count": "{page} z {count}",
     "installer.page.pull": "Włączyć Shift przez pociągnięcie?",
     "installer.page.pull.text": "Pociągnij klawisz w dół, aby wpisać jego znak z Shift bez naciskania Shift.",
     "installer.page.replace": "Zastąpić natywną klawiaturę?",

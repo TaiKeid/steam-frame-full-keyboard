@@ -176,7 +176,6 @@
     "installer.loading": "Buscando versiones…",
     "installer.next": "Siguiente",
     "installer.no": "No",
-    "installer.page-count": "{page} de {count}",
     "installer.page.pull": "¿Activar Arrastrar para Mayús?",
     "installer.page.pull.text": "Arrastra una tecla hacia abajo para escribir su carácter con Mayús, sin presionar Mayús.",
     "installer.page.replace": "¿Reemplazar el teclado nativo?",

@@ -157,7 +157,6 @@
     "installer.loading": "Hledání verzí…",
     "installer.next": "Další",
     "installer.no": "Ne",
-    "installer.page-count": "{page} z {count}",
     "installer.page.pull": "Zapnout Shift tažením?",
     "installer.page.pull.text": "Táhněte klávesu dolů a napíšete její znak se Shiftem, aniž byste Shift stiskli.",
     "installer.page.replace": "Nahradit nativní klávesnici?",
