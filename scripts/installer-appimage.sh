@@ -37,10 +37,11 @@ while read -r library; do
 done < <(readelf -d "$binary" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
 (( missing == 0 )) || exit 1
 
-version=$(sed -n 's/^project(framekeyboard VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
 out=out/installer
 appdir="$out/AppDir"
-image="$out/Full_Keyboard_installer-$version-aarch64.AppImage"
+# No version in the name: README buttons link to it through GitHub's
+# releases/latest/download redirect, which needs the same name every release.
+image="$out/Full_Keyboard_installer-aarch64.AppImage"
 rm -rf -- "$appdir"
 mkdir -p "$appdir/usr/bin" "$appdir/usr/share/framekeyboard/update" "$appdir/usr/share/doc/framekeyboard"
 llvm-strip -o "$appdir/usr/bin/framekeyboard-installer" "$binary"

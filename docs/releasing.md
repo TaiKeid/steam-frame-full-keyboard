@@ -6,7 +6,7 @@ The public name is **Full Keyboard for Steam Frame**; the launcher label is **Fu
 
 - Resolve independent-review findings and update the changelog.
 - Run the [upkeep checklist](upkeep.md): `tools/check-upstream.sh`, and the private-behavior checks after any SteamOS or Steam update since the last release.
-- The project owner sets the version in `CMakeLists.txt` and updates README archive examples and the **Quick install** button's link to the new installer, in every README. Contributors must leave release versions unchanged; see [version ownership](../CONTRIBUTING.md#version-ownership).
+- The project owner sets the version in `CMakeLists.txt` and updates README archive examples in every README. Contributors must leave release versions unchanged; see [version ownership](../CONTRIBUTING.md#version-ownership).
 - Run host tests and build the ARM64 package from a matching Frame sysroot.
 - Run the safe ARM64 core tests on Frame and record the manual checks in [acceptance](acceptance.md). Do not turn untested items into claims.
 - Regenerate the [README image](building.md#refresh-the-readme-image) if the default appearance changed.
@@ -33,7 +33,7 @@ export FRAMEKEYBOARD_APPIMAGE_RUNTIME=/absolute/path/to/runtime-aarch64
 
 The script configures the ARM64 release preset, `frame-arm64-release`, from these variables, so an unset ExecuTorch path leaves swipe typing out of the package. That preset leaves out [debug mode](building.md#debug-mode), and the script refuses an executable that still has it. It also refuses to package without the dictation engine or Mozc's server, and checks the server's library versions against the sysroot; see [building](building.md#dependencies).
 
-Upload the generated `out/framekeyboard-VERSION-aarch64.tar.gz`, `out/SHA256SUMS` and `out/Full_Keyboard_installer-VERSION-aarch64.AppImage` as assets for the matching tag. Every release carries the [installer](installer.md), built last by the same script from the same tree. Use the archive basename from `SHA256SUMS`; do not rename it after hashing. The checksum file covers only that release's install archive: not the installer, so the README's `sha256sum -c SHA256SUMS` passes without it, and not GitHub's generated source archives. Give the installer's SHA-256, which the script prints, in the release notes; GitHub also shows it beside the asset.
+Upload the generated `out/framekeyboard-VERSION-aarch64.tar.gz`, `out/SHA256SUMS` and `out/Full_Keyboard_installer-aarch64.AppImage` as assets for the matching tag. Every release carries the [installer](installer.md), built last by the same script from the same tree. Keep its name without a version: the README's **Quick install** button links to it through `releases/latest/download/`, which serves the asset of that exact name from the newest release. Use the archive basename from `SHA256SUMS`; do not rename it after hashing. The checksum file covers only that release's install archive: not the installer, so the README's `sha256sum -c SHA256SUMS` passes without it, and not GitHub's generated source archives. Give the installer's SHA-256, which the script prints, in the release notes; GitHub also shows it beside the asset.
 
 GitHub publication, repository naming, tags, and release visibility are separate deliberate steps. Preparing a local package does not publish it. No automatic upload workflow is configured.
 

@@ -74,6 +74,6 @@ cat out/SHA256SUMS
 # (docs/installer.md). SHA256SUMS keeps only the archive: the README's
 # `sha256sum -c SHA256SUMS` must pass without the installer downloaded.
 bash scripts/installer-appimage.sh
-installer="Full_Keyboard_installer-$version-aarch64.AppImage"
+installer=Full_Keyboard_installer-aarch64.AppImage
 cp "out/installer/$installer" "out/$installer"
 (cd out && sha256sum "$installer")
