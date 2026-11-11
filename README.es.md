@@ -8,6 +8,17 @@ Una alternativa de tamaño completo al teclado virtual integrado de Steam Frame,
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
+## Instalación rápida
+
+[![Descargar el instalador de Full Keyboard](docs/images/install-button.es.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+
+1. Abre esta página en el navegador del Steam Frame y descarga el instalador con el botón de arriba.
+2. Abre la carpeta donde se guardó, normalmente **Descargas**, y haz doble clic en el instalador. El navegador no puede abrirlo.
+3. Cuando te pregunte si quieres abrir el archivo, elige sí, y cuando te pregunte si confías en él, elige sí también. Solo pasa la primera vez.
+4. Sigue los pasos del instalador.
+
+Para instalar desde una terminal, consulta [Instalación manual](#instalación-manual).
+
 ## Qué hace
 
 - Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar, Ctrl, Alt y un Shift que se bloquea al mantenerlo pulsado.

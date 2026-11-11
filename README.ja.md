@@ -10,6 +10,17 @@ Steam Frame に標準で入っている仮想キーボードの代わりに使�
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
+## かんたんインストール
+
+[![Full Keyboard インストーラーをダウンロード](docs/images/install-button.ja.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+
+1. Steam Frame のブラウザーでこのページを開き、上のボタンからインストーラーをダウンロードします。
+2. 保存先のフォルダー（通常は **Downloads**）を開き、インストーラーをダブルクリックします。ブラウザーからは起動できません。
+3. ファイルを起動するか聞かれたら「はい」を、信頼するか聞かれたら同じく「はい」を選びます。聞かれるのは初回だけです。
+4. あとはインストーラーの案内に従ってください。
+
+ターミナルからインストールする場合は、[手動インストール](#手動インストール)を参照してください。
+
 ## できること
 
 - F1〜F12、ナビゲーションキー、矢印キー、非表示にできるテンキー、Ctrl、Alt、長押しでロックできる Shift を備えたフルサイズ配列です。

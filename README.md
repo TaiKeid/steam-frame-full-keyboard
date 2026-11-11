@@ -8,6 +8,17 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
+## Quick install
+
+[![Download the Full Keyboard installer](docs/images/install-button.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+
+1. Open this page in the Steam Frame's browser and download the installer with the button above.
+2. Open the folder it was saved to, usually **Downloads**, and double-click the installer. The browser can't start it.
+3. When asked whether to launch the file, choose yes, and when asked whether to trust it, choose yes too. This happens only the first time.
+4. Follow the installer's steps.
+
+To install from a terminal instead, see [Install manually](#install-manually).
+
 ## What it does
 
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.

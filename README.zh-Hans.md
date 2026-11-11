@@ -8,6 +8,17 @@
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
+## 快速安装
+
+[![下载 Full Keyboard 安装程序](docs/images/install-button.zh-Hans.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+
+1. 在 Steam Frame 的浏览器中打开本页面，用上方的按钮下载安装程序。
+2. 打开它所保存的文件夹（通常是 **Downloads**），双击安装程序。浏览器无法直接启动它。
+3. 询问是否启动该文件时选择“是”，询问是否信任它时也选择“是”。这只在第一次出现。
+4. 然后按照安装程序的步骤操作。
+
+如果想改用终端安装，请参阅[手动安装](#手动安装)。
+
 ## 功能
 
 - 全尺寸布局，包含 F1–F12、导航键、方向键、可隐藏的数字小键盘、Ctrl、Alt，以及按住即锁定的 Shift。

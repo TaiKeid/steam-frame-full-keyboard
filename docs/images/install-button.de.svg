@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="316" height="52" viewBox="0 0 316 52" role="img" aria-label="Installer herunterladen">
+  <!-- A Graphite keycap (themes/graphite.json) with its shallow side below;
+       the download mark sits on the latched colour. The label is centred
+       in the room to the mark's right, so any viewer's font keeps its margins. -->
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c333b"/>
+      <stop offset=".5" stop-color="#232a32"/>
+      <stop offset="1" stop-color="#1c232a"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141a21"/>
+      <stop offset="1" stop-color="#0c1015"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="4" width="316" height="48" rx="9" fill="url(#side)"/>
+  <rect x="0" y="0" width="316" height="48" rx="9" fill="url(#face)"/>
+  <rect x="9" y="1" width="298" height="1" fill="#ffffff" opacity=".07"/>
+  <rect x="9" y="8" width="32" height="32" rx="7" fill="#355b7a"/>
+  <path d="M25 15.5 V28 M19.5 23 L25 28.5 L30.5 23 M18.5 32.5 H31.5" fill="none" stroke="#ffffff" stroke-width="2.4"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="177" y="30.5" fill="#ffffff" text-anchor="middle" font-family="'Noto Sans', 'Noto Sans CJK JP', 'Noto Sans CJK SC', 'Segoe UI', 'Hiragino Sans', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="600">Installer herunterladen</text>
+</svg>
