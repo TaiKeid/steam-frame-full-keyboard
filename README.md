@@ -6,7 +6,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 **After a manual install, Full Keyboard is launched by hand; the installer asks whether it should replace the native keyboard.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
-![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
+![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Quick install
 

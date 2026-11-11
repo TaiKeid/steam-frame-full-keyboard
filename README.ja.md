@@ -8,7 +8,7 @@ Steam Frame に標準で入っている仮想キーボードの代わりに使�
 
 詳しいドキュメント（`docs/` 以下）は英語のみです。
 
-![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
+![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## かんたんインストール
 

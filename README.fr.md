@@ -6,7 +6,7 @@ Une alternative complète au clavier virtuel intégré de la Steam Frame, conçu
 
 **Après une installation manuelle, Full Keyboard se lance à la main ; l'installateur demande s'il doit remplacer le clavier natif.** Par défaut, le bouton clavier de SteamOS ouvre le clavier d'origine. L'option **Remplacer le clavier natif** (Replace native keyboard) dans Paramètres → Intégration redirige les demandes prises en charge tant que Full Keyboard est lancé. Elle ne demande aucune configuration : elle utilise une connexion locale que SteamOS fournit déjà à Steam sur chaque Frame, et revient au clavier d'origine si celle-ci n'est pas disponible. Activez **Lancer avec SteamOS** (Start with SteamOS) dans la même carte pour démarrer le remplacement en arrière-plan à l'ouverture de session. Le clavier reste masqué jusqu'à ce qu'on l'appelle. Voir [remplacement du clavier natif](docs/native-replacement.md).
 
-![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
+![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Installation rapide
 

@@ -6,7 +6,7 @@
 
 **手动安装后，Full Keyboard 需要手动启动；使用安装程序时，可以选择是否替换原生键盘。** 默认情况下，SteamOS 的键盘按钮打开的是原来的键盘。在“设置”→“系统集成”中开启 **替换原生键盘**（Replace native keyboard）后，Full Keyboard 运行期间会接管受支持的键盘请求。此功能无需任何设置：它使用 SteamOS 在每台 Frame 上本来就提供给 Steam 的本地连接，一旦该连接不可用，就会回退到原来的键盘。在同一卡片中开启 **随 SteamOS 启动**（Start with SteamOS），即可在登录时于后台启动替换功能。键盘会一直隐藏，直到被调出。参见 [原生键盘替换](docs/native-replacement.md)。
 
-![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
+![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## 快速安装
 

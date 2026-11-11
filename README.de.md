@@ -6,7 +6,7 @@ Eine vollwertige Alternative zur eingebauten virtuellen Tastatur der Steam Frame
 
 **Nach einer manuellen Installation wird Full Keyboard von Hand gestartet; der Installer fragt, ob es die native Tastatur ersetzen soll.** Standardmäßig öffnet die Tastaturtaste von SteamOS die ursprüngliche Tastatur. Die Option **Native Tastatur ersetzen** (Replace native keyboard) unter Einstellungen → Integration leitet unterstützte Anfragen um, solange Full Keyboard läuft. Dafür muss nichts eingerichtet werden: Sie nutzt eine lokale Verbindung, die SteamOS Steam auf jeder Frame bereits bereitstellt, und greift auf die ursprüngliche Tastatur zurück, falls diese einmal nicht verfügbar ist. Aktivieren Sie **Mit SteamOS starten** (Start with SteamOS) in derselben Karte, um den Ersatz bei der Anmeldung im Hintergrund zu starten. Die Tastatur bleibt verborgen, bis sie aufgerufen wird. Siehe [Ersatz der nativen Tastatur](docs/native-replacement.md).
 
-![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
+![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Schnellinstallation
 

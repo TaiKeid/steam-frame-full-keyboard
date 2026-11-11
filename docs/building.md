@@ -263,7 +263,11 @@ tour=$(mktemp -d)
 ./build/host/japanese-tour "$tour"
 cp "$tour/00-readme.png" docs/images/keyboard-graphite.png
 rm -r "$tour"
+python3 tools/make_social_card.py
+cp out/social-card/keyboard-tilted.png docs/images/
 ```
+
+The READMEs show `keyboard-tilted.png`, the same picture tilted back in perspective on a transparent background, with a blue-grey halo that separates it from a dark page and a shadow that shows on a light one. `tools/make_social_card.py` (ImageMagick, rsvg-convert and Noto Sans) makes it from `keyboard-graphite.png`, which the installer also embeds, together with the repository's 1280×640 social card, which is uploaded by hand under the repository's Settings → Social preview.
 
 The tour renders without the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
 
