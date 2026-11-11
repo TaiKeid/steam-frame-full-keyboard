@@ -118,3 +118,13 @@ checkout for the CPU only; the source is not vendored. whisper.cpp's own
 `whisper-quantize` tool from the same checkout is installed beside it for the
 development 4-bit model. The Whisper model is not bundled: the user downloads
 it from Settings (docs/dictation.md, On-device recognition).
+
+## AppImage runtime
+
+The installer's AppImage (docs/installer.md) begins with the aarch64 runtime of
+[AppImage/type2-runtime](https://github.com/AppImage/type2-runtime), release
+`20251108` (SHA-256 `00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444`,
+matching GitHub's asset digest), under the MIT license in `appimage-runtime/LICENSE`.
+It is a static build that also contains musl, libfuse 3 and squashfuse under
+their own licenses; their sources are linked from that repository. The installer
+binary links only system libraries, and none of the code above is compiled into it.

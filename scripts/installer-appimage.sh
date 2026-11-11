@@ -46,6 +46,9 @@ mkdir -p "$appdir/usr/bin" "$appdir/usr/share/framekeyboard/update" "$appdir/usr
 llvm-strip -o "$appdir/usr/bin/framekeyboard-installer" "$binary"
 install -m 644 update/update_helper.py "$appdir/usr/share/framekeyboard/update/"
 install -m 644 LICENSE "$appdir/usr/share/doc/framekeyboard/"
+# The runtime in front of the image is the only code in it that isn't ours.
+install -D -m 644 third_party/appimage-runtime/LICENSE \
+    "$appdir/usr/share/doc/framekeyboard/appimage-runtime/LICENSE"
 ln -s usr/bin/framekeyboard-installer "$appdir/AppRun"
 cp scripts/installer-appimage/framekeyboard-installer.desktop \
     scripts/installer-appimage/framekeyboard-installer.svg "$appdir/"
