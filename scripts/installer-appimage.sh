@@ -18,10 +18,19 @@ cmake --preset "$preset" > /dev/null
 cmake --build "build/$preset" --target framekeyboard-installer -j "${FRAMEKEYBOARD_JOBS:-4}"
 binary="build/$preset/framekeyboard-installer"
 readelf -h "$binary" | grep -q 'Machine:.*AArch64' || { echo 'Expected an AArch64 installer.' >&2; exit 1; }
-# Every library it needs must be the Frame's own: none is bundled.
+# Every library it needs must be the Frame's own: none is bundled. The sysroot
+# keeps some only under their linker names, so match SONAMEs, not file names.
+declare -A sonames=()
+for file in "$sysroot"/usr/lib/lib*.so* "$sysroot"/usr/lib/ld-*.so*; do
+    # Linker scripts such as libc.so aren't ELF files and have none.
+    soname=$(readelf -d "$file" 2> /dev/null | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p' || true)
+    if [[ -n $soname ]]; then
+        sonames[$soname]=1
+    fi
+done
 missing=0
 while read -r library; do
-    if [[ ! -e $sysroot/usr/lib/$library ]]; then
+    if [[ -z ${sonames[$library]:-} ]]; then
         echo "Not in the Frame sysroot: $library" >&2
         missing=1
     fi
