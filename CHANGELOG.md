@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0: Chinese, installer and more languages
 
 - An installer now comes with every release: `Full_Keyboard_installer-aarch64.AppImage`, linked from the **Quick install** button at the top of the README. Download it on the Frame, open its folder in Dolphin and double-click it, also in Game Mode; no Konsole and no typing. It installs the newest release or one chosen from 0.16.0 on, sets up a first install with Replace native keyboard, swiping, typing suggestions, Pull for Shift and the numpad while it downloads, then opens the keyboard. With Full Keyboard installed, it reinstalls or uninstalls it, keeping settings if you choose. It first came, unannounced, with 0.16.0; see [the installer](docs/installer.md).
 - Chinese now converts with libime for Pinyin, with OpenCC's Taiwan phrases for Traditional Pinyin, and with McBopomofo for Zhuyin, instead of PyZy. Zhuyin takes tones as written in the dictionary or as spoken (不客氣 with ㄅㄨˋ or ㄅㄨˊ). A Traditional Pinyin candidate you select keeps exactly the characters shown, and the rest converts with it as context: 皇, then the rest, stays 皇后. The dictionaries load only while a Chinese language is added; Traditional Pinyin needs about 50 MB more while it is. libime's language model is pruned to keep the download under the 64 MiB that 0.16.0 updates to, which costs about two points of whole-sentence accuracy. See [Chinese engines](docs/languages.md#chinese-engines).

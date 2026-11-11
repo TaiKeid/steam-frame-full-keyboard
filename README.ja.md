@@ -69,14 +69,14 @@ Full Keyboard は**ヘッドセット上での利用**のために作られて�
 
 リリースパッケージの導入に、AI ツール、コンパイル、`sudo`、SteamOS への書き込み権限は要りません。
 
-1. **Steam Frame** のブラウザーで [GitHub の Releases ページ](https://github.com/TaiKeid/steam-frame-full-keyboard/releases)を開き、リリースのアセットから `framekeyboard-0.16.0-aarch64.tar.gz` と `SHA256SUMS` を **Downloads** フォルダーにダウンロードします。GitHub が自動で作るソースコードのアーカイブはダウンロードしないでください。
+1. **Steam Frame** のブラウザーで [GitHub の Releases ページ](https://github.com/TaiKeid/steam-frame-full-keyboard/releases)を開き、リリースのアセットから `framekeyboard-0.17.0-aarch64.tar.gz` と `SHA256SUMS` を **Downloads** フォルダーにダウンロードします。GitHub が自動で作るソースコードのアーカイブはダウンロードしないでください。
 2. Frame のデスクトップ環境でターミナルを開き、次を実行します。
 
    ```sh
    cd ~/Downloads
    sha256sum -c SHA256SUMS
-   tar -xzf framekeyboard-0.16.0-aarch64.tar.gz
-   cd framekeyboard-0.16.0-aarch64
+   tar -xzf framekeyboard-0.17.0-aarch64.tar.gz
+   cd framekeyboard-0.17.0-aarch64
    bash install.sh
    ```
 
