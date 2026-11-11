@@ -14,7 +14,7 @@ Full Keyboard builds on pinned third-party code and data, on libraries SteamOS p
 tools/check-upstream.sh
 ```
 
-It reads each pin from the file that owns it and compares it with the upstream's latest release, using only `git ls-remote` and public metadata over HTTPS. It does not cover the two data-control protocol files or the AppImage's Anthy, IBus and Chinese-table packages; compare those by hand. **CHECK** means upstream moved, or could not be reached. Then, for each CHECK:
+It reads each pin from the file that owns it and compares it with the upstream's latest release, using only `git ls-remote` and public metadata over HTTPS. It does not cover the two data-control protocol files, the simulator AppImage's Anthy, IBus and Chinese-table packages, or the installer AppImage's runtime; compare those by hand. **CHECK** means upstream moved, or could not be reached. Then, for each CHECK:
 
 1. Read upstream's changelog or the diff of the files we use, and decide: update, or stay and record why.
 2. To update, change the pin where the table below says. Then update the license file and [third_party/README.md](../third_party/README.md) in the same commit.
@@ -34,6 +34,7 @@ It reads each pin from the file that owns it and compares it with the upstream's
 | Chinese engines: libime with its dictionary and model, fcitx5's utility library, McBopomofo, OpenCC, zstd, Boost, extra-cmake-modules | `tools/chinese-pins.sh` (URL, tag and commit each; Boost's archive SHA-256; libime's data SHA-256 values come with its commit), `third_party/chinese-engines/` | Pinyin (libime), Traditional output (OpenCC) and Zhuyin (McBopomofo) | `tools/fetch-chinese.sh`, then `tools/build-chinese.sh` for host and frame-arm64; check the frame-arm64 libraries with `objdump -T` for symbol versions newer than stable SteamOS's; `chinese-input`; the simulator's `--chinese-candidates --chinese-engine all` over the benchmark sets, compared with the pinned version's; keep the archive under 64 MiB while 0.16.0 installs update (`libime_LM_PRUNE`) |
 | Chinese character ranks | `tools/build_chinese_ranks.py` (`MCBOPOMOFO_COMMIT`, `RIME_CANTONESE_COMMIT` and the SHA-256 of the three source files), `chinese/README.md` (output hash), `third_party/chinese-ranks/` | Cangjie and Quick candidate order | Rebuild `chinese/char-ranks.txt` and update its hash; `table-composition`; the simulator's `--chinese-candidates --chinese-method chinese-quick` over common codes (我 的 這 嗎 了 嘅 first or second) |
 | AppImage Anthy, IBus and Chinese tables | `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256` (package versions, archive hashes and payload hashes) | Desktop simulator conversion, Japanese emoji candidates, Cangjie and Quick | Check the new packages and their licenses; regenerate payload hashes from the packages; update the adjacent third-party notices; build the AppImage and try each input method. Packaging rejects unpacked inputs whose bundled bytes differ from the pins |
+| AppImage runtime (type2-runtime) | [installer](installer.md#appimage) and `third_party/README.md` (release, SHA-256), `third_party/appimage-runtime/LICENSE` | The installer's AppImage | Check that it still needs only FUSE 3; `scripts/installer-appimage.sh`; open the installer on the Frame from Dolphin |
 | Swipe word lists | `swipe/lexicons/README.md` (commit, source hashes), `tools/build_swipe_lexicon.py` | Swipe vocabulary | `swipe`, `swipe-chinese` |
 | Offensive word lists (LDNOOBW) | `swipe/lexicons/README.md` (Offensive words: commit, hashes), `tools/build_offensive_words.py` (`ROOTS`, `KEEP`) | Typing suggestions hold these back until used | `word-suggestions`, `typing-suggestions`; rebuild the lists after any word list changes |
 | libei client | `third_party/libei/provenance.json`, `third_party/libei/` | Typing into local apps | `ei-handshake`, `ei-recovery`; `ei-target-probe` in its own receiver; the [input matrix](acceptance.md#input-matrix). If SteamOS's own libei gains the negotiation fix, consider dropping the copy |
@@ -53,6 +54,7 @@ These are linked or used as the Frame provides them, never bundled:
 - Cairo, Pango, HarfBuzz and GLib;
 - json-c, xkbcommon, XCB and the Wayland client;
 - Vulkan, SDL2 and SteamVR's `libopenvr_api.so`;
+- FUSE 3 (the installer's AppImage);
 - bubblewrap (`bwrap`), Mozc's sandbox where it is installed;
 - Python 3, 3.12 on the Frame (the dictation and update helpers);
 - PipeWire and WirePlumber (`pw-record`, `pw-dump`, `pw-link`, and `libpipewire-0.3.so.0` for Haptic sounds);

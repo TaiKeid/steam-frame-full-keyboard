@@ -1,6 +1,6 @@
 # Interface localization design
 
-Status: design, not built. It covers the keyboard's own interface text: Settings, popups, status messages, tooltips and dialogs. Keyboard layouts and key legends already follow the typing language and stay as they are ([configuration](configuration.md#languages-and-actual-input): the interface language is separate from the typing language).
+Status: built; released in 0.16.0 with 14 interface languages, 17 since 0.17.0. It covers the keyboard's own interface text: Settings, popups, status messages, tooltips and dialogs. Keyboard layouts and key legends already follow the typing language and stay as they are ([configuration](configuration.md#languages-and-actual-input): the interface language is separate from the typing language).
 
 ## Goals
 
@@ -99,7 +99,7 @@ Bundled files must be complete: the check fails on a missing key. User files may
 
 ## Fonts
 
-Interface text uses the interface language's `font_families`, while key legends and candidates keep their keyboard language's fonts. Today Settings and status text use the keyboard language's fonts. With Chinese interface text while typing English, that font list has no Han font, so fontconfig picks one, often a Japanese one, and Chinese readers get Japanese character forms. So `zh-Hans` names Noto Sans CJK SC, `zh-Hant` TC, `ja` JP and `ko` KR. Thai, when added, needs Noto Sans Thai and Pango's Thai line breaking, to be checked on the Frame first.
+Interface text uses the interface language's `font_families`, while key legends and candidates keep their keyboard language's fonts. Before, Settings and status text used the keyboard language's fonts. With Chinese interface text while typing English, that font list had no Han font, so fontconfig picked one, often a Japanese one, and Chinese readers got Japanese character forms. So `zh-Hans` names Noto Sans CJK SC, `zh-Hant` TC, `ja` JP and `ko` KR. Thai, when added, needs Noto Sans Thai and Pango's Thai line breaking, to be checked on the Frame first.
 
 ## In the code
 

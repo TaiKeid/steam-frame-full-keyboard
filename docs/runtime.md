@@ -8,7 +8,7 @@ The installed **Full Keyboard** launcher uses:
 framekeyboard --vr --input ei --start-enabled
 ```
 
-It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an optional setting, disabled by default. The keyboard is visible and accepts input only while the dashboard is open, unless **Stay open over apps** keeps it up with the dashboard closed. Hiding cancels keys, unfinished composition, and grabs.
+It connects to the running Frame Gamescope compositor at `/run/user/<uid>/gamescope-0-ei`. The headset's VR session must already be running. The app does not start SteamVR or register autostart. Stock keyboard replacement is an optional setting, off after a manual install; the [installer](installer.md) asks about it on a first install. The keyboard is visible and accepts input only while the dashboard is open, unless **Stay open over apps** keeps it up with the dashboard closed. Hiding cancels keys, unfinished composition, and grabs.
 
 First launch starts at 95 cm wide, tilted back 50° from upright, just beneath the dashboard. If the dashboard anchor is unavailable, it falls back to 65 cm below eye level and 85 cm forward. Placement follows dashboard position and full rotation, including when a local app tab is selected.
 
@@ -71,7 +71,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from th
 | Copy/Paste fail in a terminal | Terminals opened from the dashboard get their own keys only if they are on the known list, by program name; Python-based terminals and terminals inside other apps are not detected. In SteamOS's Desktop, the same terminals are detected while the keyboard runs; if they aren't, as after a KDE update, tap Ctrl and Shift, then C or V. In xterm, select to copy and middle-click to paste |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
-| Installer says Full Keyboard is running | Quit Full Keyboard in Settings, then run the installer again |
+| `install.sh` says Full Keyboard is running | Quit Full Keyboard in Settings, then run it again. The [installer](installer.md) closes a running keyboard itself |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 
 No input is sent with the dashboard closed unless Stay open over apps keeps the keyboard up. Streamed VR applications are outside the supported scope. Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
@@ -80,9 +80,9 @@ No input is sent with the dashboard closed unless Stay open over apps keeps the 
 
 Use the centered Settings → Check for updates button for a verified download, installation and restart. See [updates](updates.md) for button states, requirements and recovery.
 
-For a manual installation, quit Full Keyboard first. The installer holds the instance lock throughout installation and refuses if the app is running. It validates the copied ARM64 binary and profiles in a fresh staging directory before switching `current`, then removes the replaced production release. Settings under `~/.config/framekeyboard` are preserved. The same version can be reinstalled, and older versions can replace newer ones. A failed preparation leaves the current release usable; interrupted cleanup never deletes the release named by `current`.
+For a manual installation, quit Full Keyboard first. `install.sh` holds the instance lock throughout installation and refuses if the app is running. It validates the copied ARM64 binary and profiles in a fresh staging directory before switching `current`, then removes the replaced production release. Settings under `~/.config/framekeyboard` are preserved. The same version can be reinstalled, and older versions can replace newer ones. A failed preparation leaves the current release usable; interrupted cleanup never deletes the release named by `current`.
 
-To roll back, download an older release archive and its checksums, verify it and extract it as described in the README. Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Quit Full Keyboard, then reinstall the older package. For an older package whose installer predates reinstall support, use the installer from a newer extracted package and pass the older package directory:
+To roll back, download an older release archive and its checksums, verify it and extract it as described in the README. Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Quit Full Keyboard, then reinstall the older package. For an older package whose `install.sh` predates reinstall support, use `install.sh` from a newer extracted package and pass the older package directory:
 
 ```sh
 bash /path/to/newer-package/install.sh /path/to/extracted-older-package
@@ -91,7 +91,7 @@ bash /path/to/newer-package/install.sh /path/to/extracted-older-package
 
 Production installs keep no permanent rollback release or `previous` link. During an in-app update, the old release and preference snapshot survive until the new process confirms startup; a failed start restores the old release automatically. Cleanup only removes directories positively marked by the production installer/updater. Development deployments, historical unmarked releases and unrelated `previous` links stay untouched. Older installers/updaters keep their original retention behavior. The installed app label stays Full Keyboard when reinstalling an older binary.
 
-To uninstall, run the uninstaller from the installed release or from an extracted package:
+To uninstall, use **Uninstall** in the [installer](installer.md), or run the uninstaller from the installed release or from an extracted package:
 
 ```sh
 bash ~/.local/share/framekeyboard/current/uninstall.sh

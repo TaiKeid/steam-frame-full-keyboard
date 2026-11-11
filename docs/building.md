@@ -1,6 +1,6 @@
 # Build from source
 
-Most users should install the ARM64 archive described in the [README](../README.md). These instructions are for development and release packaging. Build on a Linux development machine; a host x86-64 binary cannot run on Frame.
+Most users should install with the [installer](installer.md) or the ARM64 archive described in the [README](../README.md). These instructions are for development and release packaging. Build on a Linux development machine; a host x86-64 binary cannot run on Frame.
 
 ## Dependencies
 
@@ -131,7 +131,7 @@ Host and ARM64 build directories are separate. If switching sysroots or toolchai
 
 ## Tests
 
-CTest includes `languages`, `keyboard-core`, `settings`, `placement-instance`, `japanese-input`, and `rendering`. `ei-handshake` checks peer EOF and explicit cleanup during negotiation on private socketpairs, including ARM64 builds; it never contacts a compositor or announces an input device. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run installer validation/failure/retry tests. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume, disconnect, and text-socket selection using an isolated compositor and dummy Wayland listeners that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
+CTest includes `languages`, `keyboard-core`, `settings`, `placement-instance`, `japanese-input`, and `rendering`. `ei-handshake` checks peer EOF and explicit cleanup during negotiation on private socketpairs, including ARM64 builds; it never contacts a compositor or announces an input device. The rendering suite compares incremental and forced full images pixel-by-pixel across all bundled languages, controller overlaps, animation reversal, modifiers, composition, settings, and profile changes. Host builds also run validation/failure/retry tests of `install.sh`, and tests of `uninstall.sh`. If libeis 1.6+ development files are available, `ei-recovery` tests pause/resume, disconnect, and text-socket selection using an isolated compositor and dummy Wayland listeners that cannot deliver input to the desktop. They use capture sinks and temporary configuration directories, not user applications. The placement suite uses local Unix sockets. A restricted sandbox must allow those sockets.
 
 Anthy integration is optional in normal test runs. To require the real conversion test when the library and dictionary are installed:
 
@@ -267,6 +267,6 @@ rm -r "$tour"
 
 The tour renders without the interactive preview's input notice. This is a native-renderer capture, not an in-headset photograph. It contains no browser window or personal text. Inspect it before committing. Keep the README caption explicit about its source.
 
-The `languages` suite checks all added XKB profiles; `korean-input` and `chinese-input` check the real Hangul and Pinyin engines, when compiled in, plus app commit ordering, and `table-composition` checks Cangjie and Quick composition against a fixture table. Set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1` to make missing engines a test failure. Run this on Frame for release verification. `japanese-target-probe --multilingual` checks a fixed mixed-script phrase in its own focus-checked receiver.
+The `languages` suite checks all added XKB profiles; `korean-input` and `chinese-input` check the real Hangul, Pinyin and Zhuyin engines, when compiled in, plus app commit ordering, and `table-composition` checks Cangjie and Quick composition against a fixture table. Set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1` to make missing engines a test failure. Run this on Frame for release verification. `japanese-target-probe --multilingual` checks a fixed mixed-script phrase in its own focus-checked receiver.
 
 `unicode-target-probe` exercises the production App with German, French, Russian, Ukrainian, Brazilian, Korean and both Chinese profiles, without a target-language declaration. It creates temporary settings, re-focuses only its own disposable Xwayland window before each press, verifies focus before delivery, and checks exact output. It restores previous focus and deletes its temporary settings. Never run it against a user field.

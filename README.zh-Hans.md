@@ -46,7 +46,7 @@
 ## 以普通用户安装，无需额外步骤
 
 - **无需 sudo、root 权限或管理员密码。** Full Keyboard 以您自己的用户身份安装到主文件夹中。您无需在 Frame 上设置密码，也无需开启开发者模式。
-- **手动安装一次，之后在应用内更新。** 首次安装后，“设置”会发现新版本并一键安装；如果新版本无法启动，则会回到上一个版本。
+- **安装一次，之后在应用内更新。** 首次安装后，“设置”会发现新版本并一键安装；如果新版本无法启动，则会回到上一个版本。
 - **开箱即用。** 安装后即可输入，**替换原生键盘** 也无需任何设置：它使用 SteamOS 在每台 Frame 上本来就提供给 Steam 的本地连接。
 - **重启和 SteamOS 更新后依然保留。** 开启 **随 SteamOS 启动** 后，每次开机它都会在后台隐藏启动。SteamOS 更新不会改动您的主文件夹，因此键盘和您的设置都会保留。
 - **无侵入性。** 它不修改 Steam 或 SteamOS 的任何文件、设置、系统服务或设备权限。替换功能仅在 Full Keyboard 运行时接管 Steam 的键盘；一旦它停止，Steam 自己的键盘会自动恢复。
@@ -85,15 +85,15 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
    ~/.local/bin/framekeyboard
    ```
 
-安装程序会添加一个名为 **Full Keyboard** 的桌面应用条目。如果您还想在 Steam 库中添加快捷方式，请使用 Steam 的 **添加非 Steam 游戏**（Add a Non-Steam Game）选项并选择 Full Keyboard。手动创建的快捷方式有其自己的名称；如有需要，可在其“属性”中重命名旧的 FrameKeyboard 快捷方式。
+安装后会添加一个名为 **Full Keyboard** 的桌面应用条目。如果您还想在 Steam 库中添加快捷方式，请使用 Steam 的 **添加非 Steam 游戏**（Add a Non-Steam Game）选项并选择 Full Keyboard。手动创建的快捷方式有其自己的名称；如有需要，可在其“属性”中重命名旧的 FrameKeyboard 快捷方式。
 
-所有内容都安装在您的主目录下。安装程序会保留设置和自定义配置，替换当前的正式版本，并且不会启用自动启动或改动 Steam 文件。开发部署和较旧的未标记发布目录会被保留。内部文件名和命令仍为 `framekeyboard`。
+所有内容都安装在您的主目录下。`install.sh` 会保留设置和自定义配置，替换当前的正式版本，并且不会启用自动启动或改动 Steam 文件。开发部署和较旧的未标记发布目录会被保留。内部文件名和命令仍为 `framekeyboard`。
 
 键盘每隔几小时检查一次新的稳定版本，有新版本时会在设置按钮上显示一个圆点。要更新，请打开“设置”，按下顶部中央的 **下载并安装更新**（Download and install update），或按同一位置的 **检查更新**（Check for updates）立即检查。键盘会验证压缩包、安装并重启，同时保留您的设置。旧的正式版本会一直保留，直到新版本确认正常启动后才会删除。启动失败时会自动回滚。参见 [更新](docs/updates.md)。
 
-要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、启动器和菜单条目，并保留您的设置，除非您加上 `--purge`。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。
+要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、启动器和菜单条目，并保留您的设置，除非您加上 `--purge`。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。安装程序中的 **卸载** 也会执行同样的操作，并询问是否保留您的设置。
 
-手动更新时，请先退出 Full Keyboard。如果已开启原生键盘替换，请使用“设置”→ **退出 Full Keyboard**（Quit Full Keyboard）。下载新的发布资源并重复安装步骤。安装程序支持重新安装同一版本或安装较旧的版本，但在 Full Keyboard 运行时会拒绝安装。手动回滚即重新安装较旧的发布包；参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。
+手动更新时，请先退出 Full Keyboard。如果已开启原生键盘替换，请使用“设置”→ **退出 Full Keyboard**（Quit Full Keyboard）。下载新的发布资源并重复安装步骤。`install.sh` 支持重新安装同一版本或安装较旧的版本，但在 Full Keyboard 运行时会拒绝安装。安装程序也可以重新安装，并会先关闭正在运行的 Full Keyboard。手动回滚即重新安装较旧的发布包；参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。
 
 ## 使用键盘
 

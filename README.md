@@ -46,7 +46,7 @@ To install from a terminal instead, see [Install manually](#install-manually).
 ## Installs as user, no extra steps required
 
 - **No sudo, root access or admin password.** Full Keyboard installs into your home folder as your own user. You never need to set a password on the Frame or turn on Developer Mode.
-- **One manual install, then updates from inside the app.** After the first install, Settings finds new versions and installs them with one button, and goes back to the previous version if a new one fails to start.
+- **One install, then updates from inside the app.** After the first install, Settings finds new versions and installs them with one button, and goes back to the previous version if a new one fails to start.
 - **It just works.** Typing works as soon as it is installed, and **Replace native keyboard** needs nothing set up either: it uses a local connection SteamOS already gives Steam on every Frame.
 - **Survives restarts and SteamOS updates.** With **Start with SteamOS** on, it starts hidden in the background after every boot. SteamOS updates leave your home folder alone, so the keyboard and your settings stay.
 - **Not invasive.** It changes none of Steam's or SteamOS's files, settings, system services or device permissions. Replacement hooks Steam's keyboard only while Full Keyboard runs, and if it stops, Steam's own keyboard comes back by itself.
@@ -85,15 +85,15 @@ No AI tools, compilation, `sudo`, or SteamOS write access are needed for the rel
    ~/.local/bin/framekeyboard
    ```
 
-The installer adds a desktop application entry named **Full Keyboard**. If you also want a Steam Library shortcut, use Steam's **Add a Non-Steam Game** option and select Full Keyboard. A manually created shortcut has its own name; rename an old FrameKeyboard shortcut in its Properties if needed.
+Installing adds a desktop application entry named **Full Keyboard**. If you also want a Steam Library shortcut, use Steam's **Add a Non-Steam Game** option and select Full Keyboard. A manually created shortcut has its own name; rename an old FrameKeyboard shortcut in its Properties if needed.
 
-Everything installs under your home directory. The installer preserves settings and custom profiles, replaces the current production release, and does not enable autostart or alter Steam files. Development deployments and older unmarked release directories are preserved. Internal filenames and commands remain `framekeyboard`.
+Everything installs under your home directory. `install.sh` preserves settings and custom profiles, replaces the current production release, and does not enable autostart or alter Steam files. Development deployments and older unmarked release directories are preserved. Internal filenames and commands remain `framekeyboard`.
 
 The keyboard checks for a new stable release every few hours and puts a dot on the Settings button when there is one. To update, open Settings and press **Download and install update** at the top center, or **Check for updates** there to check right now. The keyboard verifies the archive, installs it and restarts, preserving your settings. The old production release stays until the new one confirms a healthy start, then is removed. A failed start rolls back automatically. See [updates](docs/updates.md).
 
-To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, launcher and menu entry, and keeps your settings unless you add `--purge`. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal).
+To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, launcher and menu entry, and keeps your settings unless you add `--purge`. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal). The installer's **Uninstall** does the same and asks whether to keep your settings.
 
-For a manual update, quit Full Keyboard first. With native replacement enabled, use Settings → Quit Full Keyboard. Download the new release assets and repeat the installation steps. The installer supports reinstalling the same version or installing an older one, and refuses while Full Keyboard is running. Manual rollback means reinstalling an older release package; see [rollback and removal](docs/runtime.md#update-rollback-and-removal).
+For a manual update, quit Full Keyboard first. With native replacement enabled, use Settings → Quit Full Keyboard. Download the new release assets and repeat the installation steps. `install.sh` supports reinstalling the same version or installing an older one, and refuses while Full Keyboard is running. The installer reinstalls too, and closes a running Full Keyboard first. Manual rollback means reinstalling an older release package; see [rollback and removal](docs/runtime.md#update-rollback-and-removal).
 
 ## Use the keyboard
 

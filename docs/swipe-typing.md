@@ -1,6 +1,6 @@
 # Swipe typing plan
 
-Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin; Polish, Dutch and Swedish followed in 0.11.0. Japanese and Korean were dropped (see [milestones](#milestones)). Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
+Status: released in 0.9.0 for English (US, UK), German, French, Spanish, Italian, Brazilian Portuguese, Ukrainian, Russian and Chinese Pinyin; Polish, Dutch and Swedish followed in 0.11.0, and [25 more languages](#added-languages-2026-11-08), [Arabic and Hebrew](#arabic-and-hebrew-2026-11-08) among them, in 0.17.0. Japanese and Korean were dropped (see [milestones](#milestones)). Feasibility was checked the same day; see [results](#feasibility-results). Mark milestone checkboxes only after their acceptance conditions pass. User-facing behavior is described in [configuration](configuration.md#swipe-typing).
 
 Swipe typing lets a user hold the trigger, trace a word across the letter keys and release. The keyboard decodes the path into a word and alternatives. Tapping keeps working exactly as before.
 
@@ -13,7 +13,7 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 - **Dictation editor:** swiping also works in the editor while it can be typed in. Words join at the cursor, and an alternative replaces only that word.
 - **Unsupported languages:** the checkbox is disabled (drawn with the theme's disabled color, not clickable) whenever neither the language selected in the dropdown nor an additional one has `swipe` support, or the swipe engine module or their word lists are unavailable. Like Start with SteamOS, the saved choice is kept while disabled, but swipe is active only when the saved boolean is true and the active language supports it. Switching to an additional language without swipe support turns swipe off for that language without changing the saved value.
 - **Language order:** English, German, Spanish and Japanese romaji; then Korean and Chinese; then the remaining XKB profiles; Russian last.
-- **Privacy:** no learning, no typing history, no logging of paths or decoded words. The development trace recorder only records prompted test phrases.
+- **Privacy:** the decoder learns nothing; [typing suggestions](configuration.md#typing-suggestions) count a swiped word as typed. No typing history, no logging of paths or decoded words. The development trace recorder only records prompted test phrases.
 
 ## Interaction model
 

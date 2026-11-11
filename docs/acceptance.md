@@ -49,7 +49,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 ## Lifecycle and recovery
 
 - Full Keyboard launches independently; the existing system keyboard button still opens the stock keyboard.
-- Main-view minus/plus icons change width by 5 cm without moving the panel; grabbing handles position and rotation.
+- The corner resizers change width about the panel's center; the movement line and grabbing handle position and rotation.
 - Launching repeatedly retains one owner, restores visibility and recenters it. With replacement disabled, closing and reopening creates a fresh owner; abrupt exit leaves no permanent launch lock.
 - Recenter clears position/angle offsets while preserving width, including after a tracking-space change.
 - Tracking loss and the 30-second grab timeout restore typing.
@@ -59,7 +59,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 - Cancelled pointer presses, tracking loss, focus loss and close release keys.
 - A crash leaves the stock keyboard usable and does not retain a stale instance lock.
 - Input connection loss, runtime restart, sleep/wake, and reboot fail or recover predictably.
-- Install/update/rollback/uninstall follow the documented steps and preserve user profiles.
+- Install/update/rollback/uninstall follow the documented steps, with `install.sh` and with the [installer](installer.md), and preserve user profiles.
 - Reinstall the same production version and manually install an older package. Confirm `current` changes only after validation, the replaced marked release is removed, and unmarked/development directories survive. Refuse manual installation while Full Keyboard holds its instance lock. An acknowledged in-app update removes the replaced marked release and its snapshot; a failed start keeps the old release as `current`. Manual rollback reinstalls a package rather than switching a `previous` link.
 - Unsupported runtime interfaces fail without changing Steam files or global input settings.
 

@@ -1,6 +1,6 @@
 # Desktop simulator
 
-The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing reaches other applications or the system clipboard, and only Japanese learning keeps typed phrases on disk, in the simulator's own settings folder.
+The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing reaches other applications or the system clipboard, and only learning keeps typed words on disk, in the simulator's own settings folder: Japanese and Chinese conversions and typing suggestions' words.
 
 It runs on Linux x86-64. Windows and browser versions may follow.
 
@@ -254,9 +254,9 @@ Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engi
 
 ## Privacy
 
-- The field's text stays in the window's memory. It is never logged, saved or sent, and closing the window discards it. Japanese learning keeps the phrases it learns, as on the headset.
+- The field's text stays in the window's memory. It is never logged, saved or sent, and closing the window discards it. Japanese and Chinese learning and typing suggestions keep what they learn, as on the headset.
 - Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V to the field, which uses a clipboard of its own. The system clipboard is never read or written; dictation's paste Send also writes the field's clipboard.
-- Settings, additional languages, Japanese learning and emoji Recent and Favorites are saved in the simulator's settings folder, as on the headset. Dictation models, if downloaded, go to `~/.local/share/framekeyboard-simulator/models`.
+- Settings, additional languages, what Japanese, Chinese and typing suggestions learned, and emoji Recent and Favorites are saved in the simulator's settings folder, as on the headset. Dictation models, if downloaded, go to `~/.local/share/framekeyboard-simulator/models`.
 
 ## For AI agents
 

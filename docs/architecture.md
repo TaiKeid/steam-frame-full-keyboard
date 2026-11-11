@@ -174,11 +174,11 @@ Cut, Copy and Paste are shortcut actions: Ctrl+X, Ctrl+C and Ctrl+V, or a termin
 
 ## Packaging and failure cleanup
 
-Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package enables no startup by default. The explicit Start with SteamOS option maintains a user-local session unit on the preference worker. It launches hidden replacement only when both saved options are on; independent fallback and update helpers survive main-process handoff. The user manager is reloaded with `systemctl --user daemon-reload`, or, when that can't reach it, through the manager's D-Bus `Reload` method on the main session bus at `/run/user/<uid>/bus`. SteamOS's Desktop gives the apps started in it a runtime directory and bus of their own, where `systemctl` finds no manager. No kernel module or Steam patch is installed.
+Releases live under `~/.local/share/framekeyboard/releases`, with a `current` symlink and a launcher in `~/.local/bin`. Config lives under `~/.config/framekeyboard`. The package enables no startup by default; the [installer](installer.md)'s first install turns it on when replacement is answered Yes. The explicit Start with SteamOS option maintains a user-local session unit on the preference worker. It launches hidden replacement only when both saved options are on; independent fallback and update helpers survive main-process handoff. The user manager is reloaded with `systemctl --user daemon-reload`, or, when that can't reach it, through the manager's D-Bus `Reload` method on the main session bus at `/run/user/<uid>/bus`. SteamOS's Desktop gives the apps started in it a runtime directory and bus of their own, where `systemctl` finds no manager. No kernel module or Steam patch is installed.
 
 Production replacement stages a unique new directory, including for a same-version
-reinstall, and atomically switches `current`. The installer holds the instance lock
-throughout, so no running keyboard can lose its release files. Installer and updater
+reinstall, and atomically switches `current`. `install.sh` holds the instance lock
+throughout, so no running keyboard can lose its release files. `install.sh` and the updater
 share root/name-bound production markers and conservative deletion checks. Only the
 replaced marked release is removed, never `current`, development deployments or
 unmarked historical releases. In-app updates retain the old release and settings
@@ -300,6 +300,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 | Dictation helper and its client | `dictation/dictation_helper.py`, `src/dictation.cpp`, `include/framekeyboard/dictation.hpp`; protocol in [dictation](dictation.md#helper-protocol) |
 | Preview and command-line entry | `src/preview.cpp`, `src/main.cpp` |
 | Desktop simulator | `src/simulator/`: `App` typing into a text field of its own in an SDL window, the `framekeyboard-simulator` target, linked with the keyboard's core and without OpenVR or Vulkan; see [simulator](simulator.md) |
+| Installer | `src/installer/`: window, screens and wizard `installer.cpp`; real tasks `system_backend.cpp`, `--simulate` `simulated_backend.cpp`; see [installer](installer.md) |
 | Instance IPC | `src/instance.cpp` |
 | Shell integration | `src/shell_protocol.cpp` (connection, session, lease), `src/shell_sink.cpp` (text sink between the output queue and the backend), `src/app_host.cpp` (App's side: contexts, hints, settings, themes, dictation), `src/shell_host.cpp` (matrices, update handover, preview renders); dispatch in `src/vr.cpp`. See [shell integration](integration.md) |
 | Placement math and persistence | `src/placement.cpp`, `src/placement_store.cpp` |
