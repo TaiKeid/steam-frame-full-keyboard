@@ -103,6 +103,10 @@ constexpr std::array<std::pair<const char*, const char*>, Installer::pages> page
     {"installer.page.pull", "installer.page.pull.text"},
     {"installer.page.use-numpad", "installer.page.use-numpad.text"},
 }};
+// Finish's summary names each answer as Settings does, not by its question.
+constexpr std::array<const char*, Installer::pages> summary_keys{
+    "setting.replace-native-keyboard", "setting.swipe-typing", "setting.typing-suggestions",
+    "setting.key-flicks", "installer.summary.numpad"};
 
 void set_rgba(cairo_t* cr, Color color, double alpha) {
     cairo_set_source_rgba(cr, color.r, color.g, color.b, alpha);
@@ -1283,8 +1287,8 @@ void Installer::paint_finish_page() {
         block(value, {column_x, stage.y + (stage.height - h) / 2, column_width, stage.height}, 24, ink);
         return;
     }
-    // On a first install, what Finish saves: each question and its answer.
-    // A long question takes two lines; all five share the largest size at
+    // On a first install, what Finish saves: each setting and its answer.
+    // A long name takes two lines; all five share the largest size at
     // which the list fits under the note.
     constexpr double gap = 20, chip_width = 96, chip_height = 36, row_pad = 14, pitch = 1.12;
     const double label_width = column_width - chip_width - 16;
@@ -1295,7 +1299,7 @@ void Installer::paint_finish_page() {
     for (;; size -= 1) {
         list_height = 0;
         for (std::size_t page = 0; page < pages; ++page) {
-            labels[page] = block(tr(page_keys[page].first), {0, 0, label_width, height}, size, label_ink,
+            labels[page] = block(tr(summary_keys[page]), {0, 0, label_width, height}, size, label_ink,
                                  PANGO_WEIGHT_NORMAL, false, PANGO_ALIGN_LEFT, pitch);
             list_height += std::max(chip_height, labels[page]) + row_pad;
         }
@@ -1313,7 +1317,7 @@ void Installer::paint_finish_page() {
         cairo_rectangle(cr_, column_x + 4, y, column_width - 8, 1);
         set_rgba(cr_, theme_.legend, .07);
         cairo_fill(cr_);
-        block(tr(page_keys[page].first), {column_x, y + (row - label) / 2, label_width, height}, size,
+        block(tr(summary_keys[page]), {column_x, y + (row - label) / 2, label_width, height}, size,
               label_ink, PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_LEFT, pitch);
         const bool yes = choice(page);
         const Rect chip{column_x + column_width - chip_width - 4, y + (row - chip_height) / 2,
