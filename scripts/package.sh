@@ -3,6 +3,9 @@
 set -euo pipefail
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$project_dir"
+# The installer is built last; check its tools before the long build.
+: "${FRAMEKEYBOARD_APPIMAGETOOL:?set FRAMEKEYBOARD_APPIMAGETOOL (docs/installer.md#appimage)}"
+: "${FRAMEKEYBOARD_APPIMAGE_RUNTIME:?set FRAMEKEYBOARD_APPIMAGE_RUNTIME (docs/installer.md#appimage)}"
 # Its own build tree, with debug mode off: a release has no Debug card and
 # never reads --debug. Development builds of the frame-arm64 preset keep it.
 ./scripts/build.sh frame-arm64-release
@@ -67,3 +70,10 @@ cp scripts/uninstall-local.sh "$package_dir/uninstall.sh"
 tar -C out -czf "out/framekeyboard-$version-aarch64.tar.gz" "framekeyboard-$version-aarch64"
 (cd out && sha256sum "framekeyboard-$version-aarch64.tar.gz" > SHA256SUMS)
 cat out/SHA256SUMS
+# The installer ships with every release as an asset of its own
+# (docs/installer.md). SHA256SUMS keeps only the archive: the README's
+# `sha256sum -c SHA256SUMS` must pass without the installer downloaded.
+bash scripts/installer-appimage.sh
+installer="Full_Keyboard_installer-$version-aarch64.AppImage"
+cp "out/installer/$installer" "out/$installer"
+(cd out && sha256sum "$installer")
