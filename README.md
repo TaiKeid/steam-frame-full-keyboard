@@ -4,8 +4,6 @@
 
 A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Cut, Copy and Paste keys, plus swipe typing, dictation and emoji, in 47 languages.
 
-**After a manual install, Full Keyboard is launched by hand; the installer asks whether it should replace the native keyboard.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
-
 ![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Quick install
@@ -57,6 +55,8 @@ To install from a terminal instead, see [Install manually](#install-manually).
 ## Where it works
 
 Full Keyboard is made for the **on-device experience**: the Frame dashboard, Steam's own text fields, and apps running on the Frame, including desktop apps and windows floating in the world. Focus a text field, then type with the controller laser.
+
+**Full Keyboard can replace the native keyboard; the installer asks whether it should.** With **Replace native keyboard** on in Settings → Integration, supported keyboard requests open Full Keyboard while it is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. **Start with SteamOS** in the same card starts it in the background at login, hidden until summoned; the installer turns it on together with replacement. After a manual install both are off: Full Keyboard is launched by hand, and SteamOS's keyboard button opens the original keyboard. See [native replacement](docs/native-replacement.md).
 
 Normally the keyboard lives in the dashboard: closing the dashboard hides it and releases its input, and reopening brings it back. Turn on **Stay open over apps**, beside the pin, to keep it in the world after the dashboard closes. Point either controller at a key and pull the trigger; a dot shows where each one aims. With Replace native keyboard on, a keyboard request from a window pinned in the world opens Full Keyboard there by itself.
 

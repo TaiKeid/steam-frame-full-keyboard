@@ -4,8 +4,6 @@
 
 一款全尺寸键盘，可替代 Steam Frame 内置的虚拟键盘，专为在头显中日常使用而设计。它提供完整的方向键、数字小键盘、Ctrl 和 Alt，以及独立的剪切、复制和粘贴键，还支持滑动输入、语音输入和表情符号，覆盖 47 种语言。
 
-**手动安装后，Full Keyboard 需要手动启动；使用安装程序时，可以选择是否替换原生键盘。** 默认情况下，SteamOS 的键盘按钮打开的是原来的键盘。在“设置”→“系统集成”中开启 **替换原生键盘**（Replace native keyboard）后，Full Keyboard 运行期间会接管受支持的键盘请求。此功能无需任何设置：它使用 SteamOS 在每台 Frame 上本来就提供给 Steam 的本地连接，一旦该连接不可用，就会回退到原来的键盘。在同一卡片中开启 **随 SteamOS 启动**（Start with SteamOS），即可在登录时于后台启动替换功能。键盘会一直隐藏，直到被调出。参见 [原生键盘替换](docs/native-replacement.md)。
-
 ![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## 快速安装
@@ -57,6 +55,8 @@
 ## 适用范围
 
 Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自己的文本框，以及在 Frame 上运行的应用，包括桌面应用和漂浮在空间中的窗口。先让文本框获得焦点，然后用手柄激光输入。
+
+**Full Keyboard 可以替换原生键盘；安装程序会询问是否替换。** 在“设置”→“系统集成”中开启 **替换原生键盘**（Replace native keyboard）后，Full Keyboard 运行期间会接管受支持的键盘请求。此功能无需任何设置：它使用 SteamOS 在每台 Frame 上本来就提供给 Steam 的本地连接，一旦该连接不可用，就会回退到原来的键盘。同一卡片中的 **随 SteamOS 启动**（Start with SteamOS）会在登录时于后台启动键盘，直到被调出前一直隐藏；安装程序会在开启替换时一并开启它。手动安装后两者均为关闭：Full Keyboard 需要手动启动，SteamOS 的键盘按钮打开的是原来的键盘。参见 [原生键盘替换](docs/native-replacement.md)。
 
 通常，键盘位于仪表板中：关闭仪表板会将其隐藏并释放其输入，重新打开则会恢复。开启固定按钮旁边的 **在应用上方保持打开**，即可在仪表板关闭后将键盘留在空间中。用任一手柄指向按键并扣动扳机；一个圆点会显示每个手柄的瞄准位置。开启替换原生键盘后，固定在空间中的窗口发出键盘请求时，Full Keyboard 会自动在那里打开。
 

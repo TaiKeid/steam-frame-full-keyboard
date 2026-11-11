@@ -4,8 +4,6 @@
 
 Une alternative complète au clavier virtuel intégré de la Steam Frame, conçue pour un usage quotidien dans le casque. Elle ajoute de vraies touches fléchées, un pavé numérique, Ctrl et Alt, et des touches dédiées Couper, Copier et Coller, ainsi que la saisie gestuelle, la dictée et les emoji, dans 47 langues.
 
-**Après une installation manuelle, Full Keyboard se lance à la main ; l'installateur demande s'il doit remplacer le clavier natif.** Par défaut, le bouton clavier de SteamOS ouvre le clavier d'origine. L'option **Remplacer le clavier natif** (Replace native keyboard) dans Paramètres → Intégration redirige les demandes prises en charge tant que Full Keyboard est lancé. Elle ne demande aucune configuration : elle utilise une connexion locale que SteamOS fournit déjà à Steam sur chaque Frame, et revient au clavier d'origine si celle-ci n'est pas disponible. Activez **Lancer avec SteamOS** (Start with SteamOS) dans la même carte pour démarrer le remplacement en arrière-plan à l'ouverture de session. Le clavier reste masqué jusqu'à ce qu'on l'appelle. Voir [remplacement du clavier natif](docs/native-replacement.md).
-
 ![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Installation rapide
@@ -57,6 +55,8 @@ Pour installer depuis un terminal, voir [Installation manuelle](#installation-ma
 ## Où il fonctionne
 
 Full Keyboard est conçu pour l'**usage sur l'appareil** : le tableau de bord de la Frame, les champs de texte de Steam et les applis qui tournent sur la Frame, y compris les applis de bureau et les fenêtres flottant dans l'espace. Sélectionnez un champ de texte, puis tapez avec le laser de la manette.
+
+**Full Keyboard peut remplacer le clavier natif ; l'installateur demande s'il doit le faire.** Avec **Remplacer le clavier natif** (Replace native keyboard) activé dans Paramètres → Intégration, les demandes de clavier prises en charge ouvrent Full Keyboard tant qu'il est lancé. Rien à configurer : il utilise une connexion locale que SteamOS fournit déjà à Steam sur chaque Frame, et revient au clavier d'origine si celle-ci n'est pas disponible. **Lancer avec SteamOS** (Start with SteamOS), dans la même carte, le démarre en arrière-plan à l'ouverture de session, masqué jusqu'à ce qu'on l'appelle ; l'installateur l'active avec le remplacement. Après une installation manuelle, les deux sont désactivés : Full Keyboard se lance à la main, et le bouton clavier de SteamOS ouvre le clavier d'origine. Voir [remplacement du clavier natif](docs/native-replacement.md).
 
 Normalement, le clavier vit dans le tableau de bord : fermer le tableau de bord le masque et libère sa saisie, et le rouvrir le fait revenir. Activez **Rester ouvert sur les applis**, à côté de l'épingle, pour le garder dans l'espace après la fermeture du tableau de bord. Pointez une touche avec l'une ou l'autre manette et appuyez sur la gâchette ; un point montre où chacune vise. Avec **Remplacer le clavier natif** activé, une demande de clavier venant d'une fenêtre épinglée dans l'espace y ouvre Full Keyboard de lui-même.
 

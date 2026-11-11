@@ -4,8 +4,6 @@
 
 Una alternativa de tamaño completo al teclado virtual integrado de Steam Frame, pensada para el uso diario en el visor. Añade teclas de flecha de verdad, teclado numérico, Ctrl y Alt, y teclas dedicadas para Cortar, Copiar y Pegar, además de escritura deslizante, dictado y emojis, en 47 idiomas.
 
-**Tras una instalación manual, Full Keyboard se abre a mano; el instalador pregunta si debe reemplazar el teclado nativo.** De forma predeterminada, el botón de teclado de SteamOS abre el teclado original. La opción **Reemplazar teclado nativo** (Replace native keyboard) de Ajustes → Integración redirige las solicitudes compatibles mientras Full Keyboard está en ejecución. No hay que configurar nada: usa una conexión local que SteamOS ya ofrece a Steam en todos los Frame, y vuelve al teclado original si alguna vez no está disponible. Activa **Iniciar con SteamOS** (Start with SteamOS) en la misma tarjeta para que el reemplazo se inicie en segundo plano al iniciar sesión. Permanece oculto hasta que lo invoques. Consulta [sustitución del teclado nativo](docs/native-replacement.md).
-
 ![Full Keyboard for Steam Frame](docs/images/keyboard-tilted.png)
 
 ## Instalación rápida
@@ -57,6 +55,8 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 ## Dónde funciona
 
 Full Keyboard está hecho para la **experiencia en el propio dispositivo**: el panel del Frame, los campos de texto de Steam y las apps que se ejecutan en el Frame, incluidas las apps de escritorio y las ventanas que flotan en el mundo. Selecciona un campo de texto y escribe con el láser del mando.
+
+**Full Keyboard puede reemplazar el teclado nativo; el instalador pregunta si debe hacerlo.** Con **Reemplazar teclado nativo** (Replace native keyboard) activado en Ajustes → Integración, las solicitudes de teclado compatibles abren Full Keyboard mientras está en ejecución. No hay que configurar nada: usa una conexión local que SteamOS ya ofrece a Steam en todos los Frame, y vuelve al teclado original si alguna vez no está disponible. **Iniciar con SteamOS** (Start with SteamOS), en la misma tarjeta, lo inicia en segundo plano al iniciar sesión, oculto hasta que lo invoques; el instalador lo activa junto con el reemplazo. Tras una instalación manual ambos están desactivados: Full Keyboard se abre a mano y el botón de teclado de SteamOS abre el teclado original. Consulta [sustitución del teclado nativo](docs/native-replacement.md).
 
 Normalmente el teclado vive en el panel: al cerrar el panel se oculta y libera su entrada, y al volver a abrirlo reaparece. Activa **Mantener abierto sobre apps**, junto al anclaje, para mantenerlo en el mundo después de cerrar el panel. Apunta con cualquiera de los mandos a una tecla y aprieta el gatillo; un punto muestra adónde apunta cada uno. Con Reemplazar teclado nativo activado, una solicitud de teclado de una ventana anclada en el mundo abre Full Keyboard allí mismo.
 
