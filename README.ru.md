@@ -10,7 +10,7 @@
 
 ## Быстрая установка
 
-[![Скачать установщик Full Keyboard](docs/images/install-button.ru.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+<p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage"><img src="docs/images/install-button.ru.svg" alt="Скачать установщик Full Keyboard"></a></p>
 
 1. Откройте эту страницу в браузере Steam Frame и скачайте установщик кнопкой выше.
 2. Откройте папку, куда он сохранился, обычно **Downloads**, и дважды щёлкните по установщику. Из браузера его запустить нельзя.

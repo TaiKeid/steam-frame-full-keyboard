@@ -10,7 +10,7 @@ A full-size alternative to Steam Frame's built-in virtual keyboard, made for eve
 
 ## Quick install
 
-[![Download the Full Keyboard installer](docs/images/install-button.svg)](https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage)
+<p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/download/0.16.0/Full_Keyboard_installer-0.16.0-aarch64.AppImage"><img src="docs/images/install-button.svg" alt="Download the Full Keyboard installer"></a></p>
 
 1. Open this page in the Steam Frame's browser and download the installer with the button above.
 2. Open the folder it was saved to, usually **Downloads**, and double-click the installer. The browser can't start it.

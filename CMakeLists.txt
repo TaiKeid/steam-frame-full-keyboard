@@ -748,6 +748,7 @@ foreach(document README.md ${packaged_readmes} CHANGELOG.md)
     file(READ ${document} text)
     # Images first, by their raw files, so the links after them keep theirs.
     string(REPLACE "](docs/images/" "](${packaged_images}/docs/images/" text "${text}")
+    string(REPLACE "src=\"docs/images/" "src=\"${packaged_images}/docs/images/" text "${text}")
     string(REPLACE "](docs/" "](${packaged_docs}/docs/" text "${text}")
     string(REPLACE "](CONTRIBUTING.md" "](${packaged_docs}/CONTRIBUTING.md" text "${text}")
     file(WRITE ${CMAKE_BINARY_DIR}/packaged/${document} "${text}")
