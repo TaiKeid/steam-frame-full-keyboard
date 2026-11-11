@@ -59,7 +59,7 @@ Full Keyboard está hecho para la **experiencia en el propio dispositivo**: el p
 
 Normalmente el teclado vive en el panel: al cerrar el panel se oculta y libera su entrada, y al volver a abrirlo reaparece. Activa **Mantener abierto sobre apps**, junto al anclaje, para mantenerlo en el mundo después de cerrar el panel. Apunta con cualquiera de los mandos a una tecla y aprieta el gatillo; un punto muestra adónde apunta cada uno. Con Reemplazar teclado nativo activado, una solicitud de teclado de una ventana anclada en el mundo abre Full Keyboard allí mismo.
 
-Escribe en las apps que se ejecutan en el Frame y en apps y juegos de PC retransmitidos con Moonlight ([juegos en streaming](docs/streamed-games.md)). **No es un teclado para apps de RV retransmitidas desde un PC mediante Steam Link, como VRChat**.
+Escribe en las apps que se ejecutan en el Frame y en apps y juegos de PC retransmitidos con Moonlight ([juegos en streaming](docs/streamed-games.md)). **No es un teclado para apps de RV retransmitidas desde un PC mediante Steam Link**.
 
 Cada versión supera conjuntos de pruebas automáticas en el ordenador de desarrollo y en el Frame, y sus funciones se comprueban en el visor en el panel, los campos de texto de Steam, las apps de escritorio y las ventanas flotantes. Aun así, las apps pueden diferir en cómo toman el foco, en los mapas de teclado no estadounidenses y en los métodos de entrada; consulta [limitaciones conocidas y solución de problemas](docs/runtime.md). Los comentarios de usuarios con dominio del japonés, el chino y el coreano son especialmente bienvenidos. Sin un Steam Frame, puedes probar el teclado en un PC con Linux en el [simulador de escritorio](docs/simulator.md).
 

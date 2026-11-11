@@ -16,7 +16,7 @@ The PC types pasted text itself. Sunshine on Windows types Unicode with the syst
 
 ## Steam Link streams: not supported
 
-Games streamed from a PC to the Frame through Steam Link (for example Path of Exile 2 or VRChat) keep using Steam's own keyboard. Full Keyboard leaves their keyboard requests native. The rest of this page records what was measured on a Steam Frame in October 2026, so the question can be revisited when SteamVR, Steam or Gamescope change.
+Games streamed from a PC to the Frame through Steam Link keep using Steam's own keyboard. Full Keyboard leaves their keyboard requests native. The rest of this page records what was measured on a Steam Frame in October 2026, so the question can be revisited when SteamVR, Steam or Gamescope change.
 
 ## How Steam's keyboard reaches a streamed game
 

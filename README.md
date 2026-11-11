@@ -59,7 +59,7 @@ Full Keyboard is made for the **on-device experience**: the Frame dashboard, Ste
 
 Normally the keyboard lives in the dashboard: closing the dashboard hides it and releases its input, and reopening brings it back. Turn on **Stay open over apps**, beside the pin, to keep it in the world after the dashboard closes. Point either controller at a key and pull the trigger; a dot shows where each one aims. With Replace native keyboard on, a keyboard request from a window pinned in the world opens Full Keyboard there by itself.
 
-It types into apps running on the Frame, and into PC apps and games streamed through Moonlight ([streamed games](docs/streamed-games.md)). It is **not a keyboard for VR apps streamed from a PC through Steam Link, such as VRChat**.
+It types into apps running on the Frame, and into PC apps and games streamed through Moonlight ([streamed games](docs/streamed-games.md)). It is **not a keyboard for VR apps streamed from a PC through Steam Link**.
 
 Every release passes automated test suites on the development computer and on the Frame, and its features are checked in the headset across the dashboard, Steam's text fields, desktop apps and floating windows. Apps can still differ in how they take focus, non-US keymaps and input methods; see [known limitations and troubleshooting](docs/runtime.md). Feedback from fluent Japanese, Chinese and Korean users is especially welcome. Without a Steam Frame, you can try the keyboard on a Linux PC in the [desktop simulator](docs/simulator.md).
 
