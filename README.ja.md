@@ -13,6 +13,7 @@ Steam Frame に標準で入っている仮想キーボードの代わりに使�
 ## かんたんインストール
 
 <p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/latest/download/Full_Keyboard_installer-aarch64.AppImage"><img src="docs/images/install-button.ja.svg" alt="Full Keyboard インストーラーをダウンロード"></a></p>
+<p align="center"><sub>このインストーラーは Steam Frame 用です。PC では使えません。</sub></p>
 
 1. Steam Frame のブラウザーでこのページを開き、上のボタンからインストーラーをダウンロードします。
 2. 保存先のフォルダー（通常は **Downloads**）を開き、インストーラーをダブルクリックします。ブラウザーからは起動できません。

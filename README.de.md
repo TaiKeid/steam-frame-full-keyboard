@@ -11,6 +11,7 @@ Eine vollwertige Alternative zur eingebauten virtuellen Tastatur der Steam Frame
 ## Schnellinstallation
 
 <p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/latest/download/Full_Keyboard_installer-aarch64.AppImage"><img src="docs/images/install-button.de.svg" alt="Full-Keyboard-Installer herunterladen"></a></p>
+<p align="center"><sub>Dieser Installer ist für die Steam Frame, nicht für den PC.</sub></p>
 
 1. Öffnen Sie diese Seite im Browser der Steam Frame und laden Sie den Installer mit der Schaltfläche oben herunter.
 2. Öffnen Sie den Ordner, in dem er gespeichert wurde, meist **Downloads**, und doppelklicken Sie auf den Installer. Aus dem Browser lässt er sich nicht starten.

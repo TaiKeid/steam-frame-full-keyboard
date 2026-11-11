@@ -11,6 +11,7 @@
 ## 快速安装
 
 <p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/latest/download/Full_Keyboard_installer-aarch64.AppImage"><img src="docs/images/install-button.zh-Hans.svg" alt="下载 Full Keyboard 安装程序"></a></p>
+<p align="center"><sub>此安装程序仅适用于 Steam Frame，不能在 PC 上使用。</sub></p>
 
 1. 在 Steam Frame 的浏览器中打开本页面，用上方的按钮下载安装程序。
 2. 打开它的保存位置（通常是 **Downloads** 文件夹），双击安装程序。浏览器无法直接启动它。

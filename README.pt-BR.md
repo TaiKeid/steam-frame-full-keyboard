@@ -11,6 +11,7 @@ Uma alternativa em tamanho completo ao teclado virtual integrado do Steam Frame,
 ## Instalação rápida
 
 <p align="center"><a href="https://github.com/TaiKeid/steam-frame-full-keyboard/releases/latest/download/Full_Keyboard_installer-aarch64.AppImage"><img src="docs/images/install-button.pt-BR.svg" alt="Baixar o instalador do Full Keyboard"></a></p>
+<p align="center"><sub>Este instalador é para o Steam Frame, não para PC.</sub></p>
 
 1. Abra esta página no navegador do Steam Frame e baixe o instalador com o botão acima.
 2. Abra a pasta onde ele foi salvo, normalmente **Downloads**, e clique duas vezes no instalador. O navegador não consegue abri-lo.
