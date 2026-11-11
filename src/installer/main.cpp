@@ -30,6 +30,7 @@ void usage() {
         << "                            comma-separated (default: this build's)\n"
         << "  --language TAG            Interface language instead of the system's\n"
         << "  --tour DIR                With --simulate: save each screen to DIR as PNG and exit\n"
+        << "  --window-size WxH         With --tour: draw for a window of this shape\n"
         << "  --helper FILE             update_helper.py to use\n";
 }
 
@@ -195,6 +196,7 @@ int main(int argc, char** argv) {
         in::SimulatedOptions simulated;
         std::string language;
         fk::fs::path tour_dir, helper;
+        int window_width = in::Installer::width, window_height = in::Installer::height;
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
             const auto value = [&]() -> std::string {
@@ -227,6 +229,15 @@ int main(int argc, char** argv) {
                 language = value();
             } else if (argument == "--tour") {
                 tour_dir = value();
+            } else if (argument == "--window-size") {
+                // For the tour: the shape a window manager gave the window.
+                const auto size = value();
+                const auto x = size.find('x');
+                if (x == std::string::npos) {
+                    throw std::runtime_error("--window-size takes WIDTHxHEIGHT");
+                }
+                window_width = std::stoi(size.substr(0, x));
+                window_height = std::stoi(size.substr(x + 1));
             } else if (argument == "--helper") {
                 helper = value();
             } else {
@@ -250,6 +261,11 @@ int main(int argc, char** argv) {
                                 : in::system_backend(helper.empty() ? default_helper() : helper);
         in::Installer installer(*backend, theme, localization);
         if (!tour_dir.empty()) {
+            // As fit_window does: the canvas takes the window's shape.
+            const double scale = std::min(window_width / double(in::Installer::width),
+                                          window_height / double(in::Installer::height));
+            installer.resize(static_cast<int>(std::lround(window_width / scale)),
+                             static_cast<int>(std::lround(window_height / scale)));
             return tour(installer, tour_dir);
         }
 
@@ -277,17 +293,26 @@ int main(int argc, char** argv) {
         if (!renderer) {
             throw std::runtime_error(SDL_GetError());
         }
-        std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> texture(
-            SDL_CreateTexture(renderer.get(), SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                              in::Installer::width, in::Installer::height),
-            SDL_DestroyTexture);
-        // The canvas keeps its shape inside any window size, letterboxed.
-        SDL_RenderSetLogicalSize(renderer.get(), in::Installer::width, in::Installer::height);
-        const auto canvas_point = [&](int x, int y) {
-            float cx = 0, cy = 0;
-            SDL_RenderWindowToLogical(renderer.get(), x, y, &cx, &cy);
-            return std::pair<double, double>(cx, cy);
+        std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> texture(nullptr, SDL_DestroyTexture);
+        // The canvas takes the window's shape (Gamescope picks the window's
+        // size), so it fills the window without bars. With the logical size
+        // set, SDL already gives mouse events in canvas coordinates.
+        const auto fit_window = [&] {
+            int output_width = 0, output_height = 0;
+            SDL_GetRendererOutputSize(renderer.get(), &output_width, &output_height);
+            if (output_width > 0 && output_height > 0) {
+                const double scale = std::min(output_width / double(in::Installer::width),
+                                              output_height / double(in::Installer::height));
+                installer.resize(static_cast<int>(std::lround(output_width / scale)),
+                                 static_cast<int>(std::lround(output_height / scale)));
+            }
+            texture.reset(SDL_CreateTexture(renderer.get(), SDL_PIXELFORMAT_ARGB8888,
+                                            SDL_TEXTUREACCESS_STREAMING, installer.canvas_width(),
+                                            installer.canvas_height()));
+            SDL_RenderSetLogicalSize(renderer.get(), installer.canvas_width(),
+                                     installer.canvas_height());
         };
+        fit_window();
         // Presented again only when the canvas changed or the window needs it.
         bool present = true;
         while (!installer.quitting()) {
@@ -301,27 +326,26 @@ int main(int argc, char** argv) {
                             return 0;
                         }
                         break;
-                    case SDL_MOUSEMOTION: {
-                        const auto [x, y] = canvas_point(event.motion.x, event.motion.y);
-                        installer.pointer_move(x, y);
+                    case SDL_MOUSEMOTION:
+                        installer.pointer_move(event.motion.x, event.motion.y);
                         break;
-                    }
                     case SDL_MOUSEBUTTONDOWN:
                     case SDL_MOUSEBUTTONUP:
                         if (event.button.button == SDL_BUTTON_LEFT) {
-                            const auto [x, y] = canvas_point(event.button.x, event.button.y);
                             if (event.type == SDL_MOUSEBUTTONDOWN) {
-                                installer.pointer_down(x, y);
+                                installer.pointer_down(event.button.x, event.button.y);
                             } else {
-                                installer.pointer_up(x, y);
+                                installer.pointer_up(event.button.x, event.button.y);
                             }
                         }
                         break;
                     case SDL_WINDOWEVENT:
                         if (event.window.event == SDL_WINDOWEVENT_LEAVE) {
                             installer.pointer_leave();
-                        } else if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
-                                   event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                        } else if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                            fit_window();
+                            present = true;
+                        } else if (event.window.event == SDL_WINDOWEVENT_EXPOSED) {
                             present = true;
                         }
                         break;

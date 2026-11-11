@@ -40,6 +40,13 @@ class Installer {
     };
 
     Installer(Backend& backend, Theme theme, const Localization& localization);
+    // The canvas takes the window's shape, at least width x height: the
+    // screens stay width x height in its middle and the backdrop fills the
+    // rest, so the window shows no bars. Pointer calls and control() use
+    // canvas coordinates.
+    void resize(int canvas_width, int canvas_height);
+    int canvas_width() const { return canvas_width_; }
+    int canvas_height() const { return canvas_height_; }
     void pointer_move(double x, double y);
     void pointer_down(double x, double y);
     void pointer_up(double x, double y);
@@ -143,6 +150,8 @@ class Installer {
     std::string font_;
     using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
     Surface canvas_;
+    int canvas_width_{width}, canvas_height_{height};
+    double offset_x_{}, offset_y_{}; // where the screens start on the canvas
     // The keyboard's picture at Home's size and at the wizard pictures' two,
     // scaled once so no frame scales it again.
     Surface hero_, mini_, half_;
@@ -156,6 +165,8 @@ class Installer {
     template <typename Draw> void cached(Surface& cache, const Rect& bounds, Draw&& draw);
     cairo_t* cr_{};
     double now_{}; // the time being painted, for spinners
+    // pointer_move in screen coordinates, for the public calls that convert.
+    void move(double x, double y);
     // Set by anything that changes the picture outside the clock: input and
     // the backend's news. `moving_` is whether the last frame was mid-motion,
     // so one more follows when the motion ends.

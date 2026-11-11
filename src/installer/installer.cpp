@@ -228,7 +228,24 @@ bool Installer::held(Action action, int index) const {
     return live_ && pressed_ && pressed_->action == action && pressed_->index == index &&
            hovered(action, index);
 }
+void Installer::resize(int canvas_width, int canvas_height) {
+    canvas_width = std::max(canvas_width, width);
+    canvas_height = std::max(canvas_height, height);
+    if (canvas_width == canvas_width_ && canvas_height == canvas_height_) {
+        return;
+    }
+    canvas_width_ = canvas_width;
+    canvas_height_ = canvas_height;
+    offset_x_ = std::floor((canvas_width - width) / 2.0);
+    offset_y_ = std::floor((canvas_height - height) / 2.0);
+    canvas_.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, canvas_width, canvas_height));
+    paint_backdrop();
+    dirty_ = true;
+}
 void Installer::pointer_move(double x, double y) {
+    move(x - offset_x_, y - offset_y_);
+}
+void Installer::move(double x, double y) {
     // Only a change of the control under the laser changes the picture.
     const auto under = [&](double at_x, double at_y) {
         const auto* hit = hit_at(at_x, at_y);
@@ -245,8 +262,10 @@ void Installer::pointer_leave() {
     dirty_ = true;
 }
 void Installer::pointer_down(double x, double y) {
+    x -= offset_x_;
+    y -= offset_y_;
     dirty_ = true;
-    pointer_move(x, y);
+    move(x, y);
     const auto* hit = hit_at(x, y);
     if (hit && hit->enabled) {
         pressed_ = *hit;
@@ -256,8 +275,10 @@ void Installer::pointer_down(double x, double y) {
     }
 }
 void Installer::pointer_up(double x, double y) {
+    x -= offset_x_;
+    y -= offset_y_;
     dirty_ = true;
-    pointer_move(x, y);
+    move(x, y);
     const auto* hit = hit_at(x, y);
     // Activated on release over the control it was pressed on, as Settings does.
     if (pressed_ && hit && hit->action == pressed_->action && hit->index == pressed_->index) {
@@ -417,11 +438,16 @@ double Installer::frame_interval() const {
         // The dialog's entrance; otherwise only a spinner moves.
         return confirm_open_ && now_ - confirm_opened_ < .3 ? every_frame : working ? spinner : never;
     }
-    // The slide into Setup, a page turn, a wizard page's picture and the
-    // tick that draws itself when the install is done.
-    if (now_ - setup_started_ < 1 || now_ - page_turned_ < page_seconds + .05 || page_ < pages ||
+    // The slide into Setup, a page turn and the tick that draws itself when
+    // the install is done.
+    if (now_ - setup_started_ < 1 || now_ - page_turned_ < page_seconds + .05 ||
         (install_done_ && now_ - done_at_ < .8)) {
         return every_frame;
+    }
+    // A wizard page's picture loops for as long as the page shows, while the
+    // download and install run: thirty frames a second are enough for it.
+    if (page_ < pages) {
+        return spinner;
     }
     // Finish: the bar and the ring while the install runs, then nothing.
     return working || std::abs(progress() - shown_progress_) > .001 ? spinner : never;
@@ -683,7 +709,8 @@ void Installer::field(const Rect& r, const std::string& value, double size, doub
 
 // ---- the keyboard and backdrop
 void Installer::paint_backdrop() {
-    backdrop_.reset(cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height));
+    // The whole canvas, in screen coordinates from the screens' corner.
+    backdrop_.reset(cairo_image_surface_create(CAIRO_FORMAT_RGB24, canvas_width_, canvas_height_));
     auto* pixels = cairo_image_surface_get_data(backdrop_.get());
     const int stride = cairo_image_surface_get_stride(backdrop_.get());
     // Lighter than the keyboard's case above, so the case stands out, and
@@ -702,10 +729,12 @@ void Installer::paint_backdrop() {
         noise ^= noise << 5;
         return (noise >> 8) / 16777216.0;
     };
-    for (int y = 0; y < height; ++y) {
-        auto* row = reinterpret_cast<std::uint32_t*>(pixels + y * stride);
-        for (int x = 0; x < width; ++x) {
-            Color c = paint::mix(top, bottom, y / (height - 1.0));
+    for (int row_index = 0; row_index < canvas_height_; ++row_index) {
+        auto* row = reinterpret_cast<std::uint32_t*>(pixels + row_index * stride);
+        const double y = row_index - offset_y_;
+        for (int column = 0; column < canvas_width_; ++column) {
+            const double x = column - offset_x_;
+            Color c = paint::mix(top, bottom, std::clamp(y / (height - 1.0), 0.0, 1.0));
             const double glow = std::clamp(1 - std::hypot(x - cx, y - glow_y) / 720, 0.0, 1.0);
             c = paint::mix(c, theme_.latched, .2 * glow * glow * (3 - 2 * glow));
             const double dark = std::clamp((std::hypot(x - cx, y - dark_y) - 380) / 600, 0.0, 1.0);
@@ -715,7 +744,7 @@ void Installer::paint_backdrop() {
                 return static_cast<std::uint32_t>(
                     std::clamp(std::lround(value * 255 + dither), 0L, 255L));
             };
-            row[x] = channel(c.r) << 16 | channel(c.g) << 8 | channel(c.b);
+            row[column] = channel(c.r) << 16 | channel(c.g) << 8 | channel(c.b);
         }
     }
     cairo_surface_mark_dirty(backdrop_.get());
@@ -885,6 +914,7 @@ void Installer::paint(double now) {
     hits_.clear();
     cairo_set_source_surface(cr_, backdrop_.get(), 0, 0);
     cairo_paint(cr_);
+    cairo_translate(cr_, offset_x_, offset_y_);
     if (screen_ == Screen::Home) {
         paint_home();
     } else {
@@ -1730,7 +1760,8 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
 std::optional<Rect> Installer::control(Action action, int index) const {
     for (const auto& hit : hits_) {
         if (hit.action == action && hit.index == index) {
-            return hit.bounds;
+            return Rect{hit.bounds.x + offset_x_, hit.bounds.y + offset_y_, hit.bounds.width,
+                        hit.bounds.height};
         }
     }
     return std::nullopt;

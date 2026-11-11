@@ -157,6 +157,9 @@ bool stop_keyboard() {
         }
     }
     if (!wait_until([] { return !keyboard_running(); }, 10)) {
+        if (service) {
+            manager({"start", unit}); // Not left without it until the next boot.
+        }
         throw UiError(ui("installer.error.running"));
     }
     return service;
