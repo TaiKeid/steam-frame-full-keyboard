@@ -6,11 +6,11 @@ The installer carries no package. It lists the stable releases from 0.16.0 on, t
 
 ## Screens
 
-- **Home:** the keyboard on a lighter backdrop, **Install** with a version list beside it, and the chosen version below. With a version installed, it says which, the button reads **Reinstall**, and **Uninstall** sits below. Uninstall asks first, with **Keep my settings** on by default.
-- **Setup:** the keyboard slides up and fades while the progress bar fills above a card. A first install shows five pages there while it downloads: Replace the native keyboard, swiping (with a word traced over letters), typing suggestions, Pull for Shift, and Use the numpad. Each is Yes or No, Yes by default. Choosing doesn't advance; Back and Next do.
-- **Finish:** waits, with a spinner, until the install is done. On a first install it saves the choices with the keyboard's own settings code, the same code Settings uses. With replacement on, it also sets up Start with SteamOS, starts the service and shows the keyboard. Back works until Finish is pressed. Reinstalls skip the wizard, keep settings as they are, and close on Finish.
+- **Home:** the keyboard on a lighter backdrop, its name, **Install** with a version list beside it, and the chosen version below. With a version installed, it says which, the button reads **Reinstall**, and **Uninstall** sits below. Uninstall asks first, with **Keep my settings** on by default. The list shows the eight newest versions.
+- **Setup:** the keyboard slides up and fades while the progress bar fills above a card. A first install shows five pages there while it downloads: Replace the native keyboard, swiping, typing suggestions, Pull for Shift, and Use the numpad. Each has a picture of its feature on the left, playing in a loop, and its question on the right, Yes or No, Yes by default. Answered No, the picture dims; the numpad's shows the keyboard with or without it instead. Choosing doesn't advance; Back and Next do, and pages slide and fade like a carousel, with a dot for each along the bottom.
+- **Finish:** lists the five answers and waits, with a spinner on Finish and a ring that fills, until the install is done. On a first install it saves the choices with the keyboard's own settings code, the same code Settings uses. With replacement on, it also sets up Start with SteamOS, starts the service and shows the keyboard. Back works until Finish is pressed. Reinstalls skip the wizard, keep settings as they are, and close on Finish.
 
-A keyboard that is running, also as the Start with SteamOS service, is stopped before installing, as `uninstall.sh` stops it. Steam's keyboard takes over meanwhile, and the service starts again afterwards. The interface follows the system language, as the keyboard does; its text is in the `installer.*` keys of `locales/`. The look comes from the keyboard's own drawing of cards, buttons and wells (`include/framekeyboard/paint.hpp`) in the Graphite theme. The window has no close button of its own: KDE's title bar and Gamescope's app bar close it.
+A keyboard that is running, also as the Start with SteamOS service, is stopped before installing, as `uninstall.sh` stops it. Steam's keyboard takes over meanwhile, and the service starts again afterwards. The interface follows the system language, as the keyboard does; its text is in the `installer.*` keys of `locales/`. The look comes from the keyboard's own drawing of cards, buttons and wells (`include/framekeyboard/paint.hpp`) in the Graphite theme, and every other colour is mixed from that theme's. The pictures use the keyboard's own picture and keys drawn like its keys; Pull for Shift's moves the legends as the keyboard does. Buttons go down under a press as keys do. The window has no close button of its own: KDE's title bar and Gamescope's app bar close it.
 
 ## Simulation
 
@@ -22,7 +22,9 @@ build/simulator/framekeyboard-installer --simulate --installed 0.16.0 --fail dow
 build/simulator/framekeyboard-installer --simulate --language ja --tour /tmp/installer-tour
 ```
 
-`--installed` pretends a version is installed, `--fail` fails one task (`releases`, `download`, `install`, `uninstall` or `finish`), `--speed` runs tasks faster, and `--tour DIR` saves every screen as PNG and exits.
+`--installed` pretends a version is installed, `--fail` fails one task (`releases`, `download`, `install`, `uninstall` or `finish`), `--speed` runs tasks faster, and `--tour DIR` saves every screen as PNG and exits: each page's picture at a telling moment, a page mid-turn, and controls with the laser on them and held down. A tour takes about twenty seconds, as the install is slowed to let the pictures play.
+
+The window repaints only when its picture changes: every frame through a transition and while a wizard page's picture plays, thirty times a second for a spinner, and not at all on a screen where nothing moves. The card, the stage and Home's keyboard with its shadow and reflection are drawn once and reused.
 
 ## AppImage
 

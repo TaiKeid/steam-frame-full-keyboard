@@ -79,37 +79,111 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
         installer.pointer_up(r->x + r->width / 2, r->y + r->height / 2);
         installer.pointer_move(-1, -1);
     };
+    // The laser on a control, and holding it down, without letting go on it.
+    const auto point = [&](in::Installer::Action action, const std::string& name, int index = 0) {
+        installer.tick(now_seconds());
+        const auto r = installer.control(action, index);
+        if (!r) {
+            throw std::runtime_error("tour: control not shown");
+        }
+        installer.pointer_move(r->x + r->width / 2, r->y + r->height / 2);
+        save(name + "-pointed");
+        installer.pointer_down(r->x + r->width / 2, r->y + r->height / 2);
+        save(name + "-held");
+        installer.pointer_leave();
+    };
     using A = in::Installer::Action;
+    // Waits for a control to take presses, for as long as a task may run.
+    const auto wait_for = [&](in::Installer::Action action, double limit) {
+        for (const double end = now_seconds() + limit;
+             now_seconds() < end && !installer.enabled(action);) {
+            wait(.05);
+        }
+    };
+    wait(.3);
     save("loading");
-    wait(.4);
+    wait_for(A::Install, 5);
     save("home");
+    if (!installer.enabled(A::Versions)) {
+        return 0; // The list failed: Home offers only Try again.
+    }
+    point(A::Install, "home");
     click(A::Versions);
+    installer.tick(now_seconds());
+    if (const auto row = installer.control(A::Version, 1)) {
+        installer.pointer_move(row->x + row->width / 2, row->y + row->height / 2);
+    }
     save("versions");
+    installer.pointer_leave();
     click(A::Versions);
     if (installer.control(A::Uninstall)) {
         click(A::Uninstall);
+        wait(.4);
         save("uninstall-confirm");
         click(A::CancelUninstall);
     }
     click(A::Install);
     wait(.15);
     save("sliding");
-    wait(.8);
+    wait(.85);
     if (installer.control(A::Choice)) {
+        // Each page's picture at a telling moment, in seconds after its turn.
+        const std::vector<std::vector<std::pair<double, const char*>>> moments{
+            {{2.4, "page-1-replace"}},
+            {{1.3, "page-2-swiping"}, {2.2, "page-2-word"}},
+            {{2.1, "page-3-suggestions"}},
+            {{1.1, "page-4-pulling"}, {1.7, "page-4-pulled"}, {2.3, "page-4-typed"}},
+            {{1.0, "page-5-numpad"}},
+        };
         for (int page = 0; page < in::Installer::pages; ++page) {
-            save("page-" + std::to_string(page + 1));
+            double waited = page == 0 ? 1.0 : 0; // The first page came with the slide.
+            for (const auto& [at, name] : moments[static_cast<std::size_t>(page)]) {
+                wait(std::max(0.0, at - waited));
+                waited = at;
+                save(name);
+            }
+            if (page == 0) {
+                point(A::Choice, "page-1-no", 1);
+                point(A::Next, "page-1-next");
+            }
             if (page == 1) {
-                wait(1.2); // the swipe demonstration, mid-word
-                save("page-2-swiping");
-                wait(.9);
-                save("page-2-word");
+                click(A::Choice, 1);
+                wait(.6);
+                save("page-2-no"); // The picture plays on, dimmed.
+                click(A::Choice, 0);
+            }
+            if (page == in::Installer::pages - 1) {
+                click(A::Choice, 1);
+                wait(.7);
+                save("page-5-no-numpad");
+                click(A::Choice, 0);
             }
             click(A::Next);
+            if (page == 0) {
+                wait(.2);
+                save("page-turning");
+            }
         }
+        wait(.6);
     }
     save("finish-installing");
-    wait(2.5);
+    wait_for(A::Finish, 30);
+    wait(.8);
     save("finish-ready");
+    if (!installer.enabled(A::Finish)) {
+        return 0; // The install failed.
+    }
+    click(A::Finish);
+    wait(.4);
+    if (!installer.quitting()) {
+        save("finishing");
+        for (const double end = now_seconds() + 6; now_seconds() < end && !installer.quitting();) {
+            wait(.05);
+        }
+        if (!installer.quitting()) {
+            save("finish-failed");
+        }
+    }
     return 0;
 }
 
@@ -164,7 +238,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("--tour needs --simulate");
         }
         if (!tour_dir.empty()) {
-            simulated.speed *= 4;
+            // Slow enough for the wizard's pictures to play while it installs.
+            simulated.speed *= .75;
         }
         const char* home = std::getenv("HOME");
         fk::Localization localization;
@@ -213,6 +288,8 @@ int main(int argc, char** argv) {
             SDL_RenderWindowToLogical(renderer.get(), x, y, &cx, &cy);
             return std::pair<double, double>(cx, cy);
         };
+        // Presented again only when the canvas changed or the window needs it.
+        bool present = true;
         while (!installer.quitting()) {
             SDL_Event event;
             if (SDL_WaitEventTimeout(&event, 16)) {
@@ -243,18 +320,26 @@ int main(int argc, char** argv) {
                     case SDL_WINDOWEVENT:
                         if (event.window.event == SDL_WINDOWEVENT_LEAVE) {
                             installer.pointer_leave();
+                        } else if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
+                                   event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                            present = true;
                         }
                         break;
                     }
                 } while (SDL_PollEvent(&event));
             }
-            installer.tick(now_seconds());
-            auto* canvas = installer.canvas();
-            SDL_UpdateTexture(texture.get(), nullptr, cairo_image_surface_get_data(canvas),
-                              cairo_image_surface_get_stride(canvas));
-            SDL_RenderClear(renderer.get());
-            SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
-            SDL_RenderPresent(renderer.get());
+            if (installer.tick(now_seconds())) {
+                auto* canvas = installer.canvas();
+                SDL_UpdateTexture(texture.get(), nullptr, cairo_image_surface_get_data(canvas),
+                                  cairo_image_surface_get_stride(canvas));
+                present = true;
+            }
+            if (present) {
+                SDL_RenderClear(renderer.get());
+                SDL_RenderCopy(renderer.get(), texture.get(), nullptr, nullptr);
+                SDL_RenderPresent(renderer.get());
+                present = false;
+            }
         }
         return 0;
     } catch (const std::exception& error) {
