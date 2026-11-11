@@ -4,7 +4,7 @@
 
 A full-size alternative to Steam Frame's built-in virtual keyboard, made for everyday use on the headset. It adds proper arrow keys, a numpad, Ctrl and Alt, and dedicated Cut, Copy and Paste keys, plus swipe typing, dictation and emoji, in 47 languages.
 
-**Full Keyboard is launched manually by default.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
+**After a manual install, Full Keyboard is launched by hand; the installer asks whether it should replace the native keyboard.** By default, SteamOS's keyboard button opens the original keyboard. The **Replace native keyboard** option in Settings → Integration redirects supported requests while Full Keyboard is running. It needs nothing set up: it uses a local connection SteamOS already gives Steam on every Frame, and falls back to the original keyboard if that is ever unavailable. Enable **Start with SteamOS** in the same card to start replacement in the background at login. It stays hidden until summoned. See [native replacement](docs/native-replacement.md).
 
 ![Full Keyboard for Steam Frame](docs/images/keyboard-graphite.png)
 
@@ -24,10 +24,10 @@ To install from a terminal instead, see [Install manually](#install-manually).
 - Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V, or a terminal's own keys, such as Ctrl+Shift+C and Ctrl+Shift+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
-- Swipe typing, off by default, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian, Chinese Pinyin and [25 more languages](docs/configuration.md#swipe-typing), from Czech to Arabic and Hebrew. Swipe typing is powered by "FUTO Swipe" technology.
+- Swipe typing, off after a manual install and your choice in the installer, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian, Chinese Pinyin and [25 more languages](docs/configuration.md#swipe-typing), from Czech to Arabic and Hebrew. Swipe typing is powered by "FUTO Swipe" technology.
 - Typing suggestions, on by default, in the languages swipe typing has: up to five completions of the word you're typing, the words you use most first.
 - Japanese conversion with Mozc, with candidates as you type, and a phone-style Japanese 12-key flick keyboard.
-- Pull for Shift, off by default: pull a key down for its Shift character, such as ^ on the 6 key, or a capital while swipe typing is off.
+- Pull for Shift, off after a manual install and your choice in the installer: pull a key down for its Shift character, such as ^ on the 6 key, or a capital while swipe typing is off.
 - An emoji picker with Recent, drag-and-drop Favorites, categories and skin tones.
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
