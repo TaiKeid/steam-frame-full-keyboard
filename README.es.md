@@ -14,7 +14,7 @@ Una alternativa de tamaño completo al teclado virtual integrado de Steam Frame,
 
 1. Abre esta página en el navegador del Steam Frame y descarga el instalador con el botón de arriba.
 2. Abre la carpeta donde se guardó, normalmente **Descargas**, y haz doble clic en el instalador. El navegador no puede abrirlo.
-3. Cuando te pregunte si quieres abrir el archivo, elige sí, y cuando te pregunte si confías en él, elige sí también. Solo pasa la primera vez.
+3. Cuando te pregunte si quieres abrir el archivo, elige sí, y cuando te pregunte si confías en él, elige sí también. Solo ocurre la primera vez.
 4. Sigue los pasos del instalador.
 
 Para instalar desde una terminal, consulta [Instalación manual](#instalación-manual).

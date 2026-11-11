@@ -14,7 +14,7 @@ Eine vollwertige Alternative zur eingebauten virtuellen Tastatur der Steam Frame
 
 1. Öffnen Sie diese Seite im Browser der Steam Frame und laden Sie den Installer mit der Schaltfläche oben herunter.
 2. Öffnen Sie den Ordner, in dem er gespeichert wurde, meist **Downloads**, und doppelklicken Sie auf den Installer. Aus dem Browser lässt er sich nicht starten.
-3. Bestätigen Sie die Frage, ob die Datei gestartet werden soll, mit Ja, und die Frage, ob Sie ihr vertrauen, ebenfalls mit Ja. Das kommt nur beim ersten Mal.
+3. Bestätigen Sie die Frage, ob die Datei gestartet werden soll, mit Ja, und die Frage, ob Sie ihr vertrauen, ebenfalls mit Ja. Das geschieht nur beim ersten Mal.
 4. Folgen Sie dann den Schritten des Installers.
 
 Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-installation).
