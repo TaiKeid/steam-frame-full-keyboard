@@ -255,6 +255,15 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
     if (!run) {
         run = run_command;
     }
+    // A keyboard that is not an installed release, such as a development
+    // build, has no library to offer and leaves the installed one's setting
+    // and runtime folder as they are, whatever its own config says.
+    if (paths.gate.empty()) {
+        if (enabled) {
+            throw UiError(ui("streaming.unavailable"));
+        }
+        return;
+    }
     const auto directory = paths.unit_directory / drop_in_directory;
     const auto file = directory / drop_in_name;
     // Someone else's file under our name blocks turning this on; off, it is

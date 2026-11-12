@@ -88,6 +88,24 @@ int main() {
         require(stream_support_paths(base / "config").gate.empty(),
                 "outside an installed release there is nothing to offer");
 
+        // A keyboard outside an installed release leaves the installed one's setting alone, off or on.
+        {
+            auto development = stream_support_paths(base / "config");
+            development.unit_directory = paths.unit_directory;
+            development.runtime = paths.runtime;
+            development.steam_library = paths.steam_library;
+            development.proc = paths.proc;
+            fs::create_directories(drop_in.parent_path());
+            std::ofstream(drop_in) << "# Managed by Full Keyboard\n";
+            configure_stream_support(false, development, reload, run);
+            require(fs::exists(drop_in) && !fs::exists(paths.runtime) && reloads == 0,
+                    "turning it off from a development build changes nothing");
+            require(throws([&] { configure_stream_support(true, development, reload, run); }) &&
+                        read(drop_in) == "# Managed by Full Keyboard\n",
+                    "nor can it turn it on");
+            fs::remove_all(drop_in.parent_path());
+        }
+
         // On: a drop-in that clears the last answer, runs the gate and reads its answer.
         configure_stream_support(true, paths, reload, run);
         const auto contents = read(drop_in);
