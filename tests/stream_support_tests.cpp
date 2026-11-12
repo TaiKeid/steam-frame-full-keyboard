@@ -187,10 +187,17 @@ int main() {
                 "a failed reload leaves no drop-in behind");
         reload_fails = false;
         configure_stream_support(true, paths, reload, run);
+        // A loaded library is typing: the link leads to the copy and nothing tells it to idle.
+        fs::remove(paths.runtime / "off");
+        fs::remove(link);
+        fs::create_symlink("framekeyboard-stream.so", link);
         reload_fails = true;
         require(throws([&] { configure_stream_support(false, paths, reload, run); }) &&
                     read(drop_in) == contents,
                 "a failed reload while turning off puts the drop-in back");
+        require(fs::read_symlink(link) == "framekeyboard-stream.so" &&
+                    !fs::exists(paths.runtime / "off"),
+                "and leaves the loaded library typing, as the setting stays on");
         reload_fails = false;
 
         // Someone else's file under our name: never overwritten, never removed.

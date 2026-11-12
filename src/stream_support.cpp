@@ -345,11 +345,10 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
         }
         return;
     }
-    // Only when it is being turned off, or when the keyboard starts or
-    // reloads: a save that leaves it off has nothing to change.
-    if ((previous || refresh) && (fs::exists(paths.runtime, ignored) || steam_carries(paths))) {
-        point_at_stock(paths);
-    }
+    // Turning off fails as a whole or not at all: first Steam's next start,
+    // then a Steam that already carries the variable. A failure puts the
+    // drop-in back and leaves a loaded library typing, so the setting, the
+    // drop-in and the library still agree when the save puts the flag back.
     if (previous) {
         fs::remove(file, ignored);
         fs::remove(directory, ignored); // Only when it holds nothing else.
@@ -357,6 +356,19 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
             reload();
         } catch (...) {
             restore();
+            throw;
+        }
+    }
+    // Only when it is being turned off, or when the keyboard starts or
+    // reloads: a save that leaves it off has nothing to change.
+    if ((previous || refresh) && (fs::exists(paths.runtime, ignored) || steam_carries(paths))) {
+        try {
+            point_at_stock(paths);
+        } catch (...) {
+            if (previous) {
+                fs::remove(paths.runtime / "off", ignored); // The link is unchanged or Steam's.
+                restore();
+            }
             throw;
         }
     }
