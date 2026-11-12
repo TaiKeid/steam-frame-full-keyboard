@@ -307,6 +307,52 @@ int main(int argc, char** argv) {
               "SDL's own key code");
     }
 
+    // 6b. A session that ends keeps what was committed into the stream: the text is still typed, the
+    // session's own key events still queued are dropped.
+    pushed_count = 0;
+    check(send(keyboard, "Tabc", 4, 0) == 4, "commit sent");
+    key(keyboard, 224, 0x40, true);
+    check(idle_pump() && pushed_count == 2 && is_key(0, 4, 0, 1) && is_key(1, 4, 0, 0), "a");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends");
+    check(idle_pump() && pushed_count == 4 && is_key(2, 5, 0, 1) && is_key(3, 5, 0, 0), "then b");
+    check(idle_pump() && pushed_count == 6 && is_key(4, 6, 0, 1) && is_key(5, 6, 0, 0), "then c");
+    check(idle_pump() && pushed_count == 6, "and not the session's Ctrl");
+
+    // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
+    // text is cut short, never missing a middle piece; a release still goes through.
+    {
+        char big[2001];
+        big[0] = 'T';
+        memset(big + 1, 'a', 2000); // 4000 entries; two of them fill all but 192 of the 8192
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "two long commits sent");
+        memset(big + 1, 'b', 2000);
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big, "one that does not fit");
+        check(send(keyboard, "Tc", 2, 0) == 2, "a short one after it");
+        key(keyboard, 40, 0, true);
+        key(keyboard, 40, 0, false);
+        unsigned letters = 0, enter_up = 0, other = 0;
+        for (int i = 0; i < 4100; ++i) {
+            pushed_count = 0;
+            idle_pump();
+            for (int k = 0; k < pushed_count; ++k) {
+                if (pushed[k].scancode == 4) {
+                    ++letters;
+                } else if (pushed[k].scancode == 40 && !pushed[k].down) {
+                    ++enter_up;
+                } else {
+                    ++other;
+                }
+            }
+        }
+        check(letters == 8000 && enter_up == 1 && other == 0,
+              "the long commits are typed, then only Enter's release; b, c and Enter's press are not");
+        pushed_count = 0;
+        check(send(keyboard, "Td", 2, 0) == 2 && idle_pump() && pushed_count == 2 && is_key(0, 7, 0, 1),
+              "a drained queue takes commits again");
+    }
+
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
     pushed_count = 0;
     key(keyboard, 225, 1, true);

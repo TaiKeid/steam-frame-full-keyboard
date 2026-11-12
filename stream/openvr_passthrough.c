@@ -47,7 +47,7 @@ enum {
     kSdlEventBytes = 128,       // sizeof(SDL_Event)
     kTextSlots = 32,            // texts kept alive for events still in SDL's queue
     kTextBytes = 2048,          // longest text sent as one message
-    kQueue = 2048,              // pending key events and texts, in typing order
+    kQueue = 8192,              // pending key events and texts, in typing order: 128 KB
     kKeysPerCodePoint = 20,     // Ctrl+Shift+U (6 events), up to 6 hex digits (12), commit key (2)
     kScancodes = 512,           // SDL_SCANCODE_COUNT
     kScancodeA = 4,             // SDL scancodes are USB HID usages
@@ -103,6 +103,7 @@ typedef struct {
     uint16_t scancode;
     uint16_t mod; // modifier state the event reports, as a real keyboard's would
     bool down;
+    bool typed; // from a commit ('T'), so balanced: every key it presses it also releases
 } Queued;
 
 static void* overlay_table[kOverlayFunctions];
@@ -115,6 +116,10 @@ static Queued queue[kQueue];
 static unsigned queue_head;
 static unsigned queue_count;
 static bool held[kScancodes]; // keys pushed down and not yet up, released when Full Keyboard goes away
+static bool session_held[kScancodes]; // of those, pressed by a session's own key events ('K')
+// A commit did not fit the queue: until it has drained, later commits and key presses are dropped as
+// well, so what arrives is cut short rather than missing a piece in the middle.
+static bool overflowed;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
@@ -243,9 +248,12 @@ static bool queue_has_room(unsigned items) {
     return queue_count + items <= kQueue;
 }
 
-static void queue_key(unsigned scancode, unsigned mod, bool down) {
-    queue[(queue_head + queue_count++) % kQueue] =
-        (Queued){.text = NULL, .scancode = (uint16_t)scancode, .mod = (uint16_t)mod, .down = down};
+static void queue_key(unsigned scancode, unsigned mod, bool down, bool typed) {
+    queue[(queue_head + queue_count++) % kQueue] = (Queued){.text = NULL,
+                                                            .scancode = (uint16_t)scancode,
+                                                            .mod = (uint16_t)mod,
+                                                            .down = down,
+                                                            .typed = typed};
 }
 
 static bool queue_text(const unsigned char* bytes, size_t length) {
@@ -254,19 +262,20 @@ static bool queue_text(const unsigned char* bytes, size_t length) {
         return false;
     }
     memcpy(copy, bytes, length);
-    queue[(queue_head + queue_count++) % kQueue] = (Queued){.text = copy, .length = (uint16_t)length};
+    queue[(queue_head + queue_count++) % kQueue] =
+        (Queued){.text = copy, .length = (uint16_t)length, .typed = true};
     return true;
 }
 
 static void queue_tap(unsigned scancode, bool shift) {
     const unsigned mod = shift ? kModLeftShift : 0;
     if (shift) {
-        queue_key(kScancodeLeftShift, mod, true);
+        queue_key(kScancodeLeftShift, mod, true, true);
     }
-    queue_key(scancode, mod, true);
-    queue_key(scancode, mod, false);
+    queue_key(scancode, mod, true, true);
+    queue_key(scancode, mod, false, true);
     if (shift) {
-        queue_key(kScancodeLeftShift, 0, false);
+        queue_key(kScancodeLeftShift, 0, false, true);
     }
 }
 
@@ -324,12 +333,12 @@ static void queue_code_point(uint32_t code) {
     const unsigned ctrl = kModLeftCtrl;
     const unsigned both = kModLeftCtrl | kModLeftShift;
     const unsigned u = kScancodeA + ('u' - 'a');
-    queue_key(kScancodeLeftCtrl, ctrl, true);
-    queue_key(kScancodeLeftShift, both, true);
-    queue_key(u, both, true);
-    queue_key(u, both, false);
-    queue_key(kScancodeLeftShift, ctrl, false);
-    queue_key(kScancodeLeftCtrl, 0, false);
+    queue_key(kScancodeLeftCtrl, ctrl, true, true);
+    queue_key(kScancodeLeftShift, both, true, true);
+    queue_key(u, both, true, true);
+    queue_key(u, both, false, true);
+    queue_key(kScancodeLeftShift, ctrl, false, true);
+    queue_key(kScancodeLeftCtrl, 0, false, true);
     char hex[8];
     const int digits = snprintf(hex, sizeof hex, "%x", (unsigned)code);
     for (int i = 0; i < digits; ++i) {
@@ -346,15 +355,34 @@ static size_t sequence_length(unsigned char lead) {
     return lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
 }
 
+// How many queue entries validated UTF-8 takes, as queue_typing lays it out.
+static size_t typing_entries(const unsigned char* bytes, size_t length, bool unicode_keys) {
+    size_t entries = 0;
+    size_t i = 0;
+    while (i < length) {
+        if (bytes[i] < 0x80) {
+            unsigned scancode;
+            bool shift;
+            entries += ascii_key(bytes[i], &scancode, &shift) ? (shift ? 4 : 2) : 0;
+            ++i;
+        } else if (unicode_keys) {
+            entries += kKeysPerCodePoint;
+            i += sequence_length(bytes[i]);
+        } else {
+            ++entries; // a whole run of non-ASCII characters is one text
+            while (i < length && bytes[i] >= 0x80) {
+                i += sequence_length(bytes[i]);
+            }
+        }
+    }
+    return entries;
+}
+
 // Queues validated UTF-8 in typing order: ASCII as key presses, everything else as text (or, with the
 // "unicode-keys" switch, as Unicode-entry key presses). False when the queue cannot take all of it.
 static bool queue_typing(const unsigned char* bytes, size_t length) {
     const bool unicode_keys = switch_file("unicode-keys");
-    unsigned characters = 0;
-    for (size_t i = 0; i < length; ++i) {
-        characters += (bytes[i] & 0xC0) != 0x80;
-    }
-    if (!queue_has_room(characters * (unicode_keys ? kKeysPerCodePoint : 4))) {
+    if (queue_count + typing_entries(bytes, length, unicode_keys) > kQueue) {
         return false;
     }
     size_t i = 0;
@@ -403,14 +431,17 @@ static void pump_queue(void) {
             return;
         }
         push_key(next.scancode, next.mod, next.down);
+        if (!next.typed) {
+            session_held[next.scancode] = next.down;
+        }
         if (!next.down) {
             return;
         }
     }
 }
 
-// Drops what is still queued and lets go of every key that is down: Full Keyboard went away or asked for
-// it.
+// Drops what is still queued and lets go of every key that is down: Full Keyboard went away or turned
+// the library off.
 static void release_everything(void) {
     while (queue_count != 0) {
         free(queue[queue_head].text);
@@ -421,6 +452,27 @@ static void release_everything(void) {
         if (held[scancode]) {
             push_key(scancode, 0, false);
         }
+    }
+    memset(session_held, 0, sizeof session_held);
+    overflowed = false;
+}
+
+// A typing session ended ('R'): what was committed into the stream is still typed, in order; the
+// session's own key events still queued are dropped, and the keys they hold down are let go of.
+static void end_session(void) {
+    unsigned kept = 0;
+    for (unsigned i = 0; i < queue_count; ++i) {
+        const Queued item = queue[(queue_head + i) % kQueue];
+        if (item.typed) {
+            queue[(queue_head + kept++) % kQueue] = item; // never ahead of what is read
+        }
+    }
+    queue_count = kept;
+    for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
+        if (session_held[scancode] && held[scancode]) {
+            push_key(scancode, 0, false);
+        }
+        session_held[scancode] = false;
     }
 }
 
@@ -480,23 +532,37 @@ static void stream_connect(void) {
 // Messages from Full Keyboard, one per packet:
 //   'T' text...                      a commit: UTF-8, typed in order
 //   'K' scancode:u16 mod:u16 down:u8  one key event (SDL scancode and modifier bits, little endian)
-//   'R'                               release every held key and drop what is queued
+//   'R'                               the session ended: release the keys its key events hold and drop
+//                                    those still queued; committed text is still typed
 static void stream_message(const unsigned char* message, size_t length) {
+    overflowed = overflowed && queue_count != 0;
     if (length >= 2 && message[0] == 'T') {
-        // Whole, well-formed text only; what the queue cannot take is dropped.
-        if (valid_utf8(message + 1, length - 1)) {
-            queue_typing(message + 1, length - 1);
+        // Whole, well-formed text only. What the queue cannot take is dropped, and so is what follows
+        // until the queue has drained.
+        if (!overflowed && valid_utf8(message + 1, length - 1) &&
+            !queue_typing(message + 1, length - 1)) {
+            overflowed = true;
         }
     } else if (length == 6 && message[0] == 'K') {
         uint16_t scancode;
         uint16_t mod;
         memcpy(&scancode, message + 1, sizeof scancode);
         memcpy(&mod, message + 3, sizeof mod);
-        if (queue_has_room(1) && scancode != 0 && scancode < kScancodes) {
-            queue_key(scancode, mod, message[5] != 0);
+        const bool down = message[5] != 0;
+        if (scancode == 0 || scancode >= kScancodes) {
+            return;
+        }
+        if (!down && !queue_has_room(1)) {
+            // A release is never lost: with no room it goes at once, as a key held down must come up.
+            if (held[scancode]) {
+                push_key(scancode, 0, false);
+                session_held[scancode] = false;
+            }
+        } else if ((!down || !overflowed) && queue_has_room(1)) {
+            queue_key(scancode, mod, down, false);
         }
     } else if (length == 1 && message[0] == 'R') {
-        release_everything();
+        end_session();
     }
     // Anything else is from a keyboard newer than this library: ignored.
 }
