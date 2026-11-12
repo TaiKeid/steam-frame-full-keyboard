@@ -349,9 +349,9 @@ void save_preferences_with_integration(const Settings& settings, const fs::path&
             const bool changed = saved.streaming_support != previous.streaming_support;
             saved.streaming_support = previous.streaming_support;
             save_settings(config_dir, saved);
-            throw StartupPreferencesWarning(changed ? "streaming.saved-without-change"
-                                                    : "streaming.saved-not-configured",
-                                            error_text(error));
+            throw StreamingSupportWarning(changed ? "streaming.saved-without-change"
+                                                  : "streaming.saved-not-configured",
+                                          error_text(error), saved.streaming_support);
         }
     }
     if (warning) {

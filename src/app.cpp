@@ -2808,6 +2808,13 @@ void App::update_save_status() {
             host_event("saved", std::move(fields));
             host_.unsaved_requests.clear();
         }
+        if (result->streaming_support) {
+            // Its flag went back on disk; the card and what is saved agree again,
+            // and later saves don't quietly try it once more.
+            settings_.streaming_support = *result->streaming_support;
+            pending_streaming_support_ =
+                settings_.streaming_support && settings_.replace_native_keyboard;
+        }
         if (!result->startup_warning.key.empty()) {
             auto warning = result->startup_warning;
             warning.args.emplace_back("error", tr(result->startup_reason));

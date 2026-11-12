@@ -1,5 +1,6 @@
 #include "framekeyboard/settings_writer.hpp"
 #include "framekeyboard/startup.hpp"
+#include "framekeyboard/stream_support.hpp"
 
 #include <stdexcept>
 
@@ -70,6 +71,9 @@ void SettingsWriter::run() {
         } catch (const StartupPreferencesWarning& warning) {
             result.startup_warning = warning.message();
             result.startup_reason = warning.reason();
+            if (const auto* streaming = dynamic_cast<const StreamingSupportWarning*>(&warning)) {
+                result.streaming_support = streaming->saved();
+            }
         } catch (const std::exception& error) {
             result.error = error_text(error);
         } catch (...) {

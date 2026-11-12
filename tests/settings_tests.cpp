@@ -2804,6 +2804,45 @@ void native_replacement_settings() {
     require(!errors.empty(), "replacement requires JSON boolean");
     require(sink.events.empty(), "replacement settings send no desktop input");
 }
+// Streaming support that cannot be set up: its saved flag goes back, and so does the one in memory, so
+// the card shows what is true and later saves don't quietly try it again.
+void streaming_support_failed_setup() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.stream_support = [] { return StreamSupportStatus{.supported = true}; };
+    CaptureSink sink;
+    int attempts = 0;
+    App app(options, sink, [&](const Settings& settings) {
+        auto kept = settings;
+        kept.streaming_support = false;
+        save_settings(directory.path, kept);
+        if (settings.streaming_support && settings.replace_native_keyboard) {
+            ++attempts;
+            ErrorText reason;
+            reason.english = "the library is missing";
+            throw StreamingSupportWarning("streaming.saved-without-change", reason, false);
+        }
+    });
+    app.show_settings();
+    app.move(0, 800, 300);
+    app.scroll(0, 1000, 0);
+    for (int i = 0; i < 40; ++i) {
+        app.tick(100 + i * .05);
+    }
+    click(app, "replace-native-keyboard");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    app.flush_settings();
+    require(attempts == 1 && !saved(app).streaming_support && !app.streaming_support(),
+            "a set-up that failed leaves the flag off on disk and in memory");
+    require(app.view().status.starts_with("Other preferences saved."), "and says so");
+    click(app, "pin");
+    app.flush_settings();
+    require(attempts == 1, "a later save doesn't try it again");
+}
 // Streaming support: its question when ticked, applied only by ✓, and asked about again when ← leaves
 // Settings with it ticked, after the question about changed languages.
 void streaming_support_setting() {
@@ -3232,6 +3271,7 @@ int main() {
         hover_fade_settings();
         native_replacement_settings();
         streaming_support_setting();
+        streaming_support_failed_setup();
         keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();

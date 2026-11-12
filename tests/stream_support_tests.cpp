@@ -214,8 +214,8 @@ int main() {
         bool warned = false;
         try {
             save_preferences_with_integration(settings, binary, config, paths, reload, run);
-        } catch (const StartupPreferencesWarning& warning) {
-            warned = warning.message().key == "streaming.saved-without-change";
+        } catch (const StreamingSupportWarning& warning) {
+            warned = warning.message().key == "streaming.saved-without-change" && !warning.saved();
         }
         const auto kept = load_settings(config, errors);
         require(warned && !kept.streaming_support && kept.replace_native_keyboard &&

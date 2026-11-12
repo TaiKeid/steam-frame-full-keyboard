@@ -1,5 +1,6 @@
 #pragma once
 #include "config.hpp"
+#include "startup.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -48,10 +49,22 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
                               std::function<void()> reload = {}, StreamSupportRun run = {},
                               bool refresh = true);
 
+// A save's warning when streaming support could not follow: its flag went
+// back, and `saved()` is the flag as saved, for App to show what is true.
+class StreamingSupportWarning : public StartupPreferencesWarning {
+  public:
+    StreamingSupportWarning(const std::string& key, ErrorText reason, bool saved)
+        : StartupPreferencesWarning(key, std::move(reason)), saved_(saved) {}
+    bool saved() const { return saved_; }
+
+  private:
+    bool saved_;
+};
+
 // The preference writer's save and its reconciliation at startup and Reload:
 // the boot unit (startup.hpp), then streaming support, which needs
 // replacement. When streaming support cannot follow, its saved flag goes back
-// and the caller gets a StartupPreferencesWarning, as for the boot unit.
+// and the caller gets a StreamingSupportWarning, as for the boot unit.
 // Both units live in `paths.unit_directory`; tests supply `reload` and `run`.
 void save_preferences_with_integration(const Settings& settings, const fs::path& executable,
                                        const fs::path& config_dir, const StreamSupportPaths& paths,
