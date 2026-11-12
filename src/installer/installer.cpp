@@ -211,18 +211,16 @@ bool Installer::choice(int page) const {
     case 4:
         return choices_.numpad;
     default:
-        return choices_.streaming && streaming_blocked().key.empty();
+        return streaming_page() && choices_.streaming && streaming_blocked().key.empty();
     }
 }
+bool Installer::streaming_page() const {
+    // An older release cannot take the answer, so it is not asked.
+    return installing_.empty() || at_least(installing_, streaming_release);
+}
 UiText Installer::streaming_blocked() const {
-    // It types through replacement's helper, and older releases lack it.
-    if (!choices_.replace_native) {
-        return ui("installer.page.streaming.needs-replace");
-    }
-    if (!installing_.empty() && !at_least(installing_, streaming_release)) {
-        return ui("installer.page.streaming.needs-version", {{"version", streaming_release}});
-    }
-    return {};
+    // It types through replacement's helper.
+    return choices_.replace_native ? UiText{} : ui("installer.page.streaming.needs-replace");
 }
 bool Installer::restart_offered() const {
     return first_install_ && choice(pages - 1) && status_.streaming_restart;
@@ -402,7 +400,7 @@ void Installer::activate(const Hit& hit) {
         turn_page(std::max(0, page_ - 1));
         break;
     case Action::Next:
-        turn_page(std::min(pages, page_ + 1));
+        turn_page(std::min(wizard_pages(), page_ + 1));
         break;
     case Action::Finish:
         finish_pressed_ = true;
@@ -446,7 +444,7 @@ void Installer::begin_install() {
     first_install_ = installed_.empty();
     installing_ = releases_[selected_].version;
     // Reinstalls and other versions don't show the wizard (owner's design).
-    page_ = page_from_ = first_install_ ? 0 : pages;
+    page_ = page_from_ = first_install_ ? 0 : wizard_pages();
     page_turned_ = now_;
     shown_progress_ = 0;
     setup_started_ = -1; // set on the next tick
@@ -507,7 +505,7 @@ double Installer::frame_interval() const {
     }
     // A wizard page's picture loops for as long as the page shows, while the
     // download and install run: thirty frames a second are enough for it.
-    if (page_ < pages) {
+    if (page_ < wizard_pages()) {
         return spinner;
     }
     // Finish: the bar and the ring while the install runs, then nothing.
@@ -1231,7 +1229,7 @@ void Installer::paint_page(int page, double shift) {
     // Hits stay where the page comes to rest; only the drawing moves, by
     // whole pixels so text and the cached stage stay sharp.
     cairo_translate(cr_, std::round(shift), 0);
-    if (page < pages) {
+    if (page < wizard_pages()) {
         paint_wizard_page(page);
     } else {
         paint_finish_page();
@@ -1411,7 +1409,7 @@ void Installer::paint_finish_page() {
         return;
     }
     // On a first install, what Finish saves: each setting and its answer.
-    // A long name takes two lines; all five share the largest size at
+    // A long name takes two lines; all of them share the largest size at
     // which the list fits under the note.
     constexpr double gap = 20, chip_width = 96, chip_height = 36, row_pad = 14, pitch = 1.12;
     const double label_width = column_width - chip_width - 16;
@@ -1421,7 +1419,7 @@ void Installer::paint_finish_page() {
     double size = 19, list_height = 0;
     for (;; size -= 1) {
         list_height = 0;
-        for (std::size_t page = 0; page < pages; ++page) {
+        for (std::size_t page = 0; page < static_cast<std::size_t>(wizard_pages()); ++page) {
             labels[page] = block(tr(summary_keys[page]), {0, 0, label_width, height}, size, label_ink,
                                  PANGO_WEIGHT_NORMAL, false, PANGO_ALIGN_LEFT, pitch);
             list_height += std::max(chip_height, labels[page]) + row_pad;
@@ -1434,7 +1432,7 @@ void Installer::paint_finish_page() {
     block(value, {column_x, y, column_width, 130}, 22, ink);
     y += h + gap;
     const Color card_fill = paint::mix(theme_.surface, theme_.bottom, .45);
-    for (int page = 0; page < pages; ++page) {
+    for (int page = 0; page < wizard_pages(); ++page) {
         const double label = labels[static_cast<std::size_t>(page)];
         const double row = std::max(chip_height, label) + row_pad;
         cairo_rectangle(cr_, column_x + 4, y, column_width - 8, 1);
@@ -1532,7 +1530,7 @@ void Installer::paint_finish_badge(double x, double y, double radius) {
 
 void Installer::paint_footer(double turned) {
     const double left = card.x + card_pad, right = card.x + card.width - card_pad;
-    const bool finish = page_ == pages;
+    const bool finish = page_ == wizard_pages();
     // Streaming support could not be set up: the choice is made here, without
     // going back to its page.
     const bool without = finish && streaming_failed();
@@ -1568,13 +1566,13 @@ void Installer::paint_footer(double turned) {
     const double at = page_from_ + (page_ - page_from_) * std::clamp(turned, 0.0, 1.0);
     std::array<double, pages + 1> widths{};
     double total = 0;
-    for (int i = 0; i <= pages; ++i) {
+    for (int i = 0; i <= wizard_pages(); ++i) {
         widths[i] = 10 + 22 * std::max(0.0, 1 - std::abs(at - i));
         total += widths[i] + (i ? 10 : 0);
     }
     const Color card_fill = paint::mix(theme_.surface, theme_.bottom, .45);
     double x = card.x + (card.width - total) / 2;
-    for (int i = 0; i <= pages; ++i) {
+    for (int i = 0; i <= wizard_pages(); ++i) {
         const Rect dot{x, footer_y + 25, widths[i], 10};
         const double near = std::max(0.0, 1 - std::abs(at - i));
         const Color rest = i < at ? paint::mix(theme_.latched, card_fill, .45)

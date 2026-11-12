@@ -139,7 +139,7 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
             {{1.0, "page-5-numpad"}},
             {{1.6, "page-6-streaming"}, {3.6, "page-6-streamed"}},
         };
-        for (int page = 0; page < in::Installer::pages; ++page) {
+        for (int page = 0; page < installer.wizard_pages(); ++page) {
             double waited = page == 0 ? 1.0 : 0; // The first page came with the slide.
             for (const auto& [at, name] : moments[static_cast<std::size_t>(page)]) {
                 wait(std::max(0.0, at - waited));

@@ -16,7 +16,7 @@ namespace framekeyboard::installer {
 inline constexpr const char* oldest_release = "0.16.0";
 
 // The first release with Streaming support. An older one cannot take that
-// answer, so its page says so and stays at No.
+// answer, so the wizard leaves its page out.
 inline constexpr const char* streaming_release = "0.18.0";
 
 struct Release {

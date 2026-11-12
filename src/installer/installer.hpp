@@ -21,8 +21,11 @@ namespace framekeyboard::installer {
 class Installer {
   public:
     static constexpr int width = 1280, height = 800;
-    // Wizard pages; the page after the last is Finish.
+    // Wizard pages at most; the page after the last is Finish. The last one,
+    // Streaming support, is offered only for releases that have it.
     static constexpr int pages = 6;
+    // The pages the release being installed gets.
+    int wizard_pages() const { return streaming_page() ? pages : pages - 1; }
     enum class Action {
         None,
         Install,
@@ -144,8 +147,9 @@ class Installer {
     std::string tr(std::string_view key, const UiArgs& args = {}) const;
     Color dim() const;
     bool choice(int page) const;
-    // Why the Streaming support page cannot be answered Yes, as a text key
-    // with its {version}; empty when it can.
+    // Whether the release being installed has Streaming support, and so its page.
+    bool streaming_page() const;
+    // Why the Streaming support page cannot be answered Yes; empty when it can.
     UiText streaming_blocked() const;
     // Whether Finish shows Restart SteamOS: Streaming support was chosen and
     // the running Steam was started without it.
