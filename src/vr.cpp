@@ -1980,6 +1980,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // Passthrough with the dashboard closed: the panel takes no SteamVR laser
     // events and the passthrough pointer drives it.
     bool scene_input = false;
+    // Typing into a stream from a PC with the keyboard's own pointer: the panel
+    // also takes SteamVR's laser, unused (see where it is set).
+    bool stream_sink = false;
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
     WindowLaser window_laser;
@@ -2376,7 +2379,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     lifecycle.set_hosted(hosted);
     auto update_native_input = [&](bool allow_enable = false) {
         const bool wanted = NativePointerInputPolicy::wants_mouse(
-            lifecycle.visible(), headset_input.blocked(), scene_input, app.forwarded());
+            lifecycle.visible(), headset_input.blocked(), scene_input && !stream_sink, app.forwarded());
         if (!wanted || allow_enable) {
             set_native_input(wanted);
         }
@@ -3405,6 +3408,20 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                           << (scene_input ? " passthrough" : " dashboard") << "\n"
                           << std::flush;
             }
+        }
+        // While SteamVR's laser is on no overlay, a controller's buttons go on
+        // to a stream as a gamepad's, and outside a game the PC turns a trigger
+        // pull into a mouse click where its cursor is. The keyboard's own
+        // pointer leaves the laser on nothing, so a key press also clicked on
+        // the PC. While it types into a stream the panel takes the laser too,
+        // as Steam's keyboard does; its events stay unused, since the loop
+        // below skips them while the keyboard's own pointer has the input.
+        if (const bool sink = scene_input && native.stream && native.active; sink != stream_sink) {
+            stream_sink = sink;
+            std::cout << (sink ? "Panel takes SteamVR's laser while typing into a stream.\n"
+                               : "Panel leaves SteamVR's laser.\n")
+                      << std::flush;
+            update_native_input(true);
         }
         // Disable after this frame's dashboard/scene/forwarded mode is known.
         // Only fresh presentation below may re-enable the SDK mouse path.

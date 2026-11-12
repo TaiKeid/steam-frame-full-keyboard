@@ -26,6 +26,8 @@ With it on:
 - every key and shortcut goes through as a real press and release with its modifiers: Ctrl+C, Shift with the arrows, Esc, the function keys, and Ctrl or Alt held for a game's own bindings. Paste presses Ctrl+V on the PC, so it pastes the PC's clipboard. A key held on the keyboard is sent again as a release and a new press, because the streaming client drops a second press of a key it holds;
 - other text, such as é, Cyrillic or Japanese, is sent as text. **A Windows PC types it**: Russian and whole Japanese phrases were measured. **A Linux PC does not**: there Steam ignores text sent to it, also from the Steam Link app on a phone, so only what keys type arrives. A Mac was not measured.
 
+Outside a game, Steam on the PC treats the headset's controllers as a mouse: the right trigger is a left click. So that a key press on Full Keyboard is not also a click on the PC, its panel takes SteamVR's laser while it types into a stream, as Steam's keyboard does.
+
 VR apps streamed from a PC stay outside: their link has no keyboard channel at all.
 
 ### Why Steam's keyboard types only Latin there
