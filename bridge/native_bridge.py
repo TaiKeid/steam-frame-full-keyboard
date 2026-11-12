@@ -267,6 +267,11 @@ class StreamChannel:
                 incoming.close()
                 continue
             self._drop()  # A newer stream replaces the previous client.
+            try:
+                # Room for a client that falls behind for a while (see _send).
+                incoming.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)
+            except OSError:
+                pass
             self.client = incoming
             self.client_pid = pid
         self._read()
@@ -286,18 +291,22 @@ class StreamChannel:
             return True
         except BlockingIOError:
             # A streaming client that falls behind: wait a moment for room rather than hang up on it,
-            # which would drop everything it still has to type. Still full, a text alone fails; a key
-            # event or a release cannot be left out, or a key could stay down on the PC, so then the
-            # helper hangs up and the library lets go of everything, as it always did.
-            try:
-                if select.select([], [self.client], [], .1)[1]:
+            # which would drop everything it still has to type. A full AF_UNIX socket reads as
+            # writable only once three quarters of it is free, so the send itself is retried. Still
+            # full, a text alone fails; a key event or a release cannot be left out, or a key could
+            # stay down on the PC, so then the helper hangs up and the library lets go of
+            # everything, as it always did.
+            deadline = time.monotonic() + .1
+            while time.monotonic() < deadline:
+                time.sleep(.005)
+                try:
                     self.client.send(packet)
                     return True
-            except BlockingIOError:
-                pass
-            except OSError:
-                self._drop()
-                return False
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    self._drop()
+                    return False
             if packet[:1] != b"T":
                 self._drop()
             return False
