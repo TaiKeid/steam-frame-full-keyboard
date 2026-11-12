@@ -3298,9 +3298,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 auto* comet = cairo_create(comet_);
                 // Without a clip each group below would cover the whole layer,
                 // clearing and compositing every pixel of the panel per stroke
-                // set. The area holds every changed stroke and is in whole
-                // pixels; outside it the layer keeps its pixels.
-                cairo_rectangle(comet, area.x, area.y, area.width, area.height);
+                // set. The groups take the whole comet's extent, which no
+                // stroke reaches the edge of, so its pieces come out exactly
+                // as in a whole redraw; only their compositing is limited to
+                // `area`, outside which the layer keeps its pixels. A clip at
+                // `area` itself would cut through unchanged pieces and shade
+                // their edges slightly differently (R199).
+                cairo_rectangle(comet, extent.x, extent.y, extent.width, extent.height);
                 cairo_clip(comet);
                 cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
                 // Each piece replaces what lies under it instead of adding to
@@ -3323,7 +3327,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     }
                     cairo_set_operator(comet, CAIRO_OPERATOR_OVER);
                     cairo_pop_group_to_source(comet);
+                    cairo_save(comet);
+                    cairo_rectangle(comet, area.x, area.y, area.width, area.height);
+                    cairo_clip(comet);
                     cairo_paint_with_alpha(comet, strength);
+                    cairo_restore(comet);
                 };
                 strokes(trail_glow_width, neon ? .26 : .16, glow);
                 strokes(trail_comet_width, neon ? .95 : .9, ink);
