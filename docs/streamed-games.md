@@ -36,7 +36,7 @@ Steam's streaming client on the Frame is an SDL program that shows the stream th
 
 ### What Streaming support adds
 
-- **A library**, `framekeyboard-stream.so` ([`stream/openvr_passthrough.c`](../stream/openvr_passthrough.c)), which the streaming client loads in place of Steam's OpenVR library. It names that library as its dependency, so every OpenVR call but one goes straight to Steam's. The one it wraps hands the client's event poll through unchanged, and after each poll gives the client what Full Keyboard sent: text as SDL text events, keys as SDL key events. Characters from Steam's own keyboard, or any other, pass as before.
+- **A library**, `framekeyboard-stream.so` ([`stream/openvr_passthrough.c`](../stream/openvr_passthrough.c)), which the streaming client loads in place of Steam's OpenVR library. It names that library as its dependency and looks for it in its own folder, after the client's own library path, so every OpenVR call but one goes straight to Steam's, even if Steam stopped setting that path. The one it wraps hands the client's event poll through unchanged, and after each poll gives the client what Full Keyboard sent: text as SDL text events, keys as SDL key events. Characters from Steam's own keyboard, or any other, pass as before.
 - **A private socket**, `framekeyboard-stream.sock` in the user's runtime folder, between the keyboard's replacement helper and the library. Only Steam's streaming client, run by the same user, is accepted, and while one is connected no other can take its place. The library types a step per event pump, a frame or so apart, from a queue of 8192 entries (a tap is two, a shifted one four, a run of other text one), so a long dictation can wait there for a few seconds. When a typing session ends, such as when the panel closes, text already sent is still typed and the session's held keys are released. When the keyboard goes away, the library drops what is queued and releases every key it holds down. A commit that does not fit the queue is dropped, with what follows it until the queue has drained.
 - **A setting for Steam's start.** The client loads the library only when Steam was started with `SDL_OPENVR_LIBRARY` naming it. A drop-in for Steam's user service, `~/.config/systemd/user/steam.service.d/50-framekeyboard-stream.conf`, in the folder that service's own file names for user additions, runs the gate before each start and reads the answer it writes.
 - **The gate**, `framekeyboard-stream-gate` ([`stream/stream_gate.c`](../stream/stream_gate.c)), which keeps `/run/user/<uid>/framekeyboard-stream/`:
@@ -46,6 +46,7 @@ Steam's streaming client on the Frame is an SDL program that shows the stream th
 | `steam.env` | The variable, written only when the library passed its check |
 | `framekeyboard-stream.so` | A copy of the library, so removing the keyboard cannot take it from a running Steam |
 | `openvr.so` | What the variable names: a link to the copy, or to Steam's own library while Streaming support is off |
+| `libopenvr_api.so` | A link to Steam's own library, which the copy depends on |
 | `off` | Tells a library that is already loaded to stay idle |
 | `failed` | The check at Steam's start failed; Settings then says so instead of asking for a restart |
 
@@ -54,7 +55,7 @@ No file of Steam or SteamOS is changed. The folder is in the runtime directory, 
 ### What keeps it from breaking streaming
 
 - **Steam's start never depends on it.** The drop-in first removes the last answer with a system tool, then runs the gate with a five-second limit and ignores how it ends. A missing, failing or slow gate leaves Steam exactly as it comes.
-- **The library is checked before every Steam start**, after a Steam update too, since Steam restarts through its service: the gate loads it beside Steam's own OpenVR library in a process of its own, and writes the variable only if that works.
+- **The library is checked before every Steam start**, after a Steam update too, since Steam restarts through its service: the gate loads it in a process of its own, without any library path from the environment, and writes the variable only if it loads and binds Steam's own OpenVR library.
 - **The file Steam is told about always exists while Steam runs.** It is a link in the runtime folder. Off, uninstalled or after a failed check, it leads to Steam's own library, so a stream starts as without Full Keyboard.
 - **Without the keyboard the library does nothing.** Closed or crashed, it types nothing and lets go of held keys.
 - **An interface it does not know is passed through untouched.** It wraps only the overlay interface version it was written for.

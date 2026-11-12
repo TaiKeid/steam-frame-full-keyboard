@@ -2,8 +2,10 @@
 """Hold the Steam Link pass-through library to what the streaming client may load.
 
 It stands in for libopenvr_api.so inside the streaming client, so it must:
-- name the real library as a dependency without a path, and carry no search path of its own,
-  because the client has to resolve its own copy;
+- name the real library as a dependency without a path, with no search path but its own folder
+  (RUNPATH exactly $ORIGIN, never RPATH), where the gate keeps a link to Steam's copy: after the
+  client's LD_LIBRARY_PATH it binds that copy, never another one on the system, and nothing of the
+  build machine is in it;
 - depend on nothing else but the C library;
 - offer only the one call it wraps, so every other OpenVR symbol resolves to the real library.
 """
@@ -32,8 +34,11 @@ def validate(library):
         raise ValueError(f"stream library does not depend on {REAL_LIBRARY} by name")
     if needed - ALLOWED_DEPENDENCIES:
         raise ValueError(f"stream library has other dependencies: {sorted(needed - ALLOWED_DEPENDENCIES)}")
-    if re.search(r"\((?:RPATH|RUNPATH)\)", dynamic):
-        raise ValueError("stream library carries a library search path")
+    if re.search(r"\(RPATH\)", dynamic):
+        raise ValueError("stream library carries an RPATH")
+    runpaths = re.findall(r"\(RUNPATH\)\s+Library runpath: \[([^\]]*)\]", dynamic)
+    if runpaths != ["$ORIGIN"]:
+        raise ValueError(f"stream library searches {runpaths}, expected only its own folder ($ORIGIN)")
     defined = set()
     for line in readelf("--dyn-syms", library).splitlines():
         fields = line.split()
@@ -51,4 +56,4 @@ if __name__ == "__main__":
         validate(sys.argv[1])
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(str(error))
-    print(f"Stream library: depends on {REAL_LIBRARY} by name, no search path, one wrapped call.")
+    print(f"Stream library: depends on {REAL_LIBRARY} by name, searches only its own folder, one wrapped call.")

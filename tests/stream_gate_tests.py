@@ -6,6 +6,7 @@ libopenvr_api.so (tests/stream_fake_openvr.c).
 """
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,17 @@ with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
     require(os.readlink(link) == copy.name and copy.read_bytes() == library.read_bytes(),
             "the link leads to a copy of the library")
     require(not off.exists() and runtime.stat().st_mode & 0o777 == 0o700, "private folder, no idle mark")
+    # The copy's dependency resolves beside it, to Steam's library, with or without LD_LIBRARY_PATH.
+    require(os.readlink(runtime / "libopenvr_api.so") == str(steam / "libopenvr_api.so"),
+            "a link to Steam's library sits beside the copy")
+    plain = {name: value for name, value in os.environ.items() if name != "LD_LIBRARY_PATH"}
+    require(subprocess.run([str(gate), "check", str(copy), str(steam / "libopenvr_api.so")], env=plain,
+                           timeout=30).returncode == 0,
+            "the copy binds Steam's library through its own folder")
+    other = base / "other-openvr.so"
+    shutil.copy(steam / "libopenvr_api.so", other)
+    require(subprocess.run([str(gate), "check", str(copy), str(other)], env=plain, timeout=30).returncode != 0,
+            "a copy that binds another library fails the check")
 
     # Turned off: Steam's own library behind the link, a loaded library told to idle, no answer.
     require(run(runtime, "stock") == 0, "stock succeeds")

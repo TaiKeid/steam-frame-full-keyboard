@@ -11,6 +11,9 @@
 //                             running Steam
 //   openvr.so                 what the variable names: a link to the copy, or to Steam's own library
 //                             while Streaming support is off
+//   libopenvr_api.so          a link to Steam's own library, which the copy depends on: its search
+//                             path is its own folder, so it binds Steam's copy with or without the
+//                             streaming client's LD_LIBRARY_PATH
 //   off                       tells a library that is already loaded to stay idle
 //   failed                    the last `start` failed, so this Steam runs without the library;
 //                             Settings says so instead of asking for a restart
@@ -21,7 +24,8 @@
 //   framekeyboard-stream-gate start    before Steam starts: prepare, then write steam.env
 //   framekeyboard-stream-gate prepare  Streaming support was turned on while Steam already has the
 //   variable framekeyboard-stream-gate stock    turned off: point the link at Steam's own library
-//   framekeyboard-stream-gate check F  whether F loads beside Steam's library (used by the two above)
+//   framekeyboard-stream-gate check F R  whether F loads and binds R, Steam's library (used by the two
+//                                        above)
 //
 // Options, for tests: --runtime DIR, --library FILE, --steam DIR.
 #define _GNU_SOURCE
@@ -173,9 +177,10 @@ static bool replace_file(const char* name, const char* source_path, const char* 
     return ok;
 }
 
-static bool replace_link(const char* destination) {
-    char target[PATH_MAX], temporary[PATH_MAX];
-    if (!join(target, runtime_dir, LINK_NAME) || !join(temporary, runtime_dir, "." LINK_NAME ".new")) {
+static bool replace_link_named(const char* name, const char* destination) {
+    char target[PATH_MAX], temporary[PATH_MAX], hidden[NAME_MAX];
+    snprintf(hidden, sizeof hidden, ".%s.new", name);
+    if (!join(target, runtime_dir, name) || !join(temporary, runtime_dir, hidden)) {
         return false;
     }
     unlink(temporary);
@@ -186,6 +191,10 @@ static bool replace_link(const char* destination) {
     return true;
 }
 
+static bool replace_link(const char* destination) {
+    return replace_link_named(LINK_NAME, destination);
+}
+
 static void remove_named(const char* name) {
     char path[PATH_MAX];
     if (join(path, runtime_dir, name)) {
@@ -193,15 +202,23 @@ static void remove_named(const char* name) {
     }
 }
 
-// In a process of its own, with Steam's library folder searched first as in the streaming client: the
-// library has to load, offer the call it wraps and reach the real library's calls through its
-// dependency.
-static int check(const char* file) {
+// In a process of its own, with no library path of the environment's: the library has to load, offer
+// the call it wraps and reach the real library's calls through its dependency, and that dependency has
+// to be `real`, Steam's own copy, found through the library's own search path. The streaming client
+// searches its LD_LIBRARY_PATH first, which today names the same folder; were that to change, the
+// library would still bind Steam's copy and not another one on the system.
+static int check(const char* file, const char* real) {
     void* handle = dlopen(file, RTLD_NOW | RTLD_LOCAL);
-    if (!handle) {
+    if (!handle || !dlsym(handle, "VR_GetGenericInterface")) {
         return 1;
     }
-    return dlsym(handle, "VR_GetGenericInterface") && dlsym(handle, "VR_InitInternal") ? 0 : 1;
+    void* call = dlsym(handle, "VR_InitInternal");
+    Dl_info info;
+    char bound[PATH_MAX], expected[PATH_MAX];
+    return call && dladdr(call, &info) && info.dli_fname && realpath(info.dli_fname, bound) &&
+                   realpath(real, expected) && strcmp(bound, expected) == 0
+               ? 0
+               : 1;
 }
 
 static bool loads(const char* file) {
@@ -214,8 +231,8 @@ static bool loads(const char* file) {
         return false;
     }
     if (child == 0) {
-        setenv("LD_LIBRARY_PATH", steam_dir, 1);
-        execl(self, self, "check", file, (char*)NULL);
+        unsetenv("LD_LIBRARY_PATH");
+        execl(self, self, "check", file, real, (char*)NULL);
         _exit(127);
     }
     struct timespec started;
@@ -254,11 +271,14 @@ static bool stock(void) {
 }
 
 static bool prepare(void) {
-    char copy[PATH_MAX];
-    if (!own_directory() || !join(copy, runtime_dir, LIBRARY_NAME)) {
+    char copy[PATH_MAX], real[PATH_MAX];
+    if (!own_directory() || !join(copy, runtime_dir, LIBRARY_NAME) ||
+        !join(real, steam_dir, REAL_LIBRARY)) {
         return false;
     }
-    if (!replace_file(LIBRARY_NAME, library, NULL, 0755) || !loads(copy)) {
+    // The copy's dependency, found beside it, before the copy is checked.
+    if (!replace_link_named(REAL_LIBRARY, real) || !replace_file(LIBRARY_NAME, library, NULL, 0755) ||
+        !loads(copy)) {
         return false;
     }
     if (!replace_link(LIBRARY_NAME)) {
@@ -279,8 +299,8 @@ static bool start(void) {
 }
 
 int main(int argc, char** argv) {
-    if (argc == 3 && strcmp(argv[1], "check") == 0) {
-        return check(argv[2]);
+    if (argc == 4 && strcmp(argv[1], "check") == 0) {
+        return check(argv[2], argv[3]);
     }
     if (argc < 2) {
         return 2;

@@ -393,20 +393,24 @@ configure_file(dictation/dictation_helper.py dictation/dictation_helper.py COPYO
 include(CTest)
 # Steam Link typing: the library the Frame's streaming client loads in place of
 # libopenvr_api.so (stream/openvr_passthrough.c). It names that library as a
-# dependency without a path, so the client resolves its own copy; the package
-# check in scripts/package.sh holds it to that. A host build exists only for
+# dependency without a path, and searches only its own folder after the
+# client's LD_LIBRARY_PATH: the gate keeps a link to Steam's copy there, so it
+# binds that copy whatever the environment; the package check in
+# scripts/package.sh holds it to that. A host build exists only for
 # the test, against a stand-in for the real library.
 if((CMAKE_CROSSCOMPILING AND FRAMEKEYBOARD_VR) OR (NOT CMAKE_CROSSCOMPILING AND BUILD_TESTING))
     add_library(stream_passthrough MODULE stream/openvr_passthrough.c)
     target_compile_options(stream_passthrough PRIVATE -Wall -Wextra)
     # No OpenVR symbol is bound at link time: the wrapped call is looked up at
     # run time and every other one has to resolve through this file's dependency.
-    target_link_options(stream_passthrough PRIVATE "LINKER:--no-as-needed")
+    target_link_options(stream_passthrough PRIVATE "LINKER:--no-as-needed" "LINKER:--enable-new-dtags")
+    # RUNPATH is exactly $ORIGIN, in the build tree too: nothing of the build
+    # machine's, and searched after LD_LIBRARY_PATH.
     set_target_properties(stream_passthrough PROPERTIES
         PREFIX "" OUTPUT_NAME "framekeyboard-stream"
         C_STANDARD 11 C_VISIBILITY_PRESET hidden
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stream"
-        SKIP_BUILD_RPATH TRUE)
+        BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "\$ORIGIN")
     # The gate (stream/stream_gate.c) runs before Steam starts and keeps the
     # folder Steam loads the library from; it is installed beside the library.
     add_executable(stream_gate stream/stream_gate.c)
