@@ -536,6 +536,44 @@ int main(int argc, char** argv) {
                   "no C with Ctrl's bit but no Ctrl");
         }
         check(c_down == 1 && ctrl_down == 0, "after Ctrl's release, a plain C types again");
+
+        // Ctrl is down on the PC, and behind a backlog wait Ctrl's release, a whole new Ctrl+C and
+        // another Ctrl press. A Ctrl release that finds the queue full belongs to that last press: only
+        // it is cancelled, and the Ctrl+C is still typed with Ctrl (R230). Same batching as above.
+        key(keyboard, 224, 0x40, true);
+        idle_pump();
+        memset(big + 1, 'a', 2000);
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries");
+        idle_pump();
+        key(keyboard, 224, 0, false);
+        key(keyboard, 224, 0x40, true);
+        key(keyboard, 6, 0x40, true);
+        key(keyboard, 6, 0x40, false);
+        key(keyboard, 224, 0, false);
+        key(keyboard, 224, 0x40, true);
+        for (int i = 0; i < 91; ++i) {
+            key(keyboard, 28, 0, true);
+            key(keyboard, 28, 0, false);
+        }
+        for (int i = 0; i < 106; ++i) {
+            key(keyboard, 26, 0, true);
+        }
+        key(keyboard, 224, 0, false);
+        {
+            unsigned c_with_ctrl = 0;
+            for (int i = 0; i < 4200; ++i) {
+                pushed_count = 0;
+                idle_pump();
+                for (int k = 0; k < pushed_count; ++k) {
+                    c_with_ctrl += pushed[k].scancode == 6 && pushed[k].down && pushed[k].mod == 0x40;
+                }
+            }
+            check(c_with_ctrl == 1, "the whole Ctrl+C behind the cancelled press is typed");
+        }
+        key(keyboard, 26, 0, false);
+        idle_pump();
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
