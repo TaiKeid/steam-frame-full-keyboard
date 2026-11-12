@@ -365,6 +365,15 @@ class SystemBackend : public Backend {
             } catch (const std::exception&) {
                 throw UiError(ui("installer.error.settings"));
             }
+            if (!choices.replace_native || !choices.streaming) {
+                // A setting for Steam's start left by an earlier install would
+                // otherwise go on using the library against this answer. Best
+                // effort: no answer here depends on it.
+                try {
+                    configure_stream_support(false, stream_support_paths_in(install_root()));
+                } catch (const std::exception&) {
+                }
+            }
             if (!choices.replace_native) {
                 return;
             }
