@@ -121,25 +121,6 @@ constexpr std::array<const char*, Installer::pages> summary_keys{
     "setting.typing-suggestions",      "setting.key-flicks",
     "installer.summary.numpad",        "setting.streaming-support"};
 
-// Whether a dotted version is at least another.
-bool at_least(std::string_view version, std::string_view minimum) {
-    const auto next = [](std::string_view& text) {
-        long value = 0;
-        std::size_t used = 0;
-        while (used < text.size() && text[used] >= '0' && text[used] <= '9') {
-            value = value * 10 + (text[used++] - '0');
-        }
-        text.remove_prefix(std::min(text.size(), used + 1)); // the number and its dot
-        return value;
-    };
-    while (!version.empty() || !minimum.empty()) {
-        const long have = next(version), want = next(minimum);
-        if (have != want) {
-            return have > want;
-        }
-    }
-    return true;
-}
 // What installing `chosen` does to `installed`: nothing installed, newer,
 // older or the same. Returns the key for the main button and the key for
 // the Setup title.

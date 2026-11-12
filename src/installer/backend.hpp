@@ -4,9 +4,11 @@
 // these and polls their status on its own thread; the real backend works on
 // a thread of its own, the simulated one only watches the clock.
 #include "framekeyboard/localization.hpp"
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace framekeyboard::installer {
@@ -18,6 +20,26 @@ inline constexpr const char* oldest_release = "0.16.0";
 // The first release with Streaming support. An older one cannot take that
 // answer, so the wizard leaves its page out.
 inline constexpr const char* streaming_release = "0.18.0";
+
+// Whether a dotted version is at least another.
+inline bool at_least(std::string_view version, std::string_view minimum) {
+    const auto next = [](std::string_view& text) {
+        long value = 0;
+        std::size_t used = 0;
+        while (used < text.size() && text[used] >= '0' && text[used] <= '9') {
+            value = value * 10 + (text[used++] - '0');
+        }
+        text.remove_prefix(std::min(text.size(), used + 1)); // the number and its dot
+        return value;
+    };
+    while (!version.empty() || !minimum.empty()) {
+        const long have = next(version), want = next(minimum);
+        if (have != want) {
+            return have > want;
+        }
+    }
+    return true;
+}
 
 struct Release {
     std::string tag, version;

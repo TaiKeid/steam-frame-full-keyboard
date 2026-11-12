@@ -328,6 +328,17 @@ class SystemBackend : public Backend {
             if (installed != 0) {
                 throw UiError(ui("installer.error.install"));
             }
+            // A release older than Streaming support's neither uses nor
+            // removes its setting for Steam's start, so a downgrade takes it
+            // away, as Finish leaves it out of such a first install. The saved
+            // choice stays: updating again sets it up again. Best effort,
+            // since the install itself is done.
+            if (!at_least(release.version, streaming_release)) {
+                try {
+                    configure_stream_support(false, stream_support_paths_in(install_root()));
+                } catch (const std::exception&) {
+                }
+            }
             update([&](Status& s) { s.installed = installed_version(); });
         });
     }
