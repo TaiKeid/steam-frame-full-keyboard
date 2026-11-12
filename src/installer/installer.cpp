@@ -734,6 +734,9 @@ void Installer::checkbox(const Rect& r, Action action, const std::string& label,
     if (live_) {
         hits_.push_back({r, action, 0, enabled});
     }
+    if (!enabled) {
+        cairo_push_group(cr_); // Held as it is, far back, as segments() draws it.
+    }
     // Pressed, the box and its label go down together, as a key does.
     const double down = held(action) ? press_travel : 0;
     const Rect box{r.x + 12, r.y + (r.height - 32) / 2 + down, 32, 32};
@@ -750,7 +753,7 @@ void Installer::checkbox(const Rect& r, Action action, const std::string& label,
         cairo_stroke(cr_);
     } else {
         paint::well(cr_, theme_, box);
-        if (hovered(action)) {
+        if (enabled && hovered(action)) {
             paint::rounded(cr_, {box.x + 3, box.y + 3, box.width - 6, box.height - 6}, 6);
             paint::source(cr_, theme_.hover);
             cairo_fill(cr_);
@@ -758,6 +761,10 @@ void Installer::checkbox(const Rect& r, Action action, const std::string& label,
     }
     text(label, {box.x + box.width + 14, r.y + down, r.width - box.width - 38, r.height}, 21,
          theme_.legend, PANGO_ALIGN_LEFT);
+    if (!enabled) {
+        cairo_pop_group_to_source(cr_);
+        cairo_paint_with_alpha(cr_, .4);
+    }
 }
 
 void Installer::spinner(double x, double y, double radius) {
