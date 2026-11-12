@@ -2578,6 +2578,9 @@ void App::set_interaction_active(bool active) {
     // a move, Pin or Settings keeps it, as they keep the field (R158).
     after_digit_ = false;
     cancel(!hosted());
+    // Hover fades and the swipe trail end with the panel's use: shown again,
+    // it shows none of them (R179).
+    renderer.settle();
     candidate_list_ = false; // Reopens over the keys, as it does on its main layout.
     sync_candidates();
     interaction_active_ = active;

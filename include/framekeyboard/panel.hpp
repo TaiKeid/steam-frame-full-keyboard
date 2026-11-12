@@ -497,6 +497,9 @@ class PanelRenderer {
     // Case coordinates to the layout's own key coordinates, as hit_key uses.
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
+    // The panel was hidden or shown: the next paint ends what was fading or
+    // trailing at once, so nothing from before shows up after a summon.
+    void settle() { settle_ = true; }
     // When an animation can next change a pixel: now for key presses, the
     // next 30 fps step for the mic key's bars and ring.
     double next_change() const { return next_change_; }
@@ -567,5 +570,6 @@ class PanelRenderer {
                            // ring's time, sampled at 30 fps, when last drawn.
     double next_change_{};
     bool animating_{};
+    bool settle_{};
 };
 } // namespace framekeyboard

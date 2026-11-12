@@ -426,6 +426,14 @@ void hover_fade() {
         }
         require(red() == idle && !compare.incremental.animating(),
                 "Hover fade ends on the idle key and stops repainting");
+        // Hidden while a key fades, as when Enter closes the panel: shown again, it is dark at once.
+        view.hovered_keys = {key.id};
+        compare.frame(view, "laser on the key again");
+        view.hovered_keys.clear();
+        compare.incremental.settle();
+        compare.full.settle();
+        compare.frame(view, "shown again");
+        require(red() == idle && !compare.incremental.animating(), "a fade from before a hide is over");
     }
 }
 // The swipe trail: a quiet path that only grows, a comet over its last
@@ -498,6 +506,17 @@ void swipe_trail() {
     view.swipe_trail.clear();
     compare.frame(view, "back on the keys");
     require(compare.incremental.rgba() == idle, "Settings ends a trail without a fade");
+    // Hidden mid-swipe: shown again, no trail from before is left to fade.
+    for (int i = 0; i <= 6; ++i) {
+        view.swipe_trail.emplace_back(from.x + 20 + 12 * i, from.y + 20);
+        compare.frame(view, "a swipe before a hide");
+    }
+    view.swipe_trail.clear();
+    compare.incremental.settle();
+    compare.full.settle();
+    compare.frame(view, "shown again");
+    require(compare.incremental.rgba() == idle && !compare.incremental.animating(),
+            "a trail from before a hide is gone at once");
 }
 void straight_alpha() {
     const auto profiles = load_profiles({}, {});

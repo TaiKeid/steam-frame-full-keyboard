@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 
 namespace framekeyboard {
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view) {
@@ -2964,6 +2965,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // repaint uploads the whole texture. Starts are aligned to a step, so the
     // first step after one always shows.
     const double stepped = std::floor(now * 30) / 30;
+    const bool settling = std::exchange(settle_, false);
     for (const auto& key : view.layout->keys) {
         if (covered_key(view, key)) {
             continue;
@@ -3001,7 +3003,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             hover.target = lit;
             hover.started = stepped;
         }
-        const double fade = lit > 0 || !view.hover_fade
+        const double fade = lit > 0 || !view.hover_fade || settling
                                 ? 1
                                 : std::clamp((stepped - hover.started) / hover_fade_seconds, 0.0, 1.0);
         hover.amount = hover.from + (hover.target - hover.from) * handle_ease_out(fade);
@@ -3147,6 +3149,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_released_ = -1;
             trail_fade_ = 1;
         };
+        if (settling) {
+            forget(); // A trail from before the panel hid ends without a fade.
+        }
         const bool fading = trail_released_ >= 0;
         if (view.settings) {
             forget(); // Settings covers the keys: nothing fades over its cards.
