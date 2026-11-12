@@ -506,6 +506,9 @@ class PanelRenderer {
     void release_idle_layers(double now);
     // Whether the swipe trail's layers are allocated; tests check they go.
     bool trail_layers() const { return trail_ || comet_ || comet_passes_; }
+    // How many bytes of them are in memory, for tests that check the pages
+    // are kept for the next word and then given back.
+    std::size_t trail_resident_bytes() const;
     // When an animation can next change a pixel: now for key presses, the
     // next 30 fps step for the mic key's bars and ring.
     double next_change() const { return next_change_; }

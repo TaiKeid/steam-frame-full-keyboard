@@ -510,11 +510,37 @@ void swipe_trail() {
     require(!compare.incremental.animating() && compare.incremental.rgba() == idle &&
                 compare.incremental.trail_layers(),
             "a finished trail leaves nothing behind, and its layers wait for the next swipe");
+    // The layers keep their pages for the next word, and give them back once
+    // no trail has been drawn for a few seconds (R239, R240).
+    const auto kept = compare.incremental.trail_resident_bytes();
+    compare.incremental.release_idle_layers(compare.now + 1);
+    require(kept > 0 && compare.incremental.trail_resident_bytes() == kept,
+            "right after a word the trail's layers keep their pages");
+    compare.now += 3.1;
+    compare.incremental.release_idle_layers(compare.now);
+    require(compare.incremental.trail_layers() && compare.incremental.trail_resident_bytes() == 0,
+            "after a few idle seconds all three layers give their pages back");
+    // The next word draws on the given-back layers as on kept ones: the full
+    // renderer still holds its pages.
+    for (int i = 0; i <= 6; ++i) {
+        view.swipe_trail.emplace_back(from.x + 20 + 12 * i, from.y + 20);
+        compare.frame(view, "a swipe after the pages went");
+    }
+    view.swipe_trail.clear();
+    compare.frame(view, "it ends");
+    for (int i = 0; i < 40; ++i) {
+        compare.frame(view, "it fades out");
+    }
+    require(!compare.incremental.animating() && compare.incremental.rgba() == idle,
+            "the word after the pages went fades out cleanly");
     // A swipe that starts while the last one fades replaces it at once.
     for (int i = 0; i <= 6; ++i) {
         view.swipe_trail.emplace_back(from.x + 20 + 12 * i, from.y + 20);
         compare.frame(view, "another swipe");
     }
+    // The faded word's idle time ended with the new one.
+    compare.incremental.release_idle_layers(compare.now + 10);
+    require(compare.incremental.trail_resident_bytes() > 0, "a word in use keeps its pages");
     view.swipe_trail.clear();
     compare.frame(view, "it ends");
     for (int i = 0; i <= 6; ++i) {

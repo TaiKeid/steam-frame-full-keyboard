@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <sys/mman.h>
 #include <tuple>
+#include <unistd.h>
 #include <unordered_map>
 #include <utility>
 
@@ -2743,6 +2744,23 @@ void release_pages(cairo_surface_t* layer) {
         cairo_surface_mark_dirty(layer);
     }
 }
+// How much of a mapped layer is in memory, for tests; a layer from Cairo's
+// own allocation counts nothing.
+std::size_t resident_bytes(cairo_surface_t* layer) {
+    const auto* mapping = layer ? static_cast<std::pair<void*, std::size_t>*>(
+                                      cairo_surface_get_user_data(layer, &mapped_key))
+                                : nullptr;
+    if (!mapping) {
+        return 0;
+    }
+    const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+    std::vector<unsigned char> pages((mapping->second + page - 1) / page);
+    if (mincore(mapping->first, mapping->second, pages.data()) != 0) {
+        throw std::runtime_error("cannot see which of a layer's pages are in memory");
+    }
+    return page * static_cast<std::size_t>(std::count_if(pages.begin(), pages.end(),
+                                                         [](unsigned char in) { return in & 1; }));
+}
 } // namespace
 // After the trail has ended, the layers keep their pages this long for the
 // next word before they give them back (R239).
@@ -2755,6 +2773,9 @@ void PanelRenderer::release_idle_layers(double now) {
     release_pages(trail_);
     release_pages(comet_);
     release_pages(comet_passes_);
+}
+std::size_t PanelRenderer::trail_resident_bytes() const {
+    return resident_bytes(trail_) + resident_bytes(comet_) + resident_bytes(comet_passes_);
 }
 void PanelRenderer::settle() {
     settle_ = true;
