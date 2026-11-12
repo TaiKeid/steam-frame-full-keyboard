@@ -89,6 +89,39 @@ Color disabled_legend(const Theme& theme) {
 // this share, so a press lands fast and returns softly. With Hover fade, a key
 // the laser left takes this long to go dark.
 constexpr double press_share = .75, release_share = 1.6, hover_fade_seconds = .18;
+// The swipe trail: the whole path as a thin line, drawn faintly, and over it
+// a comet, the pieces of the path newer than `trail_comet_seconds`, each
+// thinner and fainter with age. When the swipe ends the path fades out over
+// `trail_end_seconds`. SteamVR draws its own dot where the laser lands, so the
+// trail has no head of its own.
+constexpr double trail_path_width = 2.6, trail_path_alpha = .30;
+// A neon theme's path is its latched colour, which is close to its keys'
+// own: it needs more of its opacity to show.
+constexpr double trail_neon_path_alpha = .62;
+constexpr double trail_comet_width = 7, trail_glow_width = 18;
+constexpr double trail_comet_seconds = .42, trail_end_seconds = .22;
+// The laser trembles, so a trail point is the average of the points around
+// it, this many on each side, nearer ones counting more. Toward either end
+// the reach shrinks, and both ends stay where the laser was.
+constexpr std::size_t trail_smoothing = 4;
+std::pair<double, double> trail_point(const std::vector<std::pair<double, double>>& points,
+                                      std::size_t index) {
+    const std::size_t reach = std::min({trail_smoothing, index, points.size() - 1 - index});
+    double x = 0, y = 0, total = 0;
+    for (std::size_t i = index - reach; i <= index + reach; ++i) {
+        const double weight = static_cast<double>(reach + 1) -
+                              std::abs(static_cast<double>(i) - static_cast<double>(index));
+        x += points[i].first * weight;
+        y += points[i].second * weight;
+        total += weight;
+    }
+    return {x / total, y / total};
+}
+Rect joined(const Rect& a, const Rect& b) {
+    const double left = std::min(a.x, b.x), top = std::min(a.y, b.y);
+    return {left, top, std::max(a.x + a.width, b.x + b.width) - left,
+            std::max(a.y + a.height, b.y + b.height) - top};
+}
 // CSS ease-out is cubic-bezier(0, 0, .58, 1), as used by Steam's handle.
 double handle_ease_out(double progress) {
     if (progress <= 0 || progress >= 1) {
@@ -305,7 +338,7 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
 // the face, so a key still repaints within its bounds. `strength` fades it:
 // more under the laser, none on a key held down.
 void cap_light(cairo_t* cr, const Theme& t, const Rect& face, double radius, double strength = 1) {
-    if (plain_keys(t) || t.latched_finish == "neon" || strength <= 0) {
+    if (plain_keys(t) || strength <= 0) {
         return;
     }
     const bool light = light_theme(t);
@@ -354,7 +387,7 @@ struct KeyTone {
     Color top, middle, bottom, hover;
 };
 KeyTone key_tone(const Theme& t, const Key& key) {
-    if (plain_keys(t) || t.latched_finish == "neon" || character_key(key)) {
+    if (plain_keys(t) || character_key(key)) {
         return {t.top, t.middle, t.bottom, t.hover};
     }
     // A light theme's faces are close to white; they need a longer step.
@@ -1294,7 +1327,8 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         rounded(cr, face, t.radius);
         gradient(cr, face, tone.top, tone.middle, tone.bottom);
     }
-    // Plain faces only: a latched or pressed-colour face shows its own state.
+    // Plain faces only: a latched or pressed-colour face shows its own state,
+    // and a neon theme lights its tube on a held key instead.
     const bool shaded = !disabled && !plain_keys(t) && t.latched_finish != "neon";
     if (shaded && amount > 0 && !latched && !listening && !pressing) {
         // A key held down sinks into shade from its top edge, so a press
@@ -2650,6 +2684,9 @@ PanelRenderer::~PanelRenderer() {
     if (trail_) {
         cairo_surface_destroy(trail_);
     }
+    if (comet_) {
+        cairo_surface_destroy(comet_);
+    }
     cairo_surface_destroy(surface_);
 }
 std::pair<double, double> PanelRenderer::layout_point(const PanelView& view, double x, double y) const {
@@ -3044,37 +3081,181 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
     };
-    // A trail can cross many keys. While it grows, only its newest segments
-    // change, including their join at the old end; otherwise (a new or ended
-    // swipe) repaint everything either trail covered.
-    if (!full && previous_->view.swipe_trail != view.swipe_trail) {
-        double left = panel_width, top = panel_height, right = 0, bottom = 0;
-        const auto& old_trail = previous_->view.swipe_trail;
-        const bool grows = !old_trail.empty() && view.swipe_trail.size() > old_trail.size() &&
-                           std::equal(old_trail.begin(), old_trail.end(), view.swipe_trail.begin());
-        auto extend = [&](auto begin, auto end) {
-            for (auto point = begin; point != end; ++point) {
-                left = std::min(left, point->first);
-                top = std::min(top, point->second);
-                right = std::max(right, point->first);
-                bottom = std::max(bottom, point->second);
-            }
+    // The swipe trail lives in two layers that every pass copies. The path
+    // layer only gains segments, so pixels already drawn never change; the
+    // comet layer is redrawn while any of its pieces is alive. `trail_changed`
+    // is where either layer differs from the last paint, in whole pixels.
+    std::optional<Rect> trail_changed;
+    {
+        const auto touched = [&](const Rect& r) {
+            trail_changed = trail_changed ? joined(*trail_changed, r) : r;
         };
-        if (grows) {
-            extend(view.swipe_trail.begin() + static_cast<std::ptrdiff_t>(old_trail.size() - 1),
-                   view.swipe_trail.end());
-        } else {
-            extend(old_trail.begin(), old_trail.end());
-            extend(view.swipe_trail.begin(), view.swipe_trail.end());
+        // Laser points are fractional. Like key bounds, extents round outwards
+        // to whole pixels: an antialiased clip edge would partly clear pixels
+        // and leave dark, translucent seams that build up frame by frame.
+        const auto around = [](std::pair<double, double> a, std::pair<double, double> b, double reach) {
+            const double left = std::floor(std::min(a.first, b.first) - reach);
+            const double top = std::floor(std::min(a.second, b.second) - reach);
+            return Rect{left, top, std::ceil(std::max(a.first, b.first) + reach) - left,
+                        std::ceil(std::max(a.second, b.second) + reach) - top};
+        };
+        const auto erase = [&](cairo_surface_t* layer, double offset, std::optional<Rect>& extent) {
+            if (!extent) {
+                return;
+            }
+            auto* eraser = cairo_create(layer);
+            cairo_translate(eraser, 0, offset);
+            cairo_rectangle(eraser, extent->x, extent->y, extent->width, extent->height);
+            cairo_set_operator(eraser, CAIRO_OPERATOR_CLEAR);
+            cairo_fill(eraser);
+            cairo_destroy(eraser);
+            cairo_surface_flush(layer);
+            touched(*extent);
+            extent.reset();
+        };
+        const auto forget = [&] {
+            erase(trail_, popup_margin, trail_extent_);
+            erase(comet_, 0, comet_extent_);
+            trail_points_.clear();
+            trail_stamps_.clear();
+            trail_drawn_ = 0;
+            trail_released_ = -1;
+            trail_fade_ = 1;
+        };
+        const bool fading = trail_released_ >= 0;
+        if (view.settings) {
+            forget(); // Settings covers the keys: nothing fades over its cards.
+        } else if (view.swipe_trail.size() > 1) {
+            const auto& points = view.swipe_trail;
+            const bool grows = !fading && points.size() >= trail_points_.size() &&
+                               std::equal(trail_points_.begin(), trail_points_.end(), points.begin());
+            if (!grows) {
+                forget(); // Another swipe: what was left of the last one goes at once.
+            }
+            trail_points_ = points;
+            trail_stamps_.resize(points.size(), now); // New points are as old as this paint.
+        } else if (!trail_points_.empty() && !fading) {
+            trail_released_ = now; // The swipe ended; its points are final.
         }
-        if (right >= left) {
-            // Laser points are fractional. Like key bounds, round outwards to
-            // whole pixels: an antialiased clip edge would partly clear pixels
-            // and leave dark, translucent seams that build up frame by frame.
-            left = std::floor(left - 8);
-            top = std::floor(top - 8);
-            damage_area({left, top, std::ceil(right + 8) - left, std::ceil(bottom + 8) - top});
+        if (const std::size_t count = trail_points_.size(); count > 1) {
+            // A tint of the latched colour. A theme with key edges keeps the
+            // plain legend colour, its strongest contrast. A neon theme draws
+            // the path in its latched colour and the comet as a tube in the
+            // colour its tubes start from.
+            const bool neon = t.latched_finish == "neon";
+            const Color path_ink = neon            ? t.latched
+                                   : plain_keys(t) ? t.legend
+                                                   : mix(t.legend, t.latched, .22);
+            const Color ink = neon ? t.latched_top : path_ink;
+            const Color glow = neon            ? t.latched_top
+                               : plain_keys(t) ? t.legend
+                                               : mix(t.latched, t.legend, .35);
+            // A smoothed point is settled once its later neighbours have all
+            // arrived, or the swipe has ended. Only settled segments join the path.
+            const std::size_t settled = trail_released_ >= 0      ? count
+                                        : count > trail_smoothing ? count - trail_smoothing
+                                                                  : 0;
+            if (settled > std::max<std::size_t>(trail_drawn_, 1)) {
+                if (!trail_) {
+                    trail_ =
+                        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
+                }
+                auto* path = cairo_create(trail_);
+                cairo_translate(path, 0, popup_margin);
+                cairo_set_line_width(path, trail_path_width);
+                cairo_set_line_cap(path, CAIRO_LINE_CAP_ROUND);
+                source(path, path_ink);
+                // Each segment is its own stroke with round caps, so the joins
+                // match a joined path while earlier pixels stay as they were.
+                for (std::size_t i = std::max<std::size_t>(trail_drawn_, 1); i < settled; ++i) {
+                    const auto a = trail_point(trail_points_, i - 1), b = trail_point(trail_points_, i);
+                    cairo_move_to(path, a.first, a.second);
+                    cairo_line_to(path, b.first, b.second);
+                    cairo_stroke(path);
+                    const auto piece = around(a, b, trail_path_width / 2 + 2);
+                    touched(piece);
+                    trail_extent_ = trail_extent_ ? joined(*trail_extent_, piece) : piece;
+                }
+                cairo_destroy(path);
+                cairo_surface_flush(trail_);
+                trail_drawn_ = settled;
+            }
+            // The comet: the pieces newer than its lifetime, each thinner and
+            // fainter with age. Stamps never decrease, so they are the last ones.
+            erase(comet_, 0, comet_extent_);
+            std::size_t first = count; // Piece i joins points i - 1 and i.
+            while (first > 1 && now - trail_stamps_[first - 1] < trail_comet_seconds) {
+                --first;
+            }
+            const bool alive = first < count;
+            if (alive) {
+                if (!comet_) {
+                    comet_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
+                }
+                std::vector<std::pair<double, double>> at; // Smoothed points first - 1 to the head.
+                for (std::size_t i = first - 1; i < count; ++i) {
+                    at.push_back(trail_point(trail_points_, i));
+                }
+                auto* comet = cairo_create(comet_);
+                cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
+                // Each piece replaces what lies under it instead of adding to
+                // it, so overlapping round caps don't darken the joins, and a
+                // newer, stronger piece wins where two meet.
+                const auto strokes = [&](double width, double strength, Color colour) {
+                    cairo_push_group(comet);
+                    cairo_set_operator(comet, CAIRO_OPERATOR_SOURCE);
+                    for (std::size_t i = first; i < count; ++i) {
+                        const double left =
+                            std::clamp(1 - (now - trail_stamps_[i]) / trail_comet_seconds, 0.0, 1.0);
+                        const double eased = left * left * (3 - 2 * left);
+                        const auto& a = at[i - first];
+                        const auto& b = at[i - first + 1];
+                        cairo_move_to(comet, a.first, a.second);
+                        cairo_line_to(comet, b.first, b.second);
+                        cairo_set_source_rgba(comet, colour.r, colour.g, colour.b, eased);
+                        cairo_set_line_width(comet, width * (.25 + .75 * eased));
+                        cairo_stroke(comet);
+                    }
+                    cairo_set_operator(comet, CAIRO_OPERATOR_OVER);
+                    cairo_pop_group_to_source(comet);
+                    cairo_paint_with_alpha(comet, strength);
+                };
+                strokes(trail_glow_width, neon ? .26 : .16, glow);
+                strokes(trail_comet_width, neon ? .95 : .9, ink);
+                if (neon) {
+                    strokes(2.4, .7, mix(ink, Color{1, 1, 1}, .75)); // The tube's hot core.
+                }
+                cairo_destroy(comet);
+                cairo_surface_flush(comet_);
+                Rect extent = around(at[0], at[1], trail_glow_width / 2 + 2);
+                for (std::size_t i = 2; i < at.size(); ++i) {
+                    extent = joined(extent, around(at[i - 1], at[i], trail_glow_width / 2 + 2));
+                }
+                comet_extent_ = extent;
+                touched(extent);
+            }
+            // After the swipe the path fades out instead of vanishing.
+            const double fade =
+                trail_released_ < 0
+                    ? 1
+                    : std::clamp(1 - (now - trail_released_) / trail_end_seconds, 0.0, 1.0);
+            if (fade != trail_fade_ && trail_extent_) {
+                touched(*trail_extent_);
+            }
+            trail_fade_ = fade;
+            if (trail_released_ >= 0 && fade <= 0 && !alive) {
+                forget();
+            } else if (alive || trail_released_ >= 0) {
+                // The comet and the fade step at 30 fps, as the mic key's bars
+                // do: they cover more keys than a pressed key does. A resting
+                // laser's comet burns out, and then nothing repaints.
+                animating_ = true;
+                next_change_ = std::min(next_change_, (std::floor(now * 30) + 1) / 30);
+            }
         }
+    }
+    if (!full && trail_changed) {
+        damage_area(*trail_changed);
     }
     if (!full && previous_->view.controls != view.controls) {
         const std::array<const std::vector<Control>*, 2> both{&previous_->view.controls, &view.controls};
@@ -3301,53 +3482,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
     }
-    if (view.swipe_trail.size() > 1 && !view.settings && !trail_) {
-        trail_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
-    }
-    if (trail_) {
-        const auto& points = view.settings ? decltype(view.swipe_trail){} : view.swipe_trail;
-        const bool grows = !trail_points_.empty() && points.size() >= trail_points_.size() &&
-                           std::equal(trail_points_.begin(), trail_points_.end(), points.begin());
-        auto* trail = cairo_create(trail_);
-        cairo_translate(trail, 0, popup_margin);
-        if (!grows) {
-            if (trail_extent_) {
-                const auto& r = *trail_extent_;
-                cairo_rectangle(trail, r.x, r.y, r.width, r.height);
-                cairo_set_operator(trail, CAIRO_OPERATOR_CLEAR);
-                cairo_fill(trail);
-                cairo_set_operator(trail, CAIRO_OPERATOR_OVER);
-            }
-            trail_extent_.reset();
-            trail_points_.clear();
-        }
-        if (points.size() > 1) {
-            cairo_set_line_width(trail, 6);
-            cairo_set_line_cap(trail, CAIRO_LINE_CAP_ROUND);
-            source(trail, t.legend);
-            auto extent =
-                trail_extent_.value_or(Rect{points.front().first, points.front().second, 0, 0});
-            // Each segment is its own stroke with round caps, so the joins
-            // match a joined path while earlier pixels stay as they were.
-            for (std::size_t i = std::max<std::size_t>(trail_points_.size(), 1); i < points.size();
-                 ++i) {
-                const auto [ax, ay] = points[i - 1];
-                const auto [bx, by] = points[i];
-                cairo_move_to(trail, ax, ay);
-                cairo_line_to(trail, bx, by);
-                cairo_stroke(trail);
-                const double left = std::floor(std::min({extent.x, ax - 8, bx - 8}));
-                const double top = std::floor(std::min({extent.y, ay - 8, by - 8}));
-                const double right = std::ceil(std::max({extent.x + extent.width, ax + 8, bx + 8}));
-                const double bottom = std::ceil(std::max({extent.y + extent.height, ay + 8, by + 8}));
-                extent = {left, top, right - left, bottom - top};
-            }
-            trail_extent_ = extent;
-            trail_points_ = points;
-        }
-        cairo_destroy(trail);
-        cairo_surface_flush(trail_);
-    }
     // The flick preview's soft shadows rasterize slightly differently under
     // each pass's clip, so the preview is drawn once, into an image at whole
     // pixels, which every pass copies exactly.
@@ -3412,8 +3546,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_rectangle(cr, r.x, r.y, r.width, r.height);
             cairo_clip(cr);
             cairo_set_source_surface(cr, trail_, 0, -popup_margin);
-            // Legend color stays readable over both key faces and the case.
-            cairo_paint_with_alpha(cr, .6);
+            // The whole path, quiet enough to leave the legends under it readable.
+            cairo_paint_with_alpha(
+                cr,
+                (t.latched_finish == "neon" ? trail_neon_path_alpha : trail_path_alpha) * trail_fade_);
+            cairo_restore(cr);
+        }
+        if (comet_extent_) {
+            const auto& r = *comet_extent_;
+            cairo_save(cr);
+            cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+            cairo_clip(cr);
+            cairo_set_source_surface(cr, comet_, 0, 0);
+            cairo_paint(cr);
             cairo_restore(cr);
         }
         auto emoji_image = [&](const std::string& text, Rect cell) {

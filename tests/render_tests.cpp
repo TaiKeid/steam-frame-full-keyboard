@@ -423,6 +423,74 @@ void hover_fade() {
                 "Hover fade ends on the idle key and stops repainting");
     }
 }
+// The swipe trail: a quiet path that only grows, a comet over its last
+// moments, and a fade when the swipe ends. Every frame also paints the same
+// incrementally as in full.
+void swipe_trail() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("en-us"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("en-us-full");
+    view.theme = &profiles.themes.at("graphite");
+    view.language = &profiles.languages.at("en-us");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    auto require = [](bool condition, const char* message) {
+        if (!condition) {
+            throw std::runtime_error(message);
+        }
+    };
+    Comparison compare;
+    compare.frame(view, "before the swipe");
+    const auto idle = compare.incremental.rgba();
+    // Along the home row from A to L, trembling as a laser does.
+    const auto from = panel_rect(view, find_key(*view.layout, "KeyA").bounds);
+    const auto to = panel_rect(view, find_key(*view.layout, "KeyL").bounds);
+    for (int i = 0; i <= 30; ++i) {
+        view.swipe_trail.emplace_back(from.x + from.width / 2 + (to.x - from.x) * i / 30.0,
+                                      from.y + from.height / 2 + 5 * std::sin(i * 1.3));
+        compare.frame(view, "the swipe grows");
+    }
+    require(compare.incremental.animating() && compare.incremental.rgba() != idle,
+            "a swipe draws its trail, and the comet keeps repainting");
+    for (int i = 0; i < 30; ++i) {
+        compare.frame(view, "the laser rests");
+    }
+    const auto resting = compare.incremental.rgba();
+    require(!compare.incremental.animating() && resting != idle,
+            "at rest the comet burns out, the path stays and nothing repaints");
+    require(!compare.frame(view, "the laser still rests"), "a burnt-out comet asks for no paint");
+    view.swipe_trail.clear();
+    compare.frame(view, "the swipe ends");
+    require(compare.incremental.animating(), "the path fades after the swipe");
+    compare.frame(view, "the path fades");
+    require(compare.incremental.rgba() != resting && compare.incremental.rgba() != idle,
+            "the fade is gradual");
+    for (int i = 0; i < 20; ++i) {
+        compare.frame(view, "the path fades out");
+    }
+    require(!compare.incremental.animating() && compare.incremental.rgba() == idle,
+            "a finished trail leaves nothing behind");
+    // A swipe that starts while the last one fades replaces it at once.
+    for (int i = 0; i <= 6; ++i) {
+        view.swipe_trail.emplace_back(from.x + 20 + 12 * i, from.y + 20);
+        compare.frame(view, "another swipe");
+    }
+    view.swipe_trail.clear();
+    compare.frame(view, "it ends");
+    for (int i = 0; i <= 6; ++i) {
+        view.swipe_trail.emplace_back(to.x + 20 - 12 * i, to.y + 30);
+        compare.frame(view, "the next swipe starts during the fade");
+    }
+    view.settings = true;
+    compare.frame(view, "Settings opens over a swipe");
+    view.settings = false;
+    view.swipe_trail.clear();
+    compare.frame(view, "back on the keys");
+    require(compare.incremental.rgba() == idle, "Settings ends a trail without a fade");
+}
 void straight_alpha() {
     const auto profiles = load_profiles({}, {});
     NullSink sink;
@@ -848,6 +916,7 @@ int main() {
         candidate_scrolling();
         handle_states();
         hover_fade();
+        swipe_trail();
         status_line();
         carried_row();
         const auto profiles = load_profiles({}, {});

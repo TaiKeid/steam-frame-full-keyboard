@@ -529,13 +529,20 @@ class PanelRenderer {
     bool status_scrolling_{};
     std::optional<double> status_scroll_end_;
     cairo_surface_t* surface_{};
-    // The swipe trail as an opaque layer, composited at 60% by every pass.
-    // Cairo strokes slightly differently under a clip, and re-stroking a
-    // growing path shifts its older antialiasing, so new segments are added
-    // to the layer without touching pixels already drawn.
+    // The swipe trail, in two layers that every pass copies. `trail_` holds the
+    // whole path as an opaque thin line, composited faintly: Cairo strokes
+    // slightly differently under a clip, and re-stroking a growing path
+    // shifts its older antialiasing, so new segments are added without
+    // touching pixels already drawn. `comet_` holds the path's last moments,
+    // redrawn while any piece of it is alive.
     cairo_surface_t* trail_{};
-    std::vector<std::pair<double, double>> trail_points_; // Already in the layer.
-    std::optional<Rect> trail_extent_;
+    cairo_surface_t* comet_{};
+    std::vector<std::pair<double, double>> trail_points_; // The laser's points, as the view gave them.
+    std::vector<double> trail_stamps_;                    // When each was first painted.
+    std::size_t trail_drawn_{}; // Smoothed points whose segments are in the path layer.
+    double trail_released_{-1}; // When the swipe ended; negative while it lasts.
+    double trail_fade_{1};      // How much of the path's opacity is left after the swipe.
+    std::optional<Rect> trail_extent_, comet_extent_;
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};
