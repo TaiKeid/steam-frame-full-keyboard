@@ -152,6 +152,10 @@ static int accept_keyboard(int server) {
         idle_pump();
         const int keyboard = accept(server, NULL, NULL);
         if (keyboard >= 0) {
+            // Room for the longest burst sent here without a pump in between (295 key packets): a
+            // default socket holds about 278, and a blocked send would hang the test.
+            const int room = 1 << 20;
+            setsockopt(keyboard, SOL_SOCKET, SO_SNDBUF, &room, sizeof room);
             unsigned char hello[16];
             uint32_t pid = 0;
             const bool said_hello = recv(keyboard, hello, sizeof hello, MSG_DONTWAIT) == 6 &&
