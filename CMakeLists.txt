@@ -391,6 +391,41 @@ configure_file(update/update_helper.py update/update_helper.py COPYONLY)
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dictation")
 configure_file(dictation/dictation_helper.py dictation/dictation_helper.py COPYONLY)
 include(CTest)
+# Steam Link typing: the library the Frame's streaming client loads in place of
+# libopenvr_api.so (stream/openvr_passthrough.c). It names that library as a
+# dependency without a path, so the client resolves its own copy; the package
+# check in scripts/package.sh holds it to that. A host build exists only for
+# the test, against a stand-in for the real library.
+if((CMAKE_CROSSCOMPILING AND FRAMEKEYBOARD_VR) OR (NOT CMAKE_CROSSCOMPILING AND BUILD_TESTING))
+    add_library(stream_passthrough MODULE stream/openvr_passthrough.c)
+    target_compile_options(stream_passthrough PRIVATE -Wall -Wextra)
+    target_compile_definitions(stream_passthrough PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+    # No OpenVR symbol is bound at link time: the wrapped call is looked up at
+    # run time and every other one has to resolve through this file's dependency.
+    target_link_options(stream_passthrough PRIVATE "LINKER:--no-as-needed")
+    set_target_properties(stream_passthrough PROPERTIES
+        PREFIX "" OUTPUT_NAME "framekeyboard-stream"
+        C_STANDARD 11 C_VISIBILITY_PRESET hidden
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stream"
+        SKIP_BUILD_RPATH TRUE)
+    if(CMAKE_CROSSCOMPILING)
+        target_link_libraries(stream_passthrough PRIVATE "${OPENVR_LIBRARY}")
+        install(TARGETS stream_passthrough LIBRARY DESTINATION lib/framekeyboard)
+    else()
+        add_library(stream_fake_openvr SHARED tests/stream_fake_openvr.c)
+        set_target_properties(stream_fake_openvr PROPERTIES OUTPUT_NAME "openvr_api" C_STANDARD 11
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stream")
+        target_link_libraries(stream_passthrough PRIVATE stream_fake_openvr)
+        # The library looks SDL's functions up in the program that loaded it.
+        add_executable(stream-passthrough-tests tests/stream_passthrough_tests.c)
+        set_target_properties(stream-passthrough-tests PROPERTIES ENABLE_EXPORTS TRUE C_STANDARD 11)
+        target_compile_options(stream-passthrough-tests PRIVATE -Wall -Wextra)
+        target_link_libraries(stream-passthrough-tests PRIVATE ${CMAKE_DL_LIBS})
+        add_dependencies(stream-passthrough-tests stream_passthrough)
+        add_test(NAME stream-passthrough COMMAND stream-passthrough-tests
+            "$<TARGET_FILE:stream_passthrough>" "$<TARGET_FILE:stream_fake_openvr>")
+    endif()
+endif()
 if(BUILD_TESTING)
     # LeakSanitizer accepts one suppression file; keep each filter's source separate.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

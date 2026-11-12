@@ -21,6 +21,11 @@ if grep -q -a -e 'Display key collision' -e 'Mark Anthy suggestions' "$package_d
 fi
 python3 tools/check_release_binary.py "$package_dir/bin/framekeyboard" \
     "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
+# The streaming client loads this library in place of its OpenVR library, so
+# a wrong dependency or a stray symbol would reach Steam's own process.
+stream_library="$package_dir/lib/framekeyboard/framekeyboard-stream.so"
+python3 tools/check_release_binary.py "$stream_library" "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
+python3 tools/check_stream_library.py "$stream_library"
 # The retained adapters are release assets even though their system dependencies
 # are optional at runtime. Check stripping and path hygiene for them too.
 for engine in libime mcbopomofo hangul; do

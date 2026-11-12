@@ -1,0 +1,655 @@
+// Pass-through OpenVR library for the Steam Link streaming client on the Frame.
+//
+// The streaming client is an SDL program that shows the stream through SDL's OpenVR video driver. That
+// driver keeps only the first byte of each character SteamVR's keyboard sends, so nothing but ASCII
+// reaches the PC, although the client and its protocol carry any text. This library gives Full Keyboard
+// its own way in.
+//
+// SDL loads this file instead of libopenvr_api.so when the SDL_OPENVR_LIBRARY environment variable names
+// it. The real library is a link-time dependency (DT_NEEDED), so:
+//   - every OpenVR symbol SDL asks for, except VR_GetGenericInterface, resolves straight to the real
+//   library;
+//   - if the real library cannot be found, loading this file fails as a whole, exactly as stock would
+//   fail.
+//
+// The one wrapped call hands SDL a copy of the overlay function table whose PollNextOverlayEvent is
+// ours. It returns every event untouched and, once per event pump, types what Full Keyboard sent over a
+// private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
+// other keyboard keep their stock behaviour.
+//
+// Nothing here stores or logs typed text: the log has only lengths and classes.
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+
+// The interface SDL's driver requests at the revision Steam ships (SDL 3.4.0+1576 and +1616,
+// openvr_capi.h). Any other version string is returned unwrapped, because the table layout below is only
+// known for this one.
+#define FK_OVERLAY_TABLE "FnTable:IVROverlay_026"
+#define FK_SOCKET_NAME "framekeyboard-stream.sock"
+// Temporary diagnostics, to be removed with the bridge's trace: metadata only, a few hundred lines a
+// process.
+#define FK_LOG_NAME "framekeyboard-stream-library.log"
+#ifndef FRAMEKEYBOARD_VERSION
+#define FRAMEKEYBOARD_VERSION "development"
+#endif
+
+enum {
+    kOverlayFunctions = 82,     // function pointers in VR_IVROverlay_FnTable for IVROverlay_026
+    kPollNextOverlayEvent = 48, // its slot in that table
+    kMouseButtonDown = 301,     // EVREventType_VREvent_MouseButtonDown, the first field of VREvent_t
+    kSdlTextInput = 0x303,      // SDL_EVENT_TEXT_INPUT
+    kSdlKeyDown = 0x300,        // SDL_EVENT_KEY_DOWN
+    kSdlKeyUp = 0x301,          // SDL_EVENT_KEY_UP
+    kSdlEventBytes = 128,       // sizeof(SDL_Event)
+    kTextSlots = 32,            // texts kept alive for events still in SDL's queue
+    kTextBytes = 2048,          // longest text sent as one message
+    kQueue = 2048,              // pending key events and texts, in typing order
+    kKeysPerCodePoint = 20,     // Ctrl+Shift+U (6 events), up to 6 hex digits (12), commit key (2)
+    kScancodes = 512,           // SDL_SCANCODE_COUNT
+    kScancodeA = 4,             // SDL scancodes are USB HID usages
+    kScancode1 = 30,
+    kScancode0 = 39,
+    kScancodeReturn = 40,
+    kScancodeBackspace = 42,
+    kScancodeTab = 43,
+    kScancodeSpace = 44,
+    kScancodeLeftCtrl = 224,
+    kScancodeLeftShift = 225,
+    kModLeftShift = 0x0001, // SDL_KMOD_LSHIFT
+    kModLeftCtrl = 0x0040,  // SDL_KMOD_LCTRL
+    kProtocol = 1,
+    kLogLines = 400,
+};
+
+typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
+typedef bool (*PollFn)(uint64_t overlay, void* event, uint32_t size);
+typedef bool (*PushEventFn)(void* event);
+typedef void* (*GetKeyboardFocusFn)(void);
+typedef uint32_t (*GetWindowIdFn)(void* window);
+
+typedef union {
+    struct { // SDL_TextInputEvent
+        uint32_t type;
+        uint32_t reserved;
+        uint64_t timestamp; // 0: SDL fills it in
+        uint32_t window_id;
+        const char* text; // must outlive the queued event; see text_slots
+    } text;
+    struct { // SDL_KeyboardEvent
+        uint32_t type;
+        uint32_t reserved;
+        uint64_t timestamp;
+        uint32_t window_id;
+        uint32_t which;
+        uint32_t scancode;
+        uint32_t key;
+        uint16_t mod;
+        uint16_t raw;
+        uint8_t down;
+        uint8_t repeat;
+    } key;
+    uint8_t padding[kSdlEventBytes];
+} SdlEvent;
+
+// One step of typing. A text owns its bytes until it is pushed.
+typedef struct {
+    char* text; // NULL for a key event
+    uint16_t length;
+    uint16_t scancode;
+    uint16_t mod; // modifier state the event reports, as a real keyboard's would
+    bool down;
+} Queued;
+
+static void* overlay_table[kOverlayFunctions];
+static PollFn real_poll;
+static char text_slots[kTextSlots][kTextBytes];
+static unsigned next_text_slot;
+static char directory[400];
+
+static Queued queue[kQueue];
+static unsigned queue_head;
+static unsigned queue_count;
+static bool held[kScancodes]; // keys pushed down and not yet up, released when Full Keyboard goes away
+
+static int stream_socket = -1;
+static uint64_t next_connect_ms;
+
+static void fk_log(const char* format, ...) {
+    static int lines;
+    static int fd = -2;
+    if (lines >= kLogLines) {
+        return;
+    }
+    if (fd == -2) {
+        const char* runtime = getenv("XDG_RUNTIME_DIR");
+        char path[512];
+        fd = -1;
+        if (runtime && snprintf(path, sizeof path, "%s/" FK_LOG_NAME, runtime) < (int)sizeof path) {
+            fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+        }
+    }
+    if (fd < 0) {
+        return;
+    }
+    char line[256];
+    va_list arguments;
+    va_start(arguments, format);
+    int length = vsnprintf(line, sizeof line - 1, format, arguments);
+    va_end(arguments);
+    if (length <= 0) {
+        return;
+    }
+    if (length > (int)sizeof line - 2) {
+        length = (int)sizeof line - 2;
+    }
+    line[length++] = '\n';
+    if (write(fd, line, (size_t)length) < 0) {
+        fd = -1;
+    }
+    ++lines;
+}
+
+static bool switch_file(const char* name) {
+    char path[512];
+    return directory[0] != '\0' &&
+           snprintf(path, sizeof path, "%s/%s", directory, name) < (int)sizeof path &&
+           access(path, F_OK) == 0;
+}
+
+// Whole, well-formed UTF-8 only: a cut or malformed sequence is never typed.
+static bool valid_utf8(const unsigned char* bytes, size_t length) {
+    size_t i = 0;
+    while (i < length) {
+        const unsigned char lead = bytes[i];
+        size_t more;
+        uint32_t code;
+        if (lead < 0x80) {
+            more = 0;
+            code = lead;
+        } else if (lead >= 0xC2 && lead <= 0xDF) {
+            more = 1;
+            code = lead & 0x1F;
+        } else if (lead >= 0xE0 && lead <= 0xEF) {
+            more = 2;
+            code = lead & 0x0F;
+        } else if (lead >= 0xF0 && lead <= 0xF4) {
+            more = 3;
+            code = lead & 0x07;
+        } else {
+            return false;
+        }
+        if (i + more >= length) {
+            return false; // the continuation bytes would run past the text
+        }
+        for (size_t k = 1; k <= more; ++k) {
+            if ((bytes[i + k] & 0xC0) != 0x80) {
+                return false;
+            }
+            code = (code << 6) | (bytes[i + k] & 0x3F);
+        }
+        if ((more == 2 && code < 0x800) || (more == 3 && code < 0x10000) || code > 0x10FFFF ||
+            (code >= 0xD800 && code <= 0xDFFF)) {
+            return false;
+        }
+        i += more + 1;
+    }
+    return true;
+}
+
+static PushEventFn push_event;
+static GetKeyboardFocusFn keyboard_focus;
+static GetWindowIdFn window_id;
+
+static bool sdl_ready(void) {
+    static bool looked_up;
+    if (!looked_up) {
+        looked_up = true;
+        // SDL is a dependency of the program itself, so its public functions are in the global scope.
+        push_event = (PushEventFn)dlsym(RTLD_DEFAULT, "SDL_PushEvent");
+        keyboard_focus = (GetKeyboardFocusFn)dlsym(RTLD_DEFAULT, "SDL_GetKeyboardFocus");
+        window_id = (GetWindowIdFn)dlsym(RTLD_DEFAULT, "SDL_GetWindowID");
+        fk_log("sdl push=%d focus=%d id=%d", push_event != NULL, keyboard_focus != NULL,
+               window_id != NULL);
+    }
+    return push_event != NULL;
+}
+
+static uint32_t focused_window(void) {
+    void* focus = keyboard_focus ? keyboard_focus() : NULL;
+    return focus && window_id ? window_id(focus) : 0;
+}
+
+static bool push_text(const unsigned char* bytes, size_t length) {
+    if (!sdl_ready() || length == 0 || length >= kTextBytes) {
+        return false;
+    }
+    char* slot = text_slots[next_text_slot];
+    next_text_slot = (next_text_slot + 1) % kTextSlots;
+    memcpy(slot, bytes, length);
+    slot[length] = '\0';
+
+    SdlEvent event;
+    memset(&event, 0, sizeof event);
+    event.text.type = kSdlTextInput;
+    event.text.window_id = focused_window();
+    event.text.text = slot;
+    return push_event(&event);
+}
+
+static uint32_t keycode_for(unsigned scancode) {
+    if (scancode >= kScancodeA && scancode < kScancodeA + 26) {
+        return 'a' + (scancode - kScancodeA);
+    }
+    if (scancode >= kScancode1 && scancode < kScancode0) {
+        return '1' + (scancode - kScancode1);
+    }
+    switch (scancode) {
+    case kScancode0:
+        return '0';
+    case kScancodeReturn:
+        return '\r';
+    case kScancodeBackspace:
+        return '\b';
+    case kScancodeTab:
+        return '\t';
+    case kScancodeSpace:
+        return ' ';
+    default:
+        return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
+    }
+}
+
+static void push_key(unsigned scancode, unsigned mod, bool down) {
+    if (!sdl_ready() || scancode == 0 || scancode >= kScancodes) {
+        return;
+    }
+    SdlEvent event;
+    memset(&event, 0, sizeof event);
+    event.key.type = down ? kSdlKeyDown : kSdlKeyUp;
+    event.key.window_id = focused_window();
+    event.key.scancode = scancode;
+    event.key.key = keycode_for(scancode);
+    event.key.mod = (uint16_t)mod;
+    event.key.down = down;
+    push_event(&event);
+    held[scancode] = down;
+}
+
+static bool queue_has_room(unsigned items) {
+    return queue_count + items <= kQueue;
+}
+
+static void queue_key(unsigned scancode, unsigned mod, bool down) {
+    queue[(queue_head + queue_count++) % kQueue] =
+        (Queued){.text = NULL, .scancode = (uint16_t)scancode, .mod = (uint16_t)mod, .down = down};
+}
+
+static bool queue_text(const unsigned char* bytes, size_t length) {
+    char* copy = malloc(length);
+    if (!copy) {
+        return false;
+    }
+    memcpy(copy, bytes, length);
+    queue[(queue_head + queue_count++) % kQueue] = (Queued){.text = copy, .length = (uint16_t)length};
+    return true;
+}
+
+static void queue_tap(unsigned scancode, bool shift) {
+    const unsigned mod = shift ? kModLeftShift : 0;
+    if (shift) {
+        queue_key(kScancodeLeftShift, mod, true);
+    }
+    queue_key(scancode, mod, true);
+    queue_key(scancode, mod, false);
+    if (shift) {
+        queue_key(kScancodeLeftShift, 0, false);
+    }
+}
+
+// The key a US layout types an ASCII character with. The streaming client sends ASCII as key presses, as
+// Steam's own keyboard path does; it drops text events that begin with ASCII.
+static bool ascii_key(unsigned char c, unsigned* scancode, bool* shift) {
+    static const char plain[] = "-=[]\\\0;'`,./"; // scancodes 45.. ; 50 is unused on a US layout
+    static const char shifted[] = "_+{}|\0:\"~<>?";
+    static const char digits_shifted[] = "!@#$%^&*()";
+    *shift = false;
+    if (c >= 'a' && c <= 'z') {
+        *scancode = kScancodeA + (unsigned)(c - 'a');
+    } else if (c >= 'A' && c <= 'Z') {
+        *scancode = kScancodeA + (unsigned)(c - 'A');
+        *shift = true;
+    } else if (c >= '1' && c <= '9') {
+        *scancode = kScancode1 + (unsigned)(c - '1');
+    } else if (c == '0') {
+        *scancode = kScancode0;
+    } else if (c == ' ') {
+        *scancode = kScancodeSpace;
+    } else if (c == '\n' || c == '\r') {
+        *scancode = kScancodeReturn;
+    } else if (c == '\b') {
+        *scancode = kScancodeBackspace;
+    } else if (c == '\t') {
+        *scancode = kScancodeTab;
+    } else {
+        for (unsigned i = 0; i < 10; ++i) {
+            if (c == (unsigned char)digits_shifted[i]) {
+                *scancode = kScancode1 + i;
+                *shift = true;
+                return true;
+            }
+        }
+        for (unsigned i = 0; i < sizeof plain - 1; ++i) {
+            if (plain[i] != '\0' && c == (unsigned char)plain[i]) {
+                *scancode = 45 + i;
+                return true;
+            }
+            if (shifted[i] != '\0' && c == (unsigned char)shifted[i]) {
+                *scancode = 45 + i;
+                *shift = true;
+                return true;
+            }
+        }
+        return false;
+    }
+    return true;
+}
+
+// One character as the key presses a Linux desktop reads as Unicode entry: Ctrl+Shift+U, the code in
+// hex, Space.
+static void queue_code_point(uint32_t code) {
+    const unsigned ctrl = kModLeftCtrl;
+    const unsigned both = kModLeftCtrl | kModLeftShift;
+    const unsigned u = kScancodeA + ('u' - 'a');
+    queue_key(kScancodeLeftCtrl, ctrl, true);
+    queue_key(kScancodeLeftShift, both, true);
+    queue_key(u, both, true);
+    queue_key(u, both, false);
+    queue_key(kScancodeLeftShift, ctrl, false);
+    queue_key(kScancodeLeftCtrl, 0, false);
+    char hex[8];
+    const int digits = snprintf(hex, sizeof hex, "%x", (unsigned)code);
+    for (int i = 0; i < digits; ++i) {
+        unsigned scancode;
+        bool shift;
+        if (ascii_key((unsigned char)hex[i], &scancode, &shift)) {
+            queue_tap(scancode, false);
+        }
+    }
+    queue_tap(kScancodeSpace, false);
+}
+
+static size_t sequence_length(unsigned char lead) {
+    return lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+}
+
+// Queues validated UTF-8 in typing order: ASCII as key presses, everything else as text (or, with the
+// "unicode-keys" switch, as Unicode-entry key presses). False when the queue cannot take all of it.
+static bool queue_typing(const unsigned char* bytes, size_t length) {
+    const bool unicode_keys = switch_file("unicode-keys");
+    unsigned characters = 0;
+    for (size_t i = 0; i < length; ++i) {
+        characters += (bytes[i] & 0xC0) != 0x80;
+    }
+    if (!queue_has_room(characters * (unicode_keys ? kKeysPerCodePoint : 4))) {
+        return false;
+    }
+    size_t i = 0;
+    while (i < length) {
+        if (bytes[i] < 0x80) {
+            unsigned scancode;
+            bool shift;
+            if (ascii_key(bytes[i], &scancode, &shift)) {
+                queue_tap(scancode, shift);
+            }
+            ++i;
+            continue;
+        }
+        if (unicode_keys) {
+            const size_t more = sequence_length(bytes[i]) - 1;
+            uint32_t code = bytes[i] & (0x3F >> more);
+            for (size_t k = 1; k <= more; ++k) {
+                code = (code << 6) | (bytes[i + k] & 0x3F);
+            }
+            queue_code_point(code);
+            i += more + 1;
+            continue;
+        }
+        size_t end = i;
+        while (end < length && bytes[end] >= 0x80) {
+            end += sequence_length(bytes[end]);
+        }
+        if (!queue_text(bytes + i, end - i)) {
+            return false;
+        }
+        i = end;
+    }
+    return true;
+}
+
+// Types the next step: one text, or key events up to and including the next release, so a tap lands in
+// one pump and the PC sees typing paced a frame apart.
+static void pump_queue(void) {
+    while (queue_count != 0) {
+        Queued next = queue[queue_head];
+        queue_head = (queue_head + 1) % kQueue;
+        --queue_count;
+        if (next.text) {
+            push_text((const unsigned char*)next.text, next.length);
+            free(next.text);
+            return;
+        }
+        push_key(next.scancode, next.mod, next.down);
+        if (!next.down) {
+            return;
+        }
+    }
+}
+
+// Drops what is still queued and lets go of every key that is down: Full Keyboard went away or asked for
+// it.
+static void release_everything(const char* reason) {
+    unsigned dropped = queue_count;
+    while (queue_count != 0) {
+        free(queue[queue_head].text);
+        queue_head = (queue_head + 1) % kQueue;
+        --queue_count;
+    }
+    unsigned released = 0;
+    for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
+        if (held[scancode]) {
+            push_key(scancode, 0, false);
+            ++released;
+        }
+    }
+    fk_log("release reason=%s dropped=%u released=%u", reason, dropped, released);
+}
+
+static uint64_t now_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000);
+}
+
+static void stream_disconnect(const char* reason) {
+    if (stream_socket >= 0) {
+        close(stream_socket);
+        stream_socket = -1;
+        release_everything(reason);
+    }
+}
+
+// Full Keyboard listens; this side connects, at most once a second while there is nobody there.
+static void stream_connect(void) {
+    const uint64_t now = now_ms();
+    if (now < next_connect_ms) {
+        return;
+    }
+    next_connect_ms = now + 1000;
+    const char* runtime = getenv("XDG_RUNTIME_DIR");
+    struct sockaddr_un address = {.sun_family = AF_UNIX};
+    if (!runtime || snprintf(address.sun_path, sizeof address.sun_path, "%s/%s", runtime,
+                             FK_SOCKET_NAME) >= (int)sizeof address.sun_path) {
+        return;
+    }
+    const int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) {
+        return;
+    }
+    if (connect(fd, (const struct sockaddr*)&address, sizeof address) != 0) {
+        close(fd);
+        return;
+    }
+    // Only the same user's keyboard: the runtime directory is private to the user, and the peer must be
+    // too.
+    struct ucred peer;
+    socklen_t peer_size = sizeof peer;
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &peer_size) != 0 || peer.uid != getuid()) {
+        close(fd);
+        return;
+    }
+    const uint32_t pid = (uint32_t)getpid();
+    unsigned char hello[6] = {'H', kProtocol};
+    memcpy(hello + 2, &pid, sizeof pid);
+    if (send(fd, hello, sizeof hello, MSG_NOSIGNAL | MSG_DONTWAIT) != (ssize_t)sizeof hello) {
+        close(fd);
+        return;
+    }
+    stream_socket = fd;
+    fk_log("keyboard connected");
+}
+
+// Messages from Full Keyboard, one per packet:
+//   'T' text...                      a commit: UTF-8, typed in order
+//   'K' scancode:u16 mod:u16 down:u8  one key event (SDL scancode and modifier bits, little endian)
+//   'R'                               release every held key and drop what is queued
+static void stream_message(const unsigned char* message, size_t length) {
+    if (length >= 2 && message[0] == 'T') {
+        const bool valid = valid_utf8(message + 1, length - 1);
+        const bool queued = valid && queue_typing(message + 1, length - 1);
+        fk_log("keyboard text bytes=%zu valid=%d queued=%d", length - 1, valid, queued);
+    } else if (length == 6 && message[0] == 'K') {
+        uint16_t scancode;
+        uint16_t mod;
+        memcpy(&scancode, message + 1, sizeof scancode);
+        memcpy(&mod, message + 3, sizeof mod);
+        const bool room = queue_has_room(1) && scancode != 0 && scancode < kScancodes;
+        if (room) {
+            queue_key(scancode, mod, message[5] != 0);
+        }
+        fk_log("keyboard key down=%d queued=%d", message[5] != 0, room);
+    } else if (length == 1 && message[0] == 'R') {
+        release_everything("asked");
+    } else {
+        fk_log("keyboard message unknown bytes=%zu", length);
+    }
+}
+
+static void stream_tick(void) {
+    if (switch_file("off")) {
+        stream_disconnect("off");
+        return;
+    }
+    if (stream_socket < 0) {
+        stream_connect();
+    }
+    for (int i = 0; i < 32 && stream_socket >= 0; ++i) {
+        unsigned char message[kTextBytes];
+        const ssize_t length = recv(stream_socket, message, sizeof message, MSG_DONTWAIT);
+        if (length > 0) {
+            stream_message(message, (size_t)length);
+        } else if (length == 0) {
+            stream_disconnect("closed");
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+            break;
+        } else {
+            stream_disconnect("error");
+        }
+    }
+}
+
+static bool fk_poll(uint64_t overlay, void* event, uint32_t size) {
+    if (!real_poll(overlay, event, size)) {
+        // End of this pump: SDL has every real event. Now type the next step of ours.
+        stream_tick();
+        pump_queue();
+        return false;
+    }
+    uint32_t type;
+    if (size >= sizeof type && stream_socket >= 0) {
+        memcpy(&type, event, sizeof type);
+        if (type == kMouseButtonDown) {
+            // The user clicked the stream. Steam sends no keyboard request for that, so Full Keyboard
+            // is told: a panel that is already showing then types here.
+            send(stream_socket, "F", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+        }
+    }
+    return true; // every event reaches SDL as it came: other keyboards keep their stock behaviour
+}
+
+static GetGenericInterfaceFn real_get_generic_interface(void) {
+    static GetGenericInterfaceFn real;
+    if (!real) {
+        // Already loaded as this file's dependency; NOLOAD only fetches its handle.
+        void* library = dlopen("libopenvr_api.so", RTLD_NOW | RTLD_NOLOAD);
+        if (library) {
+            real = (GetGenericInterfaceFn)dlsym(library, "VR_GetGenericInterface");
+        }
+        fk_log("real library=%d function=%d", library != NULL, real != NULL);
+    }
+    return real;
+}
+
+__attribute__((visibility("default"))) intptr_t VR_GetGenericInterface(const char* version, int* error) {
+    const GetGenericInterfaceFn real = real_get_generic_interface();
+    if (!real) {
+        if (error) {
+            *error = 105; // VRInitError_Init_InterfaceNotFound
+        }
+        return 0;
+    }
+    const intptr_t table = real(version, error);
+    if (!table || !version || strcmp(version, FK_OVERLAY_TABLE) != 0) {
+        return table;
+    }
+    memcpy(overlay_table, (void* const*)table, sizeof overlay_table);
+    if (!overlay_table[kPollNextOverlayEvent]) {
+        return table;
+    }
+    real_poll = (PollFn)overlay_table[kPollNextOverlayEvent];
+    overlay_table[kPollNextOverlayEvent] = (void*)fk_poll;
+    fk_log("overlay table wrapped");
+    return (intptr_t)overlay_table;
+}
+
+__attribute__((constructor)) static void fk_loaded(void) {
+    // Switch files live next to this file: "off" (do nothing) and "unicode-keys" (type non-ASCII as
+    // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam).
+    Dl_info info;
+    if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
+        const char* slash = strrchr(info.dli_fname, '/');
+        if (slash && snprintf(directory, sizeof directory, "%.*s", (int)(slash - info.dli_fname),
+                              info.dli_fname) >= (int)sizeof directory) {
+            directory[0] = '\0';
+        }
+    }
+    char program[256] = "?";
+    const ssize_t read_bytes = readlink("/proc/self/exe", program, sizeof program - 1);
+    if (read_bytes > 0) {
+        program[read_bytes] = '\0';
+    }
+    const char* name = strrchr(program, '/');
+    fk_log("loaded version=%s pid=%d program=%s", FRAMEKEYBOARD_VERSION, (int)getpid(),
+           name ? name + 1 : program);
+}
