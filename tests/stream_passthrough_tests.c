@@ -384,9 +384,8 @@ int main(int argc, char** argv) {
         check(ctrl_up == 1 && y == 1 && c == 0,
               "Ctrl goes up, y is typed, C is neither pressed nor released");
     }
-    // The panel's Shift is held when typed text's own capital lets Shift go first, so the session's
-    // later release is skipped: the session no longer holds Shift, and a session's end in the next
-    // capital's Shift does not take a whole Shift+X tap for one that counts on a Shift let go of.
+    // The panel's Shift is held through a capital and then let go of. A session that ends inside the
+    // next capital's Shift keeps its whole Shift+X tap, typed with Shift (R228).
     key(keyboard, 225, 0x01, true);
     idle_pump();
     check(send(keyboard, "TA", 2, 0) == 2, "a capital");
@@ -437,6 +436,29 @@ int main(int argc, char** argv) {
         }
         check(z == 1 && shift_up == 1 && !shift_down,
               "Z is typed with Shift still down; Shift comes up once");
+    }
+    // A key the session holds that typed text types too comes up first, so the text's own press of it
+    // is a press: a line break lands while Enter is held (R243).
+    key(keyboard, 40, 0, true);
+    pushed_count = 0;
+    check(idle_pump() && pushed_count == 1 && is_key(0, 40, 0, 1), "Enter held");
+    check(send(keyboard, "Ta\nb", 4, 0) == 4, "text with a line break");
+    key(keyboard, 40, 0, false);
+    {
+        unsigned presses = 0, b = 0;
+        bool enter_down = true;
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        for (int k = 1; k < pushed_count; ++k) {
+            if (pushed[k].scancode == 40) {
+                presses += pushed[k].down && !enter_down;
+                enter_down = pushed[k].down;
+            }
+            b += pushed[k].scancode == 5 && pushed[k].down;
+        }
+        check(presses == 1 && b == 1 && !enter_down,
+              "the line break's Enter goes down anew, b follows, and Enter ends up");
     }
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the

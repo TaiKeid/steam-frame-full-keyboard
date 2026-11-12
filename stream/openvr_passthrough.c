@@ -424,6 +424,30 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
     return true;
 }
 
+// The SDL_KMOD bit a modifier key sets, 0 for any other key.
+static unsigned modifier_bit(unsigned scancode) {
+    switch (scancode) {
+    case 224:
+        return 0x0040; // left Ctrl
+    case 225:
+        return 0x0001; // left Shift
+    case 226:
+        return 0x0100; // left Alt
+    case 227:
+        return 0x0400; // left GUI
+    case 228:
+        return 0x0080; // right Ctrl
+    case 229:
+        return 0x0002; // right Shift
+    case 230:
+        return 0x0200; // right Alt
+    case 231:
+        return 0x0800; // right GUI
+    default:
+        return 0;
+    }
+}
+
 // Types the next step: one text, or key events up to and including the next release, so a tap lands in
 // one pump and the PC sees typing paced a frame apart.
 static void pump_queue(void) {
@@ -436,16 +460,23 @@ static void pump_queue(void) {
             free(next.text);
             return;
         }
-        if (next.typed && session_held[next.scancode]) {
-            // Typed text's own tap of a key the session holds down, such as a capital's Shift while
-            // the panel's Shift is held: the key stays down for the session, whose own release comes
-            // later, so later presses counting on it still have it (R241).
-            if (!next.down) {
-                return; // the step ends where the release would have ended it
+        if (next.typed) {
+            if (modifier_bit(next.scancode) && session_held[next.scancode] && held[next.scancode]) {
+                // Typed text's own tap of a modifier the session holds down, such as a capital's Shift
+                // while the panel's Shift is held: the modifier stays down for the session, whose own
+                // release comes later, so later presses counting on it still have it (R241).
+                if (!next.down) {
+                    return; // the step ends where the release would have ended it
+                }
+                continue;
             }
-            continue;
-        }
-        if (!next.typed && !next.down && !held[next.scancode]) {
+            if (next.down && held[next.scancode]) {
+                // Any other key the session holds, such as Enter while text with a line break
+                // lands, comes up first, so the typed press is a press; the session's own release
+                // then finds it up (R243).
+                push_key(next.scancode, next.mod, false);
+            }
+        } else if (!next.down && !held[next.scancode]) {
             // A release of the session's for a key the PC does not have down: its press was dropped,
             // or typed text let go of it first, so a key-up would be the only thing the PC sees of it
             // (R221). The session no longer holds it either (R228).
@@ -478,30 +509,6 @@ static void release_everything(void) {
     memset(session_held, 0, sizeof session_held);
     overflowed = false;
     dropped_mods = 0;
-}
-
-// The SDL_KMOD bit a modifier key sets, 0 for any other key.
-static unsigned modifier_bit(unsigned scancode) {
-    switch (scancode) {
-    case 224:
-        return 0x0040; // left Ctrl
-    case 225:
-        return 0x0001; // left Shift
-    case 226:
-        return 0x0100; // left Alt
-    case 227:
-        return 0x0400; // left GUI
-    case 228:
-        return 0x0080; // right Ctrl
-    case 229:
-        return 0x0002; // right Shift
-    case 230:
-        return 0x0200; // right Alt
-    case 231:
-        return 0x0800; // right GUI
-    default:
-        return 0;
-    }
 }
 
 // A typing session ended ('R'): what was sent into the stream is still typed, in order, the session's
