@@ -675,9 +675,10 @@ static void stream_message(const unsigned char* message, size_t length) {
                 }
             }
             if (last == queue_count) {
+                // Whether or not the PC still has it down, the session no longer holds it (R236).
+                session_held[scancode] = false;
                 if (held[scancode]) {
                     push_key(scancode, 0, false);
-                    session_held[scancode] = false;
                     cancel_presses_with(bit, 0, scancode);
                 }
             } else if (queue[(queue_head + last) % kQueue].down) {
