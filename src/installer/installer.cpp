@@ -387,7 +387,10 @@ void Installer::activate(const Hit& hit) {
         break;
     }
     case Action::Restart:
-        restart_ = !restart_;
+        // Once Finish is pressed its choice is sent: the box can no longer change it.
+        if (!finish_pressed_) {
+            restart_ = !restart_;
+        }
         break;
     case Action::FinishWithout: {
         // The rest of the choices as they were; this one becomes No.
@@ -720,9 +723,10 @@ void Installer::segments(const Rect& r, Action action, int chosen, bool enabled)
     }
 }
 
-void Installer::checkbox(const Rect& r, Action action, const std::string& label, bool checked) {
+void Installer::checkbox(const Rect& r, Action action, const std::string& label, bool checked,
+                         bool enabled) {
     if (live_) {
-        hits_.push_back({r, action, 0, true});
+        hits_.push_back({r, action, 0, enabled});
     }
     // Pressed, the box and its label go down together, as a key does.
     const double down = held(action) ? press_travel : 0;
@@ -1389,7 +1393,7 @@ void Installer::paint_finish_page() {
         const auto label = tr("installer.finish.restart");
         const double width = std::min(stage.width - 48, text_width(label, 21) + 84);
         const Rect row{stage.x + (stage.width - width) / 2, stage.y + stage.height - 116, width, 52};
-        checkbox(row, Action::Restart, label, restart_);
+        checkbox(row, Action::Restart, label, restart_, !finish_pressed_);
         block(tr("installer.finish.restart.note"),
               {stage.x + 24, row.y + row.height + 8, stage.width - 48, 48}, 16, dim(),
               PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_CENTER);

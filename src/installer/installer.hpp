@@ -127,7 +127,8 @@ class Installer {
     // Disabled, they show the answer and take no presses.
     void segments(const Rect& r, Action action, int chosen, bool enabled = true);
     // A box with its label beside it, as Settings' switches say on or off.
-    void checkbox(const Rect& r, Action action, const std::string& label, bool checked);
+    void checkbox(const Rect& r, Action action, const std::string& label, bool checked,
+                  bool enabled = true);
     void spinner(double x, double y, double radius);
     // A small keycap with its side below, as on the keyboard, for the pictures.
     void key(const Rect& r, bool lit, double radius = 5);
