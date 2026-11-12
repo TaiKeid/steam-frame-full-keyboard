@@ -498,8 +498,9 @@ class PanelRenderer {
     std::pair<double, double> layout_point(const PanelView& view, double x, double y) const;
     bool animating() const { return animating_; }
     // The panel was hidden or shown: the next paint ends what was fading or
-    // trailing at once, so nothing from before shows up after a summon.
-    void settle() { settle_ = true; }
+    // trailing at once, so nothing from before shows up after a summon. The
+    // trail's layers go now, as nothing paints while the panel is hidden.
+    void settle();
     // Whether the swipe trail's layers are allocated; tests check they go.
     bool trail_layers() const { return trail_ || comet_; }
     // When an animation can next change a pixel: now for key presses, the

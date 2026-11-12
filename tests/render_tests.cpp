@@ -525,6 +525,7 @@ void swipe_trail() {
     view.swipe_trail.clear();
     compare.incremental.settle();
     compare.full.settle();
+    require(!compare.incremental.trail_layers(), "hidden, the trail's layers are freed at once");
     compare.frame(view, "shown again");
     require(compare.incremental.rgba() == idle && !compare.incremental.animating(),
             "a trail from before a hide is gone at once");

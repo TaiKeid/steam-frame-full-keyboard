@@ -2699,6 +2699,17 @@ PanelRenderer::PanelRenderer() {
         throw std::runtime_error("cannot allocate keyboard image");
     }
 }
+void PanelRenderer::settle() {
+    settle_ = true;
+    // The next paint forgets the trail, damaging where it was; its pixels
+    // need nothing kept until then.
+    for (auto* layer : {&trail_, &comet_}) {
+        if (*layer) {
+            cairo_surface_destroy(*layer);
+            *layer = nullptr;
+        }
+    }
+}
 PanelRenderer::~PanelRenderer() {
     if (trail_) {
         cairo_surface_destroy(trail_);
@@ -3129,13 +3140,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             if (!extent) {
                 return;
             }
-            auto* eraser = cairo_create(layer);
-            cairo_translate(eraser, 0, offset);
-            cairo_rectangle(eraser, extent->x, extent->y, extent->width, extent->height);
-            cairo_set_operator(eraser, CAIRO_OPERATOR_CLEAR);
-            cairo_fill(eraser);
-            cairo_destroy(eraser);
-            cairo_surface_flush(layer);
+            if (layer) { // settle() may have freed it already
+                auto* eraser = cairo_create(layer);
+                cairo_translate(eraser, 0, offset);
+                cairo_rectangle(eraser, extent->x, extent->y, extent->width, extent->height);
+                cairo_set_operator(eraser, CAIRO_OPERATOR_CLEAR);
+                cairo_fill(eraser);
+                cairo_destroy(eraser);
+                cairo_surface_flush(layer);
+            }
             touched(*extent);
             extent.reset();
         };
