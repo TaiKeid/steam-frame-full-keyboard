@@ -1155,6 +1155,7 @@ class Lifecycle(unittest.TestCase):
                 self.guard = guard
                 self.taken = False
                 self.refused = 0
+                self.request = 2  # Each new session has the next request number, as in the bridge.
 
             def evaluate(self, expression, timeout=.4, waiting=None):
                 if ".bridge.prepareExternal(" in expression:
@@ -1164,12 +1165,12 @@ class Lifecycle(unittest.TestCase):
                         assert self.guard.armed, "native may close only after independent recovery is armed"
                         self.taken = True
                 if ".bridge.step(" in expression or ".bridge.prepareExternal(" in expression:
-                    result = dict(version=1, request=2, open=True, eligible=self.taken, active=self.taken,
-                                  local=False, stream=self.taken)
+                    result = dict(version=1, request=self.request, open=True, eligible=self.taken,
+                                  active=self.taken, local=False, stream=self.taken)
                     if self.taken:
-                        result["external"] = dict(request=2, key=stream_key)
+                        result["external"] = dict(request=self.request, key=stream_key)
                     elif '"ready": true' in expression:
-                        result["externalCandidate"] = dict(request=2, key=stream_key, flags=13)
+                        result["externalCandidate"] = dict(request=self.request, key=stream_key, flags=13)
                     return result
                 return super().evaluate(expression, timeout)
 
@@ -1231,15 +1232,32 @@ class Lifecycle(unittest.TestCase):
                                  [b"K" + struct.pack("<HHB", *event)
                                   for event in ((225, 1, 1), (40, 1, 1), (40, 1, 0), (225, 0, 0))])
                 packet(op="key-up", request=2, id=3)
+                # Real key presses by Linux key code: Ctrl+C, a repeat, and an unknown code.
+                for code, value in ((29, 1), (46, 1), (46, 0), (29, 0), (30, 1), (30, 2), (30, 0), (600, 1)):
+                    packet(op="stream-key", request=2, code=code, value=value)
+                self.assertEqual([library.recv(64) for _ in range(8)],
+                                 [b"K" + struct.pack("<HHB", *event)
+                                  for event in ((224, 0x40, 1), (6, 0x40, 1), (6, 0x40, 0), (224, 0, 0),
+                                                (4, 0, 1), (4, 0, 0), (4, 0, 1), (4, 0, 0))])
+                # The session ends with Shift still down: the library is told to let go of everything.
+                packet(op="stream-key", request=2, code=42, value=1)
+                self.assertEqual(library.recv(64), b"K" + struct.pack("<HHB", 225, 1, 1))
+                client.request = 3
+                client.taken = False
+                frames_until(lambda: client.taken)
+                self.assertEqual(library.recv(64), b"R")
+                packet(op="frame", progress=4, ready=True, ack=3, sent=time.monotonic())
+                time.sleep(.1)
+                drain_states()
                 self.assertEqual(client.sent, [], "nothing typed into a stream goes through Steam")
-                packet(op="key", request=2, id=4, value=1, text="VKClose")
+                packet(op="key", request=3, id=4, value=1, text="VKClose")
                 self.assertTrue(self.receive(parent, "key-result")["ok"])
-                self.assertEqual(client.sent, [[2, "VKClose", True]], "only the close key reaches the bridge")
-                packet(op="key-up", request=2, id=4)
+                self.assertEqual(client.sent, [[3, "VKClose", True]], "only the close key reaches the bridge")
+                packet(op="key-up", request=3, id=4)
                 # The streaming client goes away: typing fails closed, so the app falls back to native.
                 library.close()
-                packet(op="frame", progress=3, ready=True, ack=2, sent=time.monotonic())
-                packet(op="text", request=2, id=5, text="b")
+                packet(op="frame", progress=5, ready=True, ack=3, sent=time.monotonic())
+                packet(op="text", request=3, id=5, text="b")
                 self.assertFalse(self.receive(parent, "text-result")["ok"])
             finally:
                 library.close()

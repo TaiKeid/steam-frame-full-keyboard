@@ -168,6 +168,11 @@ class NativeReplacement : public KeySink {
     bool paragraph_shift(int code) const;
     std::map<int, RemoteKey> remote_keys_;
     std::set<int> modifiers_, local_keys_;
+    // Keys held down in a streamed game, by Linux key code, with the request they were pressed for.
+    // The helper presses them on the PC through the streaming client and lets go of them itself
+    // when that session ends.
+    std::map<int, std::uint64_t> stream_keys_;
+    bool stream_key(std::uint64_t request, int code, int value);
 };
 
 // Keep panel dismissal separate from process lifetime. All visibility decisions use the

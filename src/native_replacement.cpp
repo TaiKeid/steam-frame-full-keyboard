@@ -569,6 +569,10 @@ bool NativeReplacement::take_unsupported_control() {
 NativeReplacement::ButtonPress NativeReplacement::take_button_press() {
     return std::exchange(button_, {});
 }
+bool NativeReplacement::stream_key(std::uint64_t request, int code, int value) {
+    return packet("{\"op\":\"stream-key\",\"request\":" + std::to_string(request) +
+                  ",\"code\":" + std::to_string(code) + ",\"value\":" + std::to_string(value) + "}");
+}
 bool NativeReplacement::paragraph_shift(int code) const {
     return remote_ && state_.active && state_.multiline &&
            (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT);
@@ -612,6 +616,27 @@ void NativeReplacement::send(int code, int value) {
     if (value == 0 && local_keys_.erase(code)) {
         modifiers_.erase(code);
         local_.send(code, value);
+        return;
+    }
+    // A streamed game takes real key presses, so every key and shortcut works there, unlike in a
+    // Steam field. A key goes up through the session it went down in, whatever is routed by then.
+    if (const auto pressed = stream_keys_.find(code); pressed != stream_keys_.end()) {
+        const auto request = pressed->second;
+        if (value == 0) {
+            stream_keys_.erase(pressed);
+            if (fd_ >= 0 && !stream_key(request, code, 0)) {
+                force_fallback_ = reset_ = true;
+            }
+        } else if (value == 2 && remote_ && state_.stream && state_.active &&
+                   state_.request == request) {
+            stream_key(request, code, 2);
+        }
+        return;
+    }
+    if (remote_ && state_.stream) {
+        if (value == 1 && state_.active && stream_key(state_.request, code, 1)) {
+            stream_keys_.emplace(code, state_.request);
+        }
         return;
     }
     if (is_modifier(code)) {
@@ -666,6 +691,12 @@ Delivery NativeReplacement::deliver_key(int code, int value) {
     if (!remote_) {
         send(code, value); // Retain route ownership for a later release during handoff.
         return Delivery::Success;
+    }
+    if (state_.stream) {
+        // The streaming client gives no answer per key, so a key that went out counts as delivered,
+        // as on the local route. Reporting it as failed would discard the rest of a shortcut.
+        send(code, value);
+        return value != 1 || stream_keys_.contains(code) ? Delivery::Success : Delivery::Failure;
     }
     if (native_id_) {
         if (native_code_ != code || native_value_ != value) {

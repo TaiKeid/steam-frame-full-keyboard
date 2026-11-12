@@ -123,6 +123,21 @@ STREAM_KEYS = {"Backspace": (42, False), "Enter": (40, False), "ShiftEnter": (40
                "ArrowUp": (82, False)}
 STREAM_LEFT_SHIFT = 225
 STREAM_MOD_LEFT_SHIFT = 0x0001
+# Linux key codes (the app's) to SDL scancodes (the streaming client's), for keys sent as real
+# presses. The two numberings are unrelated; a code missing here is not sent.
+STREAM_SCANCODES = {
+    1: 41, 2: 30, 3: 31, 4: 32, 5: 33, 6: 34, 7: 35, 8: 36, 9: 37, 10: 38, 11: 39, 12: 45, 13: 46, 14: 42,
+    15: 43, 16: 20, 17: 26, 18: 8, 19: 21, 20: 23, 21: 28, 22: 24, 23: 12, 24: 18, 25: 19, 26: 47, 27: 48,
+    28: 40, 29: 224, 30: 4, 31: 22, 32: 7, 33: 9, 34: 10, 35: 11, 36: 13, 37: 14, 38: 15, 39: 51, 40: 52,
+    41: 53, 42: 225, 43: 49, 44: 29, 45: 27, 46: 6, 47: 25, 48: 5, 49: 17, 50: 16, 51: 54, 52: 55, 53: 56,
+    54: 229, 55: 85, 56: 226, 57: 44, 58: 57, 59: 58, 60: 59, 61: 60, 62: 61, 63: 62, 64: 63, 65: 64,
+    66: 65, 67: 66, 68: 67, 69: 83, 70: 71, 71: 95, 72: 96, 73: 97, 74: 86, 75: 92, 76: 93, 77: 94, 78: 87,
+    79: 89, 80: 90, 81: 91, 82: 98, 83: 99, 86: 100, 87: 68, 88: 69, 96: 88, 97: 228, 98: 84, 99: 70,
+    100: 230, 102: 74, 103: 82, 104: 75, 105: 80, 106: 79, 107: 77, 108: 81, 109: 78, 110: 73, 111: 76,
+    119: 72, 125: 227, 126: 231, 127: 101}
+# SDL modifier bits of the modifier keys, by Linux key code: both Shifts, Ctrls, Alts and Metas.
+STREAM_MODIFIERS = {42: 0x0001, 54: 0x0002, 29: 0x0040, 97: 0x0080, 56: 0x0100, 100: 0x0200,
+                    125: 0x0400, 126: 0x0800}
 
 
 class StreamTrace:
@@ -162,6 +177,7 @@ class StreamChannel:
         self.client = None
         self.path = None
         self.clicked = False
+        self.modifiers = 0  # SDL modifier bits of the keys pressed with press()
         directory = directory or os.environ.get("XDG_RUNTIME_DIR")
         if not directory:
             return
@@ -186,6 +202,7 @@ class StreamChannel:
         return self.client is not None
 
     def _drop(self):
+        self.modifiers = 0
         if self.client is not None:
             self.client.close()
             self.client = None
@@ -264,6 +281,26 @@ class StreamChannel:
         if shift:
             events = [(STREAM_LEFT_SHIFT, mod, 1), *events, (STREAM_LEFT_SHIFT, 0, 0)]
         return all(self._send(b"K" + struct.pack("<HHB", *event)) for event in events)
+
+    def press(self, code, value):
+        """One real key event by Linux key code: 1 down, 0 up, 2 repeat. Unknown codes are skipped."""
+        scancode = STREAM_SCANCODES.get(code)
+        if scancode is None:
+            return True
+        bit = STREAM_MODIFIERS.get(code, 0)
+        if value == 1:
+            self.modifiers |= bit
+        elif value == 0:
+            self.modifiers &= ~bit
+        # A repeat is a fresh press: the client drops a second down of a key it holds.
+        events = [(scancode, self.modifiers, 0), (scancode, self.modifiers, 1)] if value == 2 else [
+            (scancode, self.modifiers, 1 if value else 0)]
+        return all(self._send(b"K" + struct.pack("<HHB", *event)) for event in events)
+
+    def release(self):
+        """Let go of every key pressed here: the session that held them is over."""
+        self.modifiers = 0
+        self._send(b"R")
 
     def close(self):
         self._drop()
@@ -811,6 +848,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             # No deletion after release, but the parent still
                             # needs completion for the repeat it submitted.
                             channel.send_result({"op": "key-result", "id": key_id, "ok": True})
+                elif operation == "stream-key":
+                    if (type(message.get("request")) is not int or type(message.get("code")) is not int or
+                            message.get("value") not in (0, 1, 2)):
+                        raise ValueError("invalid-stream-key")
+                    pending.append(message)
                 elif operation == "dismiss":
                     if type(message.get("request")) is not int:
                         raise ValueError("invalid-dismissal")
@@ -872,7 +914,13 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 message = pending.popleft()
                 operation = message["op"]
                 try:
-                    if operation == "dismiss":
+                    if operation == "stream-key":
+                        # A release goes out even after the session ended; a press only into it.
+                        ok = bool(stream) and (stream_request == message["request"] or message["value"] == 0) \
+                            and stream.press(message["code"], message["value"])
+                        if message["value"] == 0:
+                            ok = True  # A release that found no one has nothing left to undo.
+                    elif operation == "dismiss":
                         ok = evaluate(f"{reference}?.bridge.dismiss({message['request']}) === true",
                                       DELIVERY_TIMEOUT)
                         next_poll = 0
@@ -895,7 +943,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if diagnostics:
                     diagnostics.write(f"deliver op={operation} request={message['request']} "
                                       f"stream_request={stream_request} ok={ok is True}")
-                if operation != "dismiss":
+                if operation not in ("dismiss", "stream-key"):
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
                 if ok is not True:
@@ -970,7 +1018,10 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     next_poll = time.monotonic() + ACTIVE_POLL
                     continue
                 fallback_request = None
+                previous_stream = stream_request
                 stream_request = result.get("request") if result.get("stream") and result.get("active") else None
+                if stream and previous_stream is not None and stream_request != previous_stream:
+                    stream.release()  # Nothing stays held on the PC after its session.
                 state = {"op": "state", **result}
                 if not announced:
                     # The parent's startup deadline counts when this was sent,

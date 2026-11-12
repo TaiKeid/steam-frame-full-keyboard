@@ -133,6 +133,64 @@ void hidden_session_wakeup() {
     }
     close(pair[1]);
 }
+// A streamed game takes real key presses: every key and shortcut goes to the helper as a key
+// event by Linux key code, with no Steam-field notice, and never to the local input backend.
+void stream_keys() {
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "fixture socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        put(pair[1],
+            R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true,)"
+            R"("stream":true})");
+        replacement.poll(10);
+        replacement.route(true);
+        require(replacement.state().stream && replacement.state().active,
+                "a stream session is reported");
+        auto key = [](int code, int value, int request = 2) {
+            return "{\"op\":\"stream-key\",\"request\":" + std::to_string(request) +
+                   ",\"code\":" + std::to_string(code) + ",\"value\":" + std::to_string(value) + "}";
+        };
+        replacement.send(KEY_LEFTCTRL, 1);
+        replacement.send(KEY_C, 1);
+        replacement.send(KEY_C, 2);
+        replacement.send(KEY_C, 0);
+        replacement.send(KEY_LEFTCTRL, 0);
+        for (const auto& expected :
+             {key(KEY_LEFTCTRL, 1), key(KEY_C, 1), key(KEY_C, 2), key(KEY_C, 0), key(KEY_LEFTCTRL, 0)}) {
+            require(take(pair[1]) == expected,
+                    "a shortcut goes to the stream as real key events, in order");
+        }
+        // The output queue delivers a shortcut key by key and stops at the first failure, so each
+        // key that went out has to count as delivered.
+        require(replacement.deliver_key(KEY_LEFTSHIFT, 1) == Delivery::Success &&
+                    replacement.deliver_key(KEY_LEFT, 1) == Delivery::Success &&
+                    replacement.deliver_key(KEY_LEFT, 0) == Delivery::Success &&
+                    replacement.deliver_key(KEY_LEFTSHIFT, 0) == Delivery::Success,
+                "a queued shortcut is delivered whole");
+        for (const auto& expected :
+             {key(KEY_LEFTSHIFT, 1), key(KEY_LEFT, 1), key(KEY_LEFT, 0), key(KEY_LEFTSHIFT, 0)}) {
+            require(take(pair[1]) == expected, "and reaches the stream in order");
+        }
+        replacement.send(KEY_F5, 1);
+        require(take(pair[1]) == key(KEY_F5, 1), "any key goes to the stream");
+        // The session ends with the key still down: its release is still sent, to the old request.
+        put(pair[1],
+            R"({"op":"state","version":1,"request":3,"open":true,"eligible":true,"active":true})");
+        replacement.poll(10.1);
+        replacement.send(KEY_F5, 2);
+        replacement.send(KEY_F5, 0);
+        require(take(pair[1]) == key(KEY_F5, 0),
+                "a held key is released through the session it was pressed in");
+        char byte;
+        require(recv(pair[1], &byte, 1, MSG_DONTWAIT) < 0 && errno == EAGAIN,
+                "and it never repeats elsewhere");
+        require(local.keys.empty() && !replacement.take_unsupported_control(),
+                "stream keys never reach local input and raise no Steam-field notice");
+    }
+    close(pair[1]);
+}
 void transport() {
     Local local;
     int pair[2];
@@ -1526,6 +1584,7 @@ int main(int argc, char** argv) {
         update_shutdown();
         hidden_session_wakeup();
         transport();
+        stream_keys();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();
