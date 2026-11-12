@@ -1457,6 +1457,7 @@ class Lifecycle(unittest.TestCase):
             self.assertTrue(channel.text_failed and channel.connected(), "a text fails alone")
             self.assertFalse(channel.send_key("Enter"), "its Enter is refused")
             self.assertFalse(channel.press(30, 1), "and any press of the session")
+            self.assertFalse(channel.send_text("tail"), "and any later text of it")
             self.assertTrue(channel.connected(), "without hanging up")
             channel.release()
             self.assertFalse(channel.text_failed, "the session's end resets it")

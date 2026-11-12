@@ -318,6 +318,8 @@ class StreamChannel:
             return False
 
     def send_text(self, text):
+        if self.text_failed:
+            return False  # A later text alone would leave a hole where the failed one belongs.
         data = text.encode()
         ok = bool(data)
         while data and ok:
