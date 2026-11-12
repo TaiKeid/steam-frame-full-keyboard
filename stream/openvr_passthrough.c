@@ -457,22 +457,42 @@ static void release_everything(void) {
     overflowed = false;
 }
 
-// A typing session ended ('R'): what was committed into the stream is still typed, in order; the
-// session's own key events still queued are dropped, and the keys they hold down are let go of.
+// A typing session ended ('R'): what was sent into the stream is still typed, in order, the session's
+// own whole key taps included (a Backspace or Enter between two commits), so the PC gets what the panel
+// showed. A press of the session's that no queued release follows is dropped, and a key it holds down
+// with no release queued is let go of now; one whose release is queued comes up in its turn.
 static void end_session(void) {
+    static bool keep[kQueue];
+    bool released[kScancodes]; // a release is queued that no later press of the key has used
+    memset(released, 0, sizeof released);
+    for (unsigned i = queue_count; i-- > 0;) {
+        const Queued* item = &queue[(queue_head + i) % kQueue];
+        keep[i] = true;
+        if (item->typed) {
+            continue;
+        }
+        if (!item->down) {
+            released[item->scancode] = true;
+        } else if (released[item->scancode]) {
+            released[item->scancode] = false; // a whole tap
+        } else {
+            keep[i] = false; // nothing would let it go
+        }
+    }
     unsigned kept = 0;
     for (unsigned i = 0; i < queue_count; ++i) {
         const Queued item = queue[(queue_head + i) % kQueue];
-        if (item.typed) {
+        if (keep[i]) {
             queue[(queue_head + kept++) % kQueue] = item; // never ahead of what is read
         }
     }
     queue_count = kept;
     for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
-        if (session_held[scancode] && held[scancode]) {
+        // What is left in `released` is a release for a key already down.
+        if (session_held[scancode] && held[scancode] && !released[scancode]) {
             push_key(scancode, 0, false);
+            session_held[scancode] = false;
         }
-        session_held[scancode] = false;
     }
 }
 

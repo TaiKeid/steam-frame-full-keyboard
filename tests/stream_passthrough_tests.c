@@ -317,6 +317,20 @@ int main(int argc, char** argv) {
     check(idle_pump() && pushed_count == 4 && is_key(2, 5, 0, 1) && is_key(3, 5, 0, 0), "then b");
     check(idle_pump() && pushed_count == 6 && is_key(4, 6, 0, 1) && is_key(5, 6, 0, 0), "then c");
     check(idle_pump() && pushed_count == 6, "and not the session's Ctrl");
+    // A whole tap of the session's between two commits stays with them: "ab", Backspace, "c" arrives
+    // as typed, though the session ends before it is.
+    pushed_count = 0;
+    check(send(keyboard, "Tab", 3, 0) == 3, "a commit");
+    key(keyboard, 42, 0, true);
+    key(keyboard, 42, 0, false);
+    check(send(keyboard, "Tc", 2, 0) == 2, "another after a Backspace");
+    check(idle_pump() && pushed_count == 2 && is_key(0, 4, 0, 1), "a");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends");
+    check(idle_pump() && pushed_count == 4 && is_key(2, 5, 0, 1), "then b");
+    check(idle_pump() && pushed_count == 6 && is_key(4, 42, 0, 1) && is_key(5, 42, 0, 0),
+          "then Backspace");
+    check(idle_pump() && pushed_count == 8 && is_key(6, 6, 0, 1), "then c");
+    check(idle_pump() && pushed_count == 8, "and nothing else");
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
     // text is cut short, never missing a middle piece; a release still goes through.
