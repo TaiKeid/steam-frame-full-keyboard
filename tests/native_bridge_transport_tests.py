@@ -1442,8 +1442,9 @@ class Lifecycle(unittest.TestCase):
                 channel.close()
 
     def test_no_key_of_a_session_follows_a_text_that_failed(self):
-        # A client that stops reading: once a text finds no room, the session's keys are refused, so an
-        # Enter never arrives without its text; the session's end then hangs up and resets it.
+        # A client that stops reading: once a text finds no room, the session's keys and later texts are
+        # refused even after the client catches up, so an Enter never arrives without its text; the
+        # session's end resets it.
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
             channel = bridge.StreamChannel(directory, programs=None)
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
@@ -1455,9 +1456,18 @@ class Lifecycle(unittest.TestCase):
                 if not channel.send_text("x" * 2000):
                     break
             self.assertTrue(channel.text_failed and channel.connected(), "a text fails alone")
+            # The client catches up: there is room again, so only the refusal keeps the rest out.
+            library.setblocking(False)
+            try:
+                while True:
+                    library.recv(4096)
+            except BlockingIOError:
+                pass
             self.assertFalse(channel.send_key("Enter"), "its Enter is refused")
             self.assertFalse(channel.press(30, 1), "and any press of the session")
             self.assertFalse(channel.send_text("tail"), "and any later text of it")
+            with self.assertRaises(BlockingIOError, msg="nothing of them arrives"):
+                library.recv(4096)
             self.assertTrue(channel.connected(), "without hanging up")
             channel.release()
             self.assertFalse(channel.text_failed, "the session's end resets it")
