@@ -362,11 +362,15 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
     // Only when it is being turned off, or when the keyboard starts or
     // reloads: a save that leaves it off has nothing to change.
     if ((previous || refresh) && (fs::exists(paths.runtime, ignored) || steam_carries(paths))) {
+        // A mark that was there before, as a failed check leaves it, is not this call's to take back.
+        const bool marked = fs::exists(paths.runtime / "off", ignored);
         try {
             point_at_stock(paths);
         } catch (...) {
             if (previous) {
-                fs::remove(paths.runtime / "off", ignored); // The link is unchanged or Steam's.
+                if (!marked) {
+                    fs::remove(paths.runtime / "off", ignored); // The link is unchanged or Steam's.
+                }
                 restore();
             }
             throw;

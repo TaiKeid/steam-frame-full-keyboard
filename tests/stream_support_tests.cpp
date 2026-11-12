@@ -199,6 +199,24 @@ int main() {
                     !fs::exists(paths.runtime / "off"),
                 "and leaves the loaded library typing, as the setting stays on");
         reload_fails = false;
+        // The reload works but Steam's library cannot be named (no home): the drop-in comes back,
+        // and a loaded library stays typing.
+        {
+            auto homeless = paths;
+            homeless.steam_library.clear();
+            const auto reloaded = reloads;
+            require(throws([&] { configure_stream_support(false, homeless, reload, run); }) &&
+                        read(drop_in) == contents && reloads == reloaded + 2,
+                    "a turn-off that cannot point at Steam's library puts the drop-in back");
+            require(fs::read_symlink(link) == "framekeyboard-stream.so" &&
+                        !fs::exists(paths.runtime / "off"),
+                    "and leaves the loaded library typing");
+            std::ofstream(paths.runtime / "off");
+            require(throws([&] { configure_stream_support(false, homeless, reload, run); }) &&
+                        fs::exists(paths.runtime / "off"),
+                    "a mark that was there before stays");
+            fs::remove(paths.runtime / "off");
+        }
 
         // Someone else's file under our name: never overwritten, never removed.
         std::ofstream(drop_in) << "[Service]\nEnvironment=MINE=1\n";
