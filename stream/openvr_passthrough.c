@@ -120,6 +120,9 @@ static bool session_held[kScancodes]; // of those, pressed by a session's own ke
 // A commit did not fit the queue: until it has drained, later commits and key presses are dropped as
 // well, so what arrives is cut short rather than missing a piece in the middle.
 static bool overflowed;
+// Modifiers whose press the queue could not take: a later press counting on one would reach the PC
+// without it, so it is dropped as well, until the modifier's release (R219).
+static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
@@ -455,6 +458,7 @@ static void release_everything(void) {
     }
     memset(session_held, 0, sizeof session_held);
     overflowed = false;
+    dropped_mods = 0;
 }
 
 // The SDL_KMOD bit a modifier key sets, 0 for any other key.
@@ -498,6 +502,7 @@ static void cancel_presses_with(unsigned bits, unsigned from) {
 // showed. A press of the session's that no queued release follows is dropped, and a key it holds down
 // with no release queued is let go of now; one whose release is queued comes up in its turn.
 static void end_session(void) {
+    dropped_mods = 0; // the next session starts with nothing pressed
     static bool keep[kQueue];
     bool released[kScancodes]; // a release is queued that no later press of the key has used
     memset(released, 0, sizeof released);
@@ -622,6 +627,14 @@ static void stream_message(const unsigned char* message, size_t length) {
         if (scancode == 0 || scancode >= kScancodes) {
             return;
         }
+        const unsigned bit = modifier_bit(scancode);
+        if (down && (mod & dropped_mods)) {
+            dropped_mods |= bit; // counts on a modifier the PC never got
+            return;
+        }
+        if (!down) {
+            dropped_mods &= ~bit;
+        }
         if (!down && !queue_has_room(1)) {
             // A release is never lost: with no room it goes at once, as a key held down must come up,
             // and a press of the key still waiting is cancelled, or it would be typed with no release.
@@ -644,6 +657,8 @@ static void stream_message(const unsigned char* message, size_t length) {
             }
         } else if ((!down || !overflowed) && queue_has_room(1)) {
             queue_key(scancode, mod, down, false);
+        } else if (down) {
+            dropped_mods |= bit; // a press the queue could not take
         }
     } else if (length == 1 && message[0] == 'R') {
         end_session();

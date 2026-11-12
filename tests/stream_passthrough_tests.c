@@ -455,6 +455,36 @@ int main(int argc, char** argv) {
         check(ctrl_up == 1 && y_down == 0, "Ctrl goes up at once and no Y is typed without it");
         key(keyboard, 26, 0, false);
         idle_pump();
+
+        // A Ctrl press the queue cannot take, while an overflow drains, is remembered: a C pressed with
+        // it after the queue has drained is not typed as plain C, and after Ctrl's release keys type
+        // again.
+        memset(big + 1, 'a', 2000);
+        for (int i = 0; i < 3; ++i) {
+            check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big, "a long commit");
+        }
+        key(keyboard, 224, 0x40, true); // dropped: the third commit overflowed
+        unsigned c_down = 0, ctrl_down = 0;
+        for (int i = 0; i < 4100; ++i) {
+            pushed_count = 0;
+            idle_pump();
+        }
+        key(keyboard, 6, 0x40, true);
+        key(keyboard, 6, 0x40, false);
+        key(keyboard, 224, 0, false);
+        key(keyboard, 6, 0, true);
+        key(keyboard, 6, 0, false);
+        pushed_count = 0;
+        for (int i = 0; i < 4; ++i) {
+            idle_pump();
+        }
+        for (int k = 0; k < pushed_count; ++k) {
+            c_down += pushed[k].scancode == 6 && pushed[k].down && pushed[k].mod == 0;
+            ctrl_down += pushed[k].scancode == 224 && pushed[k].down;
+            check(!(pushed[k].scancode == 6 && pushed[k].down && pushed[k].mod != 0),
+                  "no C with Ctrl's bit but no Ctrl");
+        }
+        check(c_down == 1 && ctrl_down == 0, "after Ctrl's release, a plain C types again");
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
