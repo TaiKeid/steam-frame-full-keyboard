@@ -481,6 +481,18 @@ static unsigned modifier_bit(unsigned scancode) {
     }
 }
 
+// Cancels the session's queued presses, from `from` on, that count on a modifier in `bits`: one the PC
+// will not have down when they come. A cancelled modifier press takes those counting on it along.
+static void cancel_presses_with(unsigned bits, unsigned from) {
+    for (unsigned k = from; bits && k < queue_count; ++k) {
+        Queued* item = &queue[(queue_head + k) % kQueue];
+        if (!item->typed && item->down && (item->mod & bits)) {
+            bits |= modifier_bit(item->scancode);
+            item->scancode = 0; // push_key skips it
+        }
+    }
+}
+
 // A typing session ended ('R'): what was sent into the stream is still typed, in order, the session's
 // own whole key taps included (a Backspace or Enter between two commits), so the PC gets what the panel
 // showed. A press of the session's that no queued release follows is dropped, and a key it holds down
@@ -616,6 +628,8 @@ static void stream_message(const unsigned char* message, size_t length) {
             if (held[scancode]) {
                 push_key(scancode, 0, false);
                 session_held[scancode] = false;
+                // A modifier let go of early takes the queued presses counting on it along (R218).
+                cancel_presses_with(modifier_bit(scancode), 0);
             }
             for (unsigned i = queue_count; i-- > 0;) {
                 Queued* item = &queue[(queue_head + i) % kQueue];
@@ -623,13 +637,7 @@ static void stream_message(const unsigned char* message, size_t length) {
                     if (item->down) {
                         item->scancode = 0; // push_key skips it
                         // A cancelled modifier takes the presses that count on it along (R210).
-                        const unsigned bit = modifier_bit(scancode);
-                        for (unsigned k = i + 1; bit && k < queue_count; ++k) {
-                            Queued* later = &queue[(queue_head + k) % kQueue];
-                            if (!later->typed && later->down && (later->mod & bit)) {
-                                later->scancode = 0;
-                            }
-                        }
+                        cancel_presses_with(modifier_bit(scancode), i + 1);
                     }
                     break;
                 }

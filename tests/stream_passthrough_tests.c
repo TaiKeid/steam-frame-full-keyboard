@@ -423,6 +423,38 @@ int main(int argc, char** argv) {
         key(keyboard, 26, 0, false); // let go of w again
         pushed_count = 0;
         check(idle_pump() && pushed_count == 1 && is_key(0, 26, 0, 0), "w released");
+
+        // Ctrl is down and Ctrl+Y taps wait behind a backlog when Ctrl's release finds no room: it goes
+        // at once, and the Y presses counting on it are cancelled, never typed as plain Y. The same
+        // batching as above puts Ctrl's release seventh in its pump's batch.
+        key(keyboard, 224, 0x40, true);
+        pushed_count = 0;
+        check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl down");
+        memset(big + 1, 'a', 2000);
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries behind it");
+        idle_pump();
+        for (int i = 0; i < 94; ++i) {
+            key(keyboard, 28, 0x40, true);
+            key(keyboard, 28, 0x40, false);
+        }
+        for (int i = 0; i < 106; ++i) {
+            key(keyboard, 26, 0, true);
+        }
+        key(keyboard, 224, 0, false);
+        unsigned y_down = 0, ctrl_up = 0;
+        for (int i = 0; i < 4200; ++i) {
+            pushed_count = 0;
+            idle_pump();
+            for (int k = 0; k < pushed_count; ++k) {
+                y_down += pushed[k].scancode == 28 && pushed[k].down;
+                ctrl_up += pushed[k].scancode == 224 && !pushed[k].down;
+            }
+        }
+        check(ctrl_up == 1 && y_down == 0, "Ctrl goes up at once and no Y is typed without it");
+        key(keyboard, 26, 0, false);
+        idle_pump();
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
