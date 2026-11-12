@@ -295,6 +295,9 @@ struct PanelView {
     // Keep open types into a window out of sight (its amber cue): a tooltip
     // above that button names it. Empty: none.
     std::string focus_tooltip;
+    // The toolbar icon button a laser is on: its label shows in the same
+    // place, above the case, while focus_tooltip is empty. Empty: none.
+    std::string hover_tooltip;
     // Typing was refused for want of a target: from this time the Focus mode
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};

@@ -12,6 +12,7 @@
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <pango/pango.h>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #if defined(__GLIBC__)
@@ -165,6 +166,14 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
         return {};
     }
     return [patience = options.mozc_patience] { return mozc_converter(anthy_converter, patience); };
+}
+// The toolbar's icon buttons, whose labels show in a tooltip while a laser
+// is on them. Buttons with words, such as the language's, need none.
+bool toolbar_icon_button(const Control& control) {
+    static const std::set<std::string, std::less<>> ids{
+        "settings",  "apply",        "reload",        "recenter",          "pin",  "passthrough",
+        "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle", "close"};
+    return control.icon != Icon::None && ids.contains(control.id);
 }
 // The Debug card and what it switches on: only in debug builds, and there
 // only with Options::debug. Release builds leave its code out.
@@ -1467,6 +1476,17 @@ PanelView App::build_view(bool picker) const {
             v.hovered_keys.insert(target.id);
         } else if (target.kind == HoverTarget::Kind::Control) {
             v.hovered_controls.insert(target.id);
+        }
+    }
+    // One tooltip at a time: with both lasers on the toolbar, the first
+    // button's. It goes as soon as the laser leaves, and the panel shows
+    // focus_tooltip instead while there is one.
+    if (v.modal_prefix().empty()) {
+        const auto hovered = std::find_if(v.controls.begin(), v.controls.end(), [&](const Control& c) {
+            return c.enabled && toolbar_icon_button(c) && v.hovered_controls.contains(c.id);
+        });
+        if (hovered != v.controls.end()) {
+            v.hover_tooltip = hovered->id;
         }
     }
     v.key_areas = key_areas(v);

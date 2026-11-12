@@ -1964,20 +1964,40 @@ void soft_shadow(cairo_t* cr, const Rect& r, double radius, double depth) {
         cairo_fill(cr);
     }
 }
-// Where the focus tooltip may lie: above the case, centred on the Keep open
-// button and kept on the panel. Its card is as wide as its text, up to this.
-constexpr double focus_tooltip_height = 46, focus_tooltip_pointer = 10;
-std::optional<Rect> focus_tooltip_area(const PanelView& view) {
-    if (view.focus_tooltip.empty() || view.settings) {
-        return {};
+// The tooltip above the case: Keep open's hidden window, or else the label
+// of the toolbar icon button a laser is on. Only one shows, so the two never
+// overlap; the hidden window's wins.
+struct ShownTooltip {
+    bool operator==(const ShownTooltip&) const = default;
+    std::string text;
+    Rect button; // the button it points at
+};
+std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
+    auto button = [&](std::string_view id) -> const Control* {
+        const auto found = std::find_if(view.controls.begin(), view.controls.end(),
+                                        [&](const Control& c) { return c.id == id; });
+        return found == view.controls.end() ? nullptr : &*found;
+    };
+    if (!view.focus_tooltip.empty() && !view.settings) {
+        if (const auto* keep = button("keep-open")) {
+            return ShownTooltip{view.focus_tooltip, keep->bounds};
+        }
     }
-    const auto button = std::find_if(view.controls.begin(), view.controls.end(),
-                                     [](const Control& c) { return c.id == "keep-open"; });
-    if (button == view.controls.end()) {
+    if (const auto* hovered = view.hover_tooltip.empty() ? nullptr : button(view.hover_tooltip);
+        hovered && !hovered->label.empty()) {
+        return ShownTooltip{hovered->label, hovered->bounds};
+    }
+    return {};
+}
+// Where the tooltip may lie: above the case, centred on its button and kept
+// on the panel. Its card is as wide as its text, up to this.
+constexpr double focus_tooltip_height = 46, focus_tooltip_pointer = 10;
+std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optional<ShownTooltip>& tip) {
+    if (!tip) {
         return {};
     }
     constexpr double width = 640;
-    const double centre = button->bounds.x + button->bounds.width / 2;
+    const double centre = tip->button.x + tip->button.width / 2;
     const double bottom = panel_case_bounds(view).y - 4; // the pointer's tip
     return Rect{std::clamp(centre - width / 2, 8.0, panel_width - 8 - width),
                 bottom - focus_tooltip_pointer - focus_tooltip_height, width,
@@ -1991,21 +2011,20 @@ constexpr double focus_tooltip_size = 21, focus_tooltip_pad = 18;
 double card_radius(const Theme& t) {
     return std::min(t.radius + 4, focus_tooltip_height / 2);
 }
-// The tooltip's card without its pointer: as wide as the title, centred on
+// The tooltip's card without its pointer: as wide as its text, centred on
 // the button, and wide enough for both corners and the pointer between them,
-// however short the title.
+// however short the text.
 std::optional<Rect> focus_tooltip_card(cairo_t* cr, const PanelView& view) {
-    const auto area = focus_tooltip_area(view);
+    const auto tip = shown_tooltip(view);
+    const auto area = focus_tooltip_area(view, tip);
     if (!area) {
         return {};
     }
-    const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
-                                       [](const Control& c) { return c.id == "keep-open"; });
-    const double ink = text_width(cr, view.focus_tooltip, focus_tooltip_size, view.interface_font);
+    const double ink = text_width(cr, tip->text, focus_tooltip_size, view.interface_font);
     const double radius = card_radius(*view.theme);
     const double least = std::min(area->width, 2 * (radius + focus_tooltip_pointer) + 8);
     const double width = std::clamp(ink + 2 * focus_tooltip_pad, least, area->width);
-    const double centre = button.bounds.x + button.bounds.width / 2;
+    const double centre = tip->button.x + tip->button.width / 2;
     return Rect{std::clamp(centre - width / 2, area->x, area->x + area->width - width), area->y, width,
                 focus_tooltip_height};
 }
@@ -2055,11 +2074,10 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
         return;
     }
     const auto& t = *view.theme;
-    const auto& button = *std::find_if(view.controls.begin(), view.controls.end(),
-                                       [](const Control& c) { return c.id == "keep-open"; });
+    const auto tooltip = shown_tooltip(view);
     const double radius = card_radius(t);
     const Rect card = *found;
-    const double centre = button.bounds.x + button.bounds.width / 2;
+    const double centre = tooltip->button.x + tooltip->button.width / 2;
     // The pointer stays clear of the card's rounded corners.
     const double tip = std::clamp(centre, card.x + radius + focus_tooltip_pointer,
                                   card.x + card.width - radius - focus_tooltip_pointer);
@@ -2086,7 +2104,7 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     cairo_stroke(cr);
     // label() sets text 4 px inside its area.
     interface_label(
-        cr, view.focus_tooltip,
+        cr, tooltip->text,
         {card.x + focus_tooltip_pad - 4, card.y, card.width - 2 * focus_tooltip_pad + 8, card.height},
         focus_tooltip_size, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
 }
@@ -2867,8 +2885,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->shift_locked != shift_locked || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.reading_room != view.reading_room ||
-        // The message card moves to clear the focus tooltip.
-        (!view.status.empty() && previous_->view.focus_tooltip != view.focus_tooltip) ||
+        // The message card moves to clear the tooltip.
+        (!view.status.empty() && shown_tooltip(previous_->view) != shown_tooltip(view)) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
         previous_->view.ime_room != view.ime_room || previous_->view.flick_latin != view.flick_latin ||
         previous_->view.flick_digits != view.flick_digits ||
@@ -3288,13 +3306,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             damage_area(pixel_bounds(*view.candidates->list, 6));
         }
     }
-    if (!full && (previous_->view.focus_tooltip != view.focus_tooltip ||
-                  (!view.focus_tooltip.empty() && previous_->view.controls != view.controls))) {
-        auto old = view;
-        old.focus_tooltip = previous_->view.focus_tooltip;
-        old.controls = previous_->view.controls;
-        for (const auto& bounds : {focus_tooltip_area(old), focus_tooltip_area(view)}) {
-            if (bounds) {
+    // A tooltip that comes, goes, or changes text or button repaints its old
+    // and new places above the case.
+    if (!full) {
+        const auto before = shown_tooltip(previous_->view), after = shown_tooltip(view);
+        for (const auto& bounds :
+             {focus_tooltip_area(previous_->view, before), focus_tooltip_area(view, after)}) {
+            if (bounds && before != after) {
                 // The card's shadow spreads a few pixels past it.
                 const double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
                 damage_area({left, top, std::ceil(bounds->x + bounds->width + 8) - left,
