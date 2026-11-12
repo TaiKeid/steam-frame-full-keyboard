@@ -21,11 +21,14 @@
 // Steam's start must never depend on this program. The drop-in ignores its exit status, bounds its time
 // and removes steam.env before it runs, so a missing or failing gate leaves Steam exactly as it comes.
 //
-//   framekeyboard-stream-gate start    before Steam starts: prepare, then write steam.env
-//   framekeyboard-stream-gate prepare  Streaming support was turned on while Steam already has the
-//   variable framekeyboard-stream-gate stock    turned off: point the link at Steam's own library
-//   framekeyboard-stream-gate check F R  whether F loads and binds R, Steam's library (used by the two
-//                                        above)
+// clang-format off
+//   framekeyboard-stream-gate start      before Steam starts: prepare, then write steam.env
+//   framekeyboard-stream-gate prepare    Streaming support was turned on while Steam already has the
+//                                        variable
+//   framekeyboard-stream-gate stock      turned off: point the link at Steam's own library
+//   framekeyboard-stream-gate check F R  whether F loads and binds R, Steam's library (used by the
+//                                        two above)
+// clang-format on
 //
 // Options, for tests: --runtime DIR, --library FILE, --steam DIR.
 #define _GNU_SOURCE
