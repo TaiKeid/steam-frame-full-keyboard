@@ -2959,6 +2959,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     } else {
         move_handle_ = {};
     }
+    // Hover fade, the swipe comet and the trail's fade step at 30 fps, as the
+    // mic key's bars do: they cover more keys than a press does, and each
+    // repaint uploads the whole texture. Starts are aligned to a step, so the
+    // first step after one always shows.
+    const double stepped = std::floor(now * 30) / 30;
     for (const auto& key : view.layout->keys) {
         if (covered_key(view, key)) {
             continue;
@@ -2994,14 +2999,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (lit != hover.target) {
             hover.from = hover.amount;
             hover.target = lit;
-            hover.started = now;
+            hover.started = stepped;
         }
         const double fade = lit > 0 || !view.hover_fade
                                 ? 1
-                                : std::clamp((now - hover.started) / hover_fade_seconds, 0.0, 1.0);
+                                : std::clamp((stepped - hover.started) / hover_fade_seconds, 0.0, 1.0);
         hover.amount = hover.from + (hover.target - hover.from) * handle_ease_out(fade);
-        animating_ |= !view.settings && fade < 1;
-        continuous |= !view.settings && fade < 1;
+        animating_ |= !view.settings && fade < 1; // Not continuous: see `stepped`.
         bool mic_changed = false;
         if (key.icon == Icon::Mic) {
             // The bars ease while a level is passing through.
@@ -3134,6 +3138,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const auto forget = [&] {
             erase(trail_, popup_margin, trail_extent_);
             erase(comet_, 0, comet_extent_);
+            comet_pieces_.clear();
+            comet_first_ = 0;
+            comet_step_ = -1;
             trail_points_.clear();
             trail_stamps_.clear();
             trail_drawn_ = 0;
@@ -3153,7 +3160,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_points_ = points;
             trail_stamps_.resize(points.size(), now); // New points are as old as this paint.
         } else if (!trail_points_.empty() && !fading) {
-            trail_released_ = now; // The swipe ended; its points are final.
+            trail_released_ = stepped; // The swipe ended; its points are final.
         }
         if (const std::size_t count = trail_points_.size(); count > 1) {
             // A tint of the latched colour. A theme with key edges keeps the
@@ -3200,13 +3207,23 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             // The comet: the pieces newer than its lifetime, each thinner and
             // fainter with age. Stamps never decrease, so they are the last ones.
-            erase(comet_, 0, comet_extent_);
+            // Ages count in 30 fps steps, as the mic key's bars do, so between
+            // steps only pieces whose points moved change.
             std::size_t first = count; // Piece i joins points i - 1 and i.
-            while (first > 1 && now - trail_stamps_[first - 1] < trail_comet_seconds) {
+            while (first > 1 && stepped - trail_stamps_[first - 1] < trail_comet_seconds) {
                 --first;
             }
             const bool alive = first < count;
-            if (alive) {
+            // Pieces drawn at the last paint: comet_first_ up to `drawn`.
+            const std::size_t drawn = comet_first_ + comet_pieces_.size();
+            const bool same_step = comet_extent_ && stepped == comet_step_ && first == comet_first_;
+            if (!alive || !same_step) {
+                erase(comet_, 0, comet_extent_);
+                comet_pieces_.clear();
+            }
+            comet_step_ = stepped;
+            comet_first_ = first;
+            if (alive && !(same_step && count == drawn)) {
                 if (!comet_) {
                     comet_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
                 }
@@ -3214,15 +3231,42 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 for (std::size_t i = first - 1; i < count; ++i) {
                     at.push_back(trail_point(trail_points_, i));
                 }
-                Rect extent = around(at[0], at[1], trail_glow_width / 2 + 2);
-                for (std::size_t i = 2; i < at.size(); ++i) {
-                    extent = joined(extent, around(at[i - 1], at[i], trail_glow_width / 2 + 2));
+                std::vector<Rect> pieces; // Each piece's reach, for piece first + k.
+                for (std::size_t k = 1; k < at.size(); ++k) {
+                    pieces.push_back(around(at[k - 1], at[k], trail_glow_width / 2 + 2));
+                }
+                Rect extent = pieces.front();
+                for (const auto& piece : pieces) {
+                    extent = joined(extent, piece);
+                }
+                // On a new step every piece ages, so the whole comet is redrawn.
+                // Within a step new points only move the smoothed points that
+                // reach them, the last `trail_smoothing` ones: only the pieces
+                // from there change, where they were and where they are now.
+                Rect area = extent;
+                if (same_step) {
+                    const std::size_t from = std::max(first, drawn - std::min(drawn, trail_smoothing));
+                    std::optional<Rect> moved;
+                    const auto add = [&](const Rect& r) { moved = moved ? joined(*moved, r) : r; };
+                    for (std::size_t i = from; i < drawn; ++i) {
+                        add(comet_pieces_[i - first]);
+                    }
+                    for (std::size_t i = from; i < count; ++i) {
+                        add(pieces[i - first]);
+                    }
+                    area = *moved; // count > drawn, so at least one new piece.
+                    auto* eraser = cairo_create(comet_);
+                    cairo_rectangle(eraser, area.x, area.y, area.width, area.height);
+                    cairo_set_operator(eraser, CAIRO_OPERATOR_CLEAR);
+                    cairo_fill(eraser);
+                    cairo_destroy(eraser);
                 }
                 auto* comet = cairo_create(comet_);
                 // Without a clip each group below would cover the whole layer,
                 // clearing and compositing every pixel of the panel per stroke
-                // set. The extent holds every stroke and is in whole pixels.
-                cairo_rectangle(comet, extent.x, extent.y, extent.width, extent.height);
+                // set. The area holds every changed stroke and is in whole
+                // pixels; outside it the layer keeps its pixels.
+                cairo_rectangle(comet, area.x, area.y, area.width, area.height);
                 cairo_clip(comet);
                 cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
                 // Each piece replaces what lies under it instead of adding to
@@ -3233,7 +3277,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_set_operator(comet, CAIRO_OPERATOR_SOURCE);
                     for (std::size_t i = first; i < count; ++i) {
                         const double left =
-                            std::clamp(1 - (now - trail_stamps_[i]) / trail_comet_seconds, 0.0, 1.0);
+                            std::clamp(1 - (stepped - trail_stamps_[i]) / trail_comet_seconds, 0.0, 1.0);
                         const double eased = left * left * (3 - 2 * left);
                         const auto& a = at[i - first];
                         const auto& b = at[i - first + 1];
@@ -3255,13 +3299,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_destroy(comet);
                 cairo_surface_flush(comet_);
                 comet_extent_ = extent;
-                touched(extent);
+                comet_pieces_ = std::move(pieces);
+                touched(area);
             }
-            // After the swipe the path fades out instead of vanishing.
+            // After the swipe the path fades out instead of vanishing, in the
+            // same 30 fps steps.
             const double fade =
                 trail_released_ < 0
                     ? 1
-                    : std::clamp(1 - (now - trail_released_) / trail_end_seconds, 0.0, 1.0);
+                    : std::clamp(1 - (stepped - trail_released_) / trail_end_seconds, 0.0, 1.0);
             if (fade != trail_fade_ && trail_extent_) {
                 touched(*trail_extent_);
             }

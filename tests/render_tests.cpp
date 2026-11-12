@@ -413,7 +413,12 @@ void hover_fade() {
             continue;
         }
         require(red() == lit && compare.incremental.animating(), "Hover fade starts from the lit key");
-        compare.frame(view, "the key dims");
+        require(compare.incremental.next_change() > compare.now,
+                "Hover fade steps at 30 fps instead of asking for every frame");
+        // The fade steps at 30 fps: three 60 Hz frames pass at least one step.
+        for (int i = 0; i < 3; ++i) {
+            compare.frame(view, "the key dims");
+        }
         const int between = red();
         require(between < lit && between > idle, "Hover fade dims a key step by step");
         for (int i = 0; i < 12; ++i) {
@@ -465,7 +470,10 @@ void swipe_trail() {
     view.swipe_trail.clear();
     compare.frame(view, "the swipe ends");
     require(compare.incremental.animating(), "the path fades after the swipe");
-    compare.frame(view, "the path fades");
+    // The fade steps at 30 fps: three 60 Hz frames pass at least one step.
+    for (int i = 0; i < 3; ++i) {
+        compare.frame(view, "the path fades");
+    }
     require(compare.incremental.rgba() != resting && compare.incremental.rgba() != idle,
             "the fade is gradual");
     for (int i = 0; i < 20; ++i) {

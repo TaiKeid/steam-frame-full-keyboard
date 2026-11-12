@@ -552,6 +552,12 @@ class PanelRenderer {
     double trail_released_{-1}; // When the swipe ended; negative while it lasts.
     double trail_fade_{1};      // How much of the path's opacity is left after the swipe.
     std::optional<Rect> trail_extent_, comet_extent_;
+    // The comet as last drawn: its 30 fps step, its oldest piece, and each
+    // piece's reach from there, so a frame within a step redraws only the
+    // pieces new points moved.
+    double comet_step_{-1};
+    std::size_t comet_first_{};
+    std::vector<Rect> comet_pieces_;
     std::vector<Rect> damage_;
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};
