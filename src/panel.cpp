@@ -3164,8 +3164,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_released_ = -1;
             trail_fade_ = 1;
         };
-        // With no trail left the layers go too, 10 MB together; a new swipe
-        // makes them again. A swipe that replaces another keeps them.
+        // The layers, 10 MB together, stay from swipe to swipe while the
+        // panel is in use: freed and made again for every word, they would be
+        // zeroed each time and might not return to the system (R198). They go
+        // under Settings and when the panel hides (settle()).
         const auto release_layers = [&] {
             for (auto* layer : {&trail_, &comet_}) {
                 if (*layer) {
@@ -3346,7 +3348,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_fade_ = fade;
             if (trail_released_ >= 0 && fade <= 0 && !alive) {
                 forget();
-                release_layers();
             } else if (alive || trail_released_ >= 0) {
                 // The comet and the fade step at 30 fps, as the mic key's bars
                 // do: they cover more keys than a pressed key does. A resting
