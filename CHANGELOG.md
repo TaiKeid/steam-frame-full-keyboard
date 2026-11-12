@@ -9,7 +9,7 @@
 - A key held down now sinks into shade, so a press reads apart from hover at a distance; on Neon it lights its tube, as before. It also lands a little faster and returns more softly.
 - The swipe trail looks calmer and livelier at once. The path you traced is now a thin, faint line, smoothed against the laser's tremble, so the letters under it stay readable; a brighter comet rides over its last moments, thinning and fading toward its tail; and when the swipe ends the path fades out instead of vanishing. On Neon the path is purple and the comet a cyan tube. Before, the trail was one thick grey line that struck through every legend it crossed.
 - The toolbar's icon buttons, and × at the right, now say what they do: a tooltip shows above the keyboard while the laser is on one and goes as soon as it leaves. The hidden window tooltip of Focus mode takes its place while it shows.
-- Added **Hover fade** to Settings → General, under Background, on by default: a key the laser leaves dims over a moment, a short trail behind the laser, instead of going dark at once. Turn it off to have keys go dark at once, as before. With the new row, Auto leveling is below the General card's fold until you scroll the card.
+- Added **Hover fade** to Settings → General, under Background, on by default: a key the laser leaves dims over a moment, a short trail behind the laser, instead of going dark at once. High Contrast keeps its keys lighting and going dark at once. Turn it off to have keys go dark at once, as before. With the new row, Auto leveling is below the General card's fold until you scroll the card.
 
 ## 0.17.0: Chinese, installer and more languages
 
