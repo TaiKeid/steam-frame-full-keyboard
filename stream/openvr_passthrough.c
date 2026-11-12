@@ -57,6 +57,8 @@ enum {
     kScancodeBackspace = 42,
     kScancodeTab = 43,
     kScancodeSpace = 44,
+    kScancodeSlash = 56,
+    kScancodeDelete = 76,
     kScancodeLeftCtrl = 224,
     kScancodeLeftShift = 225,
     kModLeftShift = 0x0001, // SDL_KMOD_LSHIFT
@@ -202,27 +204,23 @@ static bool push_text(const unsigned char* bytes, size_t length) {
     return push_event(&event);
 }
 
+// The key code SDL itself gives a scancode on a US layout (SDL_GetDefaultKeyFromScancode): the
+// character for keys that type one, Esc and Delete their control codes, and SDL_SCANCODE_TO_KEYCODE for
+// the rest. The client sends it to the PC beside the scancode.
 static uint32_t keycode_for(unsigned scancode) {
+    // SDL_SCANCODE_1 to SDL_SCANCODE_SLASH, in scancode order.
+    static const char symbols[] = "1234567890\r\x1b\b\t -=[]\\#;'`,./";
+    _Static_assert(sizeof symbols - 1 == kScancodeSlash - kScancode1 + 1, "one symbol per scancode");
     if (scancode >= kScancodeA && scancode < kScancodeA + 26) {
         return 'a' + (scancode - kScancodeA);
     }
-    if (scancode >= kScancode1 && scancode < kScancode0) {
-        return '1' + (scancode - kScancode1);
+    if (scancode >= kScancode1 && scancode < kScancode1 + sizeof symbols - 1) {
+        return (unsigned char)symbols[scancode - kScancode1];
     }
-    switch (scancode) {
-    case kScancode0:
-        return '0';
-    case kScancodeReturn:
-        return '\r';
-    case kScancodeBackspace:
-        return '\b';
-    case kScancodeTab:
-        return '\t';
-    case kScancodeSpace:
-        return ' ';
-    default:
-        return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
+    if (scancode == kScancodeDelete) {
+        return 0x7f;
     }
+    return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
 static void push_key(unsigned scancode, unsigned mod, bool down) {

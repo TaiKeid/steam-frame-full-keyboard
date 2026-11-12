@@ -51,6 +51,7 @@ typedef struct {
 typedef struct {
     char text[64];
     uint32_t scancode;
+    uint32_t key; // the SDL key code
     uint16_t mod;
     uint8_t down;
     uint32_t window_id;
@@ -74,6 +75,7 @@ bool SDL_PushEvent(void* event) {
     } else if (text->type == kSdlKeyDown || text->type == kSdlKeyUp) {
         const KeyEvent* key = event;
         entry->scancode = key->scancode;
+        entry->key = key->key;
         entry->mod = key->mod;
         entry->down = key->down;
         if ((key->type == kSdlKeyDown) != (key->down != 0)) {
@@ -289,6 +291,21 @@ int main(int argc, char** argv) {
     check(idle_pump() && pushed_count == 3 && is_key(2, 224, 0x40, 1), "Ctrl held");
     check(send(keyboard, "R", 1, 0) == 1 && idle_pump() && pushed_count == 4 && is_key(3, 224, 0, 0),
           "a release request lets go of it");
+    // Each key carries the key code SDL itself gives it on a US layout: a letter, a digit, Esc,
+    // punctuation, Delete, and F1, which types nothing.
+    const struct {
+        uint16_t scancode;
+        uint32_t key;
+    } codes[] = {{4, 'a'},   {39, '0'}, {41, 0x1b}, {45, '-'},  {49, '\\'},
+                 {52, '\''}, {55, '.'}, {56, '/'},  {76, 0x7f}, {58, 0x40000000u | 58}};
+    for (size_t i = 0; i < sizeof codes / sizeof codes[0]; ++i) {
+        pushed_count = 0;
+        key(keyboard, codes[i].scancode, 0, true);
+        key(keyboard, codes[i].scancode, 0, false);
+        check(idle_pump() && pushed_count == 2 && pushed[0].key == codes[i].key &&
+                  pushed[1].key == codes[i].key,
+              "SDL's own key code");
+    }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
     pushed_count = 0;
