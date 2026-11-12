@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <optional>
+#include <pwd.h>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -138,7 +139,13 @@ bool run_command(const std::vector<std::string>& command) {
     }
     arguments.push_back(nullptr);
     pid_t pid{};
-    if (posix_spawn(&pid, arguments[0], nullptr, nullptr, arguments.data(), environ) != 0) {
+    // The gate and its check get nothing of the keyboard's but the standard streams.
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addclosefrom_np(&actions, 3);
+    const int spawned = posix_spawn(&pid, arguments[0], &actions, nullptr, arguments.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (spawned != 0) {
         return false;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -163,6 +170,9 @@ bool run_command(const std::vector<std::string>& command) {
 // stream finds Steam's own library behind the link.
 void point_at_stock(const StreamSupportPaths& paths) {
     std::error_code error;
+    if (paths.steam_library.empty()) {
+        throw UiError(ui("streaming.off-failed"));
+    }
     fs::create_directories(paths.runtime, error);
     fs::remove(paths.runtime / "steam.env", error);
     const bool marked = static_cast<bool>(std::ofstream(paths.runtime / "off"));
@@ -209,13 +219,28 @@ bool supported(const StreamSupportPaths& paths) {
 }
 } // namespace
 
+namespace {
+// The user's home, from HOME or else the password database. Never a relative
+// path: Steam's library there is where the link leads while this is off.
+fs::path home_directory() {
+    if (const char* home = std::getenv("HOME"); home && home[0] == '/') {
+        return home;
+    }
+    if (const auto* entry = getpwuid(getuid()); entry && entry->pw_dir && entry->pw_dir[0] == '/') {
+        return entry->pw_dir;
+    }
+    return {};
+}
+} // namespace
 StreamSupportPaths stream_support_paths_in(const fs::path& root) {
     StreamSupportPaths paths;
     paths.unit_directory = default_config_dir().parent_path() / "systemd/user";
     paths.runtime = fs::path("/run/user") / std::to_string(getuid()) / "framekeyboard-stream";
-    const char* home = std::getenv("HOME");
-    paths.steam_library =
-        fs::path(home ? home : "") / ".local/share/Steam/steamrtarm64/libopenvr_api.so";
+    // Without a home there is no Steam library to name: unsupported, and
+    // turning it off fails rather than leave a relative link.
+    if (const auto home = home_directory(); !home.empty()) {
+        paths.steam_library = home / ".local/share/Steam/steamrtarm64/libopenvr_api.so";
+    }
     if (!root.empty()) {
         // Through `current`, so the drop-in outlives updates of the keyboard.
         paths.gate = root / "current/lib/framekeyboard/framekeyboard-stream-gate";
