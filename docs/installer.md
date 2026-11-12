@@ -19,7 +19,7 @@ A keyboard that is running, also as the Start with SteamOS service, is stopped b
 ```sh
 build/host/framekeyboard-installer --simulate --releases 0.18.0,0.17.0
 build/host/framekeyboard-installer --simulate --installed 0.16.0 --fail download
-build/host/framekeyboard-installer --simulate --language ja --tour /tmp/installer-tour
+build/host/framekeyboard-installer --simulate --releases 0.18.0 --language ja --tour /tmp/installer-tour
 ```
 
 `--installed` pretends a version is installed, `--fail` fails one task (`releases`, `download`, `install`, `uninstall`, `finish`, or `streaming` for Finish while Streaming support is chosen), `--streaming-active` pretends Steam already has Streaming support's setting so no restart is offered, `--speed` runs tasks faster, and `--tour DIR` saves every screen as PNG and exits: each page's picture at a telling moment, a page mid-turn, and controls with the laser on them and held down. A tour takes about twenty seconds, as the install is slowed to let the pictures play.
