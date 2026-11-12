@@ -3326,16 +3326,29 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_fill(eraser);
                     cairo_destroy(eraser);
                 }
+                // Only pieces whose reach meets `area` can change a pixel in it,
+                // so a partial redraw strokes just those (R216). The groups
+                // take the reach of the pieces drawn, which no stroke gets to
+                // the edge of, so each comes out exactly as in a whole redraw;
+                // only their compositing is limited to `area`, outside which
+                // the layer keeps its pixels. A clip at `area` itself would
+                // cut through pieces and shade their edges slightly
+                // differently (R199). Without a clip each group would cover
+                // the whole layer.
+                std::vector<char> drawn_piece(pieces.size(), 1);
+                Rect groups = extent;
+                if (same_step) {
+                    std::optional<Rect> reach;
+                    for (std::size_t k = 0; k < pieces.size(); ++k) {
+                        drawn_piece[k] = overlaps(pieces[k], area);
+                        if (drawn_piece[k]) {
+                            reach = reach ? joined(*reach, pieces[k]) : pieces[k];
+                        }
+                    }
+                    groups = reach.value_or(area); // the new pieces lie in `area`
+                }
                 auto* comet = cairo_create(comet_);
-                // Without a clip each group below would cover the whole layer,
-                // clearing and compositing every pixel of the panel per stroke
-                // set. The groups take the whole comet's extent, which no
-                // stroke reaches the edge of, so its pieces come out exactly
-                // as in a whole redraw; only their compositing is limited to
-                // `area`, outside which the layer keeps its pixels. A clip at
-                // `area` itself would cut through unchanged pieces and shade
-                // their edges slightly differently (R199).
-                cairo_rectangle(comet, extent.x, extent.y, extent.width, extent.height);
+                cairo_rectangle(comet, groups.x, groups.y, groups.width, groups.height);
                 cairo_clip(comet);
                 cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
                 // Each piece replaces what lies under it instead of adding to
@@ -3345,6 +3358,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_push_group(comet);
                     cairo_set_operator(comet, CAIRO_OPERATOR_SOURCE);
                     for (std::size_t i = first; i < count; ++i) {
+                        if (!drawn_piece[i - first]) {
+                            continue;
+                        }
                         const double left =
                             std::clamp(1 - (stepped - trail_stamps_[i]) / trail_comet_seconds, 0.0, 1.0);
                         const double eased = left * left * (3 - 2 * left);
