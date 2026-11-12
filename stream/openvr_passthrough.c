@@ -231,6 +231,8 @@ static uint32_t keycode_for(unsigned scancode) {
     return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
+// A key counts as down or up only once SDL has taken the event: a release it refuses is tried again at
+// the next clean-up (R249).
 static void push_key(unsigned scancode, unsigned mod, bool down) {
     if (!sdl_ready() || scancode == 0 || scancode >= kScancodes) {
         return;
@@ -243,8 +245,9 @@ static void push_key(unsigned scancode, unsigned mod, bool down) {
     event.key.key = keycode_for(scancode);
     event.key.mod = (uint16_t)mod;
     event.key.down = down;
-    push_event(&event);
-    held[scancode] = down;
+    if (push_event(&event)) {
+        held[scancode] = down;
+    }
 }
 
 static bool queue_has_room(unsigned items) {

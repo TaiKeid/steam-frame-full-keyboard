@@ -60,9 +60,13 @@ typedef struct {
 static Pushed pushed[128];
 static int pushed_count;
 static int failures;
+static bool refuse_events; // SDL refuses every event, as with a full event queue
 
 bool SDL_PushEvent(void* event) {
     const TextEvent* text = event;
+    if (refuse_events) {
+        return false;
+    }
     if (pushed_count >= 128) {
         ++failures;
         return false;
@@ -707,6 +711,24 @@ int main(int argc, char** argv) {
     check(idle_pump() && idle_pump(), "pumps after the keyboard closed");
     check(pushed_count == 2 && is_key(1, 224, 0, 0),
           "the held key is released and the queued text is dropped");
+
+    // 9. A release SDL refuses leaves the key counted as down, so the next clean-up lets go of it
+    // (R249).
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected after the keyboard closed");
+    pushed_count = 0;
+    key(keyboard, 224, 0x40, true);
+    check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl held once more");
+    refuse_events = true;
+    close(keyboard);
+    idle_pump();
+    refuse_events = false;
+    check(pushed_count == 1, "SDL refused Ctrl's release");
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected after the refusal");
+    close(keyboard);
+    idle_pump();
+    check(pushed_count == 2 && is_key(1, 224, 0, 0), "the next clean-up lets go of Ctrl");
 
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
