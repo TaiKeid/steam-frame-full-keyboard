@@ -1280,6 +1280,71 @@ class Lifecycle(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(directory, bridge.STREAM_SOCKET)),
                              "the helper removes its socket on exit")
 
+    def test_stream_click_cancels_the_window_guard_only_when_the_bridge_follows_it(self):
+        class ClickCDP(ExternalCDP):
+            def __init__(self, guard):
+                super().__init__(guard)
+                self.follow = False
+                self.clicks = 0
+
+            def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.step(" in expression and '"streamClick": true' in expression:
+                    self.clicks += 1
+                    if self.follow:
+                        self.stream = True
+                if getattr(self, "stream", False) and ".bridge.step(" in expression:
+                    return dict(version=1, request=3, open=True, eligible=True, active=True, local=False,
+                                stream=True, external=dict(request=3, key="steamlink_openvr-overlay"))
+                return super().evaluate(expression, timeout)
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            guard = FakeGuard()
+            client = ClickCDP(guard)
+            parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            parent.settimeout(1)
+            worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard),
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+            worker.start()
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+
+            def frames_until(condition):
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and not condition():
+                    parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=2, shown=True,
+                                                sent=time.monotonic())).encode())
+                    time.sleep(.03)
+                    parent.setblocking(False)
+                    try:
+                        while True:
+                            parent.recv(32768)
+                    except BlockingIOError:
+                        pass
+                    finally:
+                        parent.settimeout(1)
+                self.assertTrue(condition())
+
+            try:
+                frames_until(lambda: client.external and guard.armed)
+                library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+                library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+                # The bridge does not follow the click (Steam's keyboard was open, say): the window's
+                # session goes on, and so does its guard.
+                library.send(b"F")
+                frames_until(lambda: client.clicks == 1)
+                later = time.monotonic() + .2
+                frames_until(lambda: time.monotonic() >= later)
+                self.assertEqual((guard.armed, guard.cancelled), (True, 0))
+                # It follows the next one: typing is in the stream, and the window's guard goes.
+                client.follow = True
+                library.send(b"F")
+                frames_until(lambda: guard.cancelled == 1)
+                self.assertFalse(guard.armed)
+            finally:
+                library.close()
+                parent.close()
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
+
     def test_click_on_the_stream_is_reported_only_while_the_panel_shows(self):
         class ClickCDP(FakeCDP):
             def __init__(self):

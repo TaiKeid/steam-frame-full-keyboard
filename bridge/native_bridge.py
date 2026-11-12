@@ -737,6 +737,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # The stream session whose streaming client went away, reported once with the next poll.
         stream_gone = None
         gone_request = None
+        guarded_key = None  # the overlay the guard was last armed for
         panel_shown = False
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
@@ -947,13 +948,15 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                               "fallbackRequest": fallback_request, "shown": panel_shown,
                               "streamClick": stream_click, "streamGone": stream_gone}
                 try:
-                    if stream_click and guard and guard.armed:
-                        guard.cancel()  # Typing leaves the window the guard was armed for.
                     result = evaluate(f"{reference}?.bridge.step({json.dumps(poll_frame)})")
                     if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
                         raise BridgeUnavailable("steam-incompatible")
                     stream_click = False
                     stream_gone = None
+                    if guard and guard.armed and result.get("stream") and guarded_key != STREAM_KEY:
+                        # A click moved typing from the window the guard was armed for to the stream.
+                        # Only once the step says so: a click the bridge did not follow keeps the guard.
+                        guard.cancel()
                     if guard:
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
@@ -971,6 +974,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             guarded = ((candidate.get("key") != STREAM_KEY or
                                         bool(stream and stream.connected())) and
                                        guard.prepare(candidate, frame))
+                            if guarded:
+                                guarded_key = candidate.get("key")
                             result = evaluate(f"{reference}?.bridge.prepareExternal("
                                               f"{candidate['request']},{json.dumps(candidate['key'])},"
                                               f"{str(guarded).lower()})")
