@@ -242,10 +242,11 @@ class StreamChannel:
             self._drop()
 
     def service(self):
-        """Accept the newest streaming client and notice when the current one went away.
+        """Accept a newer stream's client and notice when the current one went away.
 
-        Each stream is a streaming client of its own, so a new one replaces the previous one: the
-        program check above, not who came first, decides who may type.
+        Each stream is a streaming client of its own. The program check decides who may connect at all;
+        among those, a client replaces the current one only if its process started later (_takes_over),
+        so a client from an earlier stream that reconnects does not take the channel back.
         """
         if self.listener is None:
             return
