@@ -93,7 +93,8 @@ def laser():
 def card(name, flat, with_laser):
     tilt(work / flat, work / f"{name}-tilt.png")
     dot = f'<tspan fill="{DOT}" dx="16">·</tspan>'
-    features = dot.join(f'<tspan{" dx=\"16\"" if k else ""}>{word}</tspan>' for k, word in enumerate(FEATURES))
+    gap = ' dx="16"'  # A backslash in an f-string's braces needs Python 3.12.
+    features = dot.join(f'<tspan{gap if k else ""}>{word}</tspan>' for k, word in enumerate(FEATURES))
     (work / f"{name}.svg").write_text(f"""<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{W}" height="{H}" viewBox="0 0 {W} {H}" font-family="'Noto Sans', sans-serif">
 <defs>
 <linearGradient id="back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b232c"/><stop offset="1" stop-color="#10161d"/></linearGradient>
