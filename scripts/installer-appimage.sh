@@ -7,6 +7,10 @@
 #   FRAMEKEYBOARD_SYSROOT           the stable Frame sysroot, as for packages
 #   FRAMEKEYBOARD_APPIMAGETOOL      appimagetool to pack with
 #   FRAMEKEYBOARD_APPIMAGE_RUNTIME  the aarch64 type2 runtime it puts in front
+#   FRAMEKEYBOARD_INSTALLER_LOCAL   1 for the test installer instead, which also
+#                                   offers release packages lying beside it
+#                                   (docs/installer.md#testing-unpublished-releases);
+#                                   never a release asset
 set -euo pipefail
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$project_dir"
@@ -38,10 +42,16 @@ done < <(readelf -d "$binary" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
 (( missing == 0 )) || exit 1
 
 out=out/installer
-appdir="$out/AppDir"
 # No version in the name: README buttons link to it through GitHub's
 # releases/latest/download redirect, which needs the same name every release.
-image="$out/Full_Keyboard_installer-aarch64.AppImage"
+name=Full_Keyboard_installer-aarch64.AppImage
+local_packages=${FRAMEKEYBOARD_INSTALLER_LOCAL:-}
+if [[ $local_packages == 1 ]]; then
+    out=out/installer-local
+    name=Full_Keyboard_installer-local-aarch64.AppImage
+fi
+appdir="$out/AppDir"
+image="$out/$name"
 rm -rf -- "$appdir"
 mkdir -p "$appdir/usr/bin" "$appdir/usr/share/framekeyboard/update" "$appdir/usr/share/doc/framekeyboard"
 llvm-strip -o "$appdir/usr/bin/framekeyboard-installer" "$binary"
@@ -50,7 +60,17 @@ install -m 644 LICENSE "$appdir/usr/share/doc/framekeyboard/"
 # The runtime in front of the image is the only code in it that isn't ours.
 install -D -m 644 third_party/appimage-runtime/LICENSE \
     "$appdir/usr/share/doc/framekeyboard/appimage-runtime/LICENSE"
-ln -s usr/bin/framekeyboard-installer "$appdir/AppRun"
+if [[ $local_packages == 1 ]]; then
+    # The runtime names the image in APPIMAGE: its folder holds the packages.
+    cat > "$appdir/AppRun" << 'APPRUN'
+#!/bin/sh
+here=$(dirname "$(readlink -f "$0")")
+exec "$here/usr/bin/framekeyboard-installer" --local-packages "$(dirname "${APPIMAGE:-$here}")" "$@"
+APPRUN
+    chmod 755 "$appdir/AppRun"
+else
+    ln -s usr/bin/framekeyboard-installer "$appdir/AppRun"
+fi
 cp scripts/installer-appimage/framekeyboard-installer.desktop \
     scripts/installer-appimage/framekeyboard-installer.svg "$appdir/"
 ln -s framekeyboard-installer.svg "$appdir/.DirIcon"

@@ -160,6 +160,68 @@ class Archives(unittest.TestCase):
                 u.validate(root, "9.0.0")
 
 
+class InstallerLocalPackages(unittest.TestCase):
+    """The test installer offers packages beside it and installs them from there."""
+
+    def events(self, call):
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            call()
+        return [json.loads(line) for line in output.getvalue().splitlines()]
+
+    def test_listed_with_github_and_without_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory)
+            for name in ("framekeyboard-9.1.0-aarch64.tar.gz", "framekeyboard-9.0.0-aarch64.tar.gz",
+                         "framekeyboard-0.1.0-aarch64.tar.gz", "framekeyboard-9.2.0-x86_64.tar.gz", "notes.txt"):
+                (local / name).write_bytes(b"x")
+            listed = json.dumps([metadata("9.0.0"), metadata("8.0.0")]).encode()
+            with patch.object(u, "read_url", return_value=listed):
+                found = self.events(lambda: u.installer_releases(u.version("1.0.0"), local))
+            self.assertEqual([r["version"] for r in found[-1]["releases"]], ["9.1.0", "9.0.0", "8.0.0"])
+            self.assertEqual(found[-1]["releases"][0]["tag"], "v9.1.0")
+            # Offline, the packages beside it are still offered; with none, the failure stands.
+            with patch.object(u, "read_url", side_effect=u.UpdateError("download-failed")):
+                found = self.events(lambda: u.installer_releases(u.version("1.0.0"), local))
+                self.assertEqual([r["version"] for r in found[-1]["releases"]], ["9.1.0", "9.0.0"])
+                with self.assertRaises(u.UpdateError):
+                    u.installer_releases(u.version("1.0.0"), None)
+
+    def test_installed_from_beside_it_and_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            local = root / "Downloads"
+            local.mkdir()
+            source = local / "framekeyboard-9.1.0-aarch64.tar.gz"
+            source.write_bytes(archive_bytes([member("framekeyboard-9.1.0-aarch64/bin/framekeyboard")]))
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            fetch = patch.object(u, "release", side_effect=AssertionError("asked GitHub"))
+            with fetch, patch("platform.machine", return_value="aarch64"), \
+                    patch.object(u, "validate") as validate:
+                # A SHA256SUMS beside it must list the package with its checksum.
+                (local / "SHA256SUMS").write_text("0" * 64 + "  " + source.name + "\n")
+                work = root / "work-1"
+                work.mkdir()
+                with self.assertRaises(u.UpdateError):
+                    self.events(lambda: u.installer_fetch("v9.1.0", work, local))
+                (local / "SHA256SUMS").write_text(digest + "  " + source.name + "\n")
+                work = root / "work-2"
+                work.mkdir()
+                found = self.events(lambda: u.installer_fetch("v9.1.0", work, local))
+                self.assertEqual(found[-1]["event"], "ready")
+                package = Path(found[-1]["package"])
+                self.assertTrue((package / "bin/framekeyboard").is_file())
+                validate.assert_called_once_with(package, "9.1.0")
+                self.assertFalse((work / "package.tar.gz").exists())
+                self.assertTrue(source.is_file(), "the package beside the installer stays")
+                # Without a SHA256SUMS the package is the user's own and goes unchecked.
+                (local / "SHA256SUMS").unlink()
+                work = root / "work-3"
+                work.mkdir()
+                self.assertEqual(self.events(lambda: u.installer_fetch("v9.1.0", work, local))[-1]["event"],
+                                 "ready")
+
+
 class Transaction(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

@@ -75,7 +75,9 @@ struct SimulatedOptions {
     bool streaming_active{};
 };
 std::unique_ptr<Backend> simulated_backend(SimulatedOptions options);
-// `helper` is update_helper.py.
-std::unique_ptr<Backend> system_backend(fs::path helper);
+// `helper` is update_helper.py. With `local_packages`, release packages in
+// that folder are offered too and installed from there (the test installer,
+// docs/installer.md#testing-unpublished-releases).
+std::unique_ptr<Backend> system_backend(fs::path helper, fs::path local_packages = {});
 
 } // namespace framekeyboard::installer

@@ -848,26 +848,87 @@ def report(event, **values):
     print(json.dumps(dict(event=event, **values)), flush=True)
 
 
-def installer_releases(oldest):
-    # One page of 100 is years of releases; older ones fall below `oldest` anyway.
-    listed = json.loads(read_url(API + "?per_page=100", 4 * 1024 * 1024))
-    if not isinstance(listed, list):
-        raise UpdateError("invalid-release")
+# The test installer (docs/installer.md#testing-unpublished-releases) also
+# offers packages lying in its own folder, under their release names, so a
+# release can be tried before it is uploaded. The release installer never
+# passes a folder.
+LOCAL_ARCHIVE = re.compile(r"framekeyboard-((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"
+                           r"-aarch64\.tar\.gz")
+
+
+def local_packages(directory):
     found = {}
-    for data in listed:
-        try:
-            selected = stable_release(data)
-        except UpdateError:
-            continue  # A draft, a prerelease or a release without its assets.
-        if selected["parts"] >= oldest:
-            found[selected["parts"]] = selected
+    if directory is None:
+        return found
+    try:
+        for entry in Path(directory).iterdir():
+            match = LOCAL_ARCHIVE.fullmatch(entry.name)
+            if match and entry.is_file():
+                found[version(match[1])] = entry
+    except OSError:
+        pass
+    return found
+
+
+def installer_releases(oldest, local=None):
+    packages = local_packages(local)
+    found = {}
+    try:
+        # One page of 100 is years of releases; older ones fall below `oldest` anyway.
+        listed = json.loads(read_url(API + "?per_page=100", 4 * 1024 * 1024))
+        if not isinstance(listed, list):
+            raise UpdateError("invalid-release")
+        for data in listed:
+            try:
+                selected = stable_release(data)
+            except UpdateError:
+                continue  # A draft, a prerelease or a release without its assets.
+            if selected["parts"] >= oldest:
+                found[selected["parts"]] = selected
+    except Exception:
+        if not packages:
+            raise  # Without packages of its own, the list is GitHub's or none.
+    for parts in packages:
+        if parts >= oldest and parts not in found:
+            number = ".".join(map(str, parts))
+            found[parts] = {"tag": "v" + number, "number": number}
     report("releases", releases=[{"tag": found[parts]["tag"], "version": found[parts]["number"]}
                                  for parts in sorted(found, reverse=True)])
 
 
-def installer_fetch(tag, destination):
+def fetch_local(source, destination, number):
+    """A package from the installer's own folder, checked against a SHA256SUMS
+    beside it when there is one, then unpacked and checked as a download is."""
+    archive = destination / "package.tar.gz"
+    total = source.stat().st_size
+    digest = hashlib.sha256()
+    with source.open("rb") as input, archive.open("wb") as output:
+        done = 0
+        while chunk := input.read(1 << 20):
+            output.write(chunk)
+            digest.update(chunk)
+            done += len(chunk)
+            report("download", done=done, total=total)
+    report("verify")
+    sums = source.parent / "SHA256SUMS"
+    if sums.is_file():
+        with sums.open("rb") as file:
+            expected = expected_checksum(file.read(65536), source.name)
+        if digest.hexdigest() != expected:
+            raise UpdateError("checksum-mismatch")
+    package = extract(archive, destination, number)
+    archive.unlink()
+    validate(package, number)
+    report("ready", package=str(package), version=number)
+
+
+def installer_fetch(tag, destination, local=None):
     if platform.machine() != "aarch64":
         raise UpdateError("wrong-platform")
+    packages = local_packages(local)
+    if version(tag) in packages:
+        fetch_local(packages[version(tag)], destination, ".".join(map(str, version(tag))))
+        return
     selected = release(tag)
     archive_asset = selected["assets"][selected["archive"]]
     sums = read_url(selected["assets"]["SHA256SUMS"]["browser_download_url"], 65536)
@@ -893,13 +954,16 @@ def installer_fetch(tag, destination):
 def installer_main(arguments):
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     try:
+        local = None
+        if arguments[-2:-1] == ["--local"]:
+            local, arguments = Path(arguments[-1]), arguments[:-2]
         if arguments[:1] == ["--installer-releases"] and len(arguments) == 2:
-            installer_releases(version(arguments[1]))
+            installer_releases(version(arguments[1]), local)
         elif arguments[:1] == ["--installer-fetch"] and len(arguments) == 3:
             destination = Path(arguments[2])
             if not destination.is_dir() or any(destination.iterdir()):
                 raise UpdateError("invalid-destination")
-            installer_fetch(arguments[1], destination)
+            installer_fetch(arguments[1], destination, local)
         else:
             return 2
     except Exception as error:  # Reported by reason only, as the updater does.

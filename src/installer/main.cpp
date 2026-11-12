@@ -33,7 +33,9 @@ void usage() {
         << "  --language TAG            Interface language instead of the system's\n"
         << "  --tour DIR                With --simulate: save each screen to DIR as PNG and exit\n"
         << "  --window-size WxH         With --tour: draw for a window of this shape\n"
-        << "  --helper FILE             update_helper.py to use\n";
+        << "  --helper FILE             update_helper.py to use\n"
+        << "  --local-packages DIR      Also offer release packages in DIR and install them\n"
+        << "                            from there (the test installer passes its folder)\n";
 }
 
 double now_seconds() {
@@ -210,7 +212,7 @@ int main(int argc, char** argv) {
         bool simulate = false;
         in::SimulatedOptions simulated;
         std::string language;
-        fk::fs::path tour_dir, helper;
+        fk::fs::path tour_dir, helper, local_packages;
         int window_width = in::Installer::width, window_height = in::Installer::height;
         for (int i = 1; i < argc; ++i) {
             const std::string argument = argv[i];
@@ -257,6 +259,8 @@ int main(int argc, char** argv) {
                 window_height = std::stoi(size.substr(x + 1));
             } else if (argument == "--helper") {
                 helper = value();
+            } else if (argument == "--local-packages") {
+                local_packages = value();
             } else {
                 usage();
                 return 1;
@@ -274,8 +278,9 @@ int main(int argc, char** argv) {
         localization.load({}, {});
         localization.choose(fk::system_language(home ? home : ""), language);
         const auto theme = fk::load_profiles({}, {}).themes.at("graphite");
-        auto backend = simulate ? in::simulated_backend(simulated)
-                                : in::system_backend(helper.empty() ? default_helper() : helper);
+        auto backend =
+            simulate ? in::simulated_backend(simulated)
+                     : in::system_backend(helper.empty() ? default_helper() : helper, local_packages);
         in::Installer installer(*backend, theme, localization);
         if (!tour_dir.empty()) {
             // As fit_window does: the canvas takes the window's shape.

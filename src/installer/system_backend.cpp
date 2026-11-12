@@ -228,7 +228,8 @@ std::string string_field(json_object* object, const char* name) {
 
 class SystemBackend : public Backend {
   public:
-    explicit SystemBackend(fs::path helper) : helper_(std::move(helper)) {}
+    SystemBackend(fs::path helper, fs::path local)
+        : helper_(std::move(helper)), local_(std::move(local)) {}
     ~SystemBackend() override {
         if (worker_.joinable()) {
             worker_.join();
@@ -243,7 +244,7 @@ class SystemBackend : public Backend {
             });
             std::vector<Release> found;
             std::string reason = "invalid-release";
-            run({"python3", "-I", helper_.string(), "--installer-releases", oldest_release},
+            run(with_local({"python3", "-I", helper_.string(), "--installer-releases", oldest_release}),
                 [&](const std::string& text) {
                     auto* event = json_tokener_parse(text.c_str());
                     if (!event) {
@@ -288,7 +289,8 @@ class SystemBackend : public Backend {
                 }
             } cleanup{work};
             std::string package, reason = "invalid-release";
-            run({"python3", "-I", helper_.string(), "--installer-fetch", release.tag, work.string()},
+            run(with_local({"python3", "-I", helper_.string(), "--installer-fetch", release.tag,
+                            work.string()}),
                 [&](const std::string& text) {
                     auto* event = json_tokener_parse(text.c_str());
                     if (!event) {
@@ -466,7 +468,15 @@ class SystemBackend : public Backend {
         });
     }
 
-    fs::path helper_;
+    // The helper's arguments, with the folder of local packages when there is one.
+    std::vector<std::string> with_local(std::vector<std::string> arguments) const {
+        if (!local_.empty()) {
+            arguments.insert(arguments.end(), {"--local", local_.string()});
+        }
+        return arguments;
+    }
+
+    fs::path helper_, local_;
     std::mutex mutex_;
     Status status_;
     std::thread worker_;
@@ -474,8 +484,8 @@ class SystemBackend : public Backend {
 
 } // namespace
 
-std::unique_ptr<Backend> system_backend(fs::path helper) {
-    return std::make_unique<SystemBackend>(std::move(helper));
+std::unique_ptr<Backend> system_backend(fs::path helper, fs::path local_packages) {
+    return std::make_unique<SystemBackend>(std::move(helper), std::move(local_packages));
 }
 
 } // namespace framekeyboard::installer
