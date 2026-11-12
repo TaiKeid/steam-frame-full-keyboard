@@ -435,7 +435,9 @@ static void pump_queue(void) {
         }
         if (!next.typed && !next.down && !held[next.scancode]) {
             // A release of the session's for a key the PC does not have down: its press was dropped
-            // or cancelled, so a key-up would be the only thing the PC sees of it (R221).
+            // or cancelled, or typed text let go of it first, so a key-up would be the only thing the
+            // PC sees of it (R221). The session no longer holds it either (R228).
+            session_held[next.scancode] = false;
             continue;
         }
         push_key(next.scancode, next.mod, next.down);

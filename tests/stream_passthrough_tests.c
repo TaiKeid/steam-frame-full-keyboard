@@ -380,6 +380,34 @@ int main(int argc, char** argv) {
         check(ctrl_up == 1 && y == 1 && c == 0,
               "Ctrl goes up, y is typed, C is neither pressed nor released");
     }
+    // The panel's Shift is held when typed text's own capital lets Shift go first, so the session's
+    // later release is skipped: the session no longer holds Shift, and a session's end in the next
+    // capital's Shift does not take a whole Shift+X tap for one that counts on a Shift let go of.
+    key(keyboard, 225, 0x01, true);
+    idle_pump();
+    check(send(keyboard, "TA", 2, 0) == 2, "a capital");
+    idle_pump();
+    idle_pump();
+    key(keyboard, 225, 0, false);
+    idle_pump();
+    check(send(keyboard, "TB", 2, 0) == 2, "another capital");
+    key(keyboard, 225, 0x01, true);
+    key(keyboard, 27, 0x01, true);
+    key(keyboard, 27, 0x01, false);
+    key(keyboard, 225, 0, false);
+    pushed_count = 0;
+    check(idle_pump() && pushed_count == 3 && is_key(1, 5, 0x01, 1), "B's Shift and B");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends in B's Shift");
+    {
+        unsigned x = 0;
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        for (int k = 0; k < pushed_count; ++k) {
+            x += pushed[k].scancode == 27 && pushed[k].down;
+        }
+        check(x == 1, "the session's Shift+X is typed");
+    }
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
     // text is cut short, never missing a middle piece; a release still goes through.
