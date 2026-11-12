@@ -1393,6 +1393,28 @@ class Lifecycle(unittest.TestCase):
             channel.close()
         self.assertIsNotNone(bridge.StreamChannel._started(os.getpid()), "this process's start is readable")
 
+    def test_no_key_of_a_session_follows_a_text_that_failed(self):
+        # A client that stops reading: once a text finds no room, the session's keys are refused, so an
+        # Enter never arrives without its text; the session's end then hangs up and resets it.
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            channel = bridge.StreamChannel(directory, programs=None)
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+            library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+            channel.service()
+            self.assertTrue(channel.connected())
+            for _ in range(5000):
+                if not channel.send_text("x" * 2000):
+                    break
+            self.assertTrue(channel.text_failed and channel.connected(), "a text fails alone")
+            self.assertFalse(channel.send_key("Enter"), "its Enter is refused")
+            self.assertFalse(channel.press(30, 1), "and any press of the session")
+            self.assertTrue(channel.connected(), "without hanging up")
+            channel.release()
+            self.assertFalse(channel.text_failed, "the session's end resets it")
+            library.close()
+            channel.close()
+
     def test_click_on_the_stream_is_reported_only_while_the_panel_shows(self):
         class ClickCDP(FakeCDP):
             def __init__(self):

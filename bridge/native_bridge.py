@@ -161,6 +161,8 @@ class StreamChannel:
         self.clicked = False
         self.modifiers = 0  # SDL modifier bits of the keys pressed with press()
         self.client_pid = None
+        # A text of this session found no room: its later keys must not arrive without it.
+        self.text_failed = False
         directory = directory or os.environ.get("XDG_RUNTIME_DIR")
         if not directory:
             return
@@ -274,6 +276,7 @@ class StreamChannel:
                 pass
             self.client = incoming
             self.client_pid = pid
+            self.text_failed = False
         self._read()
 
     def sockets(self):
@@ -323,12 +326,14 @@ class StreamChannel:
                 end -= 1  # Never cut inside a character.
             ok = self._send(b"T" + data[:end])
             data = data[end:]
+        if not ok:
+            self.text_failed = True
         return ok
 
     def send_key(self, name):
         key = STREAM_KEYS.get(name)
-        if key is None:
-            return False
+        if key is None or self.text_failed:
+            return False  # After a text that failed, no key of the session: no Enter without its text.
         scancode, shift = key
         mod = STREAM_MOD_LEFT_SHIFT if shift else 0
         events = [(scancode, mod, 1), (scancode, mod, 0)]
@@ -341,6 +346,8 @@ class StreamChannel:
         scancode = STREAM_SCANCODES.get(code)
         if scancode is None:
             return True
+        if value != 0 and self.text_failed:
+            return False  # After a text that failed, no press of the session; releases still go.
         bit = STREAM_MODIFIERS.get(code, 0)
         if value == 1:
             self.modifiers |= bit
@@ -354,6 +361,7 @@ class StreamChannel:
     def release(self):
         """Let go of every key pressed here: the session that held them is over."""
         self.modifiers = 0
+        self.text_failed = False
         self._send(b"R")
 
     def close(self):
