@@ -2993,7 +2993,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         animating_ |= !view.settings && progress < 1;
         continuous |= !view.settings && progress < 1;
         // The laser lights a key at once; with Hover fade the key dims
-        // slowly after it leaves, a short trail behind the laser.
+        // slowly after it leaves, a short trail behind the laser. A theme
+        // with key edges keeps its keys as they were: its edge under the
+        // laser is a line that can only be on or off (R181).
         auto& hover = hovers_[key.id];
         const double old_lift = hover.amount;
         const double lit =
@@ -3003,7 +3005,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             hover.target = lit;
             hover.started = stepped;
         }
-        const double fade = lit > 0 || !view.hover_fade || settling
+        const double fade = lit > 0 || !view.hover_fade || settling || plain_keys(t)
                                 ? 1
                                 : std::clamp((stepped - hover.started) / hover_fade_seconds, 0.0, 1.0);
         hover.amount = hover.from + (hover.target - hover.from) * handle_ease_out(fade);

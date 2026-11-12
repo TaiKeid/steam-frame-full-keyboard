@@ -435,6 +435,16 @@ void hover_fade() {
         compare.frame(view, "shown again");
         require(red() == idle && !compare.incremental.animating(), "a fade from before a hide is over");
     }
+    // High Contrast keeps its keys as they were: its edge under the laser is on or off, and so is the
+    // hover face, Hover fade or not.
+    view.theme = &profiles.themes.at("contrast");
+    view.hover_fade = true;
+    Comparison contrast;
+    view.hovered_keys = {key.id};
+    contrast.frame(view, "laser on a High Contrast key");
+    view.hovered_keys.clear();
+    contrast.frame(view, "laser left it");
+    require(!contrast.incremental.animating(), "a High Contrast key goes dark at once");
 }
 // The swipe trail: a quiet path that only grows, a comet over its last
 // moments, and a fade when the swipe ends. Every frame also paints the same
