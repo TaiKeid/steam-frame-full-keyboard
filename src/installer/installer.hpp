@@ -2,12 +2,13 @@
 // The installer's screens on one canvas, without the window (main.cpp shows
 // it and turns window events into these calls):
 //
-// Home: the keyboard, its name and Install (Reinstall when one is installed)
-// with a version list, and Uninstall when installed.
+// Home: the keyboard, its name and Install with a version list, and
+// Uninstall when installed. With a version installed the button says what
+// the chosen one does to it: Update, Downgrade or Reinstall.
 // Setup: the keyboard slides up and fades; progress shows above a card with
 // the first-install wizard and then Finish. Each wizard page plays a picture
 // of its feature beside its question, and pages turn like a carousel.
-// Reinstalls go straight to Finish.
+// Updates, downgrades and reinstalls go straight to Finish.
 #include "backend.hpp"
 #include "framekeyboard/config.hpp"
 #include "framekeyboard/layout.hpp"
@@ -214,6 +215,10 @@ class Installer {
     Screen screen_{Screen::Home};
     double setup_started_{};
     bool first_install_{};
+    // What the install under way does to the version that was installed:
+    // its key in the Setup title, kept so the title doesn't change once the
+    // new version is in place.
+    const char* installing_title_{};
     std::string installing_;
     int page_{};
     // The page slid away from, and when; and when a choice last changed,

@@ -140,6 +140,20 @@ bool at_least(std::string_view version, std::string_view minimum) {
     }
     return true;
 }
+// What installing `chosen` does to `installed`: nothing installed, newer,
+// older or the same. Returns the key for the main button and the key for
+// the Setup title.
+std::pair<const char*, const char*> install_keys(std::string_view installed, std::string_view chosen) {
+    if (installed.empty()) {
+        return {"installer.install", "installer.installing"};
+    }
+    const bool newer = at_least(chosen, installed), older = at_least(installed, chosen);
+    if (newer && older) {
+        return {"installer.reinstall", "installer.reinstalling"};
+    }
+    return newer ? std::pair{"installer.update", "installer.updating"}
+                 : std::pair{"installer.downgrade", "installer.downgrading"};
+}
 
 void set_rgba(cairo_t* cr, Color color, double alpha) {
     cairo_set_source_rgba(cr, color.r, color.g, color.b, alpha);
@@ -457,6 +471,7 @@ void Installer::begin_install() {
     screen_ = Screen::Setup;
     first_install_ = installed_.empty();
     installing_ = releases_[selected_].version;
+    installing_title_ = install_keys(installed_, installing_).second;
     // Reinstalls and other versions don't show the wizard (owner's design).
     page_ = page_from_ = first_install_ ? 0 : wizard_pages();
     page_turned_ = now_;
@@ -698,7 +713,9 @@ void Installer::split_button(const Rect& main_bounds, const Rect& more_bounds, b
         cairo_paint_with_alpha(cr_, .3);
     }
     const Color ink = ready ? theme_.latched_legend : dim();
-    text(tr(installed_.empty() ? "installer.install" : "installer.reinstall"), main, 28, ink);
+    // Before the list has come, as if the installed version were chosen again.
+    const std::string_view chosen = releases_.empty() ? installed_ : releases_[selected_].version;
+    text(tr(install_keys(installed_, chosen).first), main, 28, ink);
     // The list's chevron: down, and up while the list is open above it.
     const double x = more.x + more.width / 2, y = more.y + more.height / 2;
     const double turn = versions_open_ ? -1 : 1;
@@ -1260,10 +1277,9 @@ void Installer::paint_progress() {
     const bool installing = status_.task == Task::Install;
     const bool running = installing && status_.state == State::Running;
     const bool failed = installing && status_.state == State::Failed;
-    const std::string title = tr(install_done_    ? "installer.installed.title"
-                                 : first_install_ ? "installer.installing"
-                                                  : "installer.reinstalling",
-                                 {{"version", installing_}});
+    const std::string title =
+        tr(install_done_ || !installing_title_ ? "installer.installed.title" : installing_title_,
+           {{"version", installing_}});
     block(title, {card.x, 22, card.width, 50}, 30, theme_.legend, PANGO_WEIGHT_SEMIBOLD, true,
           PANGO_ALIGN_CENTER);
 
