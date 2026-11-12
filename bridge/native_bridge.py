@@ -195,9 +195,11 @@ class StreamChannel:
         if self.programs is None:
             return True
         try:
-            return os.path.basename(os.readlink(f"/proc/{pid}/exe")) in self.programs
+            name = os.path.basename(os.readlink(f"/proc/{pid}/exe"))
         except OSError:
             return False
+        # A program whose file was replaced since it started, as by a Steam update, reads back so.
+        return name.removesuffix(" (deleted)") in self.programs
 
     def _read(self):
         try:
@@ -213,10 +215,10 @@ class StreamChannel:
             self._drop()
 
     def service(self):
-        """Accept the streaming client and notice when it went away.
+        """Accept the newest streaming client and notice when the current one went away.
 
-        A client still connected is never replaced: a new stream's client connects once the old one
-        has gone, which the read before accepting notices.
+        Each stream is a streaming client of its own, so a new one replaces the previous one: the
+        program check above, not who came first, decides who may type.
         """
         if self.listener is None:
             return
@@ -236,9 +238,10 @@ class StreamChannel:
                 hello = incoming.recv(64) if ready else b""
             except OSError:
                 pid, uid, hello = 0, -1, b""
-            if self.client is not None or not self._allowed(pid, uid, hello):
+            if not self._allowed(pid, uid, hello):
                 incoming.close()
                 continue
+            self._drop()  # A new stream replaces the previous client.
             self.client = incoming
         self._read()
 

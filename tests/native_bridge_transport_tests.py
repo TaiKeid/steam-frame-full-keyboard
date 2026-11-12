@@ -1345,7 +1345,7 @@ class Lifecycle(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
-    def test_only_the_streaming_client_may_connect_and_it_is_never_replaced(self):
+    def test_only_the_streaming_client_may_connect_and_the_newest_one_types(self):
         def connect(directory):
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
@@ -1360,8 +1360,8 @@ class Lifecycle(unittest.TestCase):
             self.assertFalse(channel.connected(), "another program of the same user is refused")
             library.close()
             channel.close()
-            # Named as an allowed program it connects; a second client is refused while it is there,
-            # and taken once it has gone.
+            # Named as an allowed program it connects, and a newer one takes over: each stream is a
+            # streaming client of its own, and one left over from an earlier stream must not hold on.
             channel = bridge.StreamChannel(directory, programs=(os.path.basename(os.readlink("/proc/self/exe")),))
             first = connect(directory)
             channel.service()
@@ -1369,13 +1369,9 @@ class Lifecycle(unittest.TestCase):
             second = connect(directory)
             channel.service()
             self.assertTrue(channel.send_text("a"))
-            self.assertEqual(first.recv(64), b"Ta", "a live client is never replaced")
-            first.close()
-            third = connect(directory)
-            channel.service()
-            self.assertTrue(channel.send_text("b"))
-            self.assertEqual(third.recv(64), b"Tb", "a new client is taken once the old one has gone")
-            for library in (second, third):
+            self.assertEqual(second.recv(64), b"Ta", "the newest client types")
+            self.assertEqual(first.recv(64), b"", "the one before is hung up on")
+            for library in (first, second):
                 library.close()
             channel.close()
 
