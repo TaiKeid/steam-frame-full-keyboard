@@ -12,6 +12,7 @@
 #include <memory>
 #include <pango/pangocairo.h>
 #include <stdexcept>
+#include <sys/mman.h>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -2699,6 +2700,35 @@ PanelRenderer::PanelRenderer() {
         throw std::runtime_error("cannot allocate keyboard image");
     }
 }
+namespace {
+// A layer on pages of its own: zeroed only where it is drawn and given back
+// whole when it goes. From malloc's heap, as after its first large free,
+// it would be zeroed in full and not returned (R215).
+cairo_surface_t* mapped_layer(int width, int height) {
+    const int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, width);
+    const auto size = static_cast<std::size_t>(stride) * static_cast<std::size_t>(height);
+    void* data = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (data == MAP_FAILED) {
+        return cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+    }
+    static const cairo_user_data_key_t key{};
+    auto* surface = cairo_image_surface_create_for_data(static_cast<unsigned char*>(data),
+                                                        CAIRO_FORMAT_ARGB32, width, height, stride);
+    auto* mapping = new std::pair<void*, std::size_t>(data, size);
+    const auto unmap = [](void* pages) {
+        const auto* held = static_cast<std::pair<void*, std::size_t>*>(pages);
+        munmap(held->first, held->second);
+        delete held;
+    };
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS ||
+        cairo_surface_set_user_data(surface, &key, mapping, unmap) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(surface);
+        unmap(mapping);
+        return cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+    }
+    return surface;
+}
+} // namespace
 void PanelRenderer::settle() {
     settle_ = true;
     // The next paint forgets the trail, damaging where it was; its pixels
@@ -3218,8 +3248,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                                                   : 0;
             if (settled > std::max<std::size_t>(trail_drawn_, 1)) {
                 if (!trail_) {
-                    trail_ =
-                        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
+                    trail_ = mapped_layer(panel_width, texture_height);
                 }
                 auto* path = cairo_create(trail_);
                 cairo_translate(path, 0, popup_margin);
@@ -3261,7 +3290,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             comet_first_ = first;
             if (alive && !(same_step && count == drawn)) {
                 if (!comet_) {
-                    comet_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, panel_height);
+                    comet_ = mapped_layer(panel_width, panel_height);
                 }
                 std::vector<std::pair<double, double>> at; // Smoothed points first - 1 to the head.
                 for (std::size_t i = first - 1; i < count; ++i) {
