@@ -163,6 +163,9 @@ class StreamChannel:
         self.client_pid = None
         # A text of this session found no room: its later keys must not arrive without it.
         self.text_failed = False
+        # A client went away since the main loop last asked (take_lost), even if another has connected
+        # since: the library let go of everything it held, so the session typing into it is over (R248).
+        self.lost = False
         directory = directory or os.environ.get("XDG_RUNTIME_DIR")
         if not directory:
             return
@@ -192,6 +195,13 @@ class StreamChannel:
             self.client.close()
             self.client = None
             self.client_pid = None
+            self.lost = True
+
+    def take_lost(self):
+        """Whether a client went away since the last call. A library that hangs up connects again on
+        its next poll, so the helper may see the hang-up and the new connection in one service()."""
+        lost, self.lost = self.lost, False
+        return lost
 
     @staticmethod
     def _started(pid):
@@ -952,6 +962,16 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     raise ValueError("input-backlog")
                 readable, _, _ = select.select([parent], [], [], 0)
 
+        def note_lost():
+            """The streaming client went away during its session, as when the stream ends or the
+            library hangs up or is told to idle, even if it connected again since (R248): the bridge
+            ends the session as a cleared target, and nothing more of it is sent."""
+            nonlocal stream_gone, gone_request, next_poll
+            lost = stream.take_lost()
+            if stream_request is not None and (lost or not stream.connected()) and gone_request != stream_request:
+                stream_gone = gone_request = stream_request
+                next_poll = 0
+
         def judge_parent():
             # Judge the parent by the frames just read: frames that queued
             # while the helper waited on Steam are not a stalled parent, and a
@@ -976,22 +996,21 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if panel_shown:
                         stream_click = True
                         next_poll = 0
-                # The streaming client went away during its session, as when the stream ends or the
-                # library is told to idle: the bridge ends the session as a cleared target.
-                if stream_request is not None and not stream.connected() and gone_request != stream_request:
-                    stream_gone = gone_request = stream_request
-                    next_poll = 0
+                note_lost()
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
                 # Typing into a stream whose client went away fails, but there is nothing to fall back
-                # to: the session ends as a cleared target with the next poll instead.
-                lost_stream = (bool(stream) and stream_request is not None and
-                               message.get("request") == stream_request and not stream.connected())
+                # to: the session ends as a cleared target with the next poll instead. A client that
+                # connected since gets nothing of that session: the library let go of its keys (R248).
+                gone = gone_request is not None and message.get("request") == gone_request
+                lost_stream = gone or (bool(stream) and stream_request is not None and
+                                       message.get("request") == stream_request and not stream.connected())
                 try:
                     if operation == "stream-key":
                         # A release goes out even after the session ended; a press only into it.
-                        ok = bool(stream) and (stream_request == message["request"] or message["value"] == 0) \
+                        ok = bool(stream) and not gone and \
+                            (stream_request == message["request"] or message["value"] == 0) \
                             and stream.press(message["code"], message["value"])
                         if message["value"] == 0:
                             ok = True  # A release that found no one has nothing left to undo.
@@ -1006,8 +1025,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                                 not (operation == "key" and message["text"] == "VKClose")):
                             # A streamed game: the streaming client types it. Steam is not involved,
                             # so nothing depends on Steam's keyboard or SteamVR's keyboard session.
-                            ok = (stream.send_key(message["text"]) if operation == "key"
-                                  else stream.send_text(message["text"]))
+                            ok = not gone and (stream.send_key(message["text"]) if operation == "key"
+                                               else stream.send_text(message["text"]))
                         else:
                             # The JS side checks the target and lease again at delivery.
                             ok = evaluate(f"{reference}?.bridge.send({message['request']},"
@@ -1018,7 +1037,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if operation not in ("dismiss", "stream-key"):
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
-                if ok is not True and not lost_stream:
+                if stream:
+                    note_lost()  # The send itself may have hung up on the client.
+                if ok is not True and not lost_stream and message.get("request") != gone_request:
                     fallback_request = message["request"]
                 # A delivery can wait on Steam for up to DELIVERY_TIMEOUT. Read what
                 # the parent sent meanwhile before this loop's poll may renew the lease.
@@ -1086,6 +1107,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 stream_request = result.get("request") if result.get("stream") and result.get("active") else None
                 if stream and previous_stream is not None and stream_request != previous_stream:
                     stream.release()  # Nothing stays held on the PC after its session.
+                    stream.take_lost()  # A hang-up there takes nothing from the next session.
                 state = {"op": "state", **result}
                 if not announced:
                     # The parent's startup deadline counts when this was sent,

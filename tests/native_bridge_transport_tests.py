@@ -1262,11 +1262,29 @@ class Lifecycle(unittest.TestCase):
                 self.assertTrue(self.receive(parent, "key-result")["ok"])
                 self.assertEqual(client.sent, [[3, "VKClose", True]], "only the close key reaches the bridge")
                 packet(op="key-up", request=3, id=4)
+                # Ctrl is held when the library hangs up, and its stream connects again before the helper
+                # looks: the session still ends, and nothing more of it reaches the new connection, so
+                # a C pressed with Ctrl cannot arrive there bare (R248).
+                packet(op="stream-key", request=3, code=29, value=1)
+                self.assertEqual(library.recv(64), b"K" + struct.pack("<HHB", 224, 0x40, 1))
+                again = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                again.settimeout(.3)
+                again.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+                again.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+                library.close()
+                library = again
+                frames_until(lambda: client.gone == [3])
+                packet(op="stream-key", request=3, code=46, value=1)
+                packet(op="text", request=3, id=5, text="c")
+                self.assertFalse(self.receive(parent, "text-result")["ok"])
+                with self.assertRaises(TimeoutError):
+                    library.recv(64)
+                self.assertEqual(client.fallbacks, [], "no fallback for a session whose stream hung up")
                 # The streaming client goes away: typing fails closed, and the bridge is told once to end
                 # the session as a cleared target, with no fallback to a keyboard for a stream that is gone.
                 library.close()
                 packet(op="frame", progress=5, ready=True, ack=3, sent=time.monotonic())
-                packet(op="text", request=3, id=5, text="b")
+                packet(op="text", request=3, id=6, text="b")
                 self.assertFalse(self.receive(parent, "text-result")["ok"])
                 packet(op="stream-key", request=3, code=30, value=1)
                 frames_until(lambda: client.gone == [3])
