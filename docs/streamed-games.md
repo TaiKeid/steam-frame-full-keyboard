@@ -59,7 +59,7 @@ No file of Steam or SteamOS is changed. The folder is in the runtime directory, 
 - **Without the keyboard the library does nothing.** Closed or crashed, it types nothing and lets go of held keys.
 - **An interface it does not know is passed through untouched.** It wraps only the overlay interface version it was written for.
 
-What remains: the library runs inside the streaming client, so a fault in it could end a stream. It is not expected to break by itself: the risk is a SteamOS or Steam update that changes what the library relies on. If streaming stops working after one, turn Streaming support off, which takes effect with the next stream, and wait for a Full Keyboard update. `uninstall.sh` and the installer's Uninstall turn it off the same way before removing the keyboard. To remove it by hand, delete the drop-in and restart SteamOS.
+What remains: the library runs inside the streaming client, so a fault in it could end a stream. It is not expected to break by itself: the risk is a SteamOS or Steam update that changes what the library relies on. If streaming stops working after one, turn Streaming support off, which takes effect with the next stream, and wait for a Full Keyboard update. `uninstall.sh` and the installer's Uninstall turn it off the same way before removing the keyboard. To remove it by hand, turn it off in Settings first, or set `"streaming_support": false` in the keyboard's config while it is closed, since the keyboard writes the drop-in again whenever it starts with the setting on; then delete the drop-in and restart SteamOS.
 
 Measured on a Steam Frame in November 2026 with a Windows PC and a Linux PC as hosts.
 
