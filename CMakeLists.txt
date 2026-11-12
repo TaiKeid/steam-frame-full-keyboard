@@ -73,7 +73,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/stream_support.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -408,9 +408,20 @@ if((CMAKE_CROSSCOMPILING AND FRAMEKEYBOARD_VR) OR (NOT CMAKE_CROSSCOMPILING AND 
         C_STANDARD 11 C_VISIBILITY_PRESET hidden
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stream"
         SKIP_BUILD_RPATH TRUE)
+    # The gate (stream/stream_gate.c) runs before Steam starts and keeps the
+    # folder Steam loads the library from; it is installed beside the library.
+    add_executable(stream_gate stream/stream_gate.c)
+    target_compile_options(stream_gate PRIVATE -Wall -Wextra)
+    target_link_libraries(stream_gate PRIVATE ${CMAKE_DL_LIBS})
+    set_target_properties(stream_gate PROPERTIES
+        OUTPUT_NAME "framekeyboard-stream-gate" C_STANDARD 11
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/stream"
+        SKIP_BUILD_RPATH TRUE)
     if(CMAKE_CROSSCOMPILING)
         target_link_libraries(stream_passthrough PRIVATE "${OPENVR_LIBRARY}")
         install(TARGETS stream_passthrough LIBRARY DESTINATION lib/framekeyboard)
+        install(TARGETS stream_gate RUNTIME DESTINATION lib/framekeyboard)
+        add_dependencies(framekeyboard stream_passthrough stream_gate)
     else()
         add_library(stream_fake_openvr SHARED tests/stream_fake_openvr.c)
         set_target_properties(stream_fake_openvr PROPERTIES OUTPUT_NAME "openvr_api" C_STANDARD 11
@@ -424,6 +435,10 @@ if((CMAKE_CROSSCOMPILING AND FRAMEKEYBOARD_VR) OR (NOT CMAKE_CROSSCOMPILING AND 
         add_dependencies(stream-passthrough-tests stream_passthrough)
         add_test(NAME stream-passthrough COMMAND stream-passthrough-tests
             "$<TARGET_FILE:stream_passthrough>" "$<TARGET_FILE:stream_fake_openvr>")
+        add_test(NAME stream-gate COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/stream_gate_tests.py" "$<TARGET_FILE:stream_gate>"
+            "$<TARGET_FILE:stream_passthrough>" "$<TARGET_FILE_DIR:stream_fake_openvr>")
+        add_dependencies(stream-passthrough-tests stream_gate)
     endif()
 endif()
 if(BUILD_TESTING)
@@ -451,6 +466,9 @@ if(BUILD_TESTING)
     add_executable(startup-tests tests/startup_tests.cpp)
     target_link_libraries(startup-tests PRIVATE keyboard_core)
     add_test(NAME startup COMMAND startup-tests)
+    add_executable(stream-support-tests tests/stream_support_tests.cpp)
+    target_link_libraries(stream-support-tests PRIVATE keyboard_core)
+    add_test(NAME stream-support COMMAND stream-support-tests)
     add_executable(localization-tests tests/localization_tests.cpp)
     target_link_libraries(localization-tests PRIVATE keyboard_core)
     add_test(NAME localization COMMAND localization-tests)

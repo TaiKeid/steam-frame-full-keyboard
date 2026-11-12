@@ -56,4 +56,4 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 - Shell integration: `theme.derive`, the Wayland input method bridge, and headset checks of anchors, two-hand forwarding and the update handover.
 - An in-app update while dictating, tested in the headset.
 
-Swipe typing for Japanese and Korean was dropped; see [swipe typing](swipe-typing.md#milestones). No universal native keyboard replacement, input into Steam Link streams, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.
+Swipe typing for Japanese and Korean was dropped; see [swipe typing](swipe-typing.md#milestones). No universal native keyboard replacement, input into VR apps streamed from a PC, or cross-session clipboard synchronization is promised. See [changelog](../CHANGELOG.md) for released behavior changes.

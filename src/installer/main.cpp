@@ -24,8 +24,10 @@ void usage() {
         << "  --simulate                Download, install and change nothing; tasks only take time\n"
         << "  --installed VERSION       With --simulate: pretend this version is installed\n"
         << "  --fail TASK               With --simulate: fail releases, download, install,\n"
-        << "                            uninstall or finish\n"
+        << "                            uninstall, finish or streaming\n"
         << "  --speed FACTOR            With --simulate: run tasks this many times faster\n"
+        << "  --streaming-active        With --simulate: Steam already has Streaming support's\n"
+        << "                            setting, so no SteamOS restart is offered\n"
         << "  --releases LIST           With --simulate: versions to offer, newest first,\n"
         << "                            comma-separated (default: this build's)\n"
         << "  --language TAG            Interface language instead of the system's\n"
@@ -135,6 +137,7 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
             {{2.1, "page-3-suggestions"}},
             {{1.1, "page-4-pulling"}, {1.7, "page-4-pulled"}, {2.3, "page-4-typed"}},
             {{1.0, "page-5-numpad"}},
+            {{1.6, "page-6-streaming"}, {3.6, "page-6-streamed"}},
         };
         for (int page = 0; page < in::Installer::pages; ++page) {
             double waited = page == 0 ? 1.0 : 0; // The first page came with the slide.
@@ -153,7 +156,7 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
                 save("page-2-no"); // The picture plays on, dimmed.
                 click(A::Choice, 0);
             }
-            if (page == in::Installer::pages - 1) {
+            if (page == 4) {
                 click(A::Choice, 1);
                 wait(.7);
                 save("page-5-no-numpad");
@@ -174,6 +177,12 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
     if (!installer.enabled(A::Finish)) {
         return 0; // The install failed.
     }
+    if (installer.control(A::Restart)) {
+        // Offered only while Streaming support waits for a restart.
+        click(A::Restart);
+        save("finish-restart");
+        click(A::Restart);
+    }
     click(A::Finish);
     wait(.4);
     if (!installer.quitting()) {
@@ -183,6 +192,12 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
         }
         if (!installer.quitting()) {
             save("finish-failed");
+            if (installer.control(A::FinishWithout)) {
+                // Streaming support could not be set up: finish with it off.
+                click(A::FinishWithout);
+                wait(.4);
+                save("finishing-without-streaming");
+            }
         }
     }
     return 0;
@@ -225,6 +240,8 @@ int main(int argc, char** argv) {
                 }
             } else if (argument == "--speed") {
                 simulated.speed = std::stod(value());
+            } else if (argument == "--streaming-active") {
+                simulated.streaming_active = true;
             } else if (argument == "--language") {
                 language = value();
             } else if (argument == "--tour") {

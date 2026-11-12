@@ -22,7 +22,7 @@ class Installer {
   public:
     static constexpr int width = 1280, height = 800;
     // Wizard pages; the page after the last is Finish.
-    static constexpr int pages = 5;
+    static constexpr int pages = 6;
     enum class Action {
         None,
         Install,
@@ -36,7 +36,9 @@ class Installer {
         Back,
         Next,
         Finish,
-        Retry, // a failed list or install
+        Retry,         // a failed list or install
+        Restart,       // Finish's Restart SteamOS box, offered while Streaming support waits for it
+        FinishWithout, // after Streaming support could not be set up: finish with it off
     };
 
     Installer(Backend& backend, Theme theme, const Localization& localization);
@@ -101,6 +103,7 @@ class Installer {
     void paint_suggestions_demo(const Rect& stage, double t);
     void paint_pull_demo(const Rect& stage, double t);
     void paint_numpad_demo(const Rect& stage, double t);
+    void paint_stream_demo(const Rect& stage, double t);
     // The keyboard's picture, scaled beforehand, with its top left at
     // (x, y); the case narrows over the numpad, which fades, as `numpad`
     // goes from 1 to 0.
@@ -118,7 +121,10 @@ class Installer {
     // Install and the version list's chevron as one latched control.
     void split_button(const Rect& main, const Rect& more, bool ready);
     // Yes and No side by side in a well; `chosen` is 0, 1 or -1 for neither.
-    void segments(const Rect& r, Action action, int chosen);
+    // Disabled, they show the answer and take no presses.
+    void segments(const Rect& r, Action action, int chosen, bool enabled = true);
+    // A box with its label beside it, as Settings' switches say on or off.
+    void checkbox(const Rect& r, Action action, const std::string& label, bool checked);
     void spinner(double x, double y, double radius);
     // A small keycap with its side below, as on the keyboard, for the pictures.
     void key(const Rect& r, bool lit, double radius = 5);
@@ -138,6 +144,15 @@ class Installer {
     std::string tr(std::string_view key, const UiArgs& args = {}) const;
     Color dim() const;
     bool choice(int page) const;
+    // Why the Streaming support page cannot be answered Yes, as a text key
+    // with its {version}; empty when it can.
+    UiText streaming_blocked() const;
+    // Whether Finish shows Restart SteamOS: Streaming support was chosen and
+    // the running Steam was started without it.
+    bool restart_offered() const;
+    // Finish failed at setting Streaming support up: the footer then offers
+    // Finish without it beside Try again.
+    bool streaming_failed() const;
     // The same as 1 or 0, easing for a moment after the choice changes.
     double choice_shown(int page) const;
     // How far the install has come, 0..1, for the bar and the Finish badge.
@@ -203,6 +218,8 @@ class Installer {
     double shown_progress_{}, last_tick_{}, done_at_{};
     Choices choices_;
     bool install_done_{}, finish_pressed_{};
+    // Finish's Restart SteamOS box; never ticked for the user.
+    bool restart_{};
     bool quit_{};
 };
 

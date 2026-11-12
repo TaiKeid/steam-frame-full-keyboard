@@ -21,6 +21,7 @@ class SimulatedBackend : public Backend {
   public:
     explicit SimulatedBackend(SimulatedOptions options) : options_(std::move(options)) {
         status_.installed = options_.installed;
+        status_.streaming_restart = !options_.streaming_active;
     }
     void releases() override { start(Task::Releases); }
     void install(const Release& release) override {
@@ -30,7 +31,11 @@ class SimulatedBackend : public Backend {
         }
     }
     void uninstall(bool) override { start(Task::Uninstall); }
-    void finish(const Choices&) override { start(Task::Finish); }
+    void finish(const Choices& choices, bool) override {
+        if (start(Task::Finish)) {
+            streaming_ = choices.streaming;
+        }
+    }
 
     Status status() override {
         if (status_.state != State::Running) {
@@ -93,7 +98,12 @@ class SimulatedBackend : public Backend {
             break;
         case Task::Finish:
             if (elapsed >= finish_time) {
-                end("finish");
+                // Streaming support's set-up fails only while it is chosen.
+                if (options_.fail == "streaming" && streaming_) {
+                    fail("installer.error.streaming");
+                } else {
+                    end("finish");
+                }
             }
             break;
         case Task::None:
@@ -134,7 +144,7 @@ class SimulatedBackend : public Backend {
     SimulatedOptions options_;
     Status status_;
     std::string target_;
-    bool stopping_{};
+    bool stopping_{}, streaming_{};
     double started_{};
 };
 

@@ -779,6 +779,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* startup = field(document.get(), "start_with_steamos", json_type_boolean, true)) {
             settings.start_with_steamos = json_object_get_boolean(startup);
         }
+        if (auto* streaming = field(document.get(), "streaming_support", json_type_boolean, true)) {
+            settings.streaming_support = json_object_get_boolean(streaming);
+        }
         if (auto* swipe = field(document.get(), "swipe_typing", json_type_boolean, true)) {
             settings.swipe_typing = json_object_get_boolean(swipe);
         }
@@ -1073,6 +1076,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->replace_native_keyboard));
         json_object_object_add(document.get(), "start_with_steamos",
                                json_object_new_boolean(settings->start_with_steamos));
+        json_object_object_add(document.get(), "streaming_support",
+                               json_object_new_boolean(settings->streaming_support));
         json_object_object_add(document.get(), "swipe_typing",
                                json_object_new_boolean(settings->swipe_typing));
         json_object_object_add(document.get(), "typing_suggestions",

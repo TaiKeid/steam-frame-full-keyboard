@@ -21,6 +21,7 @@
 #include "settings_writer.hpp"
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
+#include "stream_support.hpp"
 #include "swipe.hpp"
 #include "word_suggestions.hpp"
 #include <atomic>
@@ -96,6 +97,9 @@ struct Options {
     // The system's interface language: main reads Steam's own setting and
     // LANG. Left empty, as in tests and previews, the interface is English.
     std::function<SystemLanguage()> system_language;
+    // Streaming support's state on this system, read when Settings opens.
+    // Left empty, as in tests and previews, the setting cannot be turned on.
+    std::function<StreamSupportStatus()> stream_support;
     // Where Anthy keeps what it learns. Empty is the user's home with the
     // default config folder, and any other config folder itself.
     fs::path anthy_home;
@@ -248,6 +252,7 @@ class App {
     // Standalone-only: a hosted keyboard never replaces Steam's or starts at boot.
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard && !hosted(); }
     bool start_with_steamos() const { return replace_native_keyboard() && settings_.start_with_steamos; }
+    bool streaming_support() const { return replace_native_keyboard() && settings_.streaming_support; }
     // A hosted keyboard starts hidden too: only its shell shows it.
     // An update with replacement on starts hidden too, and then shows itself
     // (reveal_after_update), even if Steam's handed-back keyboard cannot be adopted.
@@ -919,6 +924,19 @@ class App {
     bool pending_vibration_{true};
     bool pending_replace_native_keyboard_{};
     bool pending_start_with_steamos_{};
+    // Streaming support, as the card shows it: off whenever replacement is.
+    bool pending_streaming_support_{};
+    // Read when Settings opens: whether it can be offered, and whether
+    // turning it on has to wait for a SteamOS restart.
+    StreamSupportStatus stream_status_;
+    // The user ticked it in this visit to Settings and has not applied it.
+    bool streaming_turned_on() const {
+        return pending_streaming_support_ && pending_replace_native_keyboard_ &&
+               !(settings_.streaming_support && settings_.replace_native_keyboard);
+    }
+    // Leaving Settings with ← asks about changed languages first, then about
+    // streaming support: the first answer waits here for the second.
+    std::optional<bool> leave_saves_languages_;
     bool pending_swipe_typing_{};
     bool pending_typing_suggestions_{true};
     bool pending_key_flicks_{};
@@ -1038,7 +1056,9 @@ class App {
         DownloadAndApply,
         QuitDictation,
         SteamKeyboardDictation,
-        UpdateDictation
+        UpdateDictation,
+        EnableStreaming, // ticking Streaming support: what it does, Cancel or Accept
+        LeaveStreaming   // ← with it ticked but not applied
     };
     Confirm confirm_{Confirm::None};
     bool dictation_question() const {

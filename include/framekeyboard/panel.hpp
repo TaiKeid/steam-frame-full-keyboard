@@ -69,6 +69,7 @@ enum class ControlKind {
     Vibration,
     ReplaceNativeKeyboard,
     StartWithSteamos,
+    StreamingSupport, // Settings: type into Steam Link streams (stream_support.hpp)
     EmojiCloseOnSelect,
     FocusTooltip,
     ChooseDesktopUnicode,
@@ -187,6 +188,8 @@ struct DictationView {
 // The server address popup over Settings, in panel coordinates.
 constexpr Rect address_popup_bounds{300, 36, 1000, 508};
 constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
+// Turning Streaming support on explains itself at more length.
+constexpr Rect streaming_popup_bounds{390, 60, 820, 460};
 // The Additional languages popup covers Settings. One well holds three
 // columns, as the emoji picker's sections share one.
 constexpr Rect languages_popup_bounds{14, 8, 1572, 572};
@@ -361,6 +364,9 @@ struct PanelView {
         bool operator==(const ConfirmView&) const = default;
         Rect panel;
         std::string title, body;
+        // Room for the body below the title: two lines unless a question
+        // needs more.
+        double body_height{56};
         // Rows with a switch each, as Clear learned words has; the switches
         // are controls named confirm-row-N over the same bounds.
         struct Row {

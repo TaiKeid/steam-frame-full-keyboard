@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Remove Full Keyboard from this user account on the Frame: the app, its
-# helpers, its launcher and menu entry, and the Start with SteamOS service.
-# Settings and custom profiles stay unless --purge is given. Steam files are
-# never changed by Full Keyboard, so there is nothing to restore there.
+# helpers, its launcher and menu entry, the Start with SteamOS service and
+# Streaming support's setting for Steam's start. Settings and custom profiles
+# stay unless --purge is given. Steam files are never changed by Full
+# Keyboard, so there is nothing to restore there.
 set -euo pipefail
 usage() {
     echo 'Usage: bash uninstall.sh [--purge] [--yes]' >&2
@@ -49,6 +50,11 @@ unit_links=("$unit_dir/steamvr.service.wants/$unit_name" "$unit_dir/gamescope-se
 runtime_base="/run/user/$(id -u)"
 [[ -d $runtime_base ]] || runtime_base=${XDG_RUNTIME_DIR:-}
 runtime_dir=${FRAMEKEYBOARD_INSTALL_RUNTIME_DIR:-${runtime_base:+$runtime_base/framekeyboard}}
+# Streaming support (docs/streamed-games.md): the drop-in for Steam's service,
+# and the folder a running Steam may load the keyboard's library from.
+stream_drop_in="$unit_dir/steam.service.d/50-framekeyboard-stream.conf"
+stream_runtime=${FRAMEKEYBOARD_INSTALL_STREAM_RUNTIME:-${runtime_base:+$runtime_base/framekeyboard-stream}}
+steam_library="$install_home/.local/share/Steam/steamrtarm64/libopenvr_api.so"
 # Tests run without the user's service manager.
 use_systemctl=true
 if [[ ${FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL:-1} == 0 ]] || ! command -v systemctl > /dev/null; then
@@ -75,6 +81,15 @@ ours_unit=false
 if [[ -f $unit ]] && [[ $(head -n 1 -- "$unit") == '# Managed by Full Keyboard' ]]; then
     ours_unit=true
 fi
+ours_stream=false
+if [[ -f $stream_drop_in && ! -L $stream_drop_in ]] &&
+    [[ $(head -n 1 -- "$stream_drop_in") == '# Managed by Full Keyboard' ]]; then
+    ours_stream=true
+fi
+stream_folder=false
+if [[ -n $stream_runtime && -d $stream_runtime && ! -L $stream_runtime ]]; then
+    stream_folder=true
+fi
 ours_launcher=false
 if [[ -f $launcher ]] && grep -q '/.local/share/framekeyboard/current' -- "$launcher"; then
     ours_launcher=true
@@ -90,12 +105,13 @@ echo 'This removes Full Keyboard from this user account:'
 $ours_launcher && echo "  $launcher"
 $ours_desktop && echo "  $desktop"
 $ours_unit && echo "  $unit (Start with SteamOS) and its links"
+$ours_stream && echo "  $stream_drop_in (Streaming support)"
 if $purge; then
     [[ -e $settings ]] && echo "  $settings (settings, placement and custom profiles)"
 else
     [[ -e $settings ]] && echo "Settings stay in $settings; add --purge to delete them too."
 fi
-if [[ ! -e $install_root ]] && ! $ours_launcher && ! $ours_desktop && ! $ours_unit &&
+if [[ ! -e $install_root ]] && ! $ours_launcher && ! $ours_desktop && ! $ours_unit && ! $ours_stream &&
     ! ($purge && [[ -e $settings ]]) && ! [[ -n $models && -e $models ]]; then
     echo 'Nothing to remove: Full Keyboard is not installed for this user.'
     exit 0
@@ -163,6 +179,24 @@ if [[ -n $real_root ]]; then
     fi
 fi
 
+# Streaming support. A Steam that was started with its setting keeps it until
+# SteamOS restarts and looks in this folder at every stream: before the
+# library goes, the link there leads to Steam's own library and a library
+# that is already loaded is told to stay idle. The folder itself is in the
+# runtime directory, which the system empties at shutdown.
+if $stream_folder; then
+    : > "$stream_runtime/off"
+    rm -f -- "$stream_runtime/steam.env"
+    ln -sfn -- "$steam_library" "$stream_runtime/.openvr.so.new"
+    mv -Tf -- "$stream_runtime/.openvr.so.new" "$stream_runtime/openvr.so"
+fi
+if $ours_stream; then
+    rm -f -- "$stream_drop_in"
+    rmdir -- "$(dirname -- "$stream_drop_in")" 2> /dev/null || true
+    if $use_systemctl; then
+        manager daemon-reload
+    fi
+fi
 if $ours_unit; then
     for link in "${unit_links[@]}"; do
         if [[ -L $link ]]; then

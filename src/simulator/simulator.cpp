@@ -115,6 +115,9 @@ Simulator::Simulator(const Setup& setup)
     // Debug mode is always on here, in builds that have it: what Anthy
     // converts anyway has an orange border (Settings → Debug).
     options.debug = true;
+    // Streaming support can be ticked and its questions read here; nothing is
+    // installed, since only the VR keyboard's preference writer does that.
+    options.stream_support = [] { return StreamSupportStatus{.supported = true}; };
     // Dictation's paste Send writes the field's own clipboard.
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;

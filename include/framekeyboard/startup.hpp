@@ -23,6 +23,9 @@ class StartupPreferencesWarning : public std::runtime_error {
     UiText message_; // without its {error}
     ErrorText reason_;
 };
+// Has the user's systemd manager read its unit files again, from SteamOS's
+// Desktop too. Throws UiError.
+void reload_session_manager();
 void save_preferences_with_startup(const Settings& settings, const fs::path& executable,
                                    const fs::path& config_dir, fs::path unit_directory = {},
                                    std::function<void()> reload = {});

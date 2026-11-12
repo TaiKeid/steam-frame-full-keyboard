@@ -282,6 +282,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -439,7 +440,11 @@ std::vector<Control> App::controls() const {
         append_move_handle();
         if (confirm_ != Confirm::None) {
             const bool learned = confirm_ == Confirm::ClearLearning;
-            const Rect panel = learned ? learned_popup_bounds() : confirm_popup_bounds;
+            const bool streaming = confirm_ == Confirm::EnableStreaming;
+            const bool leaving = confirm_ == Confirm::LeaveStreaming;
+            const Rect panel = learned     ? learned_popup_bounds()
+                               : streaming ? streaming_popup_bounds
+                                           : confirm_popup_bounds;
             const bool save = confirm_ == Confirm::SaveLanguages;
             for (std::size_t i = 0; learned && i < learned_rows_.size(); ++i) {
                 Control row{"confirm-row-" + std::to_string(i), learned_rows_[i].title,
@@ -450,12 +455,15 @@ std::vector<Control> App::controls() const {
             add({ControlKind::ConfirmCancel}, {"confirm-cancel",
                                                tr(dictation_question() ? "popup.dictation-active.cancel"
                                                   : save               ? "popup.save-languages.discard"
+                                                  : leaving            ? "popup.streaming-leave.cancel"
                                                                        : "button.cancel"),
                                                {panel.x + 40, panel.y + panel.height - 80, 210, 52}});
             Control accept{"confirm-accept",
                            tr(confirm_ == Confirm::ClearLanguages ? "popup.clear-languages.confirm"
                               : learned                           ? "popup.clear-learned.confirm"
                               : save                              ? "popup.save-languages.confirm"
+                              : streaming                         ? "popup.streaming-on.confirm"
+                              : leaving                           ? "popup.streaming-leave.confirm"
                               : dictation_question()              ? "popup.dictation-active.confirm"
                                                                   : "popup.download-model.confirm"),
                            {panel.x + panel.width - 250, panel.y + panel.height - 80, 210, 52},
@@ -896,6 +904,22 @@ void App::update_settings_ui() {
                                     ControlStyle::Note};
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
+    // Streaming support needs the replacement's helper, and a release that
+    // carries the library.
+    const bool streaming_offered = pending_replace_native_keyboard_ && stream_status_.supported;
+    const bool streaming_on = pending_streaming_support_ && streaming_offered;
+    std::vector<SettingField> streaming_fields{
+        field(ControlKind::StreamingSupport,
+              checkbox("streaming-support", tr("setting.streaming-support"), streaming_on,
+                       streaming_offered, tr("setting.streaming-support.note")))};
+    // While it is on and the running Steam was started without it, a line
+    // under it says when it takes effect.
+    if (streaming_on && !stream_status_.active) {
+        SettingField note{"streaming-support-note", tr("setting.streaming-support.restart-note"), "",
+                          ControlStyle::Note};
+        note.plain = true;
+        streaming_fields.push_back(std::move(note));
+    }
     auto themes = choices(profiles_.themes);
     for (auto& theme : themes) {
         if (theme.id == shell_theme_id) {
@@ -1014,6 +1038,11 @@ void App::update_settings_ui() {
                           pending_focus_tooltip_ && pending_replace_native_keyboard_,
                           pending_replace_native_keyboard_)),
            focus_tooltip_note}}}};
+    {
+        // After Start with SteamOS, before the tooltip's switch and its note.
+        auto& integration = cards.back().fields;
+        integration.insert(integration.begin() + 2, streaming_fields.begin(), streaming_fields.end());
+    }
     if (hosted()) {
         // Replacement and boot start belong to the SteamOS dashboard; under a
         // shell they are unavailable, and their saved values stay as they are.
@@ -1436,6 +1465,18 @@ PanelView App::build_view(bool picker) const {
     } else if (settings_open_ && confirm_ == Confirm::SaveLanguages) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.save-languages.title"),
                                            tr("popup.save-languages.body")};
+    } else if (settings_open_ && confirm_ == Confirm::EnableStreaming) {
+        // What it is, the restart only when one is needed, then the risk.
+        auto body = tr("popup.streaming-on.body");
+        if (!stream_status_.active) {
+            body += "\n\n" + tr("popup.streaming-on.restart");
+        }
+        body += "\n\n" + tr("popup.streaming-on.risk");
+        v.confirm = PanelView::ConfirmView{streaming_popup_bounds, tr("popup.streaming-on.title"),
+                                           std::move(body), streaming_popup_bounds.height - 78 - 100};
+    } else if (settings_open_ && confirm_ == Confirm::LeaveStreaming) {
+        v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.streaming-leave.title"),
+                                           tr("popup.streaming-leave.body")};
     } else if (settings_open_ && dictation_question()) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.dictation-active.title"),
                                            tr("popup.dictation-active.body")};
@@ -2602,8 +2643,11 @@ void App::show_settings() {
     save_chinese();
     address_.reset();
     confirm_ = Confirm::None;
+    leave_saves_languages_.reset();
     languages_.reset();
     settings_open_ = true;
+    // A few small reads: the drop-in and Steam's environment.
+    stream_status_ = options_.stream_support ? options_.stream_support() : StreamSupportStatus{};
     pending_ = main_selection();
     pending_favorites_ = settings_.favorites;
     remember_languages();
@@ -2618,6 +2662,7 @@ void App::show_settings() {
     pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -2672,7 +2717,13 @@ void App::back() {
     } else if (settings_open_ && languages_changed()) {
         pressed_controls_.clear();
         hovered_.clear();
+        leave_saves_languages_.reset();
         confirm_ = Confirm::SaveLanguages;
+    } else if (settings_open_ && streaming_turned_on()) {
+        pressed_controls_.clear();
+        hovered_.clear();
+        leave_saves_languages_.reset();
+        confirm_ = Confirm::LeaveStreaming;
     } else if (settings_open_) {
         leave_settings();
     }
@@ -2683,6 +2734,7 @@ void App::leave_settings() {
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
+    leave_saves_languages_.reset();
     languages_.reset();
 }
 void App::summon() {
@@ -2901,6 +2953,7 @@ void App::reload() {
         settings_.vibration = updated_settings.vibration;
         settings_.replace_native_keyboard = updated_settings.replace_native_keyboard;
         settings_.start_with_steamos = updated_settings.start_with_steamos;
+        settings_.streaming_support = updated_settings.streaming_support;
         settings_.swipe_typing = updated_settings.swipe_typing;
         settings_.typing_suggestions = updated_settings.typing_suggestions;
         settings_.key_flicks = updated_settings.key_flicks;
@@ -2952,6 +3005,7 @@ void App::reload() {
     pending_vibration_ = settings_.vibration;
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
+    pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -4781,8 +4835,11 @@ void App::apply_settings() {
     settings_.use_drag_to_move = pending_use_drag_to_move_;
     settings_.auto_leveling = pending_auto_leveling_;
     settings_.vibration = pending_vibration_;
+    // Told once it is saved: until SteamOS restarts, streams stay as they were.
+    const bool streaming_waits = streaming_turned_on() && !stream_status_.active;
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
     settings_.start_with_steamos = pending_start_with_steamos_;
+    settings_.streaming_support = pending_streaming_support_ && pending_replace_native_keyboard_;
     settings_.swipe_typing = pending_swipe_typing_;
     settings_.typing_suggestions = pending_typing_suggestions_;
     settings_.key_flicks = pending_key_flicks_;
@@ -4822,9 +4879,13 @@ void App::apply_settings() {
     startup_status_.clear();
     rebuild_cycle_entries();
     save();
+    if (streaming_waits) {
+        status_ = tr("status.streaming-restart");
+    }
     settings_open_ = false;
     address_.reset();
     confirm_ = Confirm::None;
+    leave_saves_languages_.reset();
     languages_.reset();
     host_settings_changed(before, "user");
 }
@@ -5061,13 +5122,31 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::ReplaceNativeKeyboard) {
         pending_replace_native_keyboard_ = !pending_replace_native_keyboard_;
+        if (!pending_replace_native_keyboard_) {
+            // Streaming support works through replacement. Turning that back
+            // on leaves it off, so it is never enabled without its question.
+            pending_streaming_support_ = false;
+        }
         std::erase_if(pressed_controls_, [](const auto& entry) {
-            return entry.second.action.kind == ControlKind::StartWithSteamos;
+            return entry.second.action.kind == ControlKind::StartWithSteamos ||
+                   entry.second.action.kind == ControlKind::StreamingSupport;
         });
         update_settings_ui();
     } else if (kind == ControlKind::StartWithSteamos && pending_replace_native_keyboard_) {
         pending_start_with_steamos_ = !pending_start_with_steamos_;
         update_settings_ui();
+    } else if (kind == ControlKind::StreamingSupport && pending_replace_native_keyboard_ &&
+               stream_status_.supported) {
+        if (pending_streaming_support_ ||
+            (settings_.streaming_support && settings_.replace_native_keyboard)) {
+            // Off, or back on after ticking it off in this visit: nothing to explain.
+            pending_streaming_support_ = !pending_streaming_support_;
+            update_settings_ui();
+        } else {
+            pressed_controls_.clear();
+            hovered_.clear();
+            confirm_ = Confirm::EnableStreaming;
+        }
     } else if (kind == ControlKind::NativeFallback) {
         if (dictation_at_stake()) {
             pressed_controls_.clear();
@@ -5160,11 +5239,44 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::FlickKatakana) {
         pending_flick_katakana_ = !pending_flick_katakana_;
         update_settings_ui();
-    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::SaveLanguages) {
+    } else if (confirm_ == Confirm::SaveLanguages &&
+               (kind == ControlKind::ConfirmAccept || kind == ControlKind::ConfirmCancel)) {
+        const bool save = kind == ControlKind::ConfirmAccept;
         confirm_ = Confirm::None;
-        action({ControlKind::Apply});
-    } else if (kind == ControlKind::ConfirmCancel && confirm_ == Confirm::SaveLanguages) {
-        leave_settings();
+        if (streaming_turned_on()) {
+            // One question after the other: this answer waits for the next.
+            pressed_controls_.clear();
+            hovered_.clear();
+            leave_saves_languages_ = save;
+            confirm_ = Confirm::LeaveStreaming;
+        } else if (save) {
+            action({ControlKind::Apply});
+        } else {
+            leave_settings();
+        }
+    } else if (kind == ControlKind::ConfirmAccept && confirm_ == Confirm::EnableStreaming) {
+        confirm_ = Confirm::None;
+        pressed_controls_.clear();
+        hovered_.clear();
+        pending_streaming_support_ = true;
+        update_settings_ui();
+    } else if (confirm_ == Confirm::LeaveStreaming &&
+               (kind == ControlKind::ConfirmAccept || kind == ControlKind::ConfirmCancel)) {
+        const bool turn_on = kind == ControlKind::ConfirmAccept;
+        const auto languages = std::exchange(leave_saves_languages_, std::nullopt);
+        confirm_ = Confirm::None;
+        pending_streaming_support_ = turn_on;
+        if (languages == false) {
+            // Discarded a moment ago: the languages go back to the saved ones.
+            pending_ = main_selection();
+            pending_favorites_ = settings_.favorites;
+            remember_languages();
+        }
+        if (turn_on || languages == true) {
+            action({ControlKind::Apply});
+        } else {
+            leave_settings();
+        }
     } else if (kind >= ControlKind::OpenLanguages && kind <= ControlKind::ClearLanguages) {
         languages_action(command);
     } else if (kind == ControlKind::ConfirmAccept && dictation_question()) {

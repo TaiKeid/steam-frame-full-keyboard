@@ -2804,6 +2804,154 @@ void native_replacement_settings() {
     require(!errors.empty(), "replacement requires JSON boolean");
     require(sink.events.empty(), "replacement settings send no desktop input");
 }
+// Streaming support: its question when ticked, applied only by ✓, and asked about again when ← leaves
+// Settings with it ticked, after the question about changed languages.
+void streaming_support_setting() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    StreamSupportStatus status;
+    options.stream_support = [&] { return status; };
+    CaptureSink sink;
+    App app(options, sink);
+    require(!app.streaming_support(), "streaming support defaults off");
+    auto open = [&] {
+        app.show_settings();
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(100 + i * .05);
+        }
+    };
+    auto note = [&] {
+        const auto view = app.view();
+        return std::any_of(view.field_labels.begin(), view.field_labels.end(), [](const FieldLabel& f) {
+            return f.text == "Takes effect after SteamOS restarts.";
+        });
+    };
+    open();
+    click(app, "replace-native-keyboard");
+    require(!control(app.view(), "streaming-support").enabled,
+            "an installation without the library cannot turn it on");
+    app.back();
+    status.supported = true;
+    open();
+    require(!control(app.view(), "streaming-support").enabled, "it needs replacement");
+    click(app, "replace-native-keyboard");
+    require(control(app.view(), "streaming-support").enabled &&
+                !control(app.view(), "streaming-support").selected,
+            "with replacement it can be ticked");
+
+    // Ticking it asks first, and says a restart is needed.
+    click(app, "streaming-support");
+    require(app.view().confirm && app.view().confirm->title == "Turn on streaming support?" &&
+                app.view().confirm->body.find("SteamOS has to be restarted") != std::string::npos &&
+                app.view().confirm->body.find("very small risk") != std::string::npos,
+            "the question explains the library, the restart and the risk");
+    require(control(app.view(), "confirm-cancel").label == "Cancel" &&
+                control(app.view(), "confirm-accept").label == "Accept",
+            "Cancel or Accept");
+    click(app, "confirm-cancel");
+    require(!app.view().confirm && !control(app.view(), "streaming-support").selected && !note(),
+            "Cancel leaves it off");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    require(!app.view().confirm && control(app.view(), "streaming-support").selected && note(),
+            "Accept ticks it and says it waits for a restart");
+    require(!app.streaming_support() && !saved(app).streaming_support, "nothing is applied yet");
+
+    // ← with it ticked asks whether to turn it on.
+    app.back();
+    require(app.view().confirm && app.view().confirm->title == "Turn on streaming support?" &&
+                control(app.view(), "confirm-cancel").label == "Leave off" &&
+                control(app.view(), "confirm-accept").label == "Turn on",
+            "leaving Settings asks about streaming support");
+    click(app, "confirm-cancel");
+    require(!app.view().settings && !app.streaming_support() && !saved(app).replace_native_keyboard,
+            "Leave off discards, as ← does");
+
+    // ✓ applies it and says when it starts.
+    open();
+    click(app, "replace-native-keyboard");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    require(app.streaming_support() && saved(app).streaming_support &&
+                saved(app).replace_native_keyboard,
+            "the confirm button applies it");
+    require(app.view().status == "Streaming support starts after SteamOS restarts.",
+            "and says it waits for a restart");
+
+    // Off needs no question; on again within the same visit neither.
+    open();
+    click(app, "streaming-support");
+    require(!app.view().confirm && !control(app.view(), "streaming-support").selected,
+            "off asks nothing");
+    click(app, "streaming-support");
+    require(!app.view().confirm && control(app.view(), "streaming-support").selected,
+            "back on, as it is saved, asks nothing");
+    app.back();
+    require(!app.view().settings, "nothing changed, so ← just leaves");
+
+    // Replacement off takes it along; replacement back on leaves it off until it is ticked again.
+    open();
+    click(app, "replace-native-keyboard");
+    require(!control(app.view(), "streaming-support").enabled &&
+                !control(app.view(), "streaming-support").selected,
+            "without replacement it is off");
+    click(app, "replace-native-keyboard");
+    require(!control(app.view(), "streaming-support").selected, "and stays off until ticked");
+    click(app, "apply");
+    require(!app.streaming_support() && !saved(app).streaming_support, "saved off");
+
+    // A Steam that already carries the variable: no restart in the question, no note.
+    status.active = true;
+    open();
+    click(app, "streaming-support");
+    require(app.view().confirm &&
+                app.view().confirm->body.find("SteamOS has to be restarted") == std::string::npos,
+            "no restart is mentioned when none is needed");
+    click(app, "confirm-accept");
+    require(!note(), "nor noted on the card");
+    click(app, "apply");
+    require(app.streaming_support() && app.view().status.empty(), "applied without a restart message");
+    open();
+    click(app, "streaming-support");
+    click(app, "apply");
+    status.active = false;
+
+    // Changed languages and streaming support: one question after the other.
+    app.show_settings();
+    add_language(app, "International", "German, QWERTZ");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    app.back();
+    require(app.view().confirm && app.view().confirm->title == "Save your language changes?",
+            "languages are asked about first");
+    click(app, "confirm-cancel");
+    require(app.view().settings && app.view().confirm &&
+                app.view().confirm->title == "Turn on streaming support?",
+            "then streaming support");
+    click(app, "confirm-accept");
+    require(!app.view().settings && app.streaming_support() && saved(app).favorites.empty(),
+            "Discard then Turn on: streaming support is saved, the languages are not");
+    open();
+    click(app, "streaming-support");
+    click(app, "apply");
+    app.show_settings();
+    add_language(app, "International", "German, QWERTZ");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    app.back();
+    click(app, "confirm-accept");
+    require(app.view().confirm && app.view().confirm->title == "Turn on streaming support?",
+            "Save languages also leads to the second question");
+    click(app, "confirm-cancel");
+    require(!app.view().settings && !app.streaming_support() && saved(app).favorites.size() == 1,
+            "Save then Leave off: the languages are saved, streaming support is not");
+    require(sink.events.empty(), "streaming support settings send no desktop input");
+}
 void fractional_dropdown_scroll() {
     SettingsUi ui;
     SettingField field{"field", "Field", "c0"};
@@ -3069,6 +3217,7 @@ int main() {
         auto_leveling_settings();
         hover_fade_settings();
         native_replacement_settings();
+        streaming_support_setting();
         keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();

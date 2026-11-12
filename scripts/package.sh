@@ -26,6 +26,9 @@ python3 tools/check_release_binary.py "$package_dir/bin/framekeyboard" \
 stream_library="$package_dir/lib/framekeyboard/framekeyboard-stream.so"
 python3 tools/check_release_binary.py "$stream_library" "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
 python3 tools/check_stream_library.py "$stream_library"
+# The gate runs before every Steam start, with the library beside it.
+python3 tools/check_release_binary.py "$package_dir/lib/framekeyboard/framekeyboard-stream-gate" \
+    "$project_dir" "$FRAMEKEYBOARD_SYSROOT"
 # The retained adapters are release assets even though their system dependencies
 # are optional at runtime. Check stripping and path hygiene for them too.
 for engine in libime mcbopomofo hangul; do

@@ -44,8 +44,10 @@ def install(home, runtime):
 
 
 def run(home, runtime, *arguments, stdin=subprocess.DEVNULL):
+    # Streaming support's folder too: never the real one in the user's runtime directory.
     environment = dict(os.environ, FRAMEKEYBOARD_INSTALL_HOME=str(home),
-                       FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime), FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL="0")
+                       FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime), FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL="0",
+                       FRAMEKEYBOARD_INSTALL_STREAM_RUNTIME=str(runtime.parent / "stream-runtime"))
     return subprocess.run(["bash", str(script), *arguments], env=environment, stdin=stdin,
                           capture_output=True, text=True, timeout=60)
 
@@ -131,6 +133,37 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     require(not (home / ".local/share/framekeyboard").exists(), "the installation is removed")
 
 with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
+    # Streaming support: Steam may still carry its setting, so before the library goes the link in its
+    # folder leads to Steam's own library and a loaded library is told to idle; the drop-in is removed.
+    home, runtime = Path(directory) / "home", Path(directory) / "runtime"
+    install(home, runtime)
+    drop_in = home / ".config/systemd/user/steam.service.d/50-framekeyboard-stream.conf"
+    drop_in.parent.mkdir()
+    drop_in.write_text(MARKER + "[Service]\n")
+    stream = Path(directory) / "stream-runtime"
+    stream.mkdir()
+    (stream / "framekeyboard-stream.so").write_text("library")
+    (stream / "openvr.so").symlink_to("framekeyboard-stream.so")
+    (stream / "steam.env").write_text("SDL_OPENVR_LIBRARY=x\n")
+    result = run(home, runtime, "--yes")
+    require(result.returncode == 0 and "Streaming support" in result.stdout,
+            "uninstall with streaming support failed: " + result.stderr)
+    require(not drop_in.exists() and not drop_in.parent.exists(), "the drop-in and its folder are removed")
+    require(os.readlink(stream / "openvr.so") ==
+            str(home / ".local/share/Steam/steamrtarm64/libopenvr_api.so") and
+            (stream / "off").exists() and not (stream / "steam.env").exists(),
+            "a running Steam finds its own library behind the link")
+
+    # Another program's drop-in under the same name stays, with whatever else its folder holds.
+    install(Path(directory) / "second", Path(directory) / "second-runtime")
+    foreign = Path(directory) / "second/.config/systemd/user/steam.service.d/50-framekeyboard-stream.conf"
+    foreign.parent.mkdir()
+    foreign.write_text("[Service]\nEnvironment=MINE=1\n")
+    result = run(Path(directory) / "second", Path(directory) / "second-runtime", "--yes")
+    require(result.returncode == 0 and foreign.read_text() == "[Service]\nEnvironment=MINE=1\n",
+            "a foreign drop-in is left alone")
+
+with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
     # Run from SteamOS's Desktop, systemctl --user can't reach the manager
     # until it is pointed at the main session bus. This stand-in fails while
     # XDG_RUNTIME_DIR is set, as there, and records every call.
@@ -144,6 +177,7 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     (commands / "systemctl").chmod(0o700)
     environment = dict(os.environ, FRAMEKEYBOARD_INSTALL_HOME=str(home),
                        FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime),
+                       FRAMEKEYBOARD_INSTALL_STREAM_RUNTIME=str(Path(directory) / "stream-runtime"),
                        PATH=str(commands) + os.pathsep + os.environ.get("PATH", ""),
                        XDG_RUNTIME_DIR=str(Path(directory) / "desktop"),
                        DBUS_SESSION_BUS_ADDRESS="unix:path=" + str(Path(directory) / "desktop-bus"))
@@ -166,4 +200,4 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
             "the startup unit is removed")
 
 print("Uninstaller: confirmation, stopping a running app, removal, foreign files, purge, refusal, "
-      "models under XDG_DATA_HOME and the Desktop's service manager passed.")
+      "models under XDG_DATA_HOME, streaming support and the Desktop's service manager passed.")

@@ -138,6 +138,9 @@ struct Settings {
     bool auto_leveling{true};
     bool replace_native_keyboard{};
     bool start_with_steamos{};
+    // Typing into Steam Link streams through Full Keyboard's library
+    // (stream_support.hpp). Needs replacement; off by default.
+    bool streaming_support{};
     // Active only when the current language also supports swipe.
     bool swipe_typing{};
     // Completions of the word being typed in the toolbar, where swipe is

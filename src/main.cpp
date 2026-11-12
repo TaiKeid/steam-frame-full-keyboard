@@ -5,6 +5,7 @@
 #include "framekeyboard/session_environment.hpp"
 #include "framekeyboard/shell_protocol.hpp"
 #include "framekeyboard/startup.hpp"
+#include "framekeyboard/stream_support.hpp"
 #include "framekeyboard/updates.hpp"
 #include "framekeyboard/vr_runtime.hpp"
 #include <algorithm>
@@ -320,16 +321,19 @@ int main(int argc, char** argv) {
             // A hosted keyboard never touches the SteamOS boot unit; the saved
             // standalone flags stay as they are for the next standalone launch.
             if (options.mode == fk::Mode::Vr && !hosted) {
-                preferences = [config = options.config_dir,
-                               executable =
-                                   fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
-                    fk::save_preferences_with_startup(settings, executable, config);
+                // Streaming support is set up beside the boot unit: both
+                // belong to the standalone keyboard on SteamOS.
+                const auto executable = fk::fs::canonical("/proc/self/exe");
+                const auto stream = fk::stream_support_paths(executable);
+                options.stream_support = [stream] { return fk::stream_support_status(stream); };
+                preferences = [config = options.config_dir, executable,
+                               stream](const fk::Settings& settings) {
+                    fk::save_preferences_with_integration(settings, executable, config, stream);
                 };
-                reconcile_preferences =
-                    [config = options.config_dir,
-                     executable = fk::fs::canonical("/proc/self/exe")](const fk::Settings& settings) {
-                        fk::configure_startup(settings, executable, config);
-                    };
+                reconcile_preferences = [config = options.config_dir, executable,
+                                         stream](const fk::Settings& settings) {
+                    fk::reconcile_integration(settings, executable, config, stream);
+                };
             }
             // Under a shell the text sink sits between the output queue and
             // the input backend; off, it passes everything through.

@@ -121,6 +121,9 @@ void reload_manager() {
     throw UiError(ui("startup.refresh-failed"));
 }
 } // namespace
+void reload_session_manager() {
+    reload_manager();
+}
 int deliberate_exit_status(bool autostart) {
     const auto service = std::getenv("FRAMEKEYBOARD_SERVICE");
     return autostart || (service && *service) ? 3 : 0;

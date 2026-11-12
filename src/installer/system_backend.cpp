@@ -6,6 +6,7 @@
 #include "backend.hpp"
 #include "framekeyboard/config.hpp"
 #include "framekeyboard/startup.hpp"
+#include "framekeyboard/stream_support.hpp"
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -235,7 +236,11 @@ class SystemBackend : public Backend {
     }
     void releases() override {
         start(Task::Releases, [this] {
-            update([&](Status& s) { s.installed = installed_version(); });
+            const bool restart = !stream_support_status(stream_support_paths_in(install_root())).active;
+            update([&](Status& s) {
+                s.installed = installed_version();
+                s.streaming_restart = restart;
+            });
             std::vector<Release> found;
             std::string reason = "invalid-release";
             run({"python3", "-I", helper_.string(), "--installer-releases", oldest_release},
@@ -342,12 +347,14 @@ class SystemBackend : public Backend {
         });
     }
 
-    void finish(const Choices& choices) override {
-        start(Task::Finish, [choices] {
+    void finish(const Choices& choices, bool restart) override {
+        start(Task::Finish, [choices, restart] {
             const auto config = default_config_dir();
             std::vector<std::string> errors;
             auto settings = load_settings(config, errors);
             settings.replace_native_keyboard = settings.start_with_steamos = choices.replace_native;
+            // Set up below, once the other choices are safely saved.
+            settings.streaming_support = false;
             settings.swipe_typing = choices.swipe;
             settings.typing_suggestions = choices.suggestions;
             settings.key_flicks = choices.pull_for_shift;
@@ -359,6 +366,26 @@ class SystemBackend : public Backend {
                 throw UiError(ui("installer.error.settings"));
             }
             if (!choices.replace_native) {
+                return;
+            }
+            if (choices.streaming) {
+                // Its own failure, so the user can go back and answer No.
+                try {
+                    configure_stream_support(true, stream_support_paths_in(install_root()));
+                    settings.streaming_support = true;
+                    save_settings(config, settings);
+                } catch (const std::exception&) {
+                    throw UiError(ui("installer.error.streaming"));
+                }
+            }
+            if (restart) {
+                // SteamOS starts the keyboard itself when it comes back.
+                if (run({"systemctl", "reboot"}) != 0 &&
+                    run({"busctl", "--system", "call", "org.freedesktop.login1",
+                         "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Reboot", "b",
+                         "false"}) != 0) {
+                    throw UiError(ui("installer.error.restart"));
+                }
                 return;
             }
             // The service starts hidden; a second launch then shows it, as a

@@ -14,9 +14,55 @@ Cut, Copy and Paste press Ctrl+X, Ctrl+C and Ctrl+V on the PC, so Paste pastes t
 
 The PC types pasted text itself. Sunshine on Windows types Unicode with the system's own Unicode input, which is expected to take whole words but wasn't tested. Sunshine on Linux types each character as Ctrl+Shift+U, its code and Enter, which GTK apps and Chromium-based browsers take, and which lost characters in a long paste into Firefox. Qt and KDE apps, such as Kate, show the code instead (`1f605` for 😅) unless an input method such as IBus or Fcitx5 runs on the PC. Measured in November 2026 with Moonlight 6.2 on the Frame and Sunshine 2026.1103 on a Linux PC, with US layouts on both.
 
-## Steam Link streams: not supported
+## Through Steam Link: Streaming support
 
-Games streamed from a PC to the Frame through Steam Link keep using Steam's own keyboard. Full Keyboard leaves their keyboard requests native. The rest of this page records what was measured on a Steam Frame in October 2026, so the question can be revisited when SteamVR, Steam or Gamescope change.
+Games and apps streamed from a PC to the Frame through Steam Link take Full Keyboard with **Streaming support** on, in Settings → Integration. It is off by default and needs Replace native keyboard; the [installer](installer.md) asks about it on its last page. Without it, such a game keeps Steam's own keyboard, which types only basic Latin text into a stream.
+
+Turning it on asks first, because it is the one feature that changes how Steam starts. It takes effect after SteamOS restarts once: Steam reads the setting only when it starts. Settings says so under the switch, and the installer offers the restart on its Finish page. Turning it off, or on again later, needs no restart and applies to the next stream; off, a stream that is running goes back to Steam's keyboard at once.
+
+With it on:
+- press SteamOS's keyboard button with the stream in front, as for any other window. With Full Keyboard already showing, click the game: Steam sends no keyboard request for a click on a stream, so the click itself moves typing there;
+- letters, digits and symbols arrive as the keys a US layout types them with, and the PC reads them with its own layout;
+- every key and shortcut goes through as a real press and release with its modifiers: Ctrl+C, Shift with the arrows, Esc, the function keys, and Ctrl or Alt held for a game's own bindings. Paste presses Ctrl+V on the PC, so it pastes the PC's clipboard. A key held on the keyboard is sent again as a release and a new press, because the streaming client drops a second press of a key it holds;
+- other text, such as é, Cyrillic or Japanese, is sent as text. **A Windows PC types it**: Russian and whole Japanese phrases were measured. **A Linux PC does not**: there Steam ignores text sent to it, also from the Steam Link app on a phone, so only what keys type arrives. A Mac was not measured.
+
+VR apps streamed from a PC stay outside: their link has no keyboard channel at all.
+
+### Why Steam's keyboard types only Latin there
+
+Steam's streaming client on the Frame is an SDL program that shows the stream through SDL's OpenVR video driver. For a character from SteamVR's keyboard that driver passes on only its first byte, as a key. The client itself and the Remote Play protocol carry any text; the PC never gets to see it. Measured in November 2026 with Steam's SDL 3.4.0 builds 1576 and 1616; SDL's own source had the same line.
+
+### What Streaming support adds
+
+- **A library**, `framekeyboard-stream.so` ([`stream/openvr_passthrough.c`](../stream/openvr_passthrough.c)), which the streaming client loads in place of Steam's OpenVR library. It names that library as its dependency, so every OpenVR call but one goes straight to Steam's. The one it wraps hands the client's event poll through unchanged, and after each poll gives the client what Full Keyboard sent: text as SDL text events, keys as SDL key events. Characters from Steam's own keyboard, or any other, pass as before.
+- **A private socket**, `framekeyboard-stream.sock` in the user's runtime folder, between the keyboard's replacement helper and the library. Only a program of the same user is accepted. When the keyboard goes away, the library drops what is queued and releases every key it holds down.
+- **A setting for Steam's start.** The client loads the library only when Steam was started with `SDL_OPENVR_LIBRARY` naming it. A drop-in for Steam's user service, `~/.config/systemd/user/steam.service.d/50-framekeyboard-stream.conf`, in the folder that service's own file names for user additions, runs the gate before each start and reads the answer it writes.
+- **The gate**, `framekeyboard-stream-gate` ([`stream/stream_gate.c`](../stream/stream_gate.c)), which keeps `/run/user/<uid>/framekeyboard-stream/`:
+
+| File | What it is |
+| --- | --- |
+| `steam.env` | The variable, written only when the library passed its check |
+| `framekeyboard-stream.so` | A copy of the library, so removing the keyboard cannot take it from a running Steam |
+| `openvr.so` | What the variable names: a link to the copy, or to Steam's own library while Streaming support is off |
+| `off` | Tells a library that is already loaded to stay idle |
+
+No file of Steam or SteamOS is changed. The folder is in the runtime directory, which the system empties at shutdown.
+
+### What keeps it from breaking streaming
+
+- **Steam's start never depends on it.** The drop-in first removes the last answer with a system tool, then runs the gate with a five-second limit and ignores how it ends. A missing, failing or slow gate leaves Steam exactly as it comes.
+- **The library is checked before every Steam start**, after a Steam update too, since Steam restarts through its service: the gate loads it beside Steam's own OpenVR library in a process of its own, and writes the variable only if that works.
+- **The file Steam is told about always exists while Steam runs.** It is a link in the runtime folder. Off, uninstalled or after a failed check, it leads to Steam's own library, so a stream starts as without Full Keyboard.
+- **Without the keyboard the library does nothing.** Closed or crashed, it types nothing and lets go of held keys.
+- **An interface it does not know is passed through untouched.** It wraps only the overlay interface version it was written for.
+
+What remains: the library runs inside the streaming client, so a fault in it could end a stream. It is not expected to break by itself: the risk is a SteamOS or Steam update that changes what the library relies on. If streaming stops working after one, turn Streaming support off, which takes effect with the next stream, and wait for a Full Keyboard update. `uninstall.sh` and the installer's Uninstall turn it off the same way before removing the keyboard. To remove it by hand, delete the drop-in and restart SteamOS.
+
+Measured on a Steam Frame in November 2026 with a Windows PC and a Linux PC as hosts.
+
+## Steam's own keyboard route
+
+The rest of this page records why Full Keyboard does not type into a stream the way Steam's keyboard does. It was measured on a Steam Frame in October 2026, before Streaming support, and explains why that needed its own way in.
 
 ## How Steam's keyboard reaches a streamed game
 
@@ -50,12 +96,11 @@ From a separate OpenVR client:
 
 Whether Steam also resets alpha, width, input, flags and texel aspect on reopen was not measured. Any future use must restore them itself, including after a crash.
 
-## What would make support possible
+## What would make the library unnecessary
 
+- **SDL:** an OpenVR driver that passes on whole characters. That would let Steam's keyboard type any text into a stream, though not shortcuts.
 - **SteamVR:** a public way to send keyboard text to one overlay, or an overlay that can be clicked without taking keyboard focus.
 - **Gamescope:** ignore keyboard character events addressed to other overlays (`data.keyboard.overlayHandle`). That would make the closed-session route safe.
-- **PC helper:** a small companion on the PC that receives keys over the network. This needs an installation on the PC, which this project avoids.
-- **Private interfaces or Steam Link's protocol:** undocumented and expected to break with updates.
 
 ## If this is revisited
 

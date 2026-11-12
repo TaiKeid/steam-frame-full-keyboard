@@ -119,7 +119,7 @@ file build/frame-arm64/framekeyboard
 ./scripts/package.sh
 ```
 
-`scripts/package.sh` builds the release in `build/frame-arm64-release`, without [debug mode](#debug-mode). It also needs `FRAMEKEYBOARD_WHISPER_FRAME` and `FRAMEKEYBOARD_MOZC_FRAME`, and takes `FRAMEKEYBOARD_EXECUTORCH_FRAME` for swipe typing; see [releasing](releasing.md#package-and-publish).
+`scripts/package.sh` builds the release in `build/frame-arm64-release`, without [debug mode](#debug-mode). It refuses a package whose Streaming support library depends on anything but Steam's OpenVR library and the C library, carries a library search path, or offers more than the one call it wraps (`tools/check_stream_library.py`). It also needs `FRAMEKEYBOARD_WHISPER_FRAME` and `FRAMEKEYBOARD_MOZC_FRAME`, and takes `FRAMEKEYBOARD_EXECUTORCH_FRAME` for swipe typing; see [releasing](releasing.md#package-and-publish).
 
 The generated Wayland protocol is compiled as C. GCC and Clang builds use the same warning flags; check clean builds of both before claiming a warning-free release.
 

@@ -4180,7 +4180,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                             {popup.panel.x + 40, popup.panel.y + 30, popup.panel.width - 80, 36}, 25,
                             view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             interface_label(
-                cr, popup.body, {popup.panel.x + 40, popup.panel.y + 78, popup.panel.width - 80, 56}, 18,
+                cr, popup.body,
+                {popup.panel.x + 40, popup.panel.y + 78, popup.panel.width - 80, popup.body_height}, 18,
                 view.interface_font, mix(t.legend, t.surface, .3), false, PANGO_ALIGN_LEFT, true);
             for (const auto& row : popup.rows) {
                 // The name and its note; the row's switch is its control.

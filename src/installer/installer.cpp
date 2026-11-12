@@ -102,11 +102,33 @@ constexpr std::array<std::pair<const char*, const char*>, Installer::pages> page
     {"installer.page.suggestions", "installer.page.suggestions.text"},
     {"installer.page.pull", "installer.page.pull.text"},
     {"installer.page.use-numpad", "installer.page.use-numpad.text"},
+    {"installer.page.streaming", "installer.page.streaming.text"},
 }};
 // Finish's summary names each answer as Settings does, not by its question.
 constexpr std::array<const char*, Installer::pages> summary_keys{
-    "setting.replace-native-keyboard", "setting.swipe-typing", "setting.typing-suggestions",
-    "setting.key-flicks", "installer.summary.numpad"};
+    "setting.replace-native-keyboard", "setting.swipe-typing",
+    "setting.typing-suggestions",      "setting.key-flicks",
+    "installer.summary.numpad",        "setting.streaming-support"};
+
+// Whether a dotted version is at least another.
+bool at_least(std::string_view version, std::string_view minimum) {
+    const auto next = [](std::string_view& text) {
+        long value = 0;
+        std::size_t used = 0;
+        while (used < text.size() && text[used] >= '0' && text[used] <= '9') {
+            value = value * 10 + (text[used++] - '0');
+        }
+        text.remove_prefix(std::min(text.size(), used + 1)); // the number and its dot
+        return value;
+    };
+    while (!version.empty() || !minimum.empty()) {
+        const long have = next(version), want = next(minimum);
+        if (have != want) {
+            return have > want;
+        }
+    }
+    return true;
+}
 
 void set_rgba(cairo_t* cr, Color color, double alpha) {
     cairo_set_source_rgba(cr, color.r, color.g, color.b, alpha);
@@ -186,9 +208,28 @@ bool Installer::choice(int page) const {
         return choices_.suggestions;
     case 3:
         return choices_.pull_for_shift;
-    default:
+    case 4:
         return choices_.numpad;
+    default:
+        return choices_.streaming && streaming_blocked().key.empty();
     }
+}
+UiText Installer::streaming_blocked() const {
+    // It types through replacement's helper, and older releases lack it.
+    if (!choices_.replace_native) {
+        return ui("installer.page.streaming.needs-replace");
+    }
+    if (!installing_.empty() && !at_least(installing_, streaming_release)) {
+        return ui("installer.page.streaming.needs-version", {{"version", streaming_release}});
+    }
+    return {};
+}
+bool Installer::restart_offered() const {
+    return first_install_ && choice(pages - 1) && status_.streaming_restart;
+}
+bool Installer::streaming_failed() const {
+    return status_.task == Task::Finish && status_.state == State::Failed &&
+           status_.error.key == "installer.error.streaming";
 }
 double Installer::progress() const {
     if (status_.task != Task::Install || install_done_) {
@@ -341,7 +382,20 @@ void Installer::activate(const Hit& hit) {
         case 4:
             choices_.numpad = yes;
             break;
+        case 5:
+            choices_.streaming = yes;
+            break;
         }
+        break;
+    }
+    case Action::Restart:
+        restart_ = !restart_;
+        break;
+    case Action::FinishWithout: {
+        // The rest of the choices as they were; this one becomes No.
+        choices_.streaming = false;
+        finish_pressed_ = true;
+        backend_.finish(choices_, false);
         break;
     }
     case Action::Back:
@@ -353,7 +407,10 @@ void Installer::activate(const Hit& hit) {
     case Action::Finish:
         finish_pressed_ = true;
         if (first_install_) {
-            backend_.finish(choices_);
+            // The answer as shown: No where the page could not be answered.
+            auto choices = choices_;
+            choices.streaming = choice(pages - 1);
+            backend_.finish(choices, restart_ && restart_offered());
         } else {
             quit_ = true;
         }
@@ -637,18 +694,21 @@ void Installer::split_button(const Rect& main_bounds, const Rect& more_bounds, b
     cairo_stroke(cr_);
 }
 
-void Installer::segments(const Rect& r, Action action, int chosen) {
+void Installer::segments(const Rect& r, Action action, int chosen, bool enabled) {
+    if (!enabled) {
+        cairo_push_group(cr_); // The answer it is held at, far back.
+    }
     paint::well(cr_, theme_, r);
     const char* labels[] = {"installer.yes", "installer.no"};
     for (int i = 0; i < 2; ++i) {
         const Rect segment{r.x + i * r.width / 2, r.y, r.width / 2, r.height};
         if (live_) {
-            hits_.push_back({segment, action, i, true});
+            hits_.push_back({segment, action, i, enabled});
         }
         const Rect thumb{segment.x + 4, segment.y + 4, segment.width - 8, segment.height - 8};
         if (chosen == i) {
             paint::latched(cr_, theme_, thumb, theme_.radius);
-        } else if (hovered(action, i)) {
+        } else if (enabled && hovered(action, i)) {
             paint::rounded(cr_, thumb, theme_.radius);
             paint::source(cr_, theme_.hover);
             cairo_fill(cr_);
@@ -656,6 +716,40 @@ void Installer::segments(const Rect& r, Action action, int chosen) {
         text(tr(labels[i]), segment, 22,
              chosen == i ? theme_.latched_legend : paint::mix(theme_.legend, theme_.surface, .2));
     }
+    if (!enabled) {
+        cairo_pop_group_to_source(cr_);
+        cairo_paint_with_alpha(cr_, .4);
+    }
+}
+
+void Installer::checkbox(const Rect& r, Action action, const std::string& label, bool checked) {
+    if (live_) {
+        hits_.push_back({r, action, 0, true});
+    }
+    // Pressed, the box and its label go down together, as a key does.
+    const double down = held(action) ? press_travel : 0;
+    const Rect box{r.x + 12, r.y + (r.height - 32) / 2 + down, 32, 32};
+    if (checked) {
+        paint::latched(cr_, theme_, box, 8);
+        cairo_new_path(cr_);
+        cairo_move_to(cr_, box.x + 8, box.y + 17);
+        cairo_line_to(cr_, box.x + 14, box.y + 23);
+        cairo_line_to(cr_, box.x + 25, box.y + 10);
+        cairo_set_line_width(cr_, 3);
+        cairo_set_line_cap(cr_, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_join(cr_, CAIRO_LINE_JOIN_ROUND);
+        paint::source(cr_, theme_.latched_legend);
+        cairo_stroke(cr_);
+    } else {
+        paint::well(cr_, theme_, box);
+        if (hovered(action)) {
+            paint::rounded(cr_, {box.x + 3, box.y + 3, box.width - 6, box.height - 6}, 6);
+            paint::source(cr_, theme_.hover);
+            cairo_fill(cr_);
+        }
+    }
+    text(label, {box.x + box.width + 14, r.y + down, r.width - box.width - 38, r.height}, 21,
+         theme_.legend, PANGO_ALIGN_LEFT);
 }
 
 void Installer::spinner(double x, double y, double radius) {
@@ -1244,8 +1338,11 @@ void Installer::paint_wizard_page(int page) {
     case 3:
         paint_pull_demo(stage, t);
         break;
-    default:
+    case 4:
         paint_numpad_demo(stage, t);
+        break;
+    default:
+        paint_stream_demo(stage, t);
         break;
     }
     if (lit < 1) {
@@ -1258,25 +1355,51 @@ void Installer::paint_wizard_page(int page) {
     constexpr double choice_height = 62, choice_width = 300, under_title = 14, over_choice = 30;
     const auto title = tr(page_keys[page].first);
     const auto explanation = tr(page_keys[page].second);
+    // Streaming support's page says why it stays at No when it has to.
+    const auto blocked = page == pages - 1 ? streaming_blocked() : UiText{};
+    const auto reason = blocked.key.empty() ? std::string{} : localization_.text(blocked);
+    constexpr double over_reason = 12;
+    const double reason_height = reason.empty()
+                                     ? 0
+                                     : over_reason + block(reason, {0, 0, column_width, 60}, 18, dim(),
+                                                           PANGO_WEIGHT_NORMAL, false);
     const double title_height =
         block(title, {0, 0, column_width, 84}, 32, theme_.legend, PANGO_WEIGHT_SEMIBOLD, false);
-    const double room = stage.height - title_height - under_title - over_choice - choice_height;
+    const double room =
+        stage.height - title_height - under_title - over_choice - choice_height - reason_height;
     const double text_height =
         block(explanation, {0, 0, column_width, room}, 21, dim(), PANGO_WEIGHT_NORMAL, false);
-    const double total = title_height + under_title + text_height + over_choice + choice_height;
+    const double total =
+        title_height + under_title + text_height + over_choice + choice_height + reason_height;
     double y = stage.y + std::max(0.0, (stage.height - total) * .45);
     block(title, {column_x, y, column_width, 84}, 32, theme_.legend, PANGO_WEIGHT_SEMIBOLD);
     y += title_height + under_title;
     block(explanation, {column_x, y, column_width, room}, 21, dim());
     y += text_height + over_choice;
     segments({column_x + 4, y, std::min(choice_width, column_width - 8), choice_height}, Action::Choice,
-             choice(page) ? 0 : 1);
+             choice(page) ? 0 : 1, reason.empty());
+    if (!reason.empty()) {
+        block(reason, {column_x, y + choice_height + over_reason, column_width, 60}, 18, dim());
+    }
 }
 void Installer::paint_finish_page() {
     stage_plate(stage);
-    paint_finish_badge(stage.x + stage.width / 2, stage.y + stage.height / 2, 84);
+    // Restart SteamOS sits under the badge, which makes room for it.
+    const bool restart = restart_offered();
+    paint_finish_badge(stage.x + stage.width / 2, stage.y + stage.height / 2 - (restart ? 44 : 0), 84);
+    if (restart) {
+        const auto label = tr("installer.finish.restart");
+        const double width = std::min(stage.width - 48, text_width(label, 21) + 84);
+        const Rect row{stage.x + (stage.width - width) / 2, stage.y + stage.height - 116, width, 52};
+        checkbox(row, Action::Restart, label, restart_);
+        block(tr("installer.finish.restart.note"),
+              {stage.x + 24, row.y + row.height + 8, stage.width - 48, 48}, 16, dim(),
+              PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_CENTER);
+    }
 
+    // With Restart SteamOS ticked, Finish restarts instead of opening the keyboard.
     const char* note = !first_install_           ? "installer.ready.reinstall"
+                       : restart && restart_     ? "installer.ready.restart"
                        : choices_.replace_native ? "installer.ready.replace"
                                                  : "installer.ready.manual";
     const auto value = tr(note);
@@ -1410,8 +1533,14 @@ void Installer::paint_finish_badge(double x, double y, double radius) {
 void Installer::paint_footer(double turned) {
     const double left = card.x + card_pad, right = card.x + card.width - card_pad;
     const bool finish = page_ == pages;
+    // Streaming support could not be set up: the choice is made here, without
+    // going back to its page.
+    const bool without = finish && streaming_failed();
     // Back returns through the wizard until Finish is pressed.
-    if (first_install_ && page_ > 0 && !(finish && finish_pressed_)) {
+    if (without) {
+        button({left, footer_y, 300, 60}, Action::FinishWithout, 0,
+               tr("installer.finish.without-streaming"), false);
+    } else if (first_install_ && page_ > 0 && !(finish && finish_pressed_)) {
         button({left, footer_y, 200, 60}, Action::Back, 0, tr("installer.back"), false);
     }
     if (!finish) {
@@ -1421,11 +1550,11 @@ void Installer::paint_footer(double turned) {
         const Rect r{right - 260, footer_y, 260, 60};
         const bool waiting = (status_.task == Task::Install || status_.task == Task::Finish) &&
                              status_.state == State::Running;
-        button(r, Action::Finish, 0, waiting ? "" : tr("installer.finish"), true,
-               install_done_ && !finish_pressed_, 24);
+        const auto name = tr(without ? "installer.retry" : "installer.finish");
+        button(r, Action::Finish, 0, waiting ? "" : name, true, install_done_ && !finish_pressed_, 24);
         if (waiting) {
             // The label, with a spinner before it while the work runs.
-            const auto label = tr("installer.finish");
+            const auto label = name;
             const double w = std::min(r.width - 70, text_width(label, 24));
             spinner(r.x + (r.width - w) / 2 - 8, r.y + r.height / 2, 10);
             text(label, {r.x + 22, r.y, r.width - 22, r.height}, 24, dim());
@@ -1759,6 +1888,82 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
     const double f = ease_in_out((hop - std::floor(hop)) / .6);
     laser(s, from.first + (to.first - from.first) * f, from.second + (to.second - from.second) * f,
           numpad < 1 ? 0 : phase(c, typing - .4, .3) * (1 - phase(c, typing + digits * step, .3)));
+}
+
+// A game streamed from the PC with its chat line open: the laser types on
+// the keyboard below and every script arrives, not only Latin letters.
+void Installer::paint_stream_demo(const Rect& s, double t) {
+    // What is typed, one character at a time: each prefix of it.
+    static const std::vector<std::string> typed = [] {
+        const std::string line = "GG! Привет こんにちは";
+        std::vector<std::string> prefixes{""};
+        for (std::size_t i = 0; i < line.size();) {
+            ++i;
+            while (i < line.size() && (static_cast<unsigned char>(line[i]) & 0xC0) == 0x80) {
+                ++i; // the rest of a UTF-8 character
+            }
+            prefixes.push_back(line.substr(0, i));
+        }
+        return prefixes;
+    }();
+    constexpr double typing = 1.1, step = .22, hold = 1.3;
+    const auto count = static_cast<double>(typed.size() - 1);
+    const double done = typing + count * step, cycle = done + hold + 1.2;
+    const double c = std::fmod(t, cycle);
+
+    // The stream's window, drawn as page 1 draws an app's.
+    const Rect window{s.x + 40, s.y + 26, s.width - 80, 168};
+    for (int i = 1; i <= 4; ++i) {
+        paint::rounded(cr_, {window.x - i, window.y + i * 2, window.width + 2 * i, window.height},
+                       theme_.radius + 2 + i);
+        cairo_set_source_rgba(cr_, 0, 0, 0, .08);
+        cairo_fill(cr_);
+    }
+    paint::rounded(cr_, window, theme_.radius + 2);
+    paint::source(cr_, paint::mix(theme_.surface, theme_.bottom, .45));
+    cairo_fill(cr_);
+    cairo_save(cr_);
+    paint::rounded(cr_, window, theme_.radius + 2);
+    cairo_clip(cr_);
+    cairo_rectangle(cr_, window.x, window.y, window.width, 34);
+    paint::source(cr_, theme_.middle);
+    cairo_fill(cr_);
+    cairo_restore(cr_);
+    // A product's name, the same in every language.
+    text("Steam Link", {window.x + 18, window.y, window.width - 36, 34}, 15,
+         paint::mix(theme_.legend, theme_.middle, .45), PANGO_ALIGN_LEFT);
+    // Two lines of the game's chat above the line being typed.
+    for (int i = 0; i < 2; ++i) {
+        paint::rounded(cr_, {window.x + 24, window.y + 50 + i * 16, i ? 150.0 : 210.0, 8}, 4);
+        set_rgba(cr_, theme_.legend, .14);
+        cairo_fill(cr_);
+    }
+    const double progress = (c - typing) / step;
+    const auto shown =
+        c < typing ? std::size_t{0} : std::min(typed.size() - 1, static_cast<std::size_t>(progress) + 1);
+    field({window.x + 20, window.y + 88, window.width - 40, 60}, typed[shown], 23,
+          1 - phase(c, done + hold, .5), c > .4 && c < done + hold);
+
+    // The keyboard: up while the line is typed, down when it is sent.
+    const double rise =
+        c < done + hold ? ease_out(phase(c, .3, .6)) : 1 - ease_in_out(phase(c, done + hold, .6));
+    const double rest = s.y + s.height - 30 - case_bottom * mini_scale, hidden = s.y + s.height + 16;
+    const double kx = s.x + (s.width - panel_width * mini_scale) / 2;
+    const double ky = hidden + (rest - hidden) * rise;
+    small_picture(mini_.get(), mini_scale, kx, ky, 1);
+    // The laser walks the keys, one for each character.
+    constexpr std::array<std::pair<double, int>, 7> keys{
+        {{4.5, 2}, {7.5, 1}, {1.5, 3}, {6, 2}, {9, 1}, {3, 1}, {5.5, 3}}};
+    const auto at = [&](std::size_t i) {
+        const auto& [column, row] = keys[i % keys.size()];
+        return std::pair{kx + (keys_left + column * key_pitch + key_pitch / 2) * mini_scale,
+                         ky + row_middle[static_cast<std::size_t>(row)] * mini_scale};
+    };
+    const double hop = std::clamp(progress, 0.0, count - 1);
+    const auto from = at(static_cast<std::size_t>(hop)), to = at(static_cast<std::size_t>(hop) + 1);
+    const double f = ease_in_out((hop - std::floor(hop)) / .6);
+    laser(s, from.first + (to.first - from.first) * f, from.second + (to.second - from.second) * f,
+          phase(c, typing - .4, .3) * (1 - phase(c, done + .2, .3)));
 }
 
 std::optional<Rect> Installer::control(Action action, int index) const {
