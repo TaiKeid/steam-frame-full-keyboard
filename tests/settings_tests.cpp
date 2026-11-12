@@ -2848,12 +2848,15 @@ void streaming_support_failed_setup() {
             throw StreamingSupportWarning("streaming.saved-without-change", reason, false);
         }
     });
-    app.show_settings();
-    app.move(0, 800, 300);
-    app.scroll(0, 1000, 0);
-    for (int i = 0; i < 40; ++i) {
-        app.tick(100 + i * .05);
-    }
+    auto open = [&] {
+        app.show_settings();
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(100 + i * .05);
+        }
+    };
+    open();
     click(app, "replace-native-keyboard");
     click(app, "streaming-support");
     click(app, "confirm-accept");
@@ -2862,9 +2865,19 @@ void streaming_support_failed_setup() {
     require(attempts == 1 && !saved(app).streaming_support && !app.streaming_support(),
             "a set-up that failed leaves the flag off on disk and in memory");
     require(app.view().status.starts_with("Other preferences saved."), "and says so");
+    // Settings opened again before such a save has finished shows the flag as saved once it has.
+    open();
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    open();
+    app.flush_settings();
+    require(attempts == 2 && !control(app.view(), "streaming-support").selected,
+            "an open card follows the flag as saved");
+    app.back();
     click(app, "pin");
     app.flush_settings();
-    require(attempts == 1, "a later save doesn't try it again");
+    require(attempts == 2, "a later save doesn't try it again");
 }
 // Streaming support: its question when ticked, applied only by ✓, and asked about again when ← leaves
 // Settings with it ticked, after the question about changed languages.

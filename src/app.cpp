@@ -2814,10 +2814,18 @@ void App::update_save_status() {
         }
         if (result->streaming_support) {
             // Its flag went back on disk; the card and what is saved agree again,
-            // and later saves don't quietly try it once more.
+            // and later saves don't quietly try it once more. A Settings visit
+            // that has not changed it shows the flag as saved at once; one that
+            // has keeps the user's choice (R202).
+            const bool shown = settings_.streaming_support && settings_.replace_native_keyboard;
             settings_.streaming_support = *result->streaming_support;
-            pending_streaming_support_ =
-                settings_.streaming_support && settings_.replace_native_keyboard;
+            if (!settings_open_ || pending_streaming_support_ == shown) {
+                pending_streaming_support_ =
+                    settings_.streaming_support && settings_.replace_native_keyboard;
+                if (settings_open_) {
+                    update_settings_ui();
+                }
+            }
         }
         if (!result->startup_warning.key.empty()) {
             auto warning = result->startup_warning;
