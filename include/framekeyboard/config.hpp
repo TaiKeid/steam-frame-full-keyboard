@@ -121,6 +121,9 @@ struct Settings {
     // "visible", "semi-transparent" (half opaque) or "invisible" (clear, still
     // taking the laser). Keys keep their theme.
     std::string background_surface{"visible"};
+    // Hover fade: a key the laser leaves dims over a moment instead of going
+    // dark at once; on unless turned off.
+    bool hover_fade{true};
     // Pops on keyboard keys: "off", "press", "release" or "both".
     std::string haptic_sounds{"off"};
     // The keyboard's own vibration pulses: press, release, hover and flick

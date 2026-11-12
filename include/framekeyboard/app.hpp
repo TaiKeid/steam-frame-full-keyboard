@@ -909,6 +909,7 @@ class App {
     std::vector<Favorite> pending_favorites_;
     bool pending_hide_numpad_{};
     std::string pending_background_surface_{"visible"};
+    bool pending_hover_fade_{true};
     std::string pending_haptic_sounds_{"off"};
     std::string pending_haptic_effect_{"e"};
     int pending_haptic_volume_{75};

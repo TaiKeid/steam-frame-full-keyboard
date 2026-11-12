@@ -2211,6 +2211,37 @@ void auto_leveling_settings() {
     load_settings(directory.path, errors);
     require(!errors.empty(), "Auto leveling requires a JSON boolean");
 }
+// Hover fade (docs/configuration.md): on unless turned off, under Background.
+void hover_fade_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(app.view().hover_fade, "Hover fade is on for a new install");
+    app.show_settings();
+    const auto view = app.view();
+    require(control(view, "hover-fade").selected &&
+                control(view, "background-surface").bounds.y < control(view, "hover-fade").bounds.y &&
+                control(view, "hover-fade").bounds.y < control(view, "hide-numpad").bounds.y,
+            "Hover fade starts on, between Background and Hide numpad");
+    click(app, "hover-fade");
+    require(!control(app.view(), "hover-fade").selected && app.view().hover_fade,
+            "Hover fade stays pending until Apply");
+    click(app, "apply");
+    require(!app.view().hover_fade && !saved(app).hover_fade, "Apply turns Hover fade off and saves it");
+    {
+        App reopened(options, sink);
+        require(!reopened.view().hover_fade, "Hover fade off survives a restart");
+    }
+    require(sink.events.empty(), "Hover fade settings send no desktop input");
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"hover_fade":"false"})";
+    std::vector<std::string> errors;
+    load_settings(directory.path, errors);
+    require(!errors.empty(), "Hover fade requires a JSON boolean");
+}
 // The Additional languages popup (docs/configuration.md): the main language,
 // the ordered languages after it, tap and drag, and the question on leaving.
 void languages_popup() {
@@ -3036,6 +3067,7 @@ int main() {
         main_language_stays();
         behavior_settings();
         auto_leveling_settings();
+        hover_fade_settings();
         native_replacement_settings();
         keep_open_setting();
         favorite_schema();

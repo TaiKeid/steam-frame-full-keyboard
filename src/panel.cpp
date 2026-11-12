@@ -85,6 +85,10 @@ Color disabled_legend(const Theme& theme) {
     return {(theme.legend.r + theme.disabled.r) / 2, (theme.legend.g + theme.disabled.g) / 2,
             (theme.legend.b + theme.disabled.b) / 2};
 }
+// A key press takes this share of the theme's press duration and its release
+// this share, so a press lands fast and returns softly. With Hover fade, a key
+// the laser left takes this long to go dark.
+constexpr double press_share = .75, release_share = 1.6, hover_fade_seconds = .18;
 // CSS ease-out is cubic-bezier(0, 0, .58, 1), as used by Steam's handle.
 double handle_ease_out(double progress) {
     if (progress <= 0 || progress >= 1) {
@@ -269,6 +273,11 @@ void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double
     cairo_restore(cr);
     cairo_pattern_destroy(light);
 }
+// A theme with its own key edges (High Contrast) keeps its keys as it
+// defines them: no light, tones, shading or quieter legends are added.
+bool plain_keys(const Theme& t) {
+    return t.edge.has_value();
+}
 // Fills a rounded shape with the latched colour in the theme's finish.
 void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
     rounded(cr, r, radius);
@@ -278,11 +287,80 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
                  mix(t.bottom, t.latched_bottom, .12));
         neon_tube(cr, t, r, radius);
     } else if (t.latched_top == t.latched && t.latched_bottom == t.latched) {
-        source(cr, t.latched);
-        cairo_fill(cr);
+        if (plain_keys(t)) {
+            source(cr, t.latched);
+            cairo_fill(cr);
+        } else {
+            // One colour from the theme: shaded as the keys are, lighter at
+            // the top and toward the case at the foot.
+            gradient(cr, r, mix(t.latched, Color{1, 1, 1}, .13), t.latched,
+                     mix(t.latched, t.surface, .22));
+        }
     } else {
         gradient(cr, r, t.latched_top, t.latched, t.latched_bottom);
     }
+}
+// The light a keycap or button face catches along its top edge and round its
+// upper corners, and the shade it falls into at its foot. Both stay inside
+// the face, so a key still repaints within its bounds. `strength` fades it:
+// more under the laser, none on a key held down.
+void cap_light(cairo_t* cr, const Theme& t, const Rect& face, double radius, double strength = 1) {
+    if (plain_keys(t) || t.latched_finish == "neon" || strength <= 0) {
+        return;
+    }
+    const bool light = light_theme(t);
+    cairo_save(cr);
+    rounded(cr, face, radius);
+    cairo_clip(cr);
+    cairo_set_line_width(cr, 1.5);
+    const Rect line{face.x + .75, face.y + .75, face.width - 1.5, face.height - 1.5};
+    const double line_radius = std::max(1.0, radius - .75);
+    auto* top = cairo_pattern_create_linear(0, face.y, 0, face.y + std::min(16.0, face.height * .3));
+    cairo_pattern_add_color_stop_rgba(top, 0, 1, 1, 1, std::min(1.0, (light ? .9 : .15) * strength));
+    cairo_pattern_add_color_stop_rgba(top, .3, 1, 1, 1, std::min(1.0, (light ? .4 : .05) * strength));
+    cairo_pattern_add_color_stop_rgba(top, 1, 1, 1, 1, 0);
+    rounded(cr, line, line_radius);
+    cairo_set_source(cr, top);
+    cairo_stroke(cr);
+    cairo_pattern_destroy(top);
+    auto* foot = cairo_pattern_create_linear(0, face.y + face.height - 14, 0, face.y + face.height);
+    cairo_pattern_add_color_stop_rgba(foot, 0, 0, 0, 0, 0);
+    cairo_pattern_add_color_stop_rgba(foot, 1, 0, 0, 0, std::min(1.0, (light ? .10 : .30) * strength));
+    rounded(cr, line, line_radius);
+    cairo_set_source(cr, foot);
+    cairo_stroke(cr);
+    cairo_pattern_destroy(foot);
+    cairo_restore(cr);
+}
+// Keys that type a character keep the theme's face. The others (modifiers,
+// editing, navigation and function keys, and the shortcut column) sit a tone
+// back toward the case, so the letter block stands out on a full layout.
+bool character_key(const Key& key) {
+    if (key.action_kind == ActionKind::Flick) {
+        return true;
+    }
+    if (key.action_kind != ActionKind::Key) {
+        return false;
+    }
+    static const std::set<std::string> other{"Backquote",     "Minus",     "Equal",     "BracketLeft",
+                                             "BracketRight",  "Backslash", "Semicolon", "Quote",
+                                             "Comma",         "Period",    "Slash",     "Space",
+                                             "IntlBackslash", "IntlRo",    "IntlYen",   "NumpadDecimal"};
+    const auto& action = key.action;
+    return action.starts_with("Key") || action.starts_with("Digit") || other.contains(action) ||
+           (action.starts_with("Numpad") && action.size() == 7 && action[6] >= '0' && action[6] <= '9');
+}
+struct KeyTone {
+    Color top, middle, bottom, hover;
+};
+KeyTone key_tone(const Theme& t, const Key& key) {
+    if (plain_keys(t) || t.latched_finish == "neon" || character_key(key)) {
+        return {t.top, t.middle, t.bottom, t.hover};
+    }
+    // A light theme's faces are close to white; they need a longer step.
+    const double back = light_theme(t) ? .40 : .26;
+    return {mix(t.top, t.surface, back), mix(t.middle, t.surface, back), mix(t.bottom, t.surface, back),
+            mix(t.hover, t.surface, back * .6)};
 }
 // A high-contrast theme's edge just inside a keycap or button face:
 // `edge_hover` and wider while the laser is on it or it is pressed, dimmed
@@ -1148,8 +1226,10 @@ bool latched_key(const PanelView& view, const Key& key, const std::set<int>& mod
            (key.action == "NumLock" && view.keyboard->num()) ||
            (view.dictation_capturing && key.icon == Icon::Mic);
 }
-void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double phase = 1,
-              double ring = 0) {
+// `amount` is how far the key is pressed and `lift` how far it is lit by the
+// laser, each 0 to 1.
+void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
+              double phase = 1, double ring = 0) {
     const auto modifiers = view.keyboard->modifiers();
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
@@ -1174,6 +1254,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         inked->legend = inked->pressed_legend;
     }
     const auto& t = inked ? *inked : *view.theme;
+    const auto tone = key_tone(t, key);
     const auto r = key.bounds;
     // The side begins below the resting face. A fixed-size face moves down
     // over it; changing face height would make a pressed key look stretched.
@@ -1197,21 +1278,43 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         rounded(cr, face, t.radius);
         source(cr, *t.pressed);
         cairo_fill(cr);
-    } else if (view.hovered_keys.contains(key.id) && !disabled) {
+    } else if (lift > 0) {
         rounded(cr, face, t.radius);
         if (light_theme(t)) {
             // A light key keeps its own shading, lightest at the top, and
             // takes on the hover colour evenly.
-            gradient(cr, face, mix(t.top, t.hover, .7), mix(t.middle, t.hover, .7),
-                     mix(t.bottom, t.hover, .7));
+            gradient(cr, face, mix(tone.top, tone.hover, .7 * lift),
+                     mix(tone.middle, tone.hover, .7 * lift), mix(tone.bottom, tone.hover, .7 * lift));
         } else {
             // The whole face lifts toward the hover colour, not only its top.
-            gradient(cr, face, mix(t.hover, t.legend, .1), mix(t.middle, t.hover, .85),
-                     mix(t.bottom, t.hover, .5));
+            gradient(cr, face, mix(tone.top, mix(tone.hover, t.legend, .1), lift),
+                     mix(tone.middle, tone.hover, .85 * lift), mix(tone.bottom, tone.hover, .5 * lift));
         }
     } else {
         rounded(cr, face, t.radius);
-        gradient(cr, face, t.top, t.middle, t.bottom);
+        gradient(cr, face, tone.top, tone.middle, tone.bottom);
+    }
+    // Plain faces only: a latched or pressed-colour face shows its own state.
+    const bool shaded = !disabled && !plain_keys(t) && t.latched_finish != "neon";
+    if (shaded && amount > 0 && !latched && !listening && !pressing) {
+        // A key held down sinks into shade from its top edge, so a press
+        // reads apart from the hover it started from, at any distance.
+        cairo_save(cr);
+        rounded(cr, face, t.radius);
+        cairo_clip(cr);
+        const double dark = (light_theme(t) ? .16 : .34) * amount;
+        auto* shade = cairo_pattern_create_linear(0, face.y, 0, face.y + face.height);
+        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, dark);
+        cairo_pattern_add_color_stop_rgba(shade, .35, 0, 0, 0, dark * .45);
+        cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, dark * .3);
+        cairo_set_source(cr, shade);
+        cairo_paint(cr);
+        cairo_pattern_destroy(shade);
+        cairo_restore(cr);
+    }
+    if (!disabled) {
+        // The edge light dims as the key goes down, and is brighter under the laser.
+        cap_light(cr, t, face, t.radius, (1 - amount) * (1 + .5 * lift));
     }
     if (t.latched_finish == "neon" && !latched && !listening && amount > 0) {
         // A pressed key lights the same tube, as far as it has travelled.
@@ -1399,6 +1502,9 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     const bool utility =
         g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
     const auto legend = disabled ? disabled_legend(t) : t.legend;
+    // The Shift character over a key is quieter than what the key types.
+    const auto quiet =
+        disabled || plain_keys(t) ? legend : mix(t.legend, latched ? t.latched : tone.middle, .42);
     // Character legends of a right-to-left keymap; names such as "Enter ↵" stay as written.
     auto right_to_left = [&](const std::string& value) {
         return view.keymap->right_to_left() && g_utf8_strlen(value.c_str(), -1) <= 2;
@@ -1445,15 +1551,16 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         });
         const auto& shifted = view.key_flick->legend;
         faded(secondary.empty() ? pull : 1, [&] {
+            // It brightens from its quiet colour as it takes the key over.
             label(cr, shifted, mix_rect(corner, face),
-                  t.small_font_size + (t.font_size - t.small_font_size) * pull, view.language->font, lit,
-                  true, PANGO_ALIGN_CENTER, false, right_to_left(shifted));
+                  t.small_font_size + (t.font_size - t.small_font_size) * pull, view.language->font,
+                  mix(quiet, lit, pull), true, PANGO_ALIGN_CENTER, false, right_to_left(shifted));
         });
         return;
     }
     if (!secondary.empty()) {
         label(cr, secondary, {face.x, face.y + 3, face.width, face.height * .40}, t.small_font_size,
-              view.language->font, legend, true, PANGO_ALIGN_CENTER, false, right_to_left(secondary));
+              view.language->font, quiet, true, PANGO_ALIGN_CENTER, false, right_to_left(secondary));
         label(cr, text, {face.x, face.y + face.height * .4, face.width, face.height * .55},
               t.font_size * .85, view.language->font, legend, true, PANGO_ALIGN_CENTER, false,
               right_to_left(text));
@@ -1987,6 +2094,9 @@ void draw_cap_face(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, boo
 // The cap with its edge, on a theme that has edges.
 void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool selected, bool enabled) {
     draw_cap_face(cr, t, r, hovered, selected, enabled);
+    if (enabled) {
+        cap_light(cr, t, r, t.radius, hovered ? 1.5 : 1);
+    }
     draw_edge(cr, t, r, t.radius, hovered, enabled);
 }
 // A switch in place of a checkbox: a recessed track and a keycap knob that
@@ -2810,12 +2920,33 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             animation.target = target;
             animation.started = now;
         }
+        // A press lands faster than the theme's duration and the release
+        // takes longer, each slowing into its end.
+        const double duration_ms = t.duration_ms * (animation.target > 0 ? press_share : release_share);
         const double progress =
             t.duration_ms == 0 ? 1
-                               : std::clamp((now - animation.started) * 1000 / t.duration_ms, 0.0, 1.0);
-        animation.amount = animation.from + (animation.target - animation.from) * progress;
+                               : std::clamp((now - animation.started) * 1000 / duration_ms, 0.0, 1.0);
+        animation.amount =
+            animation.from + (animation.target - animation.from) * handle_ease_out(progress);
         animating_ |= !view.settings && progress < 1;
         continuous |= !view.settings && progress < 1;
+        // The laser lights a key at once; with Hover fade the key dims
+        // slowly after it leaves, a short trail behind the laser.
+        auto& hover = hovers_[key.id];
+        const double old_lift = hover.amount;
+        const double lit =
+            view.hovered_keys.contains(key.id) && !view.disabled_keys.contains(key.id) ? 1 : 0;
+        if (lit != hover.target) {
+            hover.from = hover.amount;
+            hover.target = lit;
+            hover.started = now;
+        }
+        const double fade = lit > 0 || !view.hover_fade
+                                ? 1
+                                : std::clamp((now - hover.started) / hover_fade_seconds, 0.0, 1.0);
+        hover.amount = hover.from + (hover.target - hover.from) * handle_ease_out(fade);
+        animating_ |= !view.settings && fade < 1;
+        continuous |= !view.settings && fade < 1;
         bool mic_changed = false;
         if (key.icon == Icon::Mic) {
             // The bars ease while a level is passing through.
@@ -2838,6 +2969,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // Settings covers the keys, and key_bounds_ is empty while it shows.
         if (!view.settings && !full &&
             (changed_target || animation.amount != old_amount || mic_changed ||
+             hover.amount != old_lift ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id) ||
              pull_of(previous_->view) != pull_of(view))) {
             damage.push_back(key_bounds_.at(key.id));
@@ -3117,7 +3249,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 grey_text(bounds_cr);
                 cairo_translate(bounds_cr, p.x, p.y);
                 cairo_scale(bounds_cr, p.scale, p.scale);
-                draw_key(bounds_cr, view, key, 0);
+                draw_key(bounds_cr, view, key, 0, 0);
                 double x, y, width, height;
                 cairo_recording_surface_ink_extents(recording, &x, &y, &width, &height);
                 // Union the resting and fully depressed positions, then round
@@ -3133,11 +3265,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
             view.keyboard->num(), shift_locked};
         // No animation state from a removed key should survive a profile reload.
-        std::erase_if(animations_, [&](const auto& item) {
+        const auto gone = [&](const auto& item) {
             return std::none_of(view.layout->keys.begin(), view.layout->keys.end(), [&](const Key& key) {
                 return key.id == item.first && !hidden_key(view, key);
             });
-        });
+        };
+        std::erase_if(animations_, gone);
+        std::erase_if(hovers_, gone);
     } else {
         previous_->view = view;
     }
@@ -3263,7 +3397,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
                 if (intersects) {
-                    draw_key(cr, view, key, animations_.at(key.id).amount, mic_phase_, ring_time_);
+                    draw_key(cr, view, key, animations_.at(key.id).amount, hovers_.at(key.id).amount,
+                             mic_phase_, ring_time_);
                 }
             }
             if (view.key_outlines) {

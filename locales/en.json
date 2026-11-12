@@ -299,6 +299,8 @@
     "setting.haptic-sounds.release": "Release",
     "setting.haptic-volume": "Haptic volume",
     "setting.hide-numpad": "Hide numpad",
+    "setting.hover-fade": "Hover fade",
+    "setting.hover-fade.note": "Keys fade out behind the laser",
     "setting.key-flicks": "Pull for Shift",
     "setting.key-flicks.note": "Pull a key down to type its Shift character",
     "setting.language": "Language",

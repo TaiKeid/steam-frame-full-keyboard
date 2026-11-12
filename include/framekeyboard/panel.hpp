@@ -60,6 +60,7 @@ enum class ControlKind {
     ChooseTheme,
     HideNumpad,
     ChooseBackgroundSurface,
+    HoverFade, // Settings: a key the laser leaves dims slowly
     ChooseHapticSounds,
     ChooseHapticEffect,
     ChooseHapticVolume,
@@ -238,6 +239,9 @@ struct PanelView {
     // Background (Settings): how opaque the case is behind the keys, 1 when
     // filled; below 1 it is drawn see-through, and still takes the laser.
     double case_opacity{1};
+    // Hover fade (Settings): a key the laser leaves dims over a moment, a
+    // short trail behind the laser, instead of going dark at once.
+    bool hover_fade{true};
     std::string preedit;
     // A composing language (Japanese, Chinese, Korean) shows its reading, a
     // hint while there is none, and its candidates scrolling sideways
@@ -511,6 +515,8 @@ class PanelRenderer {
     std::optional<Snapshot> previous_;
     std::map<std::string, Rect> key_bounds_;
     std::map<std::string, Animation> animations_;
+    // How far each key is lit by the laser: 1 at once under it, then fading.
+    std::map<std::string, Animation> hovers_;
     Animation move_handle_;
     // The hovered dropdown choice, since when, and the whole-pixel offset its
     // name was last painted at, for scrolling a long name.

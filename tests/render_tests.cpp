@@ -368,6 +368,61 @@ void handle_states() {
 }
 // The compatibility texture path uploads straight RGBA: rgba() must undo the
 // premultiplication of a clear case's partly transparent edges and shadows.
+// A key lights at once under the laser. With Hover fade it dims over a moment
+// after the laser leaves; without it, it goes dark at once.
+void hover_fade() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("en-us"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("en-us-full");
+    view.theme = &profiles.themes.at("graphite");
+    view.language = &profiles.languages.at("en-us");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    const auto& key = find_key(*view.layout, "KeyG");
+    auto require = [](bool condition, const char* message) {
+        if (!condition) {
+            throw std::runtime_error(message);
+        }
+    };
+    for (const bool fade : {true, false}) {
+        view.hover_fade = fade;
+        view.hovered_keys.clear();
+        Comparison compare;
+        compare.frame(view, "idle key");
+        // A point low on the key's face, clear of its legend and edge light.
+        const auto face = panel_rect(view, key.bounds);
+        const auto offset =
+            static_cast<std::size_t>((static_cast<int>(face.y + face.height) - 10 + popup_margin) *
+                                         panel_width +
+                                     static_cast<int>(face.x) + 8) *
+            4;
+        auto red = [&] { return static_cast<int>(compare.incremental.rgba()[offset]); };
+        const int idle = red();
+        view.hovered_keys = {key.id};
+        compare.frame(view, "laser on the key");
+        const int lit = red();
+        require(lit > idle && !compare.incremental.animating(), "a key lights at once under the laser");
+        view.hovered_keys.clear();
+        compare.frame(view, "laser left the key");
+        if (!fade) {
+            require(red() == idle && !compare.incremental.animating(),
+                    "without Hover fade a key goes dark at once");
+            continue;
+        }
+        require(red() == lit && compare.incremental.animating(), "Hover fade starts from the lit key");
+        compare.frame(view, "the key dims");
+        const int between = red();
+        require(between < lit && between > idle, "Hover fade dims a key step by step");
+        for (int i = 0; i < 12; ++i) {
+            compare.frame(view, "the key goes dark");
+        }
+        require(red() == idle && !compare.incremental.animating(),
+                "Hover fade ends on the idle key and stops repainting");
+    }
+}
 void straight_alpha() {
     const auto profiles = load_profiles({}, {});
     NullSink sink;
@@ -792,6 +847,7 @@ int main() {
         candidate_menu_resize();
         candidate_scrolling();
         handle_states();
+        hover_fade();
         status_line();
         carried_row();
         const auto profiles = load_profiles({}, {});

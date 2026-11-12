@@ -264,6 +264,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_hover_fade_ = settings_.hover_fade;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -895,6 +896,9 @@ void App::update_settings_ui() {
     std::vector<SettingField> general_fields{
         field(ControlKind::ChooseTheme, dropdown("theme", tr("setting.theme"), pending_.theme, themes)),
         background_surface,
+        field(ControlKind::HoverFade,
+              checkbox("hover-fade", tr("setting.hover-fade"), pending_hover_fade_, true,
+                       tr("setting.hover-fade.note"))),
         field(ControlKind::HideNumpad,
               checkbox("hide-numpad", tr("setting.hide-numpad"), pending_hide_numpad_)),
         field(ControlKind::UseDragToMove,
@@ -1122,6 +1126,7 @@ PanelView App::build_view(bool picker) const {
     v.keyboard = &keyboard_;
     v.hide_numpad = numpad_hidden();
     v.case_opacity = case_opacity();
+    v.hover_fade = settings_.hover_fade;
     v.controls = controls();
     v.focus_shake_since = focus_shake_since_;
     v.swipe_shake_since = swipe_shake_since_;
@@ -2584,6 +2589,7 @@ void App::show_settings() {
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_hover_fade_ = settings_.hover_fade;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -2866,6 +2872,7 @@ void App::reload() {
         settings_.num_lock = updated_settings.num_lock;
         settings_.hide_numpad = updated_settings.hide_numpad;
         settings_.background_surface = updated_settings.background_surface;
+        settings_.hover_fade = updated_settings.hover_fade;
         settings_.haptic_sounds = updated_settings.haptic_sounds;
         settings_.haptic_effect = updated_settings.haptic_effect;
         settings_.haptic_volume = updated_settings.haptic_volume;
@@ -2916,6 +2923,7 @@ void App::reload() {
     remember_languages();
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
+    pending_hover_fade_ = settings_.hover_fade;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -4746,6 +4754,7 @@ void App::apply_settings() {
     settings_.favorites = pending_favorites_;
     settings_.hide_numpad = pending_hide_numpad_;
     settings_.background_surface = pending_background_surface_;
+    settings_.hover_fade = pending_hover_fade_;
     settings_.haptic_sounds = pending_haptic_sounds_;
     settings_.haptic_effect = pending_haptic_effect_;
     settings_.haptic_volume = pending_haptic_volume_;
@@ -5081,6 +5090,9 @@ void App::action(const ControlAction& command) {
         choose_typing_suggestion(command.index);
     } else if (kind == ControlKind::SwipeCandidate) {
         choose_swipe(command.index);
+    } else if (kind == ControlKind::HoverFade) {
+        pending_hover_fade_ = !pending_hover_fade_;
+        update_settings_ui();
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;
         update_settings_ui();

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- The keys have a more finished look in every theme but High Contrast. Each key and button catches a faint light along its top edge; modifier, editing, navigation and function keys sit a tone darker than the keys that type characters, so the letter block stands out; the Shift character over a key is dimmer than what the key types; and latched keys and switched-on buttons are shaded like the other keys instead of filled flat. Neon keeps its own key faces. Every colour derives from the theme, so themes of your own get the look too.
+- A key held down now sinks into shade, so a press reads apart from hover at a distance. It also lands a little faster and returns more softly.
+- Added **Hover fade** to Settings → General, under Background, on by default: a key the laser leaves dims over a moment, a short trail behind the laser, instead of going dark at once. Turn it off to have keys go dark at once, as before. With the new row, Auto leveling is below the General card's fold until you scroll the card.
+
 ## 0.17.0: Chinese, installer and more languages
 
 - An installer now comes with every release: `Full_Keyboard_installer-aarch64.AppImage`, linked from the **Quick install** button at the top of the README. Download it on the Frame, open its folder in Dolphin and double-click it, also in Game Mode; no Konsole and no typing. It installs the newest release or one chosen from 0.16.0 on, sets up a first install with Replace native keyboard, swipe typing, typing suggestions, Pull for Shift and the numpad while it downloads, then opens the keyboard when it replaces Steam's. With Full Keyboard installed, it reinstalls or uninstalls it, keeping settings if you choose. It first came, unannounced, with 0.16.0; see [the installer](docs/installer.md).
