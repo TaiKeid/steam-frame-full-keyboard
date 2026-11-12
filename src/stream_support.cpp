@@ -354,7 +354,12 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
     // drop-in back and leaves a loaded library typing, so the setting, the
     // drop-in and the library still agree when the save puts the flag back.
     if (previous) {
-        fs::remove(file, ignored);
+        // A drop-in that stays would set it up again at Steam's next start,
+        // whatever the saved flag says (R250).
+        std::error_code removed;
+        if (!fs::remove(file, removed) && removed) {
+            throw UiError(ui("streaming.write-failed"));
+        }
         fs::remove(directory, ignored); // Only when it holds nothing else.
         try {
             reload();

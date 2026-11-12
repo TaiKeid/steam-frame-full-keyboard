@@ -269,6 +269,26 @@ int main() {
         require(warned && !kept.streaming_support && kept.replace_native_keyboard &&
                     !fs::exists(drop_in),
                 "an unavailable library keeps the flag off and says so, saving the rest");
+
+        // The drop-in cannot be removed: turning it off keeps the flag on and says so, rather than
+        // leave Steam's start set up behind a setting that reads off (R250).
+        std::ofstream(tools / "framekeyboard-stream.so") << "library";
+        save_preferences_with_integration(settings, binary, config, paths, reload, run);
+        require(fs::exists(drop_in) && load_settings(config, errors).streaming_support, "on again");
+        if (geteuid() != 0) { // Permissions don't stop root.
+            const auto folder = drop_in.parent_path();
+            fs::permissions(folder, fs::perms::owner_read | fs::perms::owner_exec);
+            settings.streaming_support = false;
+            bool refused = false;
+            try {
+                save_preferences_with_integration(settings, binary, config, paths, reload, run);
+            } catch (const StreamingSupportWarning& warning) {
+                refused = warning.message().key == "streaming.saved-without-change" && warning.saved();
+            }
+            fs::permissions(folder, fs::perms::owner_all);
+            require(refused && fs::exists(drop_in) && load_settings(config, errors).streaming_support,
+                    "a drop-in that cannot be removed keeps the flag on and says so");
+        }
         fs::remove_all(base);
         std::cout << "Streaming support's drop-in, running-Steam handling and preference save passed.\n";
     } catch (const std::exception& error) {
