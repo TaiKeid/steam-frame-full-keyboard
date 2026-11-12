@@ -14,9 +14,9 @@ Cut, Copy and Paste press Ctrl+X, Ctrl+C and Ctrl+V on the PC, so Paste pastes t
 
 The PC types pasted text itself. Sunshine on Windows types Unicode with the system's own Unicode input, which is expected to take whole words but wasn't tested. Sunshine on Linux types each character as Ctrl+Shift+U, its code and Enter, which GTK apps and Chromium-based browsers take, and which lost characters in a long paste into Firefox. Qt and KDE apps, such as Kate, show the code instead (`1f605` for 😅) unless an input method such as IBus or Fcitx5 runs on the PC. Measured in November 2026 with Moonlight 6.2 on the Frame and Sunshine 2026.1103 on a Linux PC, with US layouts on both.
 
-## Through Steam Link: Streaming support
+## Through Steam's own streaming: Streaming support
 
-Games and apps streamed from a PC to the Frame through Steam Link take Full Keyboard with **Streaming support** on, in Settings → Integration. It is off by default and needs Replace native keyboard; the [installer](installer.md) asks about it on its last page. Without it, such a game keeps Steam's own keyboard, which types only basic Latin text into a stream.
+Steam can stream what runs on your PC to the Frame: a game, or any application left open there. That streaming is built into the Frame; elsewhere it is known from the Steam Link app. Such a stream takes Full Keyboard with **Streaming support** on, in Settings → Integration. It is off by default and needs Replace native keyboard; the [installer](installer.md) asks about it on its last page. Without it, a stream keeps Steam's own keyboard, which types only basic Latin text into it.
 
 Turning it on asks first, because it is the one feature that changes how Steam starts. It takes effect after SteamOS restarts once: Steam reads the setting only when it starts. Settings says so under the switch, and the installer offers the restart on its Finish page. Turning it off, or on again later, needs no restart and applies to the next stream; off, a stream that is running goes back to Steam's keyboard at once.
 

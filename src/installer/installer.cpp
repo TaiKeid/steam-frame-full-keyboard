@@ -1890,8 +1890,9 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
           numpad < 1 ? 0 : phase(c, typing - .4, .3) * (1 - phase(c, typing + digits * step, .3)));
 }
 
-// A game streamed from the PC with its chat line open: the laser types on
-// the keyboard below and every script arrives, not only Latin letters.
+// A game or application streamed from the PC with a text line open: the
+// laser types on the keyboard below and every script arrives, not only
+// Latin letters.
 void Installer::paint_stream_demo(const Rect& s, double t) {
     // What is typed, one character at a time: each prefix of it.
     static const std::vector<std::string> typed = [] {
@@ -1929,8 +1930,8 @@ void Installer::paint_stream_demo(const Rect& s, double t) {
     paint::source(cr_, theme_.middle);
     cairo_fill(cr_);
     cairo_restore(cr_);
-    // A product's name, the same in every language.
-    text("Steam Link", {window.x + 18, window.y, window.width - 36, 34}, 15,
+    // What the window shows, the same in every language.
+    text("PC", {window.x + 18, window.y, window.width - 36, 34}, 15,
          paint::mix(theme_.legend, theme_.middle, .45), PANGO_ALIGN_LEFT);
     // Two lines of the game's chat above the line being typed.
     for (int i = 0; i < 2; ++i) {

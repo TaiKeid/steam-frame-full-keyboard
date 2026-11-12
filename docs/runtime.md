@@ -71,12 +71,12 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from th
 | Copy/Paste fail in a terminal | Terminals opened from the dashboard get their own keys only if they are on the known list, by program name; Python-based terminals and terminals inside other apps are not detected. In SteamOS's Desktop, the same terminals are detected while the keyboard runs; if they aren't, as after a KDE update, tap Ctrl and Shift, then C or V. In xterm, select to copy and middle-click to paste |
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
-| After a SteamOS update, a Steam Link stream no longer starts, or shows a black window, with Streaming support on | Turn Streaming support off in Settings → Integration and start the stream again; it needs no restart. Report it, and turn it back on after the next Full Keyboard update. See [streamed games](streamed-games.md#what-keeps-it-from-breaking-streaming) |
+| After a SteamOS update, a stream from the PC no longer starts, or shows a black window, with Streaming support on | Turn Streaming support off in Settings → Integration and start the stream again; it needs no restart. Report it, and turn it back on after the next Full Keyboard update. See [streamed games](streamed-games.md#what-keeps-it-from-breaking-streaming) |
 | Streaming support is on but Steam's keyboard still opens in a stream | It starts after SteamOS restarts once; Settings says so under the switch. Start a new stream afterwards |
 | `install.sh` says Full Keyboard is running | Quit Full Keyboard in Settings, then run it again. The [installer](installer.md) closes a running keyboard itself |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 
-No input is sent with the dashboard closed unless Stay open over apps keeps the keyboard up. VR applications streamed from a PC are outside the supported scope; flat games and apps streamed through Steam Link need Streaming support ([streamed games](streamed-games.md)). Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
+No input is sent with the dashboard closed unless Stay open over apps keeps the keyboard up. VR applications streamed from a PC are outside the supported scope; flat games and applications that Steam streams from a PC need Streaming support ([streamed games](streamed-games.md)). Focus behavior in nested desktops and floating apps needs testing per application. Do not assume success in a dedicated receiver proves every app works.
 
 ## Update, rollback, and removal
 
