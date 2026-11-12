@@ -20,7 +20,7 @@ A click with the laser reaches Moonlight as a touch, and Sunshine passes it to t
 
 Steam can stream what runs on your PC to the Frame: a game, or any application left open there. That streaming is built into the Frame; elsewhere it is known from the Steam Link app. Such a stream takes Full Keyboard with **Streaming support** on, in Settings → Integration. It is off after a manual install and needs Replace native keyboard; the [installer](installer.md) asks about it on its last page, Yes by default. Without it, a stream keeps Steam's own keyboard, which types only basic Latin text into it.
 
-Turning it on asks first, because it is the one feature that changes how Steam starts. It takes effect after SteamOS restarts once: Steam reads the setting only when it starts. Settings says so under the switch, and the installer offers the restart on its Finish page. Turning it off, or on again later, needs no restart and applies to the next stream; off, a stream that is running goes back to Steam's keyboard at once.
+Turning it on asks first, because it is the one feature that changes how Steam starts. It takes effect after SteamOS restarts once: Steam reads the setting only when it starts. Settings says so under the switch, and the installer offers the restart on its Finish page. Turning it off needs no restart and applies to the next stream; off, a stream that is running goes back to Steam's keyboard at once. Turning it back on needs no restart either until SteamOS restarts; after that, it takes one restart again.
 
 With it on:
 - press SteamOS's keyboard button with the stream in front, as for any other window. With Full Keyboard already showing, click the game: Steam sends no keyboard request for a click on a stream, so the click itself moves typing there;
