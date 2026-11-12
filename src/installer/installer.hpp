@@ -130,8 +130,11 @@ class Installer {
     void checkbox(const Rect& r, Action action, const std::string& label, bool checked,
                   bool enabled = true);
     void spinner(double x, double y, double radius);
-    // A small keycap with its side below, as on the keyboard, for the pictures.
-    void key(const Rect& r, bool lit, double radius = 5);
+    // A keycap as the keyboard draws its own (paint::key), scaled so a
+    // full-size key with its side fills `r`'s height: pressed `amount` of
+    // the way down and lit `lift` by the laser. Returns the face, where its
+    // legends go.
+    Rect key(const Rect& r, double amount, double lift, bool latched = false);
     // A text field in a well, with `value` and a blinking caret.
     void field(const Rect& r, const std::string& value, double size, double alpha, bool caret);
     void text(const std::string& value, const Rect& r, double size, Color color,

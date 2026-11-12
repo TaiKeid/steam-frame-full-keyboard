@@ -389,14 +389,22 @@ bool character_key(const Key& key) {
 struct KeyTone {
     Color top, middle, bottom, hover;
 };
-KeyTone key_tone(const Theme& t, const Key& key) {
-    if (plain_keys(t) || character_key(key)) {
+KeyTone key_tone(const Theme& t, bool character) {
+    if (plain_keys(t) || character) {
         return {t.top, t.middle, t.bottom, t.hover};
     }
     // A light theme's faces are close to white; they need a longer step.
     const double back = light_theme(t) ? .40 : .26;
     return {mix(t.top, t.surface, back), mix(t.middle, t.surface, back), mix(t.bottom, t.surface, back),
             mix(t.hover, t.surface, back * .6)};
+}
+KeyTone key_tone(const Theme& t, const Key& key) {
+    return key_tone(t, character_key(key));
+}
+// The Shift character over a key's own legend is quieter than what the key
+// types, on its face's colour.
+Color quiet_legend(const Theme& t, const KeyTone& tone, bool latched) {
+    return plain_keys(t) ? t.legend : mix(t.legend, latched ? t.latched : tone.middle, .42);
 }
 // A high-contrast theme's edge just inside a keycap or button face:
 // `edge_hover` and wider while the laser is on it or it is pressed, dimmed
@@ -1262,6 +1270,85 @@ bool latched_key(const PanelView& view, const Key& key, const std::set<int>& mod
            (key.action == "NumLock" && view.keyboard->num()) ||
            (view.dictation_capturing && key.icon == Icon::Mic);
 }
+// How a key's face is filled: as it rests or the laser lights it, latched,
+// in the theme's pressed colour, or disabled.
+enum class KeyFace { Plain, Latched, Pressed, Disabled };
+// A keycap: its side, and its face `amount` of the way down its travel and
+// lit `lift` by the laser, each 0 to 1, with the shade of a press, the edge
+// light, a neon tube and a high-contrast edge as the theme has them. `r` is
+// where the face rests. Returns where the face is drawn, for its legend.
+Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r, double amount,
+                 double lift, KeyFace fill, bool edge_lit) {
+    const bool disabled = fill == KeyFace::Disabled, latched = fill == KeyFace::Latched,
+               pressing = fill == KeyFace::Pressed;
+    // The side begins below the resting face. A fixed-size face moves down
+    // over it; changing face height would make a pressed key look stretched.
+    Rect side{r.x, r.y + t.travel, r.width, r.height + t.depth - t.travel};
+    rounded(cr, side, t.radius);
+    // A disabled key sinks flat, as a disabled toolbar button does.
+    if (disabled) {
+        source(cr, mix(t.side_bottom, t.surface, .5));
+        cairo_fill(cr);
+    } else {
+        gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
+    }
+    Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
+    if (disabled) {
+        rounded(cr, face, t.radius);
+        source(cr, mix(t.bottom, t.surface, .4));
+        cairo_fill(cr);
+    } else if (latched) {
+        fill_latched(cr, t, face, t.radius);
+    } else if (pressing) {
+        rounded(cr, face, t.radius);
+        source(cr, *t.pressed);
+        cairo_fill(cr);
+    } else if (lift > 0) {
+        rounded(cr, face, t.radius);
+        if (light_theme(t)) {
+            // A light key keeps its own shading, lightest at the top, and
+            // takes on the hover colour evenly.
+            gradient(cr, face, mix(tone.top, tone.hover, .7 * lift),
+                     mix(tone.middle, tone.hover, .7 * lift), mix(tone.bottom, tone.hover, .7 * lift));
+        } else {
+            // The whole face lifts toward the hover colour, not only its top.
+            gradient(cr, face, mix(tone.top, mix(tone.hover, t.legend, .1), lift),
+                     mix(tone.middle, tone.hover, .85 * lift), mix(tone.bottom, tone.hover, .5 * lift));
+        }
+    } else {
+        rounded(cr, face, t.radius);
+        gradient(cr, face, tone.top, tone.middle, tone.bottom);
+    }
+    // Plain faces only: a latched or pressed-colour face shows its own state,
+    // and a neon theme lights its tube on a held key instead.
+    const bool shaded = !disabled && !plain_keys(t) && t.latched_finish != "neon";
+    if (shaded && amount > 0 && !latched && !pressing) {
+        // A key held down sinks into shade from its top edge, so a press
+        // reads apart from the hover it started from, at any distance.
+        cairo_save(cr);
+        rounded(cr, face, t.radius);
+        cairo_clip(cr);
+        const double dark = (light_theme(t) ? .16 : .34) * amount;
+        auto* shade = cairo_pattern_create_linear(0, face.y, 0, face.y + face.height);
+        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, dark);
+        cairo_pattern_add_color_stop_rgba(shade, .35, 0, 0, 0, dark * .45);
+        cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, dark * .3);
+        cairo_set_source(cr, shade);
+        cairo_paint(cr);
+        cairo_pattern_destroy(shade);
+        cairo_restore(cr);
+    }
+    if (!disabled) {
+        // The edge light dims as the key goes down, and is brighter under the laser.
+        cap_light(cr, t, face, t.radius, (1 - amount) * (1 + .5 * lift));
+    }
+    if (t.latched_finish == "neon" && !latched && amount > 0) {
+        // A pressed key lights the same tube, as far as it has travelled.
+        neon_tube(cr, t, face, t.radius, amount);
+    }
+    draw_edge(cr, t, face, t.radius, edge_lit, !disabled);
+    return face;
+}
 // `amount` is how far the key is pressed and `lift` how far it is lit by the
 // laser, each 0 to 1.
 void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
@@ -1291,73 +1378,12 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     }
     const auto& t = inked ? *inked : *view.theme;
     const auto tone = key_tone(t, key);
-    const auto r = key.bounds;
-    // The side begins below the resting face. A fixed-size face moves down
-    // over it; changing face height would make a pressed key look stretched.
-    Rect side{r.x, r.y + t.travel, r.width, r.height + t.depth - t.travel};
-    rounded(cr, side, t.radius);
-    // A disabled key sinks flat, as a disabled toolbar button does.
-    if (disabled) {
-        source(cr, mix(t.side_bottom, t.surface, .5));
-        cairo_fill(cr);
-    } else {
-        gradient(cr, side, t.side_top, t.side_bottom, t.side_bottom);
-    }
-    Rect face{r.x, r.y + amount * t.travel, r.width, r.height};
-    if (disabled) {
-        rounded(cr, face, t.radius);
-        source(cr, mix(t.bottom, t.surface, .4));
-        cairo_fill(cr);
-    } else if (latched || listening) {
-        fill_latched(cr, t, face, t.radius);
-    } else if (pressing) {
-        rounded(cr, face, t.radius);
-        source(cr, *t.pressed);
-        cairo_fill(cr);
-    } else if (lift > 0) {
-        rounded(cr, face, t.radius);
-        if (light_theme(t)) {
-            // A light key keeps its own shading, lightest at the top, and
-            // takes on the hover colour evenly.
-            gradient(cr, face, mix(tone.top, tone.hover, .7 * lift),
-                     mix(tone.middle, tone.hover, .7 * lift), mix(tone.bottom, tone.hover, .7 * lift));
-        } else {
-            // The whole face lifts toward the hover colour, not only its top.
-            gradient(cr, face, mix(tone.top, mix(tone.hover, t.legend, .1), lift),
-                     mix(tone.middle, tone.hover, .85 * lift), mix(tone.bottom, tone.hover, .5 * lift));
-        }
-    } else {
-        rounded(cr, face, t.radius);
-        gradient(cr, face, tone.top, tone.middle, tone.bottom);
-    }
-    // Plain faces only: a latched or pressed-colour face shows its own state,
-    // and a neon theme lights its tube on a held key instead.
-    const bool shaded = !disabled && !plain_keys(t) && t.latched_finish != "neon";
-    if (shaded && amount > 0 && !latched && !listening && !pressing) {
-        // A key held down sinks into shade from its top edge, so a press
-        // reads apart from the hover it started from, at any distance.
-        cairo_save(cr);
-        rounded(cr, face, t.radius);
-        cairo_clip(cr);
-        const double dark = (light_theme(t) ? .16 : .34) * amount;
-        auto* shade = cairo_pattern_create_linear(0, face.y, 0, face.y + face.height);
-        cairo_pattern_add_color_stop_rgba(shade, 0, 0, 0, 0, dark);
-        cairo_pattern_add_color_stop_rgba(shade, .35, 0, 0, 0, dark * .45);
-        cairo_pattern_add_color_stop_rgba(shade, 1, 0, 0, 0, dark * .3);
-        cairo_set_source(cr, shade);
-        cairo_paint(cr);
-        cairo_pattern_destroy(shade);
-        cairo_restore(cr);
-    }
-    if (!disabled) {
-        // The edge light dims as the key goes down, and is brighter under the laser.
-        cap_light(cr, t, face, t.radius, (1 - amount) * (1 + .5 * lift));
-    }
-    if (t.latched_finish == "neon" && !latched && !listening && amount > 0) {
-        // A pressed key lights the same tube, as far as it has travelled.
-        neon_tube(cr, t, face, t.radius, amount);
-    }
-    draw_edge(cr, t, face, t.radius, view.hovered_keys.contains(key.id) || amount > 0, !disabled);
+    const KeyFace fill = disabled               ? KeyFace::Disabled
+                         : latched || listening ? KeyFace::Latched
+                         : pressing             ? KeyFace::Pressed
+                                                : KeyFace::Plain;
+    const auto face = draw_keycap(cr, t, tone, key.bounds, amount, lift, fill,
+                                  view.hovered_keys.contains(key.id) || amount > 0);
     if (listening) {
         // Five bars that stay in place; each eases from its old height to its
         // new one as a level passes from right to left, fading toward the
@@ -1540,8 +1566,7 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         g_utf8_strlen(text.c_str(), -1) > 2 && !key.action.starts_with("Key") && !function_key;
     const auto legend = disabled ? disabled_legend(t) : t.legend;
     // The Shift character over a key is quieter than what the key types.
-    const auto quiet =
-        disabled || plain_keys(t) ? legend : mix(t.legend, latched ? t.latched : tone.middle, .42);
+    const auto quiet = disabled ? legend : quiet_legend(t, tone, latched);
     // Character legends of a right-to-left keymap; names such as "Enter ↵" stay as written.
     auto right_to_left = [&](const std::string& value) {
         return view.keymap->right_to_left() && g_utf8_strlen(value.c_str(), -1) <= 2;
@@ -4529,6 +4554,14 @@ Color well(cairo_t* cr, const Theme& theme, const Rect& r) {
 }
 void latched(cairo_t* cr, const Theme& theme, const Rect& r, double radius) {
     fill_latched(cr, theme, r, radius);
+}
+Rect key(cairo_t* cr, const Theme& theme, const Rect& face, double amount, double lift, bool latched,
+         bool character) {
+    return draw_keycap(cr, theme, key_tone(theme, character), face, amount, lift,
+                       latched ? KeyFace::Latched : KeyFace::Plain, lift > 0 || amount > 0);
+}
+Color shift_legend(const Theme& theme, bool latched, bool character) {
+    return quiet_legend(theme, key_tone(theme, character), latched);
 }
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, PangoAlignment alignment, bool wrap) {

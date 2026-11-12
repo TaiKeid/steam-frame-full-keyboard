@@ -47,6 +47,10 @@ constexpr double page_seconds = .45;
 constexpr std::array<const char*, 3> letter_rows{"qwertyuiop", "asdfghjkl", "zxcvbnm"};
 constexpr std::array<const char*, 3> demo_words{"swipe", "frame", "keys"};
 constexpr double demo_step = .32, demo_hold = 1.1, demo_fade = .35;
+// The keyboard's own timing (panel.cpp): a key lights at once and dims over
+// this long once the laser leaves it, with Hover fade; a press lands in .75
+// and a release takes 1.6 of the theme's 80 ms, each slowing into its end.
+constexpr double hover_fade = .18, press_time = .06, release_time = .128;
 double ease_out(double t) {
     t = std::clamp(t, 0.0, 1.0);
     return 1 - (1 - t) * (1 - t) * (1 - t);
@@ -54,6 +58,13 @@ double ease_out(double t) {
 double ease_in_out(double t) {
     t = std::clamp(t, 0.0, 1.0);
     return t < .5 ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3) / 2;
+}
+// How far down a key is `since` its press, and `since` its release.
+double key_press(double since) {
+    return ease_out(std::clamp(since / press_time, 0.0, 1.0));
+}
+double key_release(double since) {
+    return 1 - ease_out(std::clamp(since / release_time, 0.0, 1.0));
 }
 // 0..1 across [start, start + length].
 double phase(double t, double start, double length) {
@@ -780,26 +791,17 @@ void Installer::spinner(double x, double y, double radius) {
     cairo_stroke(cr_);
 }
 
-void Installer::key(const Rect& r, bool lit, double radius) {
-    // The side shows below the face, as on the keyboard's shallow keys.
-    const double depth = std::max(2.0, std::round(r.height * .07));
-    paint::rounded(cr_, {r.x, r.y + depth, r.width, r.height - depth}, radius);
-    paint::source(cr_, theme_.side_bottom);
-    cairo_fill(cr_);
-    const Rect face{r.x, r.y, r.width, r.height - depth};
-    if (lit) {
-        paint::latched(cr_, theme_, face, radius);
-        return;
-    }
-    paint::rounded(cr_, face, radius);
-    auto* shade = cairo_pattern_create_linear(0, face.y, 0, face.y + face.height);
-    for (const auto& [at, color] :
-         {std::pair{0.0, theme_.top}, {.5, theme_.middle}, {1.0, theme_.bottom}}) {
-        cairo_pattern_add_color_stop_rgb(shade, at, color.r, color.g, color.b);
-    }
-    cairo_set_source(cr_, shade);
-    cairo_fill(cr_);
-    cairo_pattern_destroy(shade);
+Rect Installer::key(const Rect& r, double amount, double lift, bool latched) {
+    // A letter key's face on the keyboard is this high (layouts/en-us.json);
+    // its side shows below by the theme's depth.
+    constexpr double face_height = 62;
+    const double k = r.height / (face_height + theme_.depth);
+    cairo_save(cr_);
+    cairo_translate(cr_, r.x, r.y);
+    cairo_scale(cr_, k, k);
+    const Rect face = paint::key(cr_, theme_, {0, 0, r.width / k, face_height}, amount, lift, latched);
+    cairo_restore(cr_);
+    return {r.x + face.x * k, r.y + face.y * k, face.width * k, face.height * k};
 }
 
 void Installer::field(const Rect& r, const std::string& value, double size, double alpha, bool caret) {
@@ -1712,28 +1714,43 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
     const double shown = t >= trace ? fade * std::min(1.0, (t - trace) / .15) : 0;
 
     field(input, typed, 26, shown, true);
-    for (int row = 0; row < 3; ++row) {
-        for (int column = 0; letter_rows[row][column]; ++column) {
-            const char letter = letter_rows[row][column];
-            const auto r = letters.at(row, column);
-            // Latched once the trail has reached it, as a held key is.
-            const auto found = typed.find(letter);
-            const bool lit = found != std::string::npos && static_cast<double>(found) <= progress + .01;
-            key(r, lit && fade > .5);
-            text(std::string(1, letter), {r.x, r.y - 2, r.width, r.height}, 18,
-                 lit && fade > .5 ? theme_.latched_legend : theme_.legend);
-        }
-    }
-    // The trail as the keyboard draws it (panel.cpp), at this demo's scale:
-    // the whole path as a quiet thin line, and over its last moments a comet,
-    // thinner and fainter with age.
-    constexpr double path_width = 2, comet_width = 4.5, glow_width = 11, comet_seconds = .42;
     const auto at = [&](double along) {
         const auto i = std::min(static_cast<std::size_t>(along), points.size() - 2);
         const double f = along - static_cast<double>(i);
         return std::pair{points[i].first + (points[i + 1].first - points[i].first) * f,
                          points[i].second + (points[i + 1].second - points[i].second) * f};
     };
+    // The laser rests on the last letter until it fades, after the trace.
+    const double laser_gone = trace + .3;
+    for (int row = 0; row < 3; ++row) {
+        for (int column = 0; letter_rows[row][column]; ++column) {
+            const char letter = letter_rows[row][column];
+            const auto r = letters.at(row, column);
+            // As on the keyboard, a swipe lights only the key under the
+            // laser, at once, and with Hover fade the keys it has left dim
+            // over a moment behind it (panel.cpp, hover_fade_seconds).
+            double lift = 0;
+            for (int back = 0; back <= 11; ++back) {
+                const double when = std::min(t, laser_gone) - back / 60.0;
+                if (when < 0) {
+                    break;
+                }
+                const auto [hx, hy] = at(std::min(when / demo_step, last));
+                if (r.contains(hx, hy)) {
+                    const double since = std::max(0.0, t - std::min(t, laser_gone) + back / 60.0);
+                    lift = since <= 0 ? 1 : 1 - ease_out(std::min(1.0, since / hover_fade));
+                    break;
+                }
+            }
+            const auto face = key(r, 0, lift);
+            text(std::string(1, letter), {face.x, face.y - 1, face.width, face.height}, 18,
+                 theme_.legend);
+        }
+    }
+    // The trail as the keyboard draws it (panel.cpp), at this demo's scale:
+    // the whole path as a quiet thin line, and over its last moments a comet,
+    // thinner and fainter with age.
+    constexpr double path_width = 2, comet_width = 4.5, glow_width = 11, comet_seconds = .42;
     const Color path_ink = paint::mix(theme_.legend, theme_.latched, .22);
     const Color glow = paint::mix(theme_.latched, theme_.legend, .35);
     cairo_move_to(cr_, points[0].first, points[0].second);
@@ -1840,28 +1857,33 @@ void Installer::paint_suggestions_demo(const Rect& s, double t) {
         cairo_push_group(cr_);
         for (int i = 0; i < 3; ++i) {
             const Rect chip{plate.x + pad + i * (w + 8), plate.y + pad, w, chip_height};
-            const bool pressed = typed == 3 && i == 1 && c >= chosen_at && c < chosen_at + .4;
-            key(chip, pressed, theme_.radius);
-            text(row[i], {chip.x, chip.y - 2, chip.width, chip.height}, 18,
-                 pressed ? theme_.latched_legend : theme_.legend);
+            // Lit while the laser picks it, as the keyboard's chips are.
+            const bool picked = typed == 3 && i == 1 && c >= chosen_at && c < chosen_at + .4;
+            paint::cap(cr_, theme_, chip, picked, false, true);
+            text(row[i], {chip.x, chip.y - 2, chip.width, chip.height}, 18, theme_.legend);
         }
         cairo_pop_group_to_source(cr_);
         cairo_paint_with_alpha(cr_, phase(c, first, .2) * (1 - phase(c, chosen_at + .4, .3)));
     }
 
-    // The keys, each lit for a moment as it's typed.
+    // The keys, each pressed for a moment as it's typed: lit, it goes down
+    // into shade, and dims again after it comes back up.
     for (int row = 0; row < 3; ++row) {
         for (int column = 0; letter_rows[row][column]; ++column) {
             const char letter = letter_rows[row][column];
             const auto r = letters.at(row, column);
-            bool lit = false;
+            double amount = 0, lift = 0;
             for (std::size_t i = 0; i < 3; ++i) {
-                const double down = first + static_cast<double>(i) * every;
-                lit = lit || (word[i] == letter && c >= down && c < down + .25);
+                const double down = first + static_cast<double>(i) * every, up = down + .25;
+                if (word[i] != letter || c < down) {
+                    continue;
+                }
+                amount = std::max(amount, c < up ? key_press(c - down) : key_release(c - up));
+                lift = std::max(lift, c < up ? 1 : 1 - ease_out(std::min(1.0, (c - up) / hover_fade)));
             }
-            key(r, lit);
-            text(std::string(1, letter), {r.x, r.y - 2, r.width, r.height}, 18,
-                 lit ? theme_.latched_legend : theme_.legend);
+            const auto face = key(r, amount, lift);
+            text(std::string(1, letter), {face.x, face.y - 1, face.width, face.height}, 18,
+                 theme_.legend);
         }
     }
 }
@@ -1892,20 +1914,28 @@ void Installer::paint_pull_demo(const Rect& s, double t) {
     const auto middle = [](const Rect& face) {
         return Rect{face.x, face.y + face.height * .4, face.width, face.height * .55};
     };
+    // The Shift character is quieter than what the key types.
     const std::array<std::array<const char*, 2>, 2> sides{{{"!", "1"}, {"#", "3"}}};
     for (int i = 0; i < 2; ++i) {
         const Rect r{cx + (i ? 1 : -1) * (size + between) - size / 2, keys_y, size, size};
         cairo_push_group(cr_);
-        key(r, false, 10);
-        text(sides[i][0], corner(r), small, theme_.legend);
-        text(sides[i][1], middle(r), large * .85, theme_.legend);
+        const auto face = key(r, 0, 0);
+        text(sides[i][0], corner(face), small, paint::shift_legend(theme_, false));
+        text(sides[i][1], middle(face), large * .85, theme_.legend);
         cairo_pop_group_to_source(cr_);
         cairo_paint_with_alpha(cr_, .4);
     }
-    // A pressed key goes down by its travel and no further.
-    const Rect face{cx - size / 2, keys_y + (held ? 4 : 0), size, size};
+    // A pressed key goes down by its travel into shade and no further;
+    // pulled far enough it fills, as a latched key does.
     const bool filled = pull >= 1;
-    key(face, filled, 10);
+    const double amount = held               ? key_press(c - pressed_at)
+                          : c >= released_at ? key_release(c - released_at)
+                                             : 0;
+    const double arrive = ease_out(phase(c, 0, .5)), leave = ease_in_out(phase(c, 2.6, .5));
+    const double away = 1 - arrive + leave;
+    // Lit from when the laser lands on it, dimming after it leaves.
+    const double lift = c < .4 ? 0 : c < 2.6 ? 1 : 1 - ease_out(std::min(1.0, (c - 2.6) / hover_fade));
+    const auto face = key({cx - size / 2, keys_y, size, size}, amount, lift, filled);
     const Color ink = filled ? theme_.latched_legend : theme_.legend;
     const auto between_rects = [&](const Rect& a, const Rect& b) {
         return Rect{a.x + (b.x - a.x) * pull, a.y + (b.y - a.y) * pull,
@@ -1916,12 +1946,11 @@ void Installer::paint_pull_demo(const Rect& s, double t) {
     text("2", between_rects(middle(face), below), large * .85 + (small - large * .85) * pull, ink);
     cairo_pop_group_to_source(cr_);
     cairo_paint_with_alpha(cr_, 1 - pull);
+    // It brightens from its quiet colour as it takes the key over.
     text("@", between_rects(corner(face), {face.x, face.y, face.width, face.height * .94}),
-         small + (large - small) * pull, ink);
+         small + (large - small) * pull, paint::mix(paint::shift_legend(theme_, filled), ink, pull));
 
     // The laser: onto the key, down with the pull, and away after release.
-    const double arrive = ease_out(phase(c, 0, .5)), leave = ease_in_out(phase(c, 2.6, .5));
-    const double away = 1 - arrive + leave;
     laser(s, cx + 34 + 120 * away, keys_y + size * .34 + 90 * away + size * .46 * pull,
           std::min(1.0, 1.4 - away));
 }
