@@ -1375,6 +1375,24 @@ class Lifecycle(unittest.TestCase):
                 library.close()
             channel.close()
 
+    def test_only_a_newer_streaming_client_takes_over(self):
+        # Two live streaming clients must not take the channel back and forth: the current one keeps it
+        # against an older process, a newer stream's client or the same process takes over, and a
+        # current client whose process is gone gives way.
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            channel = bridge.StreamChannel(directory, programs=None)
+            started = {100: 50, 200: 40, 300: 60}
+            with patch.object(bridge.StreamChannel, "_started", staticmethod(lambda pid: started.get(pid))):
+                channel.client, channel.client_pid = object(), 100
+                self.assertFalse(channel._takes_over(200), "an older process is refused")
+                self.assertTrue(channel._takes_over(300), "a newer stream takes over")
+                self.assertTrue(channel._takes_over(100), "the same process comes back")
+                channel.client_pid = 999
+                self.assertTrue(channel._takes_over(200), "a client whose process is gone gives way")
+                channel.client = None
+            channel.close()
+        self.assertIsNotNone(bridge.StreamChannel._started(os.getpid()), "this process's start is readable")
+
     def test_click_on_the_stream_is_reported_only_while_the_panel_shows(self):
         class ClickCDP(FakeCDP):
             def __init__(self):

@@ -160,6 +160,7 @@ class StreamChannel:
         self.programs = programs
         self.clicked = False
         self.modifiers = 0  # SDL modifier bits of the keys pressed with press()
+        self.client_pid = None
         directory = directory or os.environ.get("XDG_RUNTIME_DIR")
         if not directory:
             return
@@ -188,6 +189,30 @@ class StreamChannel:
         if self.client is not None:
             self.client.close()
             self.client = None
+            self.client_pid = None
+
+    @staticmethod
+    def _started(pid):
+        """When a process started, in clock ticks since boot; None when it is gone."""
+        try:
+            with open(f"/proc/{pid}/stat") as stat:
+                data = stat.read()
+            return int(data[data.rindex(")") + 2:].split()[19])  # field 22, starttime
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def _takes_over(self, pid):
+        """Whether a new client replaces the current one: only a newer stream's.
+
+        A client hung up on reconnects within a second; were the newest always taken, two live
+        streaming clients would take the channel back and forth. A process that started later is a
+        newer stream, and the same process is the current client coming back.
+        """
+        if self.client is None or pid == self.client_pid:
+            return True
+        current = self._started(self.client_pid)
+        incoming = self._started(pid)
+        return current is None or (incoming is not None and incoming > current)
 
     def _allowed(self, pid, uid, hello):
         if uid != os.getuid() or len(hello) != 6 or hello[:2] != bytes((ord("H"), STREAM_PROTOCOL)):
@@ -238,11 +263,12 @@ class StreamChannel:
                 hello = incoming.recv(64) if ready else b""
             except OSError:
                 pid, uid, hello = 0, -1, b""
-            if not self._allowed(pid, uid, hello):
+            if not self._allowed(pid, uid, hello) or not self._takes_over(pid):
                 incoming.close()
                 continue
-            self._drop()  # A new stream replaces the previous client.
+            self._drop()  # A newer stream replaces the previous client.
             self.client = incoming
+            self.client_pid = pid
         self._read()
 
     def sockets(self):
