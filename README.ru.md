@@ -68,14 +68,14 @@ Full Keyboard сделана для **работы на самом устрой�
 
 Для пакета выпуска не нужны ни инструменты ИИ, ни компиляция, ни `sudo`, ни права на запись в SteamOS.
 
-1. На **Steam Frame** откройте в браузере [страницу выпусков на GitHub](https://github.com/TaiKeid/steam-frame-full-keyboard/releases). Скачайте `framekeyboard-0.17.0-aarch64.tar.gz` и `SHA256SUMS` из файлов выпуска в папку **Downloads**. Не скачивайте для этой установки автоматический архив исходного кода GitHub.
+1. На **Steam Frame** откройте в браузере [страницу выпусков на GitHub](https://github.com/TaiKeid/steam-frame-full-keyboard/releases). Скачайте `framekeyboard-0.18.0-aarch64.tar.gz` и `SHA256SUMS` из файлов выпуска в папку **Downloads**. Не скачивайте для этой установки автоматический архив исходного кода GitHub.
 2. Откройте терминал в режиме рабочего стола Frame и выполните:
 
    ```sh
    cd ~/Downloads
    sha256sum -c SHA256SUMS
-   tar -xzf framekeyboard-0.17.0-aarch64.tar.gz
-   cd framekeyboard-0.17.0-aarch64
+   tar -xzf framekeyboard-0.18.0-aarch64.tar.gz
+   cd framekeyboard-0.18.0-aarch64
    bash install.sh
    ```
 

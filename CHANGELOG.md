@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0: Streaming support and a new look
 
 - Added **Streaming support** to Settings → Integration, off after a manual install and your choice in the installer: Full Keyboard now types into games and applications that Steam streams from your PC, where only Steam's own keyboard worked before and typed nothing but basic Latin text. Press SteamOS's keyboard button with the stream in front, or click the game while the keyboard is showing. Shortcuts and every key go through, with Ctrl or Alt held for a game's own bindings; from a Windows PC, text in any language arrives too. A Linux PC takes keys and shortcuts but ignores text Steam sends it, so only what keys type arrives there. VR apps streamed from a PC stay unsupported. It needs Replace native keyboard.
 - Streaming support installs an additional library that Steam's streaming client loads, and one setting for Steam's start in your own config folder. No file of Steam or SteamOS is changed. Ticking it explains this and asks first, and it takes effect after SteamOS restarts once. Turning it off needs no restart, and neither does turning it back on until SteamOS restarts. A check before every Steam start uses the library only if it loads, and otherwise leaves Steam as it comes. There is a very small risk that streaming stops working after a SteamOS update: turn the setting off, which applies to the next stream, and wait for a Full Keyboard update. See [streamed games](docs/streamed-games.md#through-steams-own-streaming-streaming-support).

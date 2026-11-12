@@ -27,6 +27,7 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 - Typing into PC apps through Moonlight and Sunshine: keys go as keys, other text a character at a time through Moonlight's Ctrl+Alt+Shift+V paste, and dictation types. Steam Link streams still cannot receive our keys. See [streamed games](streamed-games.md) (0.16.0).
 - The keyboard's interface in 14 languages, following Steam's language, with typing suggestions, Colemak-DH, High Contrast and terminal-safe Cut, Copy and Paste (0.16.0). See [localization design](localization-design.md).
 - Chinese with libime for Pinyin and McBopomofo for Zhuyin, learning and typing as PC input methods do; swipe typing and suggestions in 25 more languages; the interface in Czech, Latin American Spanish and European Portuguese; Key vibration; and an installer that sets the keyboard up without a terminal (0.17.0). See [installer](installer.md).
+- Streaming support: typing into games and applications that Steam streams from a PC, every key and shortcut, and text in any language from a Windows PC; a more finished look for the keys with Hover fade, a calmer swipe trail and toolbar tooltips; and an installer that says whether it updates, downgrades or reinstalls (0.18.0). See [streamed games](streamed-games.md).
 
 ## Before each release
 
