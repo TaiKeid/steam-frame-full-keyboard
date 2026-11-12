@@ -2729,8 +2729,10 @@ cairo_surface_t* mapped_layer(int width, int height) {
     return surface;
 }
 // Gives a mapped layer's pages back to the system while it keeps its
-// mapping: it reads as clear afterwards, as a layer erased over everything
-// it was drawn on does. A layer from Cairo's own allocation is left as is.
+// mapping: it reads as clear afterwards. Used only on layers that are
+// erased over everything drawn on them, or (the comet's passes) whose
+// content is never read before it is cleared again. A layer from Cairo's
+// own allocation is left as is.
 void release_pages(cairo_surface_t* layer) {
     const auto* mapping = layer ? static_cast<std::pair<void*, std::size_t>*>(
                                       cairo_surface_get_user_data(layer, &mapped_key))
@@ -2742,8 +2744,21 @@ void release_pages(cairo_surface_t* layer) {
     }
 }
 } // namespace
+// After the trail has ended, the layers keep their pages this long for the
+// next word before they give them back (R239).
+constexpr double layer_idle_seconds = 3;
+void PanelRenderer::release_idle_layers(double now) {
+    if (layers_idle_since_ < 0 || now - layers_idle_since_ < layer_idle_seconds) {
+        return;
+    }
+    layers_idle_since_ = -1;
+    release_pages(trail_);
+    release_pages(comet_);
+    release_pages(comet_passes_);
+}
 void PanelRenderer::settle() {
     settle_ = true;
+    layers_idle_since_ = -1;
     // The next paint forgets the trail, damaging where it was; its pixels
     // need nothing kept until then.
     for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
@@ -3210,11 +3225,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         };
         // The layers stay from swipe to swipe while the panel is in use: freed
         // and made again for every word, they would be zeroed each time and
-        // might not return to the system (R198). Their pages are given back
-        // when the comet burns out and when the trail has faded (R234), so
-        // between words they hold almost nothing; during a swipe the three
-        // hold up to about 14 MB. They go under Settings and when the panel
-        // hides (settle()).
+        // might not return to the system (R198). During a swipe the three
+        // hold up to about 14 MB. Once a trail has ended they keep their pages
+        // for the next word, and give them back after a few idle seconds
+        // (release_idle_layers, from App's tick), so words in a row fault
+        // nothing in again (R234, R239). They go under Settings and when the
+        // panel hides (settle()).
         const auto release_layers = [&] {
             for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
                 if (*layer) {
@@ -3232,6 +3248,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             forget(); // Settings covers the keys: nothing fades over its cards.
             release_layers();
         } else if (view.swipe_trail.size() > 1) {
+            layers_idle_since_ = -1; // a word in use
             const auto& points = view.swipe_trail;
             const bool grows = !fading && points.size() >= trail_points_.size() &&
                                std::equal(trail_points_.begin(), trail_points_.end(), points.begin());
@@ -3298,15 +3315,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             const std::size_t drawn = comet_first_ + comet_pieces_.size();
             const bool same_step = comet_extent_ && stepped == comet_step_ && first == comet_first_;
             if (!alive || !same_step) {
-                const bool burnt_out = !alive && comet_extent_;
                 erase(comet_, 0, comet_extent_);
                 comet_pieces_.clear();
-                if (burnt_out) {
-                    // Erased everywhere it was drawn: the comet and its
-                    // passes hold nothing until the next swipe (R234).
-                    release_pages(comet_);
-                    release_pages(comet_passes_);
-                }
             }
             comet_step_ = stepped;
             comet_first_ = first;
@@ -3435,7 +3445,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_fade_ = fade;
             if (trail_released_ >= 0 && fade <= 0 && !alive) {
                 forget();
-                release_pages(trail_); // erased over the whole path (R234)
+                layers_idle_since_ = now; // their pages go after a few idle seconds
             } else if (alive || trail_released_ >= 0) {
                 // The comet and the fade step at 30 fps, as the mic key's bars
                 // do: they cover more keys than a pressed key does. A resting

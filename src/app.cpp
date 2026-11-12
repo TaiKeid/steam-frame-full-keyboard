@@ -2380,6 +2380,7 @@ void App::suspend_input(bool asleep) {
     after_digit_ = false; // Taken off or asleep, the field may change (R158).
 }
 bool App::tick(double now) {
+    renderer.release_idle_layers(now);
     if (status_is(no_reading_status) && (!cjk_ || cjk_->empty())) {
         status_.clear(); // The toolbar's Cancel or a hide ended the reading.
         dirty = true;

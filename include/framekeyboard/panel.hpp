@@ -501,6 +501,9 @@ class PanelRenderer {
     // trailing at once, so nothing from before shows up after a summon. The
     // trail's layers go now, as nothing paints while the panel is hidden.
     void settle();
+    // Gives the swipe trail's layers' pages back once no trail has been
+    // drawn for a few seconds (R239). App calls it every tick.
+    void release_idle_layers(double now);
     // Whether the swipe trail's layers are allocated; tests check they go.
     bool trail_layers() const { return trail_ || comet_ || comet_passes_; }
     // When an animation can next change a pixel: now for key presses, the
@@ -578,5 +581,6 @@ class PanelRenderer {
     double next_change_{};
     bool animating_{};
     bool settle_{};
+    double layers_idle_since_{-1}; // when the last trail ended; negative while one is in use
 };
 } // namespace framekeyboard
