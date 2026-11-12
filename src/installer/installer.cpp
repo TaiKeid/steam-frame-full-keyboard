@@ -1791,6 +1791,11 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
         strokes(comet_width, .9, path_ink);
         cairo_restore(cr_);
     }
+    // The laser, as SteamVR draws it over the keyboard: on the comet's head
+    // while tracing, fading soon after the word ends, as in the other demos.
+    const double pointer =
+        std::min(1.0, t / .15) * (t < trace ? 1 : std::max(0.0, 1 - (t - trace) / .3));
+    laser(s, head.first, head.second, pointer);
 }
 
 // A word typed letter by letter: three ways to finish it show under the
