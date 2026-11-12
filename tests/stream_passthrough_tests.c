@@ -107,7 +107,7 @@ static bool is_key(int index, uint32_t scancode, uint16_t mod, uint8_t down) {
            pushed[index].down == down && pushed[index].window_id == 5;
 }
 
-static char directory[64]; // private to this run: the socket, the switch files and the library's log
+static char directory[64]; // private to this run: the socket and the switch files
 
 static const char* in_directory(const char* name) {
     static char path[160];
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
         printf("FAIL: no private directory\n");
         return 1;
     }
-    // The library finds the socket and writes its log here, and reads switch files beside itself.
+    // The library finds the socket here, and reads switch files beside itself.
     setenv("XDG_RUNTIME_DIR", directory, 1);
     char library_path[160];
     snprintf(library_path, sizeof library_path, "%s", in_directory("framekeyboard-stream.so"));
@@ -316,9 +316,8 @@ int main(int argc, char** argv) {
           "the held key is released and the queued text is dropped");
 
     close(server);
-    for (const char** name =
-             (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
-                             "framekeyboard-stream-library.log", "off", "unicode-keys", NULL};
+    for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
+                                             "off", "unicode-keys", NULL};
          *name; ++name) {
         unlink(in_directory(*name));
     }

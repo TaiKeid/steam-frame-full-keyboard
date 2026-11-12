@@ -140,30 +140,6 @@ STREAM_MODIFIERS = {42: 0x0001, 54: 0x0002, 29: 0x0040, 97: 0x0080, 56: 0x0100, 
                     125: 0x0400, 126: 0x0800}
 
 
-class StreamTrace:
-    """PoC diagnostics, to be removed: stream decisions and Steam's keyboard status, metadata only."""
-
-    def __init__(self):
-        self.lines = 0
-        self.file = None
-        directory = os.environ.get("XDG_RUNTIME_DIR")
-        if directory:
-            try:
-                self.file = open(os.path.join(directory, "framekeyboard-stream-helper.log"), "a",
-                                 buffering=1)
-                os.chmod(self.file.name, 0o600)
-            except OSError:
-                self.file = None
-
-    def write(self, text):
-        if self.file and self.lines < 4000:
-            self.lines += 1
-            try:
-                self.file.write(time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d} {text}\n")
-            except OSError:
-                self.file = None
-
-
 class StreamChannel:
     """Private socket the streaming client's pass-through library connects to.
 
@@ -759,7 +735,6 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         stream_request = None
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
         panel_shown = False
-        diagnostics = StreamTrace() if stream else None
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
         frame_sent = time.monotonic()
@@ -905,8 +880,6 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             if stream:
                 stream.service()
                 if stream.take_click():
-                    if diagnostics:
-                        diagnostics.write(f"stream-click shown={panel_shown}")
                     if panel_shown:
                         stream_click = True
                         next_poll = 0
@@ -940,9 +913,6 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                                           f"{str(operation == 'key').lower()}) === true", DELIVERY_TIMEOUT)
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
-                if diagnostics:
-                    diagnostics.write(f"deliver op={operation} request={message['request']} "
-                                      f"stream_request={stream_request} ok={ok is True}")
                 if operation not in ("dismiss", "stream-key"):
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
@@ -971,9 +941,6 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
                         raise BridgeUnavailable("steam-incompatible")
                     stream_click = False
-                    for entry in result.pop("trace", None) or ():
-                        if diagnostics:
-                            diagnostics.write("bridge " + json.dumps(entry, sort_keys=True))
                     if guard:
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
@@ -991,21 +958,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             guarded = ((candidate.get("key") != STREAM_KEY or
                                         bool(stream and stream.connected())) and
                                        guard.prepare(candidate, frame))
-                            if diagnostics:
-                                diagnostics.write(f"candidate key={candidate.get('key')} "
-                                                  f"flags={candidate.get('flags')} request={candidate.get('request')} "
-                                                  f"connected={bool(stream and stream.connected())} "
-                                                  f"ready={frame.get('ready')} guarded={guarded}")
                             result = evaluate(f"{reference}?.bridge.prepareExternal("
                                               f"{candidate['request']},{json.dumps(candidate['key'])},"
                                               f"{str(guarded).lower()})")
                             if not isinstance(result, dict):
                                 raise BridgeUnavailable("steam-incompatible")
-                            if diagnostics:
-                                diagnostics.write(f"prepared request={result.get('request')} "
-                                                  f"eligible={result.get('eligible')} stream={result.get('stream')} "
-                                                  f"local={result.get('local')} "
-                                                  f"candidate={bool(result.get('externalCandidate'))}")
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
                             guard.restore()

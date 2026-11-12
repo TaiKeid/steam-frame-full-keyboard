@@ -399,7 +399,6 @@ include(CTest)
 if((CMAKE_CROSSCOMPILING AND FRAMEKEYBOARD_VR) OR (NOT CMAKE_CROSSCOMPILING AND BUILD_TESTING))
     add_library(stream_passthrough MODULE stream/openvr_passthrough.c)
     target_compile_options(stream_passthrough PRIVATE -Wall -Wextra)
-    target_compile_definitions(stream_passthrough PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
     # No OpenVR symbol is bound at link time: the wrapped call is looked up at
     # run time and every other one has to resolve through this file's dependency.
     target_link_options(stream_passthrough PRIVATE "LINKER:--no-as-needed")

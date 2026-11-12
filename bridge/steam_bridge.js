@@ -112,20 +112,9 @@
     let expectedClose = null;
     let eventSequence = 0;
     const events = [];
-    // PoC diagnostics, to be removed: Steam's keyboard status changes and session events, metadata only.
-    const trace = [];
-    let traceMark = "";
-    function note(what) {
-        trace.push({t: Math.round(now()), what, open: native?.open, key: native?.key, dispatch: native?.dispatch,
-            flags: native?.flags, request, ignore: ignoreOpen, closing: closingNative,
-            session: logical ? (logical.owner.external ? logical.owner.key : "steam:" + logical.owner.key) : null,
-            prepared: preparedExternal?.key || null});
-        if (trace.length > 96) trace.shift();
-    }
     function record(code) {
         events.push({id: ++eventSequence, request, code});
         if (events.length > 32) events.shift();
-        note("event:" + code);
     }
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
     // Steam's keyboard is closing at our request; until it has, it stays
@@ -409,10 +398,6 @@
                 throw Error("steam-popup-changed");
             rescan();
             native = nativeStatus();
-            {
-                const mark = `${native.open}|${native.key}|${native.dispatch}|${native.flags}`;
-                if (mark !== traceMark) { traceMark = mark; note("status"); }
-            }
             if (!native.open || native.key !== closingKey) closingUntil = 0;
             checkRestore();
             if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
@@ -836,9 +821,7 @@
                     acknowledged = request;
                 }
                 inspect();
-                const state = snapshot();
-                state.trace = trace.splice(0);
-                return state;
+                return snapshot();
             } catch (_) { dispose(); return {version: VERSION, unavailable: true}; }
         },
         send(generation, text, key = false) {

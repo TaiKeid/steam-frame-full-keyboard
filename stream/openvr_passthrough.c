@@ -17,12 +17,10 @@
 // private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
 // other keyboard keep their stock behaviour.
 //
-// Nothing here stores or logs typed text: the log has only lengths and classes.
+// Nothing here stores or logs what is typed.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,12 +36,6 @@
 // known for this one.
 #define FK_OVERLAY_TABLE "FnTable:IVROverlay_026"
 #define FK_SOCKET_NAME "framekeyboard-stream.sock"
-// Temporary diagnostics, to be removed with the bridge's trace: metadata only, a few hundred lines a
-// process.
-#define FK_LOG_NAME "framekeyboard-stream-library.log"
-#ifndef FRAMEKEYBOARD_VERSION
-#define FRAMEKEYBOARD_VERSION "development"
-#endif
 
 enum {
     kOverlayFunctions = 82,     // function pointers in VR_IVROverlay_FnTable for IVROverlay_026
@@ -70,7 +62,6 @@ enum {
     kModLeftShift = 0x0001, // SDL_KMOD_LSHIFT
     kModLeftCtrl = 0x0040,  // SDL_KMOD_LCTRL
     kProtocol = 1,
-    kLogLines = 400,
 };
 
 typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
@@ -125,41 +116,6 @@ static bool held[kScancodes]; // keys pushed down and not yet up, released when 
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
-
-static void fk_log(const char* format, ...) {
-    static int lines;
-    static int fd = -2;
-    if (lines >= kLogLines) {
-        return;
-    }
-    if (fd == -2) {
-        const char* runtime = getenv("XDG_RUNTIME_DIR");
-        char path[512];
-        fd = -1;
-        if (runtime && snprintf(path, sizeof path, "%s/" FK_LOG_NAME, runtime) < (int)sizeof path) {
-            fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-        }
-    }
-    if (fd < 0) {
-        return;
-    }
-    char line[256];
-    va_list arguments;
-    va_start(arguments, format);
-    int length = vsnprintf(line, sizeof line - 1, format, arguments);
-    va_end(arguments);
-    if (length <= 0) {
-        return;
-    }
-    if (length > (int)sizeof line - 2) {
-        length = (int)sizeof line - 2;
-    }
-    line[length++] = '\n';
-    if (write(fd, line, (size_t)length) < 0) {
-        fd = -1;
-    }
-    ++lines;
-}
 
 static bool switch_file(const char* name) {
     char path[512];
@@ -220,8 +176,6 @@ static bool sdl_ready(void) {
         push_event = (PushEventFn)dlsym(RTLD_DEFAULT, "SDL_PushEvent");
         keyboard_focus = (GetKeyboardFocusFn)dlsym(RTLD_DEFAULT, "SDL_GetKeyboardFocus");
         window_id = (GetWindowIdFn)dlsym(RTLD_DEFAULT, "SDL_GetWindowID");
-        fk_log("sdl push=%d focus=%d id=%d", push_event != NULL, keyboard_focus != NULL,
-               window_id != NULL);
     }
     return push_event != NULL;
 }
@@ -459,21 +413,17 @@ static void pump_queue(void) {
 
 // Drops what is still queued and lets go of every key that is down: Full Keyboard went away or asked for
 // it.
-static void release_everything(const char* reason) {
-    unsigned dropped = queue_count;
+static void release_everything(void) {
     while (queue_count != 0) {
         free(queue[queue_head].text);
         queue_head = (queue_head + 1) % kQueue;
         --queue_count;
     }
-    unsigned released = 0;
     for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
         if (held[scancode]) {
             push_key(scancode, 0, false);
-            ++released;
         }
     }
-    fk_log("release reason=%s dropped=%u released=%u", reason, dropped, released);
 }
 
 static uint64_t now_ms(void) {
@@ -482,11 +432,11 @@ static uint64_t now_ms(void) {
     return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000);
 }
 
-static void stream_disconnect(const char* reason) {
+static void stream_disconnect(void) {
     if (stream_socket >= 0) {
         close(stream_socket);
         stream_socket = -1;
-        release_everything(reason);
+        release_everything();
     }
 }
 
@@ -527,7 +477,6 @@ static void stream_connect(void) {
         return;
     }
     stream_socket = fd;
-    fk_log("keyboard connected");
 }
 
 // Messages from Full Keyboard, one per packet:
@@ -536,29 +485,27 @@ static void stream_connect(void) {
 //   'R'                               release every held key and drop what is queued
 static void stream_message(const unsigned char* message, size_t length) {
     if (length >= 2 && message[0] == 'T') {
-        const bool valid = valid_utf8(message + 1, length - 1);
-        const bool queued = valid && queue_typing(message + 1, length - 1);
-        fk_log("keyboard text bytes=%zu valid=%d queued=%d", length - 1, valid, queued);
+        // Whole, well-formed text only; what the queue cannot take is dropped.
+        if (valid_utf8(message + 1, length - 1)) {
+            queue_typing(message + 1, length - 1);
+        }
     } else if (length == 6 && message[0] == 'K') {
         uint16_t scancode;
         uint16_t mod;
         memcpy(&scancode, message + 1, sizeof scancode);
         memcpy(&mod, message + 3, sizeof mod);
-        const bool room = queue_has_room(1) && scancode != 0 && scancode < kScancodes;
-        if (room) {
+        if (queue_has_room(1) && scancode != 0 && scancode < kScancodes) {
             queue_key(scancode, mod, message[5] != 0);
         }
-        fk_log("keyboard key down=%d queued=%d", message[5] != 0, room);
     } else if (length == 1 && message[0] == 'R') {
-        release_everything("asked");
-    } else {
-        fk_log("keyboard message unknown bytes=%zu", length);
+        release_everything();
     }
+    // Anything else is from a keyboard newer than this library: ignored.
 }
 
 static void stream_tick(void) {
     if (switch_file("off")) {
-        stream_disconnect("off");
+        stream_disconnect();
         return;
     }
     if (stream_socket < 0) {
@@ -570,11 +517,11 @@ static void stream_tick(void) {
         if (length > 0) {
             stream_message(message, (size_t)length);
         } else if (length == 0) {
-            stream_disconnect("closed");
+            stream_disconnect(); // Full Keyboard went away.
         } else if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
             break;
         } else {
-            stream_disconnect("error");
+            stream_disconnect();
         }
     }
 }
@@ -606,7 +553,6 @@ static GetGenericInterfaceFn real_get_generic_interface(void) {
         if (library) {
             real = (GetGenericInterfaceFn)dlsym(library, "VR_GetGenericInterface");
         }
-        fk_log("real library=%d function=%d", library != NULL, real != NULL);
     }
     return real;
 }
@@ -629,7 +575,6 @@ __attribute__((visibility("default"))) intptr_t VR_GetGenericInterface(const cha
     }
     real_poll = (PollFn)overlay_table[kPollNextOverlayEvent];
     overlay_table[kPollNextOverlayEvent] = (void*)fk_poll;
-    fk_log("overlay table wrapped");
     return (intptr_t)overlay_table;
 }
 
@@ -644,12 +589,4 @@ __attribute__((constructor)) static void fk_loaded(void) {
             directory[0] = '\0';
         }
     }
-    char program[256] = "?";
-    const ssize_t read_bytes = readlink("/proc/self/exe", program, sizeof program - 1);
-    if (read_bytes > 0) {
-        program[read_bytes] = '\0';
-    }
-    const char* name = strrchr(program, '/');
-    fk_log("loaded version=%s pid=%d program=%s", FRAMEKEYBOARD_VERSION, (int)getpid(),
-           name ? name + 1 : program);
 }

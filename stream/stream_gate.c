@@ -213,8 +213,6 @@ static bool loads(const char* file) {
     }
     if (child == 0) {
         setenv("LD_LIBRARY_PATH", steam_dir, 1);
-        // The library keeps a log in the runtime folder; a check is not a stream.
-        setenv("XDG_RUNTIME_DIR", "/nonexistent", 1);
         execl(self, self, "check", file, (char*)NULL);
         _exit(127);
     }
