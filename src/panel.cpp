@@ -2996,9 +2996,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // A press lands faster than the theme's duration and the release
         // takes longer, each slowing into its end.
         const double duration_ms = t.duration_ms * (animation.target > 0 ? press_share : release_share);
+        // Settling, a key let go of while the panel was hidden shows at rest.
         const double progress =
-            t.duration_ms == 0 ? 1
-                               : std::clamp((now - animation.started) * 1000 / duration_ms, 0.0, 1.0);
+            t.duration_ms == 0 || settling
+                ? 1
+                : std::clamp((now - animation.started) * 1000 / duration_ms, 0.0, 1.0);
         animation.amount =
             animation.from + (animation.target - animation.from) * handle_ease_out(progress);
         animating_ |= !view.settings && progress < 1;

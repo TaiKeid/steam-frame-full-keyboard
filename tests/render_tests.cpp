@@ -434,6 +434,16 @@ void hover_fade() {
         compare.full.settle();
         compare.frame(view, "shown again");
         require(red() == idle && !compare.incremental.animating(), "a fade from before a hide is over");
+        // A key still held at a hide is let go of without a paint: shown again, it is at rest.
+        keyboard.down(0, key, compare.now);
+        for (int i = 0; i < 8; ++i) {
+            compare.frame(view, "the key held");
+        }
+        keyboard.up(0);
+        compare.incremental.settle();
+        compare.full.settle();
+        compare.frame(view, "shown again after a press");
+        require(red() == idle && !compare.incremental.animating(), "a press from before a hide is over");
     }
     // High Contrast keeps its keys as they were: its edge under the laser is on or off, and so is the
     // hover face, Hover fade or not.
