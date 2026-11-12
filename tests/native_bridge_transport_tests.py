@@ -1396,12 +1396,15 @@ class Lifecycle(unittest.TestCase):
     def test_a_newer_streaming_client_takes_over_and_an_older_one_does_not(self):
         # Real processes, through service(): each waits for a line before it connects, so the order of
         # connecting can differ from the order of starting.
+        # A child exits with 3 once the helper hangs up on it, refused or replaced.
         script = ("import os, socket, struct, sys\n"
                   "sys.stdin.readline()\n"
                   "s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)\n"
                   "s.connect(sys.argv[1])\n"
                   "s.send(b'H' + bytes((int(sys.argv[2]),)) + struct.pack('<I', os.getpid()))\n"
-                  "sys.stdin.read()\n")
+                  "while s.recv(64):\n"
+                  "    pass\n"
+                  "sys.exit(3)\n")
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
             channel = bridge.StreamChannel(directory, programs=(os.path.basename(os.readlink("/proc/self/exe")),))
             path = os.path.join(directory, bridge.STREAM_SOCKET)
@@ -1430,16 +1433,24 @@ class Lifecycle(unittest.TestCase):
                 second = start()
                 self.assertEqual(connect(first, first.pid), first.pid, "the first client connects")
                 self.assertEqual(connect(second, second.pid), second.pid, "a newer stream's client takes over")
+                self.assertEqual(first.wait(2), 3, "and the first is hung up on")
                 older = start()
                 newer = start()
                 self.assertEqual(connect(newer, newer.pid), newer.pid, "a newer one again")
+                self.assertEqual(second.wait(2), 3)
                 self.assertEqual(connect(older, newer.pid), newer.pid,
                                  "one that started earlier is refused, though it connects later")
+                self.assertEqual(older.wait(2), 3, "the earlier one was hung up on")
+                self.assertIsNone(newer.poll(), "the newer one keeps the channel")
             finally:
+                channel.close()
                 for child in children:
                     child.stdin.close()
-                    child.wait(5)
-                channel.close()
+                    try:
+                        child.wait(5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait()
 
     def test_no_key_of_a_session_follows_a_text_that_failed(self):
         # A client that stops reading: once a text finds no room, the session's keys and later texts are
