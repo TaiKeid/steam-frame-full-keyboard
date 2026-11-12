@@ -492,14 +492,32 @@ static unsigned modifier_bit(unsigned scancode) {
     }
 }
 
+// Whether a session release of `scancode` waits in the queue at `from` or later.
+static bool release_queued(unsigned scancode, unsigned from) {
+    for (unsigned k = from; k < queue_count; ++k) {
+        const Queued* item = &queue[(queue_head + k) % kQueue];
+        if (!item->typed && !item->down && item->scancode == scancode) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Cancels the session's queued presses, from `from` on, that count on a modifier in `bits`: one the PC
-// will not have down when they come. A cancelled modifier press takes those counting on it along.
-static void cancel_presses_with(unsigned bits, unsigned from) {
+// will not have down when they come. A cancelled modifier press takes those counting on it along, and
+// one the user still holds (no release of it queued after it, and not the key being let go of,
+// `released`) is remembered, so a press counting on it that comes later is dropped too (R229).
+static void cancel_presses_with(unsigned bits, unsigned from, unsigned released) {
     for (unsigned k = from; bits && k < queue_count; ++k) {
         Queued* item = &queue[(queue_head + k) % kQueue];
         if (!item->typed && item->down && (item->mod & bits)) {
-            bits |= modifier_bit(item->scancode);
+            const unsigned key = item->scancode;
+            const unsigned own = modifier_bit(key);
+            bits |= own;
             item->scancode = 0; // push_key skips it
+            if (own && key != released && !release_queued(key, k + 1)) {
+                dropped_mods |= own;
+            }
         }
     }
 }
@@ -660,11 +678,11 @@ static void stream_message(const unsigned char* message, size_t length) {
                 if (held[scancode]) {
                     push_key(scancode, 0, false);
                     session_held[scancode] = false;
-                    cancel_presses_with(bit, 0);
+                    cancel_presses_with(bit, 0, scancode);
                 }
             } else if (queue[(queue_head + last) % kQueue].down) {
                 queue[(queue_head + last) % kQueue].scancode = 0; // push_key skips it
-                cancel_presses_with(bit, last + 1);
+                cancel_presses_with(bit, last + 1, scancode);
             }
         } else if ((!down || !overflowed) && queue_has_room(1)) {
             queue_key(scancode, mod, down, false);

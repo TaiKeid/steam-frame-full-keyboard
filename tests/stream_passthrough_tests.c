@@ -605,6 +605,48 @@ int main(int argc, char** argv) {
         }
         key(keyboard, 26, 0, false);
         idle_pump();
+
+        // Ctrl is down on the PC and Shift, pressed with it, waits behind a backlog when Ctrl's release
+        // finds the queue full: Shift's press is cancelled with the rest counting on Ctrl, and as the
+        // user still holds Shift, a Shift+Q pressed later is not typed as plain Q (R229).
+        key(keyboard, 224, 0x40, true);
+        idle_pump();
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries");
+        idle_pump();
+        key(keyboard, 225, 0x41, true);
+        for (int i = 0; i < 93; ++i) {
+            key(keyboard, 28, 0, true);
+            key(keyboard, 28, 0, false);
+        }
+        for (int i = 0; i < 107; ++i) {
+            key(keyboard, 26, 0, true);
+        }
+        key(keyboard, 224, 0, false);
+        for (int i = 0; i < 4200; ++i) {
+            pushed_count = 0;
+            idle_pump();
+        }
+        key(keyboard, 26, 0, false);
+        key(keyboard, 20, 0x01, true);
+        key(keyboard, 20, 0x01, false);
+        key(keyboard, 225, 0, false);
+        key(keyboard, 20, 0, true);
+        key(keyboard, 20, 0, false);
+        pushed_count = 0;
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        {
+            unsigned shifted_q = 0, plain_q = 0;
+            for (int k = 0; k < pushed_count; ++k) {
+                shifted_q += pushed[k].scancode == 20 && pushed[k].down && pushed[k].mod != 0;
+                plain_q += pushed[k].scancode == 20 && pushed[k].down && pushed[k].mod == 0;
+            }
+            check(shifted_q == 0 && plain_q == 1,
+                  "no Q counting on the cancelled Shift; a plain Q after its release");
+        }
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
