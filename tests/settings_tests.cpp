@@ -2828,6 +2828,12 @@ void streaming_support_failed_turn_off() {
             throw StreamingSupportWarning("streaming.saved-without-change", reason, true);
         }
     });
+    // A check that fails while the save is held must fail, not hang: App's destructor waits for the
+    // writer's thread, which waits on `hold`. Declared after `app`, this goes first.
+    struct Release {
+        std::atomic<bool>& hold;
+        ~Release() { hold = false; }
+    } release{hold};
     auto open = [&] {
         app.show_settings();
         app.move(0, 800, 300);
