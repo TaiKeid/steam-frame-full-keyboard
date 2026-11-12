@@ -3214,7 +3214,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 for (std::size_t i = first - 1; i < count; ++i) {
                     at.push_back(trail_point(trail_points_, i));
                 }
+                Rect extent = around(at[0], at[1], trail_glow_width / 2 + 2);
+                for (std::size_t i = 2; i < at.size(); ++i) {
+                    extent = joined(extent, around(at[i - 1], at[i], trail_glow_width / 2 + 2));
+                }
                 auto* comet = cairo_create(comet_);
+                // Without a clip each group below would cover the whole layer,
+                // clearing and compositing every pixel of the panel per stroke
+                // set. The extent holds every stroke and is in whole pixels.
+                cairo_rectangle(comet, extent.x, extent.y, extent.width, extent.height);
+                cairo_clip(comet);
                 cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
                 // Each piece replaces what lies under it instead of adding to
                 // it, so overlapping round caps don't darken the joins, and a
@@ -3245,10 +3254,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 cairo_destroy(comet);
                 cairo_surface_flush(comet_);
-                Rect extent = around(at[0], at[1], trail_glow_width / 2 + 2);
-                for (std::size_t i = 2; i < at.size(); ++i) {
-                    extent = joined(extent, around(at[i - 1], at[i], trail_glow_width / 2 + 2));
-                }
                 comet_extent_ = extent;
                 touched(extent);
             }
