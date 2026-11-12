@@ -61,8 +61,9 @@ enum {
     kScancodeDelete = 76,
     kScancodeLeftCtrl = 224,
     kScancodeLeftShift = 225,
-    kModLeftShift = 0x0001, // SDL_KMOD_LSHIFT
-    kModLeftCtrl = 0x0040,  // SDL_KMOD_LCTRL
+    kScancodeRightGui = 231, // the last modifier key
+    kModLeftShift = 0x0001,  // SDL_KMOD_LSHIFT
+    kModLeftCtrl = 0x0040,   // SDL_KMOD_LCTRL
     kProtocol = 1,
 };
 
@@ -117,6 +118,9 @@ static unsigned queue_head;
 static unsigned queue_count;
 static bool held[kScancodes]; // keys pushed down and not yet up, released when Full Keyboard goes away
 static bool session_held[kScancodes]; // of those, pressed by a session's own key events ('K')
+// Modifiers the session holds that are up on the PC for typed text, until a session press counts on
+// them again (R242).
+static bool lifted[kScancodes];
 // A commit did not fit the queue: until it has drained, later commits and key presses are dropped as
 // well, so what arrives is cut short rather than missing a piece in the middle.
 static bool overflowed;
@@ -448,6 +452,43 @@ static unsigned modifier_bit(unsigned scancode) {
     }
 }
 
+// The modifier bits of the keys down on the PC.
+static unsigned held_mods(void) {
+    unsigned bits = 0;
+    for (unsigned scancode = kScancodeLeftCtrl; scancode <= kScancodeRightGui; ++scancode) {
+        bits |= held[scancode] ? modifier_bit(scancode) : 0;
+    }
+    return bits;
+}
+
+// Typed text types its own characters, whatever the session holds (R242): a modifier the session holds
+// that a typed press does not count on, such as the panel's Shift under a plain letter, goes up on the
+// PC first. It comes down again only when a session press counts on it, so typed characters in a row
+// see no modifier taps between them.
+static void lift_session_modifiers(unsigned mod) {
+    for (unsigned scancode = kScancodeLeftCtrl; scancode <= kScancodeRightGui; ++scancode) {
+        const unsigned bit = modifier_bit(scancode);
+        if (session_held[scancode] && held[scancode] && !(mod & bit)) {
+            push_key(scancode, held_mods() & ~bit, false);
+            lifted[scancode] = !held[scancode];
+        }
+    }
+}
+
+// A session press counting on a lifted modifier: the modifier goes down again first, unless the press
+// is that modifier's own.
+static void restore_session_modifiers(unsigned mod, unsigned pressed) {
+    for (unsigned scancode = kScancodeLeftCtrl; scancode <= kScancodeRightGui; ++scancode) {
+        const unsigned bit = modifier_bit(scancode);
+        if (lifted[scancode] && (mod & bit)) {
+            lifted[scancode] = false;
+            if (scancode != pressed && !held[scancode]) {
+                push_key(scancode, held_mods() | bit, true);
+            }
+        }
+    }
+}
+
 // Types the next step: one text, or key events up to and including the next release, so a tap lands in
 // one pump and the PC sees typing paced a frame apart.
 static void pump_queue(void) {
@@ -470,20 +511,29 @@ static void pump_queue(void) {
                 }
                 continue;
             }
-            if (next.down && held[next.scancode]) {
-                // Any other key the session holds, such as Enter while text with a line break
-                // lands, comes up first, so the typed press is a press; the session's own release
-                // then finds it up (R243).
-                push_key(next.scancode, next.mod, false);
+            if (next.down) {
+                lift_session_modifiers(next.mod);
+                if (held[next.scancode]) {
+                    // Any other key the session holds, such as Enter while text with a line break
+                    // lands, comes up first, so the typed press is a press; the session's own release
+                    // then finds it up (R243).
+                    push_key(next.scancode, next.mod, false);
+                }
             }
         } else if (!next.down && !held[next.scancode]) {
             // A release of the session's for a key the PC does not have down: its press was dropped,
             // or typed text let go of it first, so a key-up would be the only thing the PC sees of it
             // (R221). The session no longer holds it either (R228).
             session_held[next.scancode] = false;
+            lifted[next.scancode] = false;
             continue;
+        } else if (next.down) {
+            restore_session_modifiers(next.mod, next.scancode);
         }
         push_key(next.scancode, next.mod, next.down);
+        if (next.down && held[next.scancode]) {
+            lifted[next.scancode] = false; // down again, as typed text's capital puts Shift
+        }
         if (!next.typed) {
             session_held[next.scancode] = next.down;
         }
@@ -507,6 +557,7 @@ static void release_everything(void) {
         }
     }
     memset(session_held, 0, sizeof session_held);
+    memset(lifted, 0, sizeof lifted);
     overflowed = false;
     dropped_mods = 0;
 }
@@ -539,7 +590,7 @@ static void end_session(void) {
     // bit in `mod`) would type the plain key, Ctrl+C as C, so it goes too; releases always stay.
     unsigned gone = 0;
     for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
-        if (session_held[scancode] && held[scancode] && !released[scancode]) {
+        if (session_held[scancode] && (held[scancode] || lifted[scancode]) && !released[scancode]) {
             gone |= modifier_bit(scancode);
         }
     }
@@ -557,10 +608,13 @@ static void end_session(void) {
     }
     queue_count = kept;
     for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
-        // What is left in `released` is a release for a key already down.
-        if (session_held[scancode] && held[scancode] && !released[scancode]) {
-            push_key(scancode, 0, false);
+        // What is left in `released` is a release for a key already down, or lifted for typed text.
+        if (session_held[scancode] && (held[scancode] || lifted[scancode]) && !released[scancode]) {
+            if (held[scancode]) {
+                push_key(scancode, 0, false);
+            }
             session_held[scancode] = false;
+            lifted[scancode] = false;
         }
     }
 }

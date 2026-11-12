@@ -361,28 +361,30 @@ int main(int argc, char** argv) {
     }
     key(keyboard, 224, 0, false);
     idle_pump();
-    // Ctrl is down and Ctrl+C waits behind a commit when the session ends with Ctrl still held: Ctrl
-    // is let go of at once, so C must not be typed after it.
+    // Ctrl is down and Ctrl+C waits behind a commit when the session ends with Ctrl still held. The
+    // commit's x lets Ctrl go first, so it is not typed as Ctrl+X (R242); the session's end drops
+    // the Ctrl+C counting on the Ctrl let go of, so C must not be typed after it.
     key(keyboard, 224, 0x40, true);
     pushed_count = 0;
     check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl held");
     check(send(keyboard, "Txy", 3, 0) == 3, "a commit behind it");
     key(keyboard, 6, 0x40, true);
     key(keyboard, 6, 0x40, false);
-    check(idle_pump() && pushed_count == 3 && is_key(1, 27, 0, 1), "x");
-    check(send(keyboard, "R", 1, 0) == 1, "the session ends with Ctrl down");
+    check(idle_pump() && pushed_count == 4 && is_key(1, 224, 0, 0) && is_key(2, 27, 0, 1),
+          "Ctrl comes up, then x");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends with Ctrl held");
     {
-        unsigned ctrl_up = 0, y = 0, c = 0;
+        unsigned ctrl = 0, y = 0, c = 0;
         for (int i = 0; i < 4; ++i) {
             idle_pump();
         }
-        for (int k = 3; k < pushed_count; ++k) {
-            ctrl_up += pushed[k].scancode == 224 && !pushed[k].down;
+        for (int k = 4; k < pushed_count; ++k) {
+            ctrl += pushed[k].scancode == 224;
             y += pushed[k].scancode == 28 && pushed[k].down;
             c += pushed[k].scancode == 6;
         }
-        check(ctrl_up == 1 && y == 1 && c == 0,
-              "Ctrl goes up, y is typed, C is neither pressed nor released");
+        check(ctrl == 0 && y == 1 && c == 0,
+              "y is typed, Ctrl stays up, C is neither pressed nor released");
     }
     // The panel's Shift is held through a capital and then let go of. A session that ends inside the
     // next capital's Shift keeps its whole Shift+X tap, typed with Shift (R228).
@@ -436,6 +438,35 @@ int main(int argc, char** argv) {
         }
         check(z == 1 && shift_up == 1 && !shift_down,
               "Z is typed with Shift still down; Shift comes up once");
+    }
+    // Typed text arrives as its own characters whatever the session holds (R242): with the panel's
+    // Shift held, "Ab1" types as written. Shift comes up for the first plain character only, and goes
+    // down again for a session press counting on it.
+    key(keyboard, 225, 0x01, true);
+    pushed_count = 0;
+    check(idle_pump() && pushed_count == 1 && is_key(0, 225, 0x01, 1), "the panel's Shift again");
+    check(send(keyboard, "TAb1", 4, 0) == 4, "text while it is held");
+    key(keyboard, 29, 0x01, true);
+    key(keyboard, 29, 0x01, false);
+    key(keyboard, 225, 0, false);
+    {
+        unsigned capital = 0, plain = 0, z = 0, shift_up = 0;
+        bool shift_down = true;
+        for (int i = 0; i < 8; ++i) {
+            idle_pump();
+        }
+        for (int k = 1; k < pushed_count; ++k) {
+            if (pushed[k].scancode == 225) {
+                shift_up += !pushed[k].down;
+                shift_down = pushed[k].down;
+            } else if (pushed[k].down) {
+                capital += pushed[k].scancode == 4 && shift_down;
+                plain += (pushed[k].scancode == 5 || pushed[k].scancode == 30) && !shift_down;
+                z += pushed[k].scancode == 29 && shift_down;
+            }
+        }
+        check(capital == 1 && plain == 2 && z == 1, "A with Shift, b and 1 without, Z with Shift");
+        check(shift_up == 2 && !shift_down, "Shift up for b, down for Z, up at the session's release");
     }
     // A key the session holds that typed text types too comes up first, so the text's own press of it
     // is a press: a line break lands while Enter is held (R243).
