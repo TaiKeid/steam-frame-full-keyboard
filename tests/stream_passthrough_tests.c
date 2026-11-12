@@ -386,8 +386,8 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        check(letters == 8000 && enter_up == 1 && other == 0,
-              "the long commits are typed, then only Enter's release; b, c and Enter's press are not");
+        check(letters == 8000 && enter_up == 0 && other == 0,
+              "the long commits are typed; b, c and Enter are not, not even Enter's release");
         pushed_count = 0;
         check(send(keyboard, "Td", 2, 0) == 2 && idle_pump() && pushed_count == 2 && is_key(0, 7, 0, 1),
               "a drained queue takes commits again");
