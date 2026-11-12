@@ -5288,6 +5288,7 @@ void App::action(const ControlAction& command) {
         pressed_controls_.clear();
         hovered_.clear();
         pending_streaming_support_ = true;
+        streaming_touched_ = true; // also after a Reload while the question was open (R226)
         update_settings_ui();
     } else if (confirm_ == Confirm::LeaveStreaming &&
                (kind == ControlKind::ConfirmAccept || kind == ControlKind::ConfirmCancel)) {
