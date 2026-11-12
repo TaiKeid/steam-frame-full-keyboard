@@ -1156,8 +1156,16 @@ class Lifecycle(unittest.TestCase):
                 self.taken = False
                 self.refused = 0
                 self.request = 2  # Each new session has the next request number, as in the bridge.
+                self.gone = []
+                self.fallbacks = []
 
             def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.step(" in expression:
+                    frame = json.loads(expression.split(".bridge.step(", 1)[1].rsplit(")", 1)[0])
+                    if frame.get("streamGone") is not None:
+                        self.gone.append(frame["streamGone"])
+                    if frame.get("fallback"):
+                        self.fallbacks.append(frame.get("fallbackRequest"))
                 if ".bridge.prepareExternal(" in expression:
                     if expression.endswith(",false)"):
                         self.refused += 1
@@ -1254,11 +1262,16 @@ class Lifecycle(unittest.TestCase):
                 self.assertTrue(self.receive(parent, "key-result")["ok"])
                 self.assertEqual(client.sent, [[3, "VKClose", True]], "only the close key reaches the bridge")
                 packet(op="key-up", request=3, id=4)
-                # The streaming client goes away: typing fails closed, so the app falls back to native.
+                # The streaming client goes away: typing fails closed, and the bridge is told once to end
+                # the session as a cleared target, with no fallback to a keyboard for a stream that is gone.
                 library.close()
                 packet(op="frame", progress=5, ready=True, ack=3, sent=time.monotonic())
                 packet(op="text", request=3, id=5, text="b")
                 self.assertFalse(self.receive(parent, "text-result")["ok"])
+                packet(op="stream-key", request=3, code=30, value=1)
+                frames_until(lambda: client.gone == [3])
+                time.sleep(.1)
+                self.assertEqual((client.gone, client.fallbacks), ([3], []))
             finally:
                 library.close()
                 parent.close()

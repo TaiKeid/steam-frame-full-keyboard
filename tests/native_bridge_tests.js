@@ -384,6 +384,24 @@ for (const key of ["valve.steam.desktopgame.", "valve.steam.desktopgame.12a", "v
     assert(!s.stream && f.nativeOpen(), "an open native keyboard is left alone");
     f.bridge.dispose();
 }
+// The streaming client goes away during its session: the session ends as a cleared target, not as a
+// fallback that would reopen Steam's keyboard for a stream that is gone. Only the current session counts.
+{
+    const f = fixture(false, false, true);
+    f.step();
+    let s = f.step(0, true, false, true, {streamClick: true, shown: true});
+    const request = s.request;
+    s = f.step(request);
+    assert(s.active && s.stream, "a stream session");
+    s = f.step(request, true, false, true, {streamGone: request - 1});
+    assert(s.active && s.stream, "an older session's report changes nothing");
+    s = f.step(request, true, false, true, {streamGone: request});
+    assert(!s.stream && !s.eligible && !f.nativeOpen() &&
+           s.events.some(e => e.code === "target-cleared") &&
+           !s.events.some(e => e.code === "release-fallback"),
+           "a stream whose client went away ends as a cleared target");
+    f.bridge.dispose();
+}
 // The helper refuses a stream request while no streaming client is connected: Steam's keyboard keeps it.
 {
     const f = fixture(false, false, true);

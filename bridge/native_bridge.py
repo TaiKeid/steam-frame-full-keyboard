@@ -734,6 +734,9 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 stream = None
         stream_request = None
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
+        # The stream session whose streaming client went away, reported once with the next poll.
+        stream_gone = None
+        gone_request = None
         panel_shown = False
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
@@ -883,9 +886,18 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if panel_shown:
                         stream_click = True
                         next_poll = 0
+                # The streaming client went away during its session, as when the stream ends or the
+                # library is told to idle: the bridge ends the session as a cleared target.
+                if stream_request is not None and not stream.connected() and gone_request != stream_request:
+                    stream_gone = gone_request = stream_request
+                    next_poll = 0
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
+                # Typing into a stream whose client went away fails, but there is nothing to fall back
+                # to: the session ends as a cleared target with the next poll instead.
+                lost_stream = (bool(stream) and stream_request is not None and
+                               message.get("request") == stream_request and not stream.connected())
                 try:
                     if operation == "stream-key":
                         # A release goes out even after the session ended; a press only into it.
@@ -916,7 +928,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if operation not in ("dismiss", "stream-key"):
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
-                if ok is not True:
+                if ok is not True and not lost_stream:
                     fallback_request = message["request"]
                 # A delivery can wait on Steam for up to DELIVERY_TIMEOUT. Read what
                 # the parent sent meanwhile before this loop's poll may renew the lease.
@@ -933,7 +945,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             if time.monotonic() >= next_poll:
                 poll_frame = {**frame, "fallback": fallback_request is not None,
                               "fallbackRequest": fallback_request, "shown": panel_shown,
-                              "streamClick": stream_click}
+                              "streamClick": stream_click, "streamGone": stream_gone}
                 try:
                     if stream_click and guard and guard.armed:
                         guard.cancel()  # Typing leaves the window the guard was armed for.
@@ -941,6 +953,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
                         raise BridgeUnavailable("steam-incompatible")
                     stream_click = False
+                    stream_gone = None
                     if guard:
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:

@@ -813,6 +813,12 @@
                 }
                 inspect();
                 if (frame.streamClick === true && frame.shown === true) followStream();
+                // The streaming client went away during this stream session: nothing is left to
+                // type into, which is a cleared target, not a fallback to Steam's keyboard. Native
+                // was closed for the session, so no Steam keyboard is ours to close here.
+                if (frame.streamGone === request && logical?.owner.stream) {
+                    releaseLogical(false, false, "target-cleared");
+                }
                 if (externalRestore && frame.externalRestored === externalRestore.request) externalRestore = null;
                 if (frame.fallback && frame.fallbackRequest === request) releaseLogical(true);
                 if (snapshot().eligible && fresh() && frame.ack === request &&
