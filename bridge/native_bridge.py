@@ -255,6 +255,18 @@ class StreamChannel:
         try:
             self.client.send(packet)
             return True
+        except BlockingIOError:
+            # A streaming client that falls behind: wait a moment for room rather than hang up on it,
+            # which would drop everything it still has to type. Still full, this one message fails.
+            try:
+                if select.select([], [self.client], [], .1)[1]:
+                    self.client.send(packet)
+                    return True
+            except BlockingIOError:
+                pass
+            except OSError:
+                self._drop()
+            return False
         except OSError:
             self._drop()
             return False
