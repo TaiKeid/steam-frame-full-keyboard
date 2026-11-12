@@ -1411,19 +1411,25 @@ void Installer::paint_finish_page() {
               PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_CENTER);
     }
 
-    // With Restart SteamOS ticked, Finish restarts instead of opening the keyboard.
-    const char* note = !first_install_           ? "installer.ready.reinstall"
-                       : restart && restart_     ? "installer.ready.restart"
-                       : choices_.replace_native ? "installer.ready.replace"
-                                                 : "installer.ready.manual";
-    const auto value = tr(note);
     const Color ink = paint::mix(theme_.legend, theme_.surface, .12);
     if (!first_install_) {
+        // An update, downgrade or reinstall asks nothing: to wait while it
+        // runs, and that it's done once it is. A failure says why above.
+        const bool running = status_.task == Task::Install && status_.state == State::Running;
+        if (!install_done_ && !running) {
+            return;
+        }
+        const auto value = tr(install_done_ ? "installer.ready.reinstall" : "installer.ready.wait");
         const double h =
             block(value, {0, 0, column_width, stage.height}, 24, ink, PANGO_WEIGHT_NORMAL, false);
         block(value, {column_x, stage.y + (stage.height - h) / 2, column_width, stage.height}, 24, ink);
         return;
     }
+    // With Restart SteamOS ticked, Finish restarts instead of opening the keyboard.
+    const char* note = restart && restart_       ? "installer.ready.restart"
+                       : choices_.replace_native ? "installer.ready.replace"
+                                                 : "installer.ready.manual";
+    const auto value = tr(note);
     // On a first install, what Finish saves: each setting and its answer.
     // A long name takes two lines; all of them share the largest size at
     // which the list fits under the note.

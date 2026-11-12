@@ -178,6 +178,7 @@
     "installer.ready.reinstall": "Done. Press Finish to close the installer.",
     "installer.ready.replace": "Finish saves your choices and opens Full Keyboard. From now on it starts with SteamOS.",
     "installer.ready.restart": "Finish saves your choices and restarts SteamOS. From now on Full Keyboard starts with it.",
+    "installer.ready.wait": "Please wait for installation to finish.",
     "installer.reinstall": "Reinstall",
     "installer.reinstalling": "Reinstalling Full Keyboard {version}",
     "installer.retry": "Try again",
