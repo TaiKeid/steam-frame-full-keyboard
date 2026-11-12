@@ -41,9 +41,12 @@ using StreamSupportRun = std::function<bool(const std::vector<std::string>& comm
 // Makes Steam's next start match `enabled`, and a Steam that already carries
 // the variable follow at once: on, it gets a fresh copy of the library; off,
 // its link leads to Steam's own library and a loaded library goes idle. A
-// failed change leaves what was there. Throws UiError.
+// failed change leaves what was there. Throws UiError. Without `refresh`, as
+// for an ordinary save, a running Steam is touched only when the setting
+// itself changes.
 void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
-                              std::function<void()> reload = {}, StreamSupportRun run = {});
+                              std::function<void()> reload = {}, StreamSupportRun run = {},
+                              bool refresh = true);
 
 // The preference writer's save and its reconciliation at startup and Reload:
 // the boot unit (startup.hpp), then streaming support, which needs

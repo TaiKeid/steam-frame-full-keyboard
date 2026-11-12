@@ -248,7 +248,7 @@ StreamSupportStatus stream_support_status(const StreamSupportPaths& paths) {
     return status;
 }
 void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
-                              std::function<void()> reload, StreamSupportRun run) {
+                              std::function<void()> reload, StreamSupportRun run, bool refresh) {
     if (!reload) {
         reload = reload_session_manager;
     }
@@ -267,7 +267,6 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
             throw;
         }
     }
-    const bool active = steam_carries(paths);
     std::error_code ignored;
     // Puts the drop-in back as it was after a failed change.
     const auto restore = [&] {
@@ -300,8 +299,11 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
             }
         }
         // A Steam that already has the variable can use the library with its
-        // next stream: give it this release's copy, checked.
-        if (active && !run({paths.gate.string(), "prepare"})) {
+        // next stream: give it this release's copy, checked, when it was just
+        // turned on, and when the keyboard starts or reloads, perhaps as a new
+        // release. Not on every save: a check that failed mid-stream would
+        // turn the running stream back to Steam's keyboard.
+        if ((changed || refresh) && steam_carries(paths) && !run({paths.gate.string(), "prepare"})) {
             if (changed) {
                 restore();
             }
@@ -309,7 +311,9 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
         }
         return;
     }
-    if (active || fs::exists(paths.runtime, ignored)) {
+    // Only when it is being turned off, or when the keyboard starts or
+    // reloads: a save that leaves it off has nothing to change.
+    if ((previous || refresh) && (fs::exists(paths.runtime, ignored) || steam_carries(paths))) {
         point_at_stock(paths);
     }
     if (previous) {
@@ -339,7 +343,7 @@ void save_preferences_with_integration(const Settings& settings, const fs::path&
     auto saved = load_settings(config_dir, ignored);
     try {
         configure_stream_support(saved.replace_native_keyboard && saved.streaming_support, paths, reload,
-                                 std::move(run));
+                                 std::move(run), false);
     } catch (const std::exception& error) {
         if (!warning) {
             const bool changed = saved.streaming_support != previous.streaming_support;

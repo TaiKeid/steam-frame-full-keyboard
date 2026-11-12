@@ -138,6 +138,8 @@ int main() {
         require(reloads == 1 && runs.size() == 1 &&
                     runs[0] == std::vector<std::string>{paths.gate.string(), "prepare"},
                 "a Steam that carries the variable gets a checked copy");
+        configure_stream_support(true, paths, reload, run, false);
+        require(runs.size() == 1, "a save that leaves it on doesn't check the library again");
 
         // Off: the link leads to Steam's own library, a loaded library is told to idle, the drop-in
         // goes.
@@ -193,6 +195,9 @@ int main() {
                     fs::exists(paths.unit_directory / "framekeyboard-autostart.service") &&
                     load_settings(config, errors).streaming_support,
                 "a save sets up the boot unit and streaming support");
+        const auto checks = runs.size();
+        save_preferences_with_integration(settings, binary, config, paths, reload, run);
+        require(runs.size() == checks, "saving other preferences leaves the running Steam alone");
         settings.replace_native_keyboard = false;
         save_preferences_with_integration(settings, binary, config, paths, reload, run);
         require(!fs::exists(drop_in), "without replacement streaming support is off");
