@@ -906,9 +906,11 @@ void App::update_settings_ui() {
     focus_tooltip_note.plain = true;
     focus_tooltip_note.enabled = pending_replace_native_keyboard_;
     // Streaming support needs the replacement's helper, and a release that
-    // carries the library.
-    const bool streaming_offered = pending_replace_native_keyboard_ && stream_status_.supported;
-    const bool streaming_on = pending_streaming_support_ && streaming_offered;
+    // carries the library. Once on, it shows so and can be turned off even
+    // when a piece of it or Steam's library has gone since (R251).
+    const bool streaming_on = pending_streaming_support_ && pending_replace_native_keyboard_;
+    const bool streaming_offered =
+        pending_replace_native_keyboard_ && (stream_status_.supported || streaming_on);
     std::vector<SettingField> streaming_fields{
         field(ControlKind::StreamingSupport,
               checkbox("streaming-support", tr("setting.streaming-support"), streaming_on,
@@ -916,10 +918,12 @@ void App::update_settings_ui() {
     // While it is on and the running Steam was started without it, a line
     // under it says when it takes effect, or that the library failed its
     // check when this Steam started, which a restart alone won't change.
-    if (streaming_on && !stream_status_.active) {
+    // While it is on but no longer available, the line says that instead.
+    if (streaming_on && (!stream_status_.supported || !stream_status_.active)) {
         SettingField note{"streaming-support-note",
-                          tr(stream_status_.failed ? "streaming.library-failed"
-                                                   : "setting.streaming-support.restart-note"),
+                          tr(!stream_status_.supported ? "streaming.unavailable"
+                             : stream_status_.failed   ? "streaming.library-failed"
+                                                       : "setting.streaming-support.restart-note"),
                           "", ControlStyle::Note};
         note.plain = true;
         streaming_fields.push_back(std::move(note));
@@ -5165,7 +5169,8 @@ void App::action(const ControlAction& command) {
         pending_start_with_steamos_ = !pending_start_with_steamos_;
         update_settings_ui();
     } else if (kind == ControlKind::StreamingSupport && pending_replace_native_keyboard_ &&
-               stream_status_.supported) {
+               (stream_status_.supported || pending_streaming_support_)) {
+        // Unavailable, it can still be turned off, but not on again (R251).
         streaming_touched_ = true;
         if (pending_streaming_support_ ||
             (settings_.streaming_support && settings_.replace_native_keyboard)) {

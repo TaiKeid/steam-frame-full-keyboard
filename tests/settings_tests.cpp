@@ -3072,6 +3072,26 @@ void streaming_support_setting() {
     app.back();
     require(!app.view().settings, "nothing changed, so ← just leaves");
 
+    // A piece of it, or Steam's library, goes missing while it is on: the switch still shows it on,
+    // says it is not available, and can turn it off, but not on again (R251).
+    status.supported = false;
+    open();
+    const auto unavailable = [&] {
+        const auto view = app.view();
+        return std::any_of(view.field_labels.begin(), view.field_labels.end(), [](const FieldLabel& f) {
+            return f.text == "Streaming support is not available in this installation.";
+        });
+    };
+    require(control(app.view(), "streaming-support").selected &&
+                control(app.view(), "streaming-support").enabled && unavailable() && !note(),
+            "on but unavailable, it shows on, says so, and can be turned off");
+    click(app, "streaming-support");
+    require(!app.view().confirm && !control(app.view(), "streaming-support").selected &&
+                !control(app.view(), "streaming-support").enabled && !unavailable(),
+            "turned off, it cannot be turned on again while unavailable");
+    app.back();
+    status.supported = true;
+
     // Replacement off takes it along; replacement back on leaves it off until it is ticked again.
     open();
     click(app, "replace-native-keyboard");
