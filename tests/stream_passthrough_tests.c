@@ -365,6 +365,38 @@ int main(int argc, char** argv) {
         pushed_count = 0;
         check(send(keyboard, "Td", 2, 0) == 2 && idle_pump() && pushed_count == 2 && is_key(0, 7, 0, 1),
               "a drained queue takes commits again");
+
+        // A release that finds the queue full while its press still waits there cancels the press.
+        memset(big + 1, 'a', 2000);
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries");
+        idle_pump(); // takes them and types the first tap: 7998 entries wait
+        // Each pump takes up to 32 messages, then types one tap (2 entries), so the queue fills by the
+        // seventh pump and then has 2 free entries as each pump begins. 94 y taps and z's press (189
+        // messages) all fit; w presses fill the rest, and z's release, the 295th message, comes seventh in
+        // its pump's batch, after the two w presses that took the room.
+        for (int i = 0; i < 94; ++i) {
+            key(keyboard, 28, 0, true);
+            key(keyboard, 28, 0, false);
+        }
+        key(keyboard, 29, 0, true);
+        for (int i = 0; i < 105; ++i) {
+            key(keyboard, 26, 0, true);
+        }
+        key(keyboard, 29, 0, false);
+        unsigned z_down = 0;
+        for (int i = 0; i < 4200; ++i) {
+            pushed_count = 0;
+            idle_pump();
+            for (int k = 0; k < pushed_count; ++k) {
+                z_down += pushed[k].scancode == 29 && pushed[k].down;
+            }
+        }
+        check(z_down == 0, "the press whose release found no room is never typed");
+        key(keyboard, 26, 0, false); // let go of w again
+        pushed_count = 0;
+        check(idle_pump() && pushed_count == 1 && is_key(0, 26, 0, 0), "w released");
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.

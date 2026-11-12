@@ -573,10 +573,20 @@ static void stream_message(const unsigned char* message, size_t length) {
             return;
         }
         if (!down && !queue_has_room(1)) {
-            // A release is never lost: with no room it goes at once, as a key held down must come up.
+            // A release is never lost: with no room it goes at once, as a key held down must come up,
+            // and a press of the key still waiting is cancelled, or it would be typed with no release.
             if (held[scancode]) {
                 push_key(scancode, 0, false);
                 session_held[scancode] = false;
+            }
+            for (unsigned i = queue_count; i-- > 0;) {
+                Queued* item = &queue[(queue_head + i) % kQueue];
+                if (!item->typed && item->scancode == scancode) {
+                    if (item->down) {
+                        item->scancode = 0; // push_key skips it
+                    }
+                    break;
+                }
             }
         } else if ((!down || !overflowed) && queue_has_room(1)) {
             queue_key(scancode, mod, down, false);
