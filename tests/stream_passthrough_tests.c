@@ -156,8 +156,8 @@ static int accept_keyboard(int server) {
         idle_pump();
         const int keyboard = accept(server, NULL, NULL);
         if (keyboard >= 0) {
-            // Room for the longest burst sent here without a pump in between (295 key packets): a
-            // default socket holds about 278, and a blocked send would hang the test.
+            // Room for the long bursts sent here without a pump in between: a blocked send would hang
+            // the test.
             const int room = 1 << 20;
             setsockopt(keyboard, SOL_SOCKET, SO_SNDBUF, &room, sizeof room);
             unsigned char hello[16];
@@ -473,73 +473,8 @@ int main(int argc, char** argv) {
         check(send(keyboard, "Td", 2, 0) == 2 && idle_pump() && pushed_count == 2 && is_key(0, 7, 0, 1),
               "a drained queue takes commits again");
 
-        // A release that finds the queue full while its press still waits there cancels the press.
-        memset(big + 1, 'a', 2000);
-        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
-                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
-              "8000 entries");
-        idle_pump(); // takes them and types the first tap: 7998 entries wait
-        // Each pump takes up to 32 messages, then types one tap (2 entries), so the queue fills by the
-        // seventh pump and then has 2 free entries as each pump begins. 94 y taps and z's press (189
-        // messages) all fit; w presses fill the rest, and z's release, the 295th message, comes seventh in
-        // its pump's batch, after the two w presses that took the room.
-        for (int i = 0; i < 94; ++i) {
-            key(keyboard, 28, 0, true);
-            key(keyboard, 28, 0, false);
-        }
-        key(keyboard, 29, 0, true);
-        for (int i = 0; i < 105; ++i) {
-            key(keyboard, 26, 0, true);
-        }
-        key(keyboard, 29, 0, false);
-        unsigned z_down = 0;
-        for (int i = 0; i < 4200; ++i) {
-            pushed_count = 0;
-            idle_pump();
-            for (int k = 0; k < pushed_count; ++k) {
-                z_down += pushed[k].scancode == 29 && pushed[k].down;
-            }
-        }
-        check(z_down == 0, "the press whose release found no room is never typed");
-        key(keyboard, 26, 0, false); // let go of w again
-        pushed_count = 0;
-        check(idle_pump() && pushed_count == 1 && is_key(0, 26, 0, 0), "w released");
-
-        // Ctrl is down and Ctrl+Y taps wait behind a backlog when Ctrl's release finds no room: it goes
-        // at once, and the Y presses counting on it are cancelled, never typed as plain Y. The same
-        // batching as above puts Ctrl's release seventh in its pump's batch.
-        key(keyboard, 224, 0x40, true);
-        pushed_count = 0;
-        check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl down");
-        memset(big + 1, 'a', 2000);
-        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
-                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
-              "8000 entries behind it");
-        idle_pump();
-        for (int i = 0; i < 94; ++i) {
-            key(keyboard, 28, 0x40, true);
-            key(keyboard, 28, 0x40, false);
-        }
-        for (int i = 0; i < 106; ++i) {
-            key(keyboard, 26, 0, true);
-        }
-        key(keyboard, 224, 0, false);
-        unsigned y_down = 0, ctrl_up = 0;
-        for (int i = 0; i < 4200; ++i) {
-            pushed_count = 0;
-            idle_pump();
-            for (int k = 0; k < pushed_count; ++k) {
-                y_down += pushed[k].scancode == 28 && pushed[k].down;
-                ctrl_up += pushed[k].scancode == 224 && !pushed[k].down;
-            }
-        }
-        check(ctrl_up == 1 && y_down == 0, "Ctrl goes up at once and no Y is typed without it");
-        key(keyboard, 26, 0, false);
-        idle_pump();
-
-        // A Ctrl press the queue cannot take, while an overflow drains, is remembered: a C pressed with
-        // it after the queue has drained is not typed as plain C, and after Ctrl's release keys type
-        // again.
+        // A Ctrl press dropped while an overflow drains is remembered: a C pressed with it after the
+        // queue has drained is not typed as plain C, and after Ctrl's release keys type again.
         memset(big + 1, 'a', 2000);
         for (int i = 0; i < 3; ++i) {
             check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big, "a long commit");
@@ -567,124 +502,32 @@ int main(int argc, char** argv) {
         }
         check(c_down == 1 && ctrl_down == 0, "after Ctrl's release, a plain C types again");
 
-        // Ctrl is down on the PC, and behind a backlog wait Ctrl's release, a whole new Ctrl+C and
-        // another Ctrl press. A Ctrl release that finds the queue full belongs to that last press: only
-        // it is cancelled, and the Ctrl+C is still typed with Ctrl (R230). Same batching as above.
+        // A key event that finds the queue full makes the library hang up (R247): Ctrl, held since
+        // before the backlog, comes up at once, nothing queued is typed, and the library connects again
+        // only a second later, so the keyboard sees the hang-up.
         key(keyboard, 224, 0x40, true);
-        idle_pump();
-        memset(big + 1, 'a', 2000);
-        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
-                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
-              "8000 entries");
-        idle_pump();
-        key(keyboard, 224, 0, false);
-        key(keyboard, 224, 0x40, true);
-        key(keyboard, 6, 0x40, true);
-        key(keyboard, 6, 0x40, false);
-        key(keyboard, 224, 0, false);
-        key(keyboard, 224, 0x40, true);
-        for (int i = 0; i < 91; ++i) {
-            key(keyboard, 28, 0, true);
-            key(keyboard, 28, 0, false);
-        }
-        for (int i = 0; i < 106; ++i) {
-            key(keyboard, 26, 0, true);
-        }
-        key(keyboard, 224, 0, false);
-        {
-            unsigned c_with_ctrl = 0, ctrl_down = 0, ctrl_up = 0;
-            bool ctrl_is_down = true; // the PC's, from before the backlog
-            for (int i = 0; i < 4200; ++i) {
-                pushed_count = 0;
-                idle_pump();
-                for (int k = 0; k < pushed_count; ++k) {
-                    c_with_ctrl += pushed[k].scancode == 6 && pushed[k].down && pushed[k].mod == 0x40;
-                    if (pushed[k].scancode == 224) {
-                        ctrl_down += pushed[k].down;
-                        ctrl_up += !pushed[k].down;
-                        ctrl_is_down = pushed[k].down;
-                    }
-                }
-            }
-            check(c_with_ctrl == 1, "the whole Ctrl+C behind the cancelled press is typed");
-            check(ctrl_up == 2 && ctrl_down == 1 && !ctrl_is_down,
-                  "the PC's Ctrl comes up, goes down once for Ctrl+C, and the cancelled press never");
-        }
-        key(keyboard, 26, 0, false);
-        idle_pump();
-
-        // Ctrl's press itself still waits behind a backlog, with Ctrl+Y taps after it, when its
-        // release finds the queue full: the press is cancelled, and so are the Y presses counting on
-        // it (R195, R210).
-        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
-                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
-              "8000 entries");
-        idle_pump();
-        key(keyboard, 224, 0x40, true);
-        for (int i = 0; i < 93; ++i) {
-            key(keyboard, 28, 0x40, true);
-            key(keyboard, 28, 0x40, false);
-        }
-        for (int i = 0; i < 107; ++i) {
-            key(keyboard, 26, 0, true);
-        }
-        key(keyboard, 224, 0, false);
-        {
-            unsigned y_down = 0, ctrl_down = 0;
-            for (int i = 0; i < 4200; ++i) {
-                pushed_count = 0;
-                idle_pump();
-                for (int k = 0; k < pushed_count; ++k) {
-                    y_down += pushed[k].scancode == 28 && pushed[k].down;
-                    ctrl_down += pushed[k].scancode == 224 && pushed[k].down;
-                }
-            }
-            check(y_down == 0 && ctrl_down == 0, "neither Ctrl nor a Y counting on it is typed");
-        }
-        key(keyboard, 26, 0, false);
-        idle_pump();
-
-        // Ctrl is down on the PC and Shift, pressed with it, waits behind a backlog when Ctrl's release
-        // finds the queue full: Shift's press is cancelled with the rest counting on Ctrl, and as the
-        // user still holds Shift, a Shift+Q pressed later is not typed as plain Q (R229).
-        key(keyboard, 224, 0x40, true);
-        idle_pump();
-        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
-                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
-              "8000 entries");
-        idle_pump();
-        key(keyboard, 225, 0x41, true);
-        for (int i = 0; i < 93; ++i) {
-            key(keyboard, 28, 0, true);
-            key(keyboard, 28, 0, false);
-        }
-        for (int i = 0; i < 107; ++i) {
-            key(keyboard, 26, 0, true);
-        }
-        key(keyboard, 224, 0, false);
-        for (int i = 0; i < 4200; ++i) {
-            pushed_count = 0;
-            idle_pump();
-        }
-        key(keyboard, 26, 0, false);
-        key(keyboard, 20, 0x01, true);
-        key(keyboard, 20, 0x01, false);
-        key(keyboard, 225, 0, false);
-        key(keyboard, 20, 0, true);
-        key(keyboard, 20, 0, false);
         pushed_count = 0;
-        for (int i = 0; i < 6; ++i) {
-            idle_pump();
+        check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl down");
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries");
+        memset(big + 1, 'a', 96);
+        check(send(keyboard, big, 97, 0) == 97, "192 more fill the queue");
+        key(keyboard, 224, 0, false);
+        check(idle_pump() && pushed_count == 2 && is_key(1, 224, 0, 0),
+              "Ctrl's release finds no room: Ctrl comes up at once");
+        check(recv(keyboard, told, sizeof told, MSG_DONTWAIT) == 0, "the library hung up");
+        check(idle_pump() && idle_pump() && pushed_count == 2, "what was queued is dropped");
+        usleep(300000);
+        idle_pump();
+        const int early = accept(server, NULL, NULL);
+        check(early < 0, "the library waits a second before connecting again");
+        if (early >= 0) {
+            close(early);
         }
-        {
-            unsigned shifted_q = 0, plain_q = 0;
-            for (int k = 0; k < pushed_count; ++k) {
-                shifted_q += pushed[k].scancode == 20 && pushed[k].down && pushed[k].mod != 0;
-                plain_q += pushed[k].scancode == 20 && pushed[k].down && pushed[k].mod == 0;
-            }
-            check(shifted_q == 0 && plain_q == 1,
-                  "no Q counting on the cancelled Shift; a plain Q after its release");
-        }
+        close(keyboard);
+        keyboard = accept_keyboard(server);
+        check(keyboard >= 0, "library reconnected after hanging up");
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.

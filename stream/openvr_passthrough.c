@@ -120,8 +120,8 @@ static bool session_held[kScancodes]; // of those, pressed by a session's own ke
 // A commit did not fit the queue: until it has drained, later commits and key presses are dropped as
 // well, so what arrives is cut short rather than missing a piece in the middle.
 static bool overflowed;
-// Modifiers whose press the queue could not take: a later press counting on one would reach the PC
-// without it, so it is dropped as well, until the modifier's release (R219).
+// Modifiers whose press was dropped while an overflow drained: a later press counting on one would
+// reach the PC without it, so it is dropped as well, until the modifier's release (R219).
 static unsigned dropped_mods;
 
 static int stream_socket = -1;
@@ -446,9 +446,9 @@ static void pump_queue(void) {
             continue;
         }
         if (!next.typed && !next.down && !held[next.scancode]) {
-            // A release of the session's for a key the PC does not have down: its press was dropped
-            // or cancelled, or typed text let go of it first, so a key-up would be the only thing the
-            // PC sees of it (R221). The session no longer holds it either (R228).
+            // A release of the session's for a key the PC does not have down: its press was dropped,
+            // or typed text let go of it first, so a key-up would be the only thing the PC sees of it
+            // (R221). The session no longer holds it either (R228).
             session_held[next.scancode] = false;
             continue;
         }
@@ -501,36 +501,6 @@ static unsigned modifier_bit(unsigned scancode) {
         return 0x0800; // right GUI
     default:
         return 0;
-    }
-}
-
-// Whether a session release of `scancode` waits in the queue at `from` or later.
-static bool release_queued(unsigned scancode, unsigned from) {
-    for (unsigned k = from; k < queue_count; ++k) {
-        const Queued* item = &queue[(queue_head + k) % kQueue];
-        if (!item->typed && !item->down && item->scancode == scancode) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// Cancels the session's queued presses, from `from` on, that count on a modifier in `bits`: one the PC
-// will not have down when they come. A cancelled modifier press takes those counting on it along, and
-// one the user still holds (no release of it queued after it, and not the key being let go of,
-// `released`) is remembered, so a press counting on it that comes later is dropped too (R229).
-static void cancel_presses_with(unsigned bits, unsigned from, unsigned released) {
-    for (unsigned k = from; bits && k < queue_count; ++k) {
-        Queued* item = &queue[(queue_head + k) % kQueue];
-        if (!item->typed && item->down && (item->mod & bits)) {
-            const unsigned key = item->scancode;
-            const unsigned own = modifier_bit(key);
-            bits |= own;
-            item->scancode = 0; // push_key skips it
-            if (own && key != released && !release_queued(key, k + 1)) {
-                dropped_mods |= own;
-            }
-        }
     }
 }
 
@@ -602,6 +572,13 @@ static void stream_disconnect(void) {
     }
 }
 
+// The library hangs up on Full Keyboard itself, which then ends the typing session (R248). It connects
+// again only a second later, so the keyboard sees the two apart.
+static void hang_up(void) {
+    stream_disconnect();
+    next_connect_ms = now_ms() + 1000;
+}
+
 // Full Keyboard listens; this side connects, at most once a second while there is nobody there.
 static void stream_connect(void) {
     const uint64_t now = now_ms();
@@ -664,6 +641,14 @@ static void stream_message(const unsigned char* message, size_t length) {
         if (scancode == 0 || scancode >= kScancodes) {
             return;
         }
+        if (!queue_has_room(1)) {
+            // No room for a key event: the queue is far behind the user. Left out, a press would type
+            // the text around it without a Backspace, an Enter or a shortcut the user pressed, and a
+            // release could leave a key down, so the library hangs up instead (R247): every key comes
+            // up, what is queued is dropped, and Full Keyboard ends the typing session.
+            hang_up();
+            return;
+        }
         const unsigned bit = modifier_bit(scancode);
         if (down && (mod & dropped_mods)) {
             dropped_mods |= bit; // counts on a modifier the PC never got
@@ -672,35 +657,10 @@ static void stream_message(const unsigned char* message, size_t length) {
         if (!down) {
             dropped_mods &= ~bit;
         }
-        if (!down && !queue_has_room(1)) {
-            // A release is never lost. With no room, it belongs to the key's last queued press if
-            // one waits: that press is cancelled, with the presses after it counting on it (R195,
-            // R210). With nothing of the key queued it belongs to the press the PC has: it goes at
-            // once, and a modifier takes every queued press counting on it along (R218). After a
-            // queued release it adds nothing: the key comes up in its turn (R230).
-            unsigned last = queue_count;
-            for (unsigned i = queue_count; i-- > 0;) {
-                const Queued* item = &queue[(queue_head + i) % kQueue];
-                if (!item->typed && item->scancode == scancode) {
-                    last = i;
-                    break;
-                }
-            }
-            if (last == queue_count) {
-                // Whether or not the PC still has it down, the session no longer holds it (R236).
-                session_held[scancode] = false;
-                if (held[scancode]) {
-                    push_key(scancode, 0, false);
-                    cancel_presses_with(bit, 0, scancode);
-                }
-            } else if (queue[(queue_head + last) % kQueue].down) {
-                queue[(queue_head + last) % kQueue].scancode = 0; // push_key skips it
-                cancel_presses_with(bit, last + 1, scancode);
-            }
-        } else if ((!down || !overflowed) && queue_has_room(1)) {
+        if (!down || !overflowed) {
             queue_key(scancode, mod, down, false);
-        } else if (down) {
-            dropped_mods |= bit; // a press the queue could not take
+        } else {
+            dropped_mods |= bit; // a press while a commit's overflow drains
         }
     } else if (length == 1 && message[0] == 'R') {
         end_session();
