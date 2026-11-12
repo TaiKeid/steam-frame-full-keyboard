@@ -408,6 +408,32 @@ int main(int argc, char** argv) {
         }
         check(x == 1, "the session's Shift+X is typed");
     }
+    // The panel's Shift is held while text with a capital lands: the capital's own Shift tap leaves
+    // it down, so a Shift+Z after it still has Shift, and Shift comes up once, at the session's own
+    // release (R241).
+    key(keyboard, 225, 0x01, true);
+    pushed_count = 0;
+    check(idle_pump() && pushed_count == 1 && is_key(0, 225, 0x01, 1), "the panel's Shift");
+    check(send(keyboard, "TC", 2, 0) == 2, "a capital while it is held");
+    key(keyboard, 29, 0x01, true);
+    key(keyboard, 29, 0x01, false);
+    key(keyboard, 225, 0, false);
+    {
+        unsigned shift_up = 0, z = 0;
+        bool shift_down = true;
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        for (int k = 1; k < pushed_count; ++k) {
+            if (pushed[k].scancode == 225) {
+                shift_up += !pushed[k].down;
+                shift_down = pushed[k].down;
+            }
+            z += pushed[k].scancode == 29 && pushed[k].down && shift_down;
+        }
+        check(z == 1 && shift_up == 1 && !shift_down,
+              "Z is typed with Shift still down; Shift comes up once");
+    }
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
     // text is cut short, never missing a middle piece; a release still goes through.

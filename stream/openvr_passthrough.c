@@ -433,6 +433,15 @@ static void pump_queue(void) {
             free(next.text);
             return;
         }
+        if (next.typed && session_held[next.scancode]) {
+            // Typed text's own tap of a key the session holds down, such as a capital's Shift while
+            // the panel's Shift is held: the key stays down for the session, whose own release comes
+            // later, so later presses counting on it still have it (R241).
+            if (!next.down) {
+                return; // the step ends where the release would have ended it
+            }
+            continue;
+        }
         if (!next.typed && !next.down && !held[next.scancode]) {
             // A release of the session's for a key the PC does not have down: its press was dropped
             // or cancelled, or typed text let go of it first, so a key-up would be the only thing the
