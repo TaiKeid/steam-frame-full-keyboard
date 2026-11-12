@@ -249,8 +249,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
     return {bridge, root, oldFocus, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
-        step(ack = 0, ready = true, fallback = false, advance = true) {
-            const s = bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack});
+        step(ack = 0, ready = true, fallback = false, advance = true, extra = {}) {
+            const s = bridge.step({progress: advance ? ++progress : progress, ready, ack, fallback, fallbackRequest: ack,
+                ...extra});
             checkOwnership(); return s;
         },
         status(values, notify = true) { update(values, notify); checkOwnership(); },
@@ -321,6 +322,86 @@ for (const key of ["valve.steam.desktopgame.", "valve.steam.desktopgame.12a", "v
     f.step(); f.status({bIsOpen: true, sOverlayKey: key});
     const s = f.step();
     assert(!s.externalCandidate && !s.eligible && f.nativeOpen(), `${key} stays native`);
+    f.bridge.dispose();
+}
+
+// A game streamed with Steam Link asks through the streaming client's overlay, with SteamVR
+// dispatch. The helper types into the stream itself, so the session is neither local nor a Steam
+// field: native is closed like a window's, and nothing is sent through Steam.
+{
+    const STREAM = "steamlink_openvr-overlay";
+    const f = fixture(false, false, true);
+    f.step(); f.status({bIsOpen: true, sOverlayKey: STREAM, bDispatchEventsToSteamVR: true});
+    let s = f.step();
+    assert(f.nativeOpen() && !s.eligible && s.externalCandidate?.key === STREAM,
+           "a stream request waits for the helper's guard and typing channel");
+    f.bridge.prepareExternal(s.request, s.externalCandidate.key);
+    s = f.step();
+    assert(s.stream && !s.local && s.eligible && !f.nativeOpen(),
+           "a stream session closes the native keyboard and is not a local session");
+    s = f.step(s.request);
+    assert(s.active && s.stream && s.external.key === STREAM, "the stream session becomes active");
+    assert.equal(f.bridge.send(s.request, "a"), false, "stream text never goes through Steam");
+    assert.equal(f.bridge.send(s.request, "Backspace", true), false, "nor do its keys");
+    assert.equal(f.bridge.send(s.request, "VKClose", true), true, "the close key ends the stream session");
+    s = f.step();
+    assert(!s.stream && !s.eligible, "the session has ended");
+    f.bridge.dispose();
+}
+// Clicking the streamed game sends no keyboard request. With our panel showing, the helper reports the
+// click and typing follows it: a Steam session ends as owner-changed and a stream session begins,
+// with no native keyboard involved. A hidden panel is never opened by a click.
+{
+    const f = fixture(false, false, true);
+    const old = owned(f);
+    let s = f.step(old, true, false, true, {streamClick: true, shown: true});
+    assert(s.events.some(e => e.code === "owner-changed") && s.stream && !s.local && s.eligible &&
+           s.external.key === "steamlink_openvr-overlay" && !f.nativeOpen(),
+           "a click on the stream moves typing from a Steam field to the stream");
+    const request = s.request;
+    s = f.step(request);
+    assert(s.active && s.stream, "the showing panel acknowledges the stream session");
+    s = f.step(request, true, false, true, {streamClick: true, shown: true});
+    assert(s.request === request && s.active, "another click on the stream keeps the same session");
+    assert.equal(f.bridge.send(request, "VKClose", true), true);
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, true);
+    f.step();
+    let s = f.step(0, true, false, true, {streamClick: true, shown: false});
+    assert(!s.open && !s.stream && !s.eligible, "a click on the stream never opens a hidden panel");
+    s = f.step(0, true, false, true, {streamClick: true, shown: true});
+    assert(s.stream && s.eligible, "with the panel held open and no target, the click gives it the stream");
+    f.bridge.dispose();
+}
+{
+    // Steam's own keyboard is open for something left native: the click changes nothing.
+    const f = fixture(false, false, true);
+    f.step(); f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    f.step();
+    const s = f.step(0, true, false, true, {streamClick: true, shown: true});
+    assert(!s.stream && f.nativeOpen(), "an open native keyboard is left alone");
+    f.bridge.dispose();
+}
+// The helper refuses a stream request while no streaming client is connected: Steam's keyboard keeps it.
+{
+    const f = fixture(false, false, true);
+    f.step(); f.status({bIsOpen: true, sOverlayKey: "steamlink_openvr-overlay", bDispatchEventsToSteamVR: true});
+    let s = f.step();
+    f.bridge.prepareExternal(s.request, s.externalCandidate.key, false);
+    s = f.step();
+    assert(!s.stream && !s.eligible && f.nativeOpen(), "a refused stream request stays with Steam's keyboard");
+    f.bridge.dispose();
+}
+// Without SteamVR dispatch, without the minimal flag or from another overlay it is not a stream request.
+for (const status of [{sOverlayKey: "steamlink_openvr-overlay", bDispatchEventsToSteamVR: false},
+                      {sOverlayKey: "steamlink_openvr-overlay", bDispatchEventsToSteamVR: true, bMinimal: false},
+                      {sOverlayKey: "steamlink_openvr-overlay2", bDispatchEventsToSteamVR: true}]) {
+    const f = fixture(false, false, true);
+    f.step(); f.status({bIsOpen: true, ...status});
+    const s = f.step();
+    assert(!s.externalCandidate && !s.eligible && f.nativeOpen(), "not a stream request: stays native");
     f.bridge.dispose();
 }
 

@@ -57,6 +57,14 @@
     const LOCAL_KEY = /^(?:gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?|valve\.steam\.desktopgame\.[0-9]+)$/;
     const localTarget = s => externalSupported && s.dispatch === false && s.flags === 13 &&
         LOCAL_KEY.test(s.key) && typeof externalHide === "function";
+    // The keyboard button pressed while a game streamed with Steam Link has focus asks through the
+    // streaming client's own overlay. The helper only takes such a request while that client's typing
+    // channel is connected; its text never goes through Steam, so the session needs neither Steam's
+    // keyboard nor SteamVR's keyboard session.
+    const STREAM_KEY = "steamlink_openvr-overlay";
+    const streamTarget = s => externalSupported && s.dispatch === true && (s.flags & 1) !== 0 &&
+        s.key === STREAM_KEY && typeof externalHide === "function";
+    const externalTarget = s => localTarget(s) || streamTarget(s);
     let preparedExternal = null, externalRestore = null, handoff = null;
     const localFrames = new Map();
     function selectedFrame() {
@@ -104,9 +112,20 @@
     let expectedClose = null;
     let eventSequence = 0;
     const events = [];
+    // PoC diagnostics, to be removed: Steam's keyboard status changes and session events, metadata only.
+    const trace = [];
+    let traceMark = "";
+    function note(what) {
+        trace.push({t: Math.round(now()), what, open: native?.open, key: native?.key, dispatch: native?.dispatch,
+            flags: native?.flags, request, ignore: ignoreOpen, closing: closingNative,
+            session: logical ? (logical.owner.external ? logical.owner.key : "steam:" + logical.owner.key) : null,
+            prepared: preparedExternal?.key || null});
+        if (trace.length > 96) trace.shift();
+    }
     function record(code) {
         events.push({id: ++eventSequence, request, code});
         if (events.length > 32) events.shift();
+        note("event:" + code);
     }
     let lease = 0, progress = -1, disposed = false, inspecting = false, interceptedShow = false;
     // Steam's keyboard is closing at our request; until it has, it stays
@@ -208,11 +227,11 @@
         } finally { target.dispatchEvent(event("keyup")); }
     }
     function potential(s) {
-        return localTarget(s) || ownSteam(s.key) && (s.dispatch === false || (s.flags & 1) !== 0) &&
+        return externalTarget(s) || ownSteam(s.key) && (s.dispatch === false || (s.flags & 1) !== 0) &&
             owners.some(o => o.key === s.key && routeReady(o));
     }
     function candidate(s) {
-        if (localTarget(s)) return preparedExternal?.key === s.key ? preparedExternal : null;
+        if (externalTarget(s)) return preparedExternal?.key === s.key ? preparedExternal : null;
         const choices = owners.filter(o => {
             const route = routeFor(o);
             return o.key === s.key && route && (route.kind !== "callback" ||
@@ -227,7 +246,7 @@
             intent.target === targetOf(owner.manager) ? owner : null;
     }
     function buttonRequest(s) {
-        if (localTarget(s)) return true;
+        if (externalTarget(s)) return true;
         const owner = candidate(s);
         // Dashboard buttons bypass the field manager. A retained field reference
         // can be stale after returning from an app, so it is not proof of focus.
@@ -350,7 +369,7 @@
         logical = {owner, target: owner.external ? owner.key : targetOf(owner.manager),
             props: owner.manager?.m_ActiveElementProps, route, frame: frame?.id};
         handoff = null;
-        if (owner.external && frame?.visible && frame.keys.length === 0) {
+        if (owner.external && !owner.stream && frame?.visible && frame.keys.length === 0) {
             localFrames.delete(frame.id);
             localFrames.set(frame.id, owner.key);
             if (localFrames.size > 16) localFrames.delete(localFrames.keys().next().value);
@@ -367,6 +386,17 @@
         // trigger focus-driven reopening. Close presentation through its provider.
         if (native.open) owner.hide.call(owner.external ? keyboardApi : owner.api);
     }
+    // The user clicked the streamed game while our panel was showing. Steam sends no keyboard request
+    // for that click, and with its own keyboard closed nothing follows SteamVR's focus either, so
+    // typing follows the click here. A hidden panel is never opened this way.
+    function followStream() {
+        if (!externalSupported || typeof externalHide !== "function" || !fresh() || native.open ||
+            closingNative || restoringUntil || restoringOwner || handoff || logical?.owner.stream) return;
+        if (logical) releaseLogical(false, false, "owner-changed");
+        ignoreOpen = false;
+        preparedExternal = null;
+        begin({external: true, stream: true, key: STREAM_KEY, api: keyboardApi, hide: externalHide});
+    }
     function inspect() {
         if (inspecting || disposed) return;
         inspecting = true;
@@ -379,6 +409,10 @@
                 throw Error("steam-popup-changed");
             rescan();
             native = nativeStatus();
+            {
+                const mark = `${native.open}|${native.key}|${native.dispatch}|${native.flags}`;
+                if (mark !== traceMark) { traceMark = mark; note("status"); }
+            }
             if (!native.open || native.key !== closingKey) closingUntil = 0;
             checkRestore();
             if (!restoringOwner && restoringUntil && (native.open || time >= restoringUntil)) restoringUntil = 0;
@@ -524,7 +558,7 @@
             }
             // A local-app candidate first needs its asynchronous recovery guard.
             // Only an explicit guard refusal may take its presentation-only path.
-            if (!localTarget(native)) closeUpdatePresentation();
+            if (!externalTarget(native)) closeUpdatePresentation();
             // A show can arrive before its native status. Replay it when that
             // request falls back, even if we never acquired a logical session.
             if (blocking()) setHidden(true);
@@ -553,12 +587,13 @@
             // page's field; not one the bridge is closing for its own reasons.
             steam: !logical && !!native.open && ignoreOpen && now() >= closingUntil,
             active: eligible && acknowledged === request && fresh(),
-            local: !!logical?.owner.external, multiline: multiline(logical),
+            local: !!logical?.owner.external && !logical.owner.stream,
+            stream: !!logical?.owner.stream, multiline: multiline(logical),
             external: logical?.owner.external ? {key: logical.owner.key, request} : null,
             externalCandidate: handoff && !native.open && externalSupported &&
                 LOCAL_KEY.test(handoff.key) ?
                 {key: handoff.key, flags: 13, request, requireActive: true} :
-                !logical && !ignoreOpen && native.open && localTarget(native) &&
+                !logical && !ignoreOpen && native.open && externalTarget(native) &&
                 fresh() && now() < rawDeadline ? {key: native.key, flags: native.flags, request} : null,
             externalRestore, events: events.slice()};
     }
@@ -792,6 +827,7 @@
                     lease = frame.ready ? now() + LEASE_MS : 0;
                 }
                 inspect();
+                if (frame.streamClick === true && frame.shown === true) followStream();
                 if (externalRestore && frame.externalRestored === externalRestore.request) externalRestore = null;
                 if (frame.fallback && frame.fallbackRequest === request) releaseLogical(true);
                 if (snapshot().eligible && fresh() && frame.ack === request &&
@@ -800,7 +836,9 @@
                     acknowledged = request;
                 }
                 inspect();
-                return snapshot();
+                const state = snapshot();
+                state.trace = trace.splice(0);
+                return state;
             } catch (_) { dispose(); return {version: VERSION, unavailable: true}; }
         },
         send(generation, text, key = false) {
@@ -811,6 +849,11 @@
                     "VKClose"].includes(text))
                 return false;
             const session = logical, manager = session.owner.manager;
+            if (session.owner.stream) {
+                // The helper types into the stream itself. Only the close key ends the session here.
+                if (key && text === "VKClose") { releaseLogical(false); return true; }
+                return false;
+            }
             if (session.owner.external || key && text === "ShiftEnter" && !multiline(session)) return false;
             const previous = manager.m_fnVROnTextEnteredOverride;
             if (session.route?.kind !== "callback") {
@@ -852,7 +895,8 @@
                 inspect();
                 return snapshot();
             }
-            preparedExternal = {external: true, key, api: keyboardApi, hide: externalHide};
+            preparedExternal = {external: true, stream: key === STREAM_KEY, key, api: keyboardApi,
+                hide: externalHide};
             if (handoff && !native.open) begin(preparedExternal);
             inspect();
             return snapshot();

@@ -84,7 +84,7 @@ void NativeReplacement::wait_until(std::chrono::steady_clock::time_point deadlin
         if (fd_ < 0 || state_.request != previous.request || state_.open != previous.open ||
             state_.eligible != previous.eligible || state_.active != previous.active ||
             state_.available != previous.available || state_.local != previous.local ||
-            state_.steam != previous.steam) {
+            state_.steam != previous.steam || state_.stream != previous.stream) {
             return;
         }
         // Ordinary idle replies may arrive faster than hidden frames. Drain
@@ -399,7 +399,8 @@ void NativeReplacement::poll(double now) {
                       true,
                       json_object_get_boolean(field("local")) != 0,
                       json_object_get_boolean(field("multiline")) != 0,
-                      json_object_get_boolean(field("steam")) != 0};
+                      json_object_get_boolean(field("steam")) != 0,
+                      json_object_get_boolean(field("stream")) != 0};
             last_reply_ = now;
             install_until_ = 0;
             failure_ = Failure::None;
@@ -519,7 +520,7 @@ void NativeReplacement::poll(double now) {
     }
 }
 void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback,
-                               double now, bool watch_main_loop, bool standby) {
+                               double now, bool watch_main_loop, bool standby, bool shown) {
     if (enabled != enabled_) {
         enabled_ = enabled;
         retry_now(now);
@@ -535,14 +536,14 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
         }
     }
     const bool use_fallback = fallback || std::exchange(force_fallback_, false);
-    const auto frame = "{\"op\":\"frame\",\"sent\":" + std::to_string(now) +
-                       ",\"progress\":" + std::to_string(++progress_) +
-                       ",\"ready\":" + (ready ? "true" : "false") +
-                       ",\"ack\":" + std::to_string(acknowledgement) +
-                       ",\"watch\":" + (watch_main_loop ? "true" : "false") +
-                       ",\"standby\":" + (standby ? "true" : "false") +
-                       ",\"fallbackRequest\":" + std::to_string(state_.request) +
-                       ",\"fallback\":" + (use_fallback ? "true}" : "false}");
+    const auto frame =
+        "{\"op\":\"frame\",\"sent\":" + std::to_string(now) +
+        ",\"progress\":" + std::to_string(++progress_) + ",\"ready\":" + (ready ? "true" : "false") +
+        ",\"ack\":" + std::to_string(acknowledgement) +
+        ",\"watch\":" + (watch_main_loop ? "true" : "false") +
+        ",\"standby\":" + (standby ? "true" : "false") + ",\"shown\":" + (shown ? "true" : "false") +
+        ",\"fallbackRequest\":" + std::to_string(state_.request) +
+        ",\"fallback\":" + (use_fallback ? "true}" : "false}");
     // Dropped heartbeats never extend a lease. A dropped explicit fallback closes
     // IPC; with no helper connected there is nothing to close or to report.
     if (fd_ >= 0 && !packet(frame) && use_fallback) {

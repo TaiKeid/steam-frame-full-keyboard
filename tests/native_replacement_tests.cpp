@@ -219,6 +219,11 @@ void transport() {
         replacement.update(true, true, 2, false, 11.5, true);
         require(take(pair[1]).find("\"standby\":false") != std::string::npos,
                 "and of waking, in every frame");
+        replacement.update(true, true, 2, false, 11.6, true, false, true);
+        require(take(pair[1]).find("\"shown\":true") != std::string::npos,
+                "the bridge hears that the panel shows");
+        replacement.update(true, true, 2, false, 11.7, true);
+        require(take(pair[1]).find("\"shown\":false") != std::string::npos, "and that it does not");
     }
     close(pair[1]);
 }

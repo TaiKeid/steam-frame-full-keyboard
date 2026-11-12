@@ -4602,7 +4602,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // top of the frame, at least four times a second.
         const bool standby = !worn;
         replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
-                           completed, true, standby);
+                           completed, true, standby, lifecycle.visible());
         replacement_progress.store(completed);
         app.frame_completed();
         if (!done && !app.quitting() && !interrupted) {

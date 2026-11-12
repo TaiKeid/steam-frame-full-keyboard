@@ -53,6 +53,9 @@ int main(int argc, char** argv) {
             }
         }
     };
+    // The flags the armed request was opened with, so a restored keyboard matches it.
+    std::uint32_t restore_flags =
+        vr::KeyboardFlag_Minimal | vr::KeyboardFlag_HideDoneKey | vr::KeyboardFlag_ShowArrowKeys;
     auto restore = [&] {
         if (!armed || quitting) {
             return;
@@ -67,8 +70,7 @@ int main(int argc, char** argv) {
         }
         const auto result = vr::VROverlay()->ShowKeyboardForOverlay(
             target, vr::k_EGamepadTextInputModeNormal, vr::k_EGamepadTextInputLineModeSingleLine,
-            vr::KeyboardFlag_Minimal | vr::KeyboardFlag_HideDoneKey | vr::KeyboardFlag_ShowArrowKeys, "",
-            1024, "", 0);
+            restore_flags, "", 1024, "", 0);
         // An already-open request belongs to its current provider and must survive.
         if (result == vr::VROverlayError_None) {
             restored = true;
@@ -113,13 +115,20 @@ int main(int argc, char** argv) {
             // Matches the bridge's LOCAL_KEY: Gamescope windows and locally run Steam games.
             const std::regex local("gamescope\\.gamescope-[0-9]+(\\.window\\.[0-9]+)?|"
                                    "valve\\.steam\\.desktopgame\\.[0-9]+");
-            ok = !armed && key && std::regex_match(key, local) && fresh &&
-                 json_object_get_boolean(field("ready")) && json_object_get_int(field("flags")) == 13 &&
+            // A game streamed with Steam Link asks through the streaming client's own overlay, with
+            // any minimal flags. The bridge's STREAM_KEY.
+            const int flags = json_object_get_int(field("flags"));
+            const bool accepted =
+                key && (std::regex_match(key, local)
+                            ? flags == 13
+                            : std::string(key) == "steamlink_openvr-overlay" && (flags & 1) != 0);
+            ok = !armed && accepted && fresh && json_object_get_boolean(field("ready")) &&
                  vr::VROverlay()->FindOverlay(key, &target) == vr::VROverlayError_None &&
                  (!json_object_get_boolean(field("requireActive")) ||
                   vr::VROverlay()->IsActiveDashboardOverlay(target));
             if (ok) {
                 require_active = json_object_get_boolean(field("requireActive"));
+                restore_flags = static_cast<std::uint32_t>(flags);
                 armed = true;
                 deadline = sent + 1.2;
                 progress = next;

@@ -89,8 +89,9 @@ class PassthroughRequests {
             // The bridge numbers requests from 1 again after Steam's UI reloads.
             handled_ = 0;
         }
-        if (!replacement_enabled || !native.available || !native.open || !native.local ||
-            native.request == handled_) {
+        // A streamed game's request is in the same position as a pinned window's.
+        if (!replacement_enabled || !native.available || !native.open ||
+            !(native.local || native.stream) || native.request == handled_) {
             return false;
         }
         // A request seen in the dashboard is the dashboard's: closing the

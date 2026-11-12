@@ -9,6 +9,7 @@ import socket
 import subprocess
 import struct
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -1135,6 +1136,173 @@ class Lifecycle(unittest.TestCase):
                     parent.close()
                     worker.join(2)
                 self.assertFalse(worker.is_alive())
+
+    def test_stream_request_is_typed_through_the_private_channel(self):
+        stream_key = "steamlink_openvr-overlay"
+
+        class StreamGuard(FakeGuard):
+            def command(self, op, **fields):
+                if op == "prepare":
+                    self.prepared += 1
+                    assert fields["key"] == stream_key and fields["ready"]
+                    self.native_armed = True
+                    return True
+                return super().command(op, **fields)
+
+        class StreamCDP(FakeCDP):
+            def __init__(self, guard):
+                super().__init__()
+                self.guard = guard
+                self.taken = False
+                self.refused = 0
+
+            def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.prepareExternal(" in expression:
+                    if expression.endswith(",false)"):
+                        self.refused += 1
+                    else:
+                        assert self.guard.armed, "native may close only after independent recovery is armed"
+                        self.taken = True
+                if ".bridge.step(" in expression or ".bridge.prepareExternal(" in expression:
+                    result = dict(version=1, request=2, open=True, eligible=self.taken, active=self.taken,
+                                  local=False, stream=self.taken)
+                    if self.taken:
+                        result["external"] = dict(request=2, key=stream_key)
+                    elif '"ready": true' in expression:
+                        result["externalCandidate"] = dict(request=2, key=stream_key, flags=13)
+                    return result
+                return super().evaluate(expression, timeout)
+
+        # The socket path has to be short, so the directory sits in the runtime directory when there is one.
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            guard = StreamGuard()
+            client = StreamCDP(guard)
+            parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            parent.settimeout(1)
+            worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard),
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+            worker.start()
+
+            def packet(**fields):
+                parent.send(json.dumps(fields).encode())
+
+            def frames_until(condition):
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and not condition():
+                    packet(op="frame", progress=1, ready=True, ack=2, sent=time.monotonic())
+                    time.sleep(.05)
+                self.assertTrue(condition())
+
+            def drain_states():
+                parent.setblocking(False)
+                try:
+                    while True:
+                        self.assertEqual(json.loads(parent.recv(32768)).get("op"), "state")
+                except BlockingIOError:
+                    pass
+                finally:
+                    parent.settimeout(1)
+
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            library.settimeout(1)
+            try:
+                # No streaming client has connected: the request is refused and stays native.
+                frames_until(lambda: client.refused >= 2)
+                self.assertEqual((guard.prepared, client.taken), (0, False))
+                # The streaming client's library connects and says hello; the next request is taken.
+                library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+                library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+                frames_until(lambda: client.taken)
+                self.assertEqual(guard.prepared, 1)
+                packet(op="frame", progress=2, ready=True, ack=2, sent=time.monotonic())
+                time.sleep(.1)  # One poll reports the stream session back to the helper.
+                drain_states()
+                packet(op="text", request=2, id=1, text="a\u0416")
+                self.assertTrue(self.receive(parent, "text-result")["ok"])
+                self.assertEqual(library.recv(4096), b"T" + "a\u0416".encode())
+                packet(op="key", request=2, id=2, value=1, text="Backspace")
+                self.assertTrue(self.receive(parent, "key-result")["ok"])
+                self.assertEqual([library.recv(64) for _ in range(2)],
+                                 [b"K" + struct.pack("<HHB", 42, 0, 1), b"K" + struct.pack("<HHB", 42, 0, 0)])
+                packet(op="key-up", request=2, id=2)
+                packet(op="key", request=2, id=3, value=1, text="ShiftEnter")
+                self.assertTrue(self.receive(parent, "key-result")["ok"])
+                self.assertEqual([library.recv(64) for _ in range(4)],
+                                 [b"K" + struct.pack("<HHB", *event)
+                                  for event in ((225, 1, 1), (40, 1, 1), (40, 1, 0), (225, 0, 0))])
+                packet(op="key-up", request=2, id=3)
+                self.assertEqual(client.sent, [], "nothing typed into a stream goes through Steam")
+                packet(op="key", request=2, id=4, value=1, text="VKClose")
+                self.assertTrue(self.receive(parent, "key-result")["ok"])
+                self.assertEqual(client.sent, [[2, "VKClose", True]], "only the close key reaches the bridge")
+                packet(op="key-up", request=2, id=4)
+                # The streaming client goes away: typing fails closed, so the app falls back to native.
+                library.close()
+                packet(op="frame", progress=3, ready=True, ack=2, sent=time.monotonic())
+                packet(op="text", request=2, id=5, text="b")
+                self.assertFalse(self.receive(parent, "text-result")["ok"])
+            finally:
+                library.close()
+                parent.close()
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(os.path.exists(os.path.join(directory, bridge.STREAM_SOCKET)),
+                             "the helper removes its socket on exit")
+
+    def test_click_on_the_stream_is_reported_only_while_the_panel_shows(self):
+        class ClickCDP(FakeCDP):
+            def __init__(self):
+                super().__init__()
+                self.clicks = []
+
+            def evaluate(self, expression, timeout=.4, waiting=None):
+                if ".bridge.step(" in expression:
+                    frame = json.loads(expression.split(".bridge.step(", 1)[1].rsplit(")", 1)[0])
+                    if frame.get("streamClick"):
+                        self.clicks.append(frame.get("shown"))
+                return super().evaluate(expression, timeout)
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            client = ClickCDP()
+            parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            parent.settimeout(1)
+            worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None),
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+            worker.start()
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+
+            def frames(shown, seconds):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=2, shown=shown,
+                                                sent=time.monotonic())).encode())
+                    time.sleep(.03)
+                    parent.setblocking(False)
+                    try:
+                        while True:
+                            parent.recv(32768)
+                    except BlockingIOError:
+                        pass
+                    finally:
+                        parent.settimeout(1)
+
+            try:
+                frames(False, .2)
+                library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+                library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+                frames(False, .2)
+                library.send(b"F")
+                frames(False, .3)
+                self.assertEqual(client.clicks, [], "a click with the panel hidden is not reported")
+                frames(True, .2)
+                library.send(b"F")
+                frames(True, .3)
+                self.assertEqual(client.clicks, [True], "a click with the panel showing is reported once")
+            finally:
+                library.close()
+                parent.close()
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
 
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)

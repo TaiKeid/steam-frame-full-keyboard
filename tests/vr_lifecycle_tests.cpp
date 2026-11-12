@@ -1191,6 +1191,18 @@ void a_pinned_window_request_opens_passthrough() {
             "with no open request there is nothing to end");
     h.request(31, false);
     require(!h.app->passthrough(), "a Steam request never turns passthrough on");
+    {
+        // A game streamed with Steam Link is in a pinned window's position: its request can arrive
+        // with the dashboard closed, where the panel only appears in passthrough.
+        PassthroughRequests requests;
+        NativeReplacement::State stream{40, true, true, true, true, false};
+        stream.stream = true;
+        require(requests.take(true, stream, false),
+                "a streamed game's request outside the dashboard opens passthrough");
+        require(!requests.take(true, stream, false), "only once for the same request");
+        const NativeReplacement::State field{41, true, true, true, true, false};
+        require(!requests.take(true, field, false), "a Steam field's request still does not");
+    }
     // A request opened in the dashboard stays the dashboard's when it closes.
     h.dashboard = true;
     h.request(35);

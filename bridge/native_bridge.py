@@ -111,6 +111,171 @@ class NoDebuggerRedirects(HTTPRedirectHandler):
         raise BridgeUnavailable("debugger-blocked")
 
 
+# Steam Link's streaming client asks for a keyboard through this overlay.
+STREAM_KEY = "steamlink_openvr-overlay"
+STREAM_SOCKET = "framekeyboard-stream.sock"
+STREAM_PROTOCOL = 1
+STREAM_TEXT_BYTES = 2000
+# SDL scancodes (USB HID usages) of the named keys a remote session can press, and whether Shift is
+# held. They are the streaming client's codes: never Linux evdev or Steam key codes.
+STREAM_KEYS = {"Backspace": (42, False), "Enter": (40, False), "ShiftEnter": (40, True), "Tab": (43, False),
+               "ArrowRight": (79, False), "ArrowLeft": (80, False), "ArrowDown": (81, False),
+               "ArrowUp": (82, False)}
+STREAM_LEFT_SHIFT = 225
+STREAM_MOD_LEFT_SHIFT = 0x0001
+
+
+class StreamTrace:
+    """PoC diagnostics, to be removed: stream decisions and Steam's keyboard status, metadata only."""
+
+    def __init__(self):
+        self.lines = 0
+        self.file = None
+        directory = os.environ.get("XDG_RUNTIME_DIR")
+        if directory:
+            try:
+                self.file = open(os.path.join(directory, "framekeyboard-stream-helper.log"), "a",
+                                 buffering=1)
+                os.chmod(self.file.name, 0o600)
+            except OSError:
+                self.file = None
+
+    def write(self, text):
+        if self.file and self.lines < 4000:
+            self.lines += 1
+            try:
+                self.file.write(time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d} {text}\n")
+            except OSError:
+                self.file = None
+
+
+class StreamChannel:
+    """Private socket the streaming client's pass-through library connects to.
+
+    The library types what arrives here into the stream. One packet is one message: b"T" + UTF-8 for a
+    commit, b"K" + scancode, modifiers and down flag for a key event. Closing the socket makes the
+    library release whatever it still holds. The library sends b"F" when the user clicks the stream.
+    """
+
+    def __init__(self, directory=None):
+        self.listener = None
+        self.client = None
+        self.path = None
+        self.clicked = False
+        directory = directory or os.environ.get("XDG_RUNTIME_DIR")
+        if not directory:
+            return
+        path = os.path.join(directory, STREAM_SOCKET)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_NONBLOCK |
+                                 socket.SOCK_CLOEXEC)
+        try:
+            try:
+                os.unlink(path)  # Left by a helper that did not exit cleanly.
+            except FileNotFoundError:
+                pass
+            listener.bind(path)
+            os.chmod(path, 0o600)
+            listener.listen(2)
+        except OSError:
+            listener.close()
+            return
+        self.listener = listener
+        self.path = path
+
+    def connected(self):
+        return self.client is not None
+
+    def _drop(self):
+        if self.client is not None:
+            self.client.close()
+            self.client = None
+
+    def service(self):
+        """Accept the newest streaming client and notice when the current one went away."""
+        if self.listener is None:
+            return
+        while True:
+            try:
+                incoming, _ = self.listener.accept()
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError:
+                break
+            incoming.setblocking(False)
+            try:
+                _, uid, _ = struct.unpack("3i", incoming.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                                    struct.calcsize("3i")))
+                ready, _, _ = select.select([incoming], [], [], 0.2)
+                hello = incoming.recv(64) if ready else b""
+            except OSError:
+                uid, hello = -1, b""
+            if uid != os.getuid() or len(hello) != 6 or hello[:2] != bytes((ord("H"), STREAM_PROTOCOL)):
+                incoming.close()
+                continue
+            self._drop()  # A new stream replaces the previous client.
+            self.client = incoming
+        try:
+            while self.client is not None and select.select([self.client], [], [], 0)[0]:
+                packet = self.client.recv(64)
+                if not packet:
+                    self._drop()
+                elif packet == b"F":
+                    self.clicked = True
+        except (BlockingIOError, InterruptedError):
+            pass
+        except OSError:
+            self._drop()
+
+    def sockets(self):
+        return [s for s in (self.listener, self.client) if s is not None]
+
+    def take_click(self):
+        clicked, self.clicked = self.clicked, False
+        return clicked
+
+    def _send(self, packet):
+        if self.client is None:
+            return False
+        try:
+            self.client.send(packet)
+            return True
+        except OSError:
+            self._drop()
+            return False
+
+    def send_text(self, text):
+        data = text.encode()
+        ok = bool(data)
+        while data and ok:
+            end = min(len(data), STREAM_TEXT_BYTES)
+            while end < len(data) and (data[end] & 0xC0) == 0x80:
+                end -= 1  # Never cut inside a character.
+            ok = self._send(b"T" + data[:end])
+            data = data[end:]
+        return ok
+
+    def send_key(self, name):
+        key = STREAM_KEYS.get(name)
+        if key is None:
+            return False
+        scancode, shift = key
+        mod = STREAM_MOD_LEFT_SHIFT if shift else 0
+        events = [(scancode, mod, 1), (scancode, mod, 0)]
+        if shift:
+            events = [(STREAM_LEFT_SHIFT, mod, 1), *events, (STREAM_LEFT_SHIFT, 0, 0)]
+        return all(self._send(b"K" + struct.pack("<HHB", *event)) for event in events)
+
+    def close(self):
+        self._drop()
+        if self.listener is not None:
+            self.listener.close()
+            self.listener = None
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+
+
 class NativeGuard:
     """Separate native lease. EOF restores an armed exact-overlay request without CDP."""
     def __init__(self):
@@ -517,9 +682,10 @@ class ParentRecovery:
 
 
 def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, health_fd=None,
-        adopt_open=False):
+        adopt_open=False, stream_factory=None):
     client = None
     guard = None
+    stream = None
     install_attempted = False
     watchdog = WatchdogProgress(health_fd)
     recovery_watchdog = ParentRecovery()
@@ -548,6 +714,15 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         if result is not True:
             raise BridgeUnavailable("replacement-busy")
         failure_reason = "connection-lost"
+        if stream_factory:
+            try:
+                stream = stream_factory()  # Only the installed, live bridge owns the socket.
+            except OSError:
+                stream = None
+        stream_request = None
+        stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
+        panel_shown = False
+        diagnostics = StreamTrace() if stream else None
         frame = {"progress": 0, "ready": False, "ack": 0, "fallback": False,
                  "sent": time.monotonic()}
         frame_sent = time.monotonic()
@@ -578,7 +753,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
 
         def receive(readable):
             nonlocal stopping, restore_native, frame, fallback_request, next_poll, last_parent
-            nonlocal frame_sent, watch_main_loop, standby, pending
+            nonlocal frame_sent, watch_main_loop, standby, pending, panel_shown
             # Drain releases before dispatching more work. CDP can be slower than
             # repeat generation; initial clicks stay ordered, repeats do not pile up.
             received = 0
@@ -605,6 +780,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if type(message.get("progress")) is not int or type(message.get("ready")) is not bool:
                         raise ValueError("invalid-frame")
                     frame = {k: message[k] for k in ("progress", "ready", "ack", "sent")}
+                    panel_shown = message.get("shown") is True
                     # Restoration acknowledgements must survive subsequent frame packets.
                     frame["externalRestored"] = external_ack
                     # An unarmed guard ignores renewals; prepare carries the
@@ -676,13 +852,22 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
-            readable, _, _ = select.select([parent], [parent] if channel.waiting() else [], [],
+            readable, _, _ = select.select([parent] + (stream.sockets() if stream else []),
+                                           [parent] if channel.waiting() else [], [],
                                            0 if pending else max(0, next_poll - time.monotonic()))
             channel.flush()
-            receive(readable)
+            receive([parent] if parent in readable else [])
             if stopping:
                 break
             judge_parent()
+            if stream:
+                stream.service()
+                if stream.take_click():
+                    if diagnostics:
+                        diagnostics.write(f"stream-click shown={panel_shown}")
+                    if panel_shown:
+                        stream_click = True
+                        next_poll = 0
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
@@ -694,12 +879,22 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     else:
                         if operation == "key" and message["value"] == 2:
                             pending_repeats.discard(message["id"])
-                        # The JS side checks the target and lease again at delivery.
-                        ok = evaluate(f"{reference}?.bridge.send({message['request']},"
-                                      f"{json.dumps(message['text'], ensure_ascii=True)},"
-                                      f"{str(operation == 'key').lower()}) === true", DELIVERY_TIMEOUT)
+                        if (stream and stream_request == message["request"] and
+                                not (operation == "key" and message["text"] == "VKClose")):
+                            # A streamed game: the streaming client types it. Steam is not involved,
+                            # so nothing depends on Steam's keyboard or SteamVR's keyboard session.
+                            ok = (stream.send_key(message["text"]) if operation == "key"
+                                  else stream.send_text(message["text"]))
+                        else:
+                            # The JS side checks the target and lease again at delivery.
+                            ok = evaluate(f"{reference}?.bridge.send({message['request']},"
+                                          f"{json.dumps(message['text'], ensure_ascii=True)},"
+                                          f"{str(operation == 'key').lower()}) === true", DELIVERY_TIMEOUT)
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
+                if diagnostics:
+                    diagnostics.write(f"deliver op={operation} request={message['request']} "
+                                      f"stream_request={stream_request} ok={ok is True}")
                 if operation != "dismiss":
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
@@ -719,11 +914,18 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 break
             if time.monotonic() >= next_poll:
                 poll_frame = {**frame, "fallback": fallback_request is not None,
-                              "fallbackRequest": fallback_request}
+                              "fallbackRequest": fallback_request, "shown": panel_shown,
+                              "streamClick": stream_click}
                 try:
+                    if stream_click and guard and guard.armed:
+                        guard.cancel()  # Typing leaves the window the guard was armed for.
                     result = evaluate(f"{reference}?.bridge.step({json.dumps(poll_frame)})")
                     if not isinstance(result, dict) or result.get("version") != 1 or result.get("unavailable"):
                         raise BridgeUnavailable("steam-incompatible")
+                    stream_click = False
+                    for entry in result.pop("trace", None) or ():
+                        if diagnostics:
+                            diagnostics.write("bridge " + json.dumps(entry, sort_keys=True))
                     if guard:
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
@@ -736,12 +938,26 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             # be cancelled before the next exact target is armed.
                             if guard.armed:
                                 guard.cancel()
-                            guarded = guard.prepare(candidate, frame)
+                            # Without the streaming client's channel there is no way to type into the
+                            # stream, so the request stays with Steam's keyboard.
+                            guarded = ((candidate.get("key") != STREAM_KEY or
+                                        bool(stream and stream.connected())) and
+                                       guard.prepare(candidate, frame))
+                            if diagnostics:
+                                diagnostics.write(f"candidate key={candidate.get('key')} "
+                                                  f"flags={candidate.get('flags')} request={candidate.get('request')} "
+                                                  f"connected={bool(stream and stream.connected())} "
+                                                  f"ready={frame.get('ready')} guarded={guarded}")
                             result = evaluate(f"{reference}?.bridge.prepareExternal("
                                               f"{candidate['request']},{json.dumps(candidate['key'])},"
                                               f"{str(guarded).lower()})")
                             if not isinstance(result, dict):
                                 raise BridgeUnavailable("steam-incompatible")
+                            if diagnostics:
+                                diagnostics.write(f"prepared request={result.get('request')} "
+                                                  f"eligible={result.get('eligible')} stream={result.get('stream')} "
+                                                  f"local={result.get('local')} "
+                                                  f"candidate={bool(result.get('externalCandidate'))}")
                         recovery = result.get("externalRestore")
                         if recovery and recovery["request"] != external_ack:
                             guard.restore()
@@ -754,6 +970,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     next_poll = time.monotonic() + ACTIVE_POLL
                     continue
                 fallback_request = None
+                stream_request = result.get("request") if result.get("stream") and result.get("active") else None
                 state = {"op": "state", **result}
                 if not announced:
                     # The parent's startup deadline counts when this was sent,
@@ -787,6 +1004,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             client.close()
         if guard:
             guard.close()
+        if stream:
+            stream.close()
         watchdog.close()
         parent.close()
 
@@ -797,5 +1016,6 @@ if __name__ == "__main__":
     if (len(sys.argv) not in (5, 6) or sys.argv[1] != "--fd" or sys.argv[3] != "--health-fd" or
             sys.argv[5:] not in ([], ["--adopt-open"])):
         sys.exit(2)
-    run(socket.socket(fileno=int(sys.argv[2])), parent_pid=os.getppid(), health_fd=int(sys.argv[4]),
+    run(socket.socket(fileno=int(sys.argv[2])), stream_factory=StreamChannel, parent_pid=os.getppid(),
+        health_fd=int(sys.argv[4]),
         adopt_open=sys.argv[5:] == ["--adopt-open"])

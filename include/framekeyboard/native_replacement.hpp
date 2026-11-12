@@ -28,12 +28,16 @@ class NativeReplacement : public KeySink {
         // Steam's own keyboard serves a request the bridge left with it, such
         // as a field in an embedded web page.
         bool steam{};
+        // A game streamed with Steam Link holds the request. Its text is typed by the streaming
+        // client through the helper's private channel, never by Steam or the local input backend.
+        bool stream{};
     };
     void poll(double now);
     // Between hidden frames, wake the idle sleep when session metadata changes.
     void wait_until(std::chrono::steady_clock::time_point deadline);
+    // `shown`: the panel is on screen. A click on a streamed game moves typing to the game only then.
     void update(bool enabled, bool ready, std::uint64_t acknowledgement, bool fallback, double now,
-                bool watch_main_loop = false, bool standby = false);
+                bool watch_main_loop = false, bool standby = false, bool shown = false);
     const State& state() const { return state_; }
     // Why replacement is unavailable, as a key App shows; empty while it works.
     UiText unavailable_reason() const;
