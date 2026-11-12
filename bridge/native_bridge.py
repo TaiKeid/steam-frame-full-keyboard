@@ -140,6 +140,10 @@ STREAM_MODIFIERS = {42: 0x0001, 54: 0x0002, 29: 0x0040, 97: 0x0080, 56: 0x0100, 
                     125: 0x0400, 126: 0x0800}
 
 
+# Steam's streaming client, the program that loads the pass-through library, by executable name.
+STREAM_PROGRAMS = ("streaming_client",)
+
+
 class StreamChannel:
     """Private socket the streaming client's pass-through library connects to.
 
@@ -148,10 +152,12 @@ class StreamChannel:
     library release whatever it still holds. The library sends b"F" when the user clicks the stream.
     """
 
-    def __init__(self, directory=None):
+    def __init__(self, directory=None, programs=STREAM_PROGRAMS):
         self.listener = None
         self.client = None
         self.path = None
+        # Only these programs of this user may connect: typed text goes to whoever does. Tests pass None.
+        self.programs = programs
         self.clicked = False
         self.modifiers = 0  # SDL modifier bits of the keys pressed with press()
         directory = directory or os.environ.get("XDG_RUNTIME_DIR")
@@ -183,30 +189,17 @@ class StreamChannel:
             self.client.close()
             self.client = None
 
-    def service(self):
-        """Accept the newest streaming client and notice when the current one went away."""
-        if self.listener is None:
-            return
-        while True:
-            try:
-                incoming, _ = self.listener.accept()
-            except (BlockingIOError, InterruptedError):
-                break
-            except OSError:
-                break
-            incoming.setblocking(False)
-            try:
-                _, uid, _ = struct.unpack("3i", incoming.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
-                                                                    struct.calcsize("3i")))
-                ready, _, _ = select.select([incoming], [], [], 0.2)
-                hello = incoming.recv(64) if ready else b""
-            except OSError:
-                uid, hello = -1, b""
-            if uid != os.getuid() or len(hello) != 6 or hello[:2] != bytes((ord("H"), STREAM_PROTOCOL)):
-                incoming.close()
-                continue
-            self._drop()  # A new stream replaces the previous client.
-            self.client = incoming
+    def _allowed(self, pid, uid, hello):
+        if uid != os.getuid() or len(hello) != 6 or hello[:2] != bytes((ord("H"), STREAM_PROTOCOL)):
+            return False
+        if self.programs is None:
+            return True
+        try:
+            return os.path.basename(os.readlink(f"/proc/{pid}/exe")) in self.programs
+        except OSError:
+            return False
+
+    def _read(self):
         try:
             while self.client is not None and select.select([self.client], [], [], 0)[0]:
                 packet = self.client.recv(64)
@@ -218,6 +211,36 @@ class StreamChannel:
             pass
         except OSError:
             self._drop()
+
+    def service(self):
+        """Accept the streaming client and notice when it went away.
+
+        A client still connected is never replaced: a new stream's client connects once the old one
+        has gone, which the read before accepting notices.
+        """
+        if self.listener is None:
+            return
+        self._read()
+        while True:
+            try:
+                incoming, _ = self.listener.accept()
+            except (BlockingIOError, InterruptedError):
+                break
+            except OSError:
+                break
+            incoming.setblocking(False)
+            try:
+                pid, uid, _ = struct.unpack("3i", incoming.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                                      struct.calcsize("3i")))
+                ready, _, _ = select.select([incoming], [], [], 0.2)
+                hello = incoming.recv(64) if ready else b""
+            except OSError:
+                pid, uid, hello = 0, -1, b""
+            if self.client is not None or not self._allowed(pid, uid, hello):
+                incoming.close()
+                continue
+            self.client = incoming
+        self._read()
 
     def sockets(self):
         return [s for s in (self.listener, self.client) if s is not None]

@@ -1189,7 +1189,7 @@ class Lifecycle(unittest.TestCase):
             parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             parent.settimeout(1)
             worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard),
-                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory, programs=None)))
             worker.start()
 
             def packet(**fields):
@@ -1303,7 +1303,7 @@ class Lifecycle(unittest.TestCase):
             parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             parent.settimeout(1)
             worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: guard),
-                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory, programs=None)))
             worker.start()
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 
@@ -1345,6 +1345,40 @@ class Lifecycle(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
+    def test_only_the_streaming_client_may_connect_and_it_is_never_replaced(self):
+        def connect(directory):
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            library.connect(os.path.join(directory, bridge.STREAM_SOCKET))
+            library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+            return library
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            # This test's own program is not Steam's streaming client: refused.
+            channel = bridge.StreamChannel(directory)
+            library = connect(directory)
+            channel.service()
+            self.assertFalse(channel.connected(), "another program of the same user is refused")
+            library.close()
+            channel.close()
+            # Named as an allowed program it connects; a second client is refused while it is there,
+            # and taken once it has gone.
+            channel = bridge.StreamChannel(directory, programs=(os.path.basename(os.readlink("/proc/self/exe")),))
+            first = connect(directory)
+            channel.service()
+            self.assertTrue(channel.connected(), "the allowed program connects")
+            second = connect(directory)
+            channel.service()
+            self.assertTrue(channel.send_text("a"))
+            self.assertEqual(first.recv(64), b"Ta", "a live client is never replaced")
+            first.close()
+            third = connect(directory)
+            channel.service()
+            self.assertTrue(channel.send_text("b"))
+            self.assertEqual(third.recv(64), b"Tb", "a new client is taken once the old one has gone")
+            for library in (second, third):
+                library.close()
+            channel.close()
+
     def test_click_on_the_stream_is_reported_only_while_the_panel_shows(self):
         class ClickCDP(FakeCDP):
             def __init__(self):
@@ -1363,7 +1397,7 @@ class Lifecycle(unittest.TestCase):
             parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             parent.settimeout(1)
             worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None),
-                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory)))
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory, programs=None)))
             worker.start()
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
 
