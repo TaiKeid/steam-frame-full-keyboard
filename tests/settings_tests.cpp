@@ -2868,6 +2868,25 @@ void streaming_support_failed_turn_off() {
             "Cancel leaves it off though the failed turn-off brought the saved flag back");
     app.back();
     require(app.streaming_support(), "what is saved stays on");
+
+    // The same with Replace native keyboard unticked in the reopened visit: ticked again, streaming
+    // support stays off, as unticking replacement left it, and is never on without its question.
+    hold = true;
+    open();
+    click(app, "streaming-support");
+    click(app, "apply");
+    held = false;
+    for (int i = 0; i < 1000 && !held; ++i) {
+        usleep(1000);
+    }
+    open();
+    click(app, "replace-native-keyboard");
+    hold = false;
+    app.flush_settings();
+    click(app, "replace-native-keyboard");
+    require(!control(app.view(), "streaming-support").selected,
+            "re-ticking replacement leaves it off though the saved flag came back");
+    app.back();
 }
 // After the check failed at Steam's start, ✓ does not say streaming support starts after a restart.
 void streaming_support_failed_check() {
