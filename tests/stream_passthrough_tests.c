@@ -574,6 +574,37 @@ int main(int argc, char** argv) {
         }
         key(keyboard, 26, 0, false);
         idle_pump();
+
+        // Ctrl's press itself still waits behind a backlog, with Ctrl+Y taps after it, when its
+        // release finds the queue full: the press is cancelled, and so are the Y presses counting on
+        // it (R195, R210).
+        check(send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big &&
+                  send(keyboard, big, sizeof big, 0) == (ssize_t)sizeof big,
+              "8000 entries");
+        idle_pump();
+        key(keyboard, 224, 0x40, true);
+        for (int i = 0; i < 93; ++i) {
+            key(keyboard, 28, 0x40, true);
+            key(keyboard, 28, 0x40, false);
+        }
+        for (int i = 0; i < 107; ++i) {
+            key(keyboard, 26, 0, true);
+        }
+        key(keyboard, 224, 0, false);
+        {
+            unsigned y_down = 0, ctrl_down = 0;
+            for (int i = 0; i < 4200; ++i) {
+                pushed_count = 0;
+                idle_pump();
+                for (int k = 0; k < pushed_count; ++k) {
+                    y_down += pushed[k].scancode == 28 && pushed[k].down;
+                    ctrl_down += pushed[k].scancode == 224 && pushed[k].down;
+                }
+            }
+            check(y_down == 0 && ctrl_down == 0, "neither Ctrl nor a Y counting on it is typed");
+        }
+        key(keyboard, 26, 0, false);
+        idle_pump();
     }
 
     // 7. "off": the library lets go of held keys, hangs up and types nothing.
