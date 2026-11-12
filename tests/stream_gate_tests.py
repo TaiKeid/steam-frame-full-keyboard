@@ -59,9 +59,16 @@ with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
     require(os.readlink(link) == copy.name and not off.exists() and not answer.exists(),
             "prepare points at the copy again")
 
-    # A library that does not load: no answer, even if an old one was there, and Steam's library is used.
+    # A new library that fails its check never takes the copy's name: a stream that starts meanwhile
+    # still loads the copy checked before (R246).
     broken = base / "broken.so"
     broken.write_text("not a library")
+    require(run(runtime, "prepare", library=broken) != 0, "prepare with a broken library fails")
+    require(copy.read_bytes() == library.read_bytes() and
+            (runtime / "framekeyboard-stream-check.so").read_bytes() == broken.read_bytes(),
+            "the checked copy keeps its name, and the failed one keeps its own for Settings")
+
+    # A library that does not load: no answer, even if an old one was there, and Steam's library is used.
     answer.write_text("SDL_OPENVR_LIBRARY=/old\n")
     require(run(runtime, "start", library=broken) != 0, "a broken library fails the check")
     require(not answer.exists() and os.readlink(link) == str(steam / "libopenvr_api.so") and off.exists(),
@@ -89,6 +96,8 @@ with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
 
     # It works again after all that.
     require(run(runtime, "start") == 0 and answer.exists() and not off.exists(), "start recovers")
+    require(not (runtime / "framekeyboard-stream-check.so").exists(),
+            "the copy that passed took the live name")
     require(not failed.exists(), "a start that succeeds takes the mark away")
     require(subprocess.run([str(gate)]).returncode == 2 and
             subprocess.run([str(gate), "nonsense"]).returncode == 2, "usage errors exit with 2")

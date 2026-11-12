@@ -130,6 +130,11 @@ int main() {
         require(stream_support_status(paths).failed, "so does one that failed with this library");
         std::ofstream(paths.runtime / "framekeyboard-stream.so") << "older library";
         require(!stream_support_status(paths).failed, "a library installed since is not judged yet");
+        // A copy that failed its check keeps a name of its own, beside the one checked before (R246).
+        std::ofstream(paths.runtime / "framekeyboard-stream-check.so") << "library";
+        require(stream_support_status(paths).failed, "the copy that failed is the one compared");
+        std::ofstream(paths.runtime / "framekeyboard-stream-check.so") << "older library";
+        require(!stream_support_status(paths).failed, "and a release installed since is tried anew");
         fs::remove_all(paths.runtime);
         configure_stream_support(true, paths, reload, run);
         require(reloads == 1 && runs.empty(), "an unchanged drop-in is not written again");

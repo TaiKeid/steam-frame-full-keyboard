@@ -9,6 +9,8 @@
 //   steam.env                 the variable, written only when the library passed its check
 //   framekeyboard-stream.so   a copy of the library, so removing the keyboard cannot take it from a
 //                             running Steam
+//   framekeyboard-stream-check.so  a new copy while it is checked, before it takes the name above;
+//                             one that failed stays, for Settings to compare with the installed one
 //   openvr.so                 what the variable names: a link to the copy, or to Steam's own library
 //                             while Streaming support is off
 //   libopenvr_api.so          a link to Steam's own library, which the copy depends on: its search
@@ -47,6 +49,7 @@
 #include <unistd.h>
 
 #define LIBRARY_NAME "framekeyboard-stream.so"
+#define CANDIDATE_NAME "framekeyboard-stream-check.so"
 #define LINK_NAME "openvr.so"
 #define REAL_LIBRARY "libopenvr_api.so"
 #define VARIABLE "SDL_OPENVR_LIBRARY"
@@ -274,14 +277,18 @@ static bool stock(void) {
 }
 
 static bool prepare(void) {
-    char copy[PATH_MAX], real[PATH_MAX];
+    char copy[PATH_MAX], candidate[PATH_MAX], real[PATH_MAX];
     if (!own_directory() || !join(copy, runtime_dir, LIBRARY_NAME) ||
-        !join(real, steam_dir, REAL_LIBRARY)) {
+        !join(candidate, runtime_dir, CANDIDATE_NAME) || !join(real, steam_dir, REAL_LIBRARY)) {
         return false;
     }
-    // The copy's dependency, found beside it, before the copy is checked.
-    if (!replace_link_named(REAL_LIBRARY, real) || !replace_file(LIBRARY_NAME, library, NULL, 0755) ||
-        !loads(copy)) {
+    // The copy's dependency, found beside it, before the copy is checked. The new copy is checked under
+    // a name of its own and only then takes the name the link leads to, so a stream that starts
+    // meanwhile still loads the copy checked before (R246). A copy that fails keeps that name, which
+    // nothing loads: Settings tells by it whether the installed library is the one that failed
+    // (src/stream_support.cpp).
+    if (!replace_link_named(REAL_LIBRARY, real) || !replace_file(CANDIDATE_NAME, library, NULL, 0755) ||
+        !loads(candidate) || rename(candidate, copy) != 0) {
         return false;
     }
     if (!replace_link(LIBRARY_NAME)) {

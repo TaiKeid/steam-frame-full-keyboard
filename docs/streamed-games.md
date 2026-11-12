@@ -45,6 +45,7 @@ Steam's streaming client on the Frame is an SDL program that shows the stream th
 | --- | --- |
 | `steam.env` | The variable, written only when the library passed its check |
 | `framekeyboard-stream.so` | A copy of the library, so removing the keyboard cannot take it from a running Steam |
+| `framekeyboard-stream-check.so` | A new copy while it is checked; it takes the name above only once it passes, and one that fails stays here for Settings |
 | `openvr.so` | What the variable names: a link to the copy, or to Steam's own library while Streaming support is off |
 | `libopenvr_api.so` | A link to Steam's own library, which the copy depends on |
 | `off` | Tells a library that is already loaded to stay idle |

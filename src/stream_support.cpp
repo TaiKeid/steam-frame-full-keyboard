@@ -196,14 +196,18 @@ std::optional<std::string> contents_of(const fs::path& file) {
 }
 // Whether the gate's check failed when the running Steam started, with the
 // library this release has. The gate copies the library before checking it,
-// so a copy that differs from the installed one means a release installed
-// since then, which the next start tries anew.
+// under a name of its own that a copy which fails keeps (R246), so a copy
+// that differs from the installed one means a release installed since then,
+// which the next start tries anew.
 bool failed_check(const StreamSupportPaths& paths) {
     std::error_code error;
     if (!fs::exists(paths.runtime / "failed", error)) {
         return false;
     }
-    const auto copy = paths.runtime / "framekeyboard-stream.so";
+    auto copy = paths.runtime / "framekeyboard-stream-check.so";
+    if (!fs::exists(copy, error)) {
+        copy = paths.runtime / "framekeyboard-stream.so";
+    }
     if (!fs::exists(copy, error)) {
         return true; // It failed before the library was copied.
     }
