@@ -2883,6 +2883,7 @@ void streaming_support_failed_turn_off() {
     click(app, "replace-native-keyboard");
     hold = false;
     app.flush_settings();
+    require(app.streaming_support(), "the failed turn-off brought the saved flag back");
     click(app, "replace-native-keyboard");
     require(!control(app.view(), "streaming-support").selected,
             "re-ticking replacement leaves it off though the saved flag came back");
