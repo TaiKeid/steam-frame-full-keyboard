@@ -260,7 +260,9 @@ class StreamChannel:
             return True
         except BlockingIOError:
             # A streaming client that falls behind: wait a moment for room rather than hang up on it,
-            # which would drop everything it still has to type. Still full, this one message fails.
+            # which would drop everything it still has to type. Still full, a text alone fails; a key
+            # event or a release cannot be left out, or a key could stay down on the PC, so then the
+            # helper hangs up and the library lets go of everything, as it always did.
             try:
                 if select.select([], [self.client], [], .1)[1]:
                     self.client.send(packet)
@@ -268,6 +270,9 @@ class StreamChannel:
             except BlockingIOError:
                 pass
             except OSError:
+                self._drop()
+                return False
+            if packet[:1] != b"T":
                 self._drop()
             return False
         except OSError:
