@@ -335,6 +335,28 @@ int main(int argc, char** argv) {
           "then Backspace");
     check(idle_pump() && pushed_count == 8 && is_key(6, 6, 0, 1), "then c");
     check(idle_pump() && pushed_count == 8, "and nothing else");
+    // A shortcut cut by a session's end goes whole: Ctrl+C was pressed behind a commit, but Ctrl is not
+    // let go of before the session ends, so its press is dropped and C must not be typed alone.
+    pushed_count = 0;
+    check(send(keyboard, "Txy", 3, 0) == 3, "a commit");
+    key(keyboard, 224, 0x40, true);
+    key(keyboard, 6, 0x40, true);
+    key(keyboard, 6, 0x40, false);
+    check(idle_pump() && pushed_count == 2 && is_key(0, 27, 0, 1), "x");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends with Ctrl down");
+    {
+        unsigned y = 0, presses = 0;
+        for (int i = 0; i < 4; ++i) {
+            idle_pump();
+        }
+        for (int k = 2; k < pushed_count; ++k) {
+            y += pushed[k].scancode == 28 && pushed[k].down;
+            presses += pushed[k].down && (pushed[k].scancode == 6 || pushed[k].scancode == 224);
+        }
+        check(y == 1 && presses == 0, "y is typed, and neither Ctrl nor C is pressed");
+    }
+    key(keyboard, 224, 0, false);
+    idle_pump();
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
     // text is cut short, never missing a middle piece; a release still goes through.

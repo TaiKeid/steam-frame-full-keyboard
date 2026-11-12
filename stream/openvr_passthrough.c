@@ -457,6 +457,30 @@ static void release_everything(void) {
     overflowed = false;
 }
 
+// The SDL_KMOD bit a modifier key sets, 0 for any other key.
+static unsigned modifier_bit(unsigned scancode) {
+    switch (scancode) {
+    case 224:
+        return 0x0040; // left Ctrl
+    case 225:
+        return 0x0001; // left Shift
+    case 226:
+        return 0x0100; // left Alt
+    case 227:
+        return 0x0400; // left GUI
+    case 228:
+        return 0x0080; // right Ctrl
+    case 229:
+        return 0x0002; // right Shift
+    case 230:
+        return 0x0200; // right Alt
+    case 231:
+        return 0x0800; // right GUI
+    default:
+        return 0;
+    }
+}
+
 // A typing session ended ('R'): what was sent into the stream is still typed, in order, the session's
 // own whole key taps included (a Backspace or Enter between two commits), so the PC gets what the panel
 // showed. A press of the session's that no queued release follows is dropped, and a key it holds down
@@ -479,12 +503,26 @@ static void end_session(void) {
             keep[i] = false; // nothing would let it go
         }
     }
+    // A modifier the session no longer holds for what is kept: one held down and let go of now, ahead
+    // of the taps still queued, or one whose press is dropped. A kept press that counts on it (its
+    // bit in `mod`) would type the plain key, Ctrl+C as C, so it goes too; releases always stay.
+    unsigned gone = 0;
+    for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
+        if (session_held[scancode] && held[scancode] && !released[scancode]) {
+            gone |= modifier_bit(scancode);
+        }
+    }
     unsigned kept = 0;
     for (unsigned i = 0; i < queue_count; ++i) {
         const Queued item = queue[(queue_head + i) % kQueue];
-        if (keep[i]) {
-            queue[(queue_head + kept++) % kQueue] = item; // never ahead of what is read
+        if (keep[i] && !item.typed && item.down && (item.mod & gone)) {
+            keep[i] = false;
         }
+        if (!keep[i]) {
+            gone |= item.typed ? 0 : modifier_bit(item.scancode);
+            continue;
+        }
+        queue[(queue_head + kept++) % kQueue] = item; // never ahead of what is read
     }
     queue_count = kept;
     for (unsigned scancode = 0; scancode < kScancodes; ++scancode) {
@@ -584,6 +622,14 @@ static void stream_message(const unsigned char* message, size_t length) {
                 if (!item->typed && item->scancode == scancode) {
                     if (item->down) {
                         item->scancode = 0; // push_key skips it
+                        // A cancelled modifier takes the presses that count on it along (R210).
+                        const unsigned bit = modifier_bit(scancode);
+                        for (unsigned k = i + 1; bit && k < queue_count; ++k) {
+                            Queued* later = &queue[(queue_head + k) % kQueue];
+                            if (!later->typed && later->down && (later->mod & bit)) {
+                                later->scancode = 0;
+                            }
+                        }
                     }
                     break;
                 }
