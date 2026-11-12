@@ -72,7 +72,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from th
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
 | After a SteamOS update, a stream from the PC no longer starts, or shows a black window, with Streaming support on | Turn Streaming support off in Settings → Integration and start the stream again; it needs no restart. Report it, and turn it back on after the next Full Keyboard update. See [streamed games](streamed-games.md#what-keeps-it-from-breaking-streaming) |
-| Streaming support is on but Steam's keyboard still opens in a stream | It starts after SteamOS restarts once; Settings says so under the switch. Start a new stream afterwards |
+| Streaming support is on but Steam's keyboard still opens in a stream | It starts after SteamOS restarts once; Settings says so under the switch. Start a new stream afterwards. If Settings says instead that the streaming library did not pass its check, the check at Steam's start refused it with this Steam version, and a restart alone won't change that: streams stay as Steam makes them. Turn Streaming support off and wait for a Full Keyboard update |
 | `install.sh` says Full Keyboard is running | Quit Full Keyboard in Settings, then run it again. The [installer](installer.md) closes a running keyboard itself |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 

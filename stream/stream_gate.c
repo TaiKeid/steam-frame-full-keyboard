@@ -12,6 +12,8 @@
 //   openvr.so                 what the variable names: a link to the copy, or to Steam's own library
 //                             while Streaming support is off
 //   off                       tells a library that is already loaded to stay idle
+//   failed                    the last `start` failed, so this Steam runs without the library;
+//                             Settings says so instead of asking for a restart
 //
 // Steam's start must never depend on this program. The drop-in ignores its exit status, bounds its time
 // and removes steam.env before it runs, so a missing or failing gate leaves Steam exactly as it comes.
@@ -308,6 +310,12 @@ int main(int argc, char** argv) {
     if (!ok) {
         // Whatever went wrong, a Steam that already has the variable must find its own library there.
         stock();
+        // Only in a folder that is ours alone: a refused folder gets nothing.
+        if (strcmp(argv[1], "start") == 0 && own_directory()) {
+            replace_file("failed", NULL, "", 0600);
+        }
+    } else {
+        remove_named("failed");
     }
     return ok ? 0 : 1;
 }

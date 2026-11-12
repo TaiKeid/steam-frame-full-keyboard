@@ -177,6 +177,30 @@ void point_at_stock(const StreamSupportPaths& paths) {
         throw UiError(ui("streaming.off-failed"));
     }
 }
+std::optional<std::string> contents_of(const fs::path& file) {
+    std::ifstream stream(file, std::ios::binary);
+    if (!stream.is_open()) {
+        return std::nullopt;
+    }
+    return std::string((std::istreambuf_iterator<char>(stream)), {});
+}
+// Whether the gate's check failed when the running Steam started, with the
+// library this release has. The gate copies the library before checking it,
+// so a copy that differs from the installed one means a release installed
+// since then, which the next start tries anew.
+bool failed_check(const StreamSupportPaths& paths) {
+    std::error_code error;
+    if (!fs::exists(paths.runtime / "failed", error)) {
+        return false;
+    }
+    const auto copy = paths.runtime / "framekeyboard-stream.so";
+    if (!fs::exists(copy, error)) {
+        return true; // It failed before the library was copied.
+    }
+    const auto tried = contents_of(copy);
+    const auto installed = contents_of(paths.library);
+    return !tried || !installed || *tried == *installed;
+}
 bool supported(const StreamSupportPaths& paths) {
     std::error_code error;
     return !paths.gate.empty() && fs::is_regular_file(paths.gate, error) &&
@@ -220,6 +244,7 @@ StreamSupportStatus stream_support_status(const StreamSupportPaths& paths) {
         status.enabled = false; // Someone else's file: not ours to count.
     }
     status.active = steam_carries(paths);
+    status.failed = !status.active && failed_check(paths);
     return status;
 }
 void configure_stream_support(bool enabled, const StreamSupportPaths& paths,

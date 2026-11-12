@@ -47,6 +47,7 @@ Steam's streaming client on the Frame is an SDL program that shows the stream th
 | `framekeyboard-stream.so` | A copy of the library, so removing the keyboard cannot take it from a running Steam |
 | `openvr.so` | What the variable names: a link to the copy, or to Steam's own library while Streaming support is off |
 | `off` | Tells a library that is already loaded to stay idle |
+| `failed` | The check at Steam's start failed; Settings then says so instead of asking for a restart |
 
 No file of Steam or SteamOS is changed. The folder is in the runtime directory, which the system empties at shutdown.
 

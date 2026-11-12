@@ -913,10 +913,13 @@ void App::update_settings_ui() {
               checkbox("streaming-support", tr("setting.streaming-support"), streaming_on,
                        streaming_offered, tr("setting.streaming-support.note")))};
     // While it is on and the running Steam was started without it, a line
-    // under it says when it takes effect.
+    // under it says when it takes effect, or that the library failed its
+    // check when this Steam started, which a restart alone won't change.
     if (streaming_on && !stream_status_.active) {
-        SettingField note{"streaming-support-note", tr("setting.streaming-support.restart-note"), "",
-                          ControlStyle::Note};
+        SettingField note{"streaming-support-note",
+                          tr(stream_status_.failed ? "streaming.library-failed"
+                                                   : "setting.streaming-support.restart-note"),
+                          "", ControlStyle::Note};
         note.plain = true;
         streaming_fields.push_back(std::move(note));
     }

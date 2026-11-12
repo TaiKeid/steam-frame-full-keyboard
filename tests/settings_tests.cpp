@@ -2860,6 +2860,20 @@ void streaming_support_setting() {
     require(!app.view().confirm && control(app.view(), "streaming-support").selected && note(),
             "Accept ticks it and says it waits for a restart");
     require(!app.streaming_support() && !saved(app).streaming_support, "nothing is applied yet");
+    // When the check failed at Steam's start, the card says that instead of asking for a restart.
+    status.failed = true;
+    app.back();
+    click(app, "confirm-cancel");
+    open();
+    click(app, "replace-native-keyboard");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    require(!note() && std::any_of(app.view().field_labels.begin(), app.view().field_labels.end(),
+                                   [](const FieldLabel& f) {
+                                       return f.text == "The streaming library did not pass its check.";
+                                   }),
+            "a failed check is said on the card");
+    status.failed = false;
 
     // ← with it ticked asks whether to turn it on.
     app.back();

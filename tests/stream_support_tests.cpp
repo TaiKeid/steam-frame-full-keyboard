@@ -103,6 +103,16 @@ int main() {
                 "the manager is told once, and a Steam without the variable is left alone");
         require(stream_support_status(paths) == StreamSupportStatus{.supported = true, .enabled = true},
                 "on, waiting for Steam's next start");
+        // The gate's check failed when Steam started: with this release's library, a restart alone
+        // won't help; a release installed since then is tried at the next start.
+        fs::create_directories(paths.runtime);
+        std::ofstream(paths.runtime / "failed");
+        require(stream_support_status(paths).failed, "a check that failed before copying counts");
+        std::ofstream(paths.runtime / "framekeyboard-stream.so") << "library";
+        require(stream_support_status(paths).failed, "so does one that failed with this library");
+        std::ofstream(paths.runtime / "framekeyboard-stream.so") << "older library";
+        require(!stream_support_status(paths).failed, "a library installed since is not judged yet");
+        fs::remove_all(paths.runtime);
         configure_stream_support(true, paths, reload, run);
         require(reloads == 1 && runs.empty(), "an unchanged drop-in is not written again");
 

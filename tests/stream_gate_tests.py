@@ -26,8 +26,9 @@ def run(runtime, command, library=library, steam=steam):
 with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
     base = Path(directory)
     runtime = base / "runtime"
-    answer, link, copy, off = (runtime / name for name in
-                               ("steam.env", "openvr.so", "framekeyboard-stream.so", "off"))
+    answer, link, copy, off, failed = (runtime / name for name in
+                                       ("steam.env", "openvr.so", "framekeyboard-stream.so", "off",
+                                        "failed"))
 
     # Before Steam starts: a checked copy, the link to it and the variable that names the link.
     require(run(runtime, "start") == 0, "start succeeds with a library that loads")
@@ -53,6 +54,7 @@ with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
     require(run(runtime, "start", library=broken) != 0, "a broken library fails the check")
     require(not answer.exists() and os.readlink(link) == str(steam / "libopenvr_api.so") and off.exists(),
             "a failed start leaves Steam stock")
+    require(failed.exists(), "a failed start leaves a mark for Settings")
 
     # The library is missing, or Steam's own library is not where it is expected.
     require(run(runtime, "start", library=base / "missing.so") != 0 and not answer.exists(),
@@ -70,11 +72,12 @@ with tempfile.TemporaryDirectory(prefix="fk-gate-") as directory:
     elsewhere.mkdir()
     linked = base / "linked"
     linked.symlink_to(elsewhere)
-    require(run(linked, "start") != 0 and not (elsewhere / "steam.env").exists(),
-            "a linked runtime folder is refused")
+    require(run(linked, "start") != 0 and not (elsewhere / "steam.env").exists() and
+            not (elsewhere / "failed").exists(), "a linked runtime folder is refused and left alone")
 
     # It works again after all that.
     require(run(runtime, "start") == 0 and answer.exists() and not off.exists(), "start recovers")
+    require(not failed.exists(), "a start that succeeds takes the mark away")
     require(subprocess.run([str(gate)]).returncode == 2 and
             subprocess.run([str(gate), "nonsense"]).returncode == 2, "usage errors exit with 2")
 print("The gate's start, prepare and stock passed.")

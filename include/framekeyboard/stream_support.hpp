@@ -30,6 +30,9 @@ struct StreamSupportStatus {
     bool supported{}; // this release has the library and Steam's own is where it is expected
     bool enabled{};   // Steam's next start is set up for it
     bool active{};    // the running Steam already carries the variable
+    // The gate's check failed when the running Steam started, with the
+    // library this release has: a restart alone won't start it.
+    bool failed{};
 };
 StreamSupportStatus stream_support_status(const StreamSupportPaths& paths);
 
