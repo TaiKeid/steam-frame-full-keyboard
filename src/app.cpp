@@ -283,6 +283,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
+    streaming_touched_ = false;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -2670,6 +2671,7 @@ void App::show_settings() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
+    streaming_touched_ = false;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -2815,11 +2817,11 @@ void App::update_save_status() {
         if (result->streaming_support) {
             // Its flag went back on disk; the card and what is saved agree again,
             // and later saves don't quietly try it once more. A Settings visit
-            // that has not changed it shows the flag as saved at once; one that
-            // has keeps the user's choice (R202).
-            const bool shown = settings_.streaming_support && settings_.replace_native_keyboard;
+            // that has not touched it shows the flag as saved at once (R202);
+            // one that has, or that has its question open, keeps the user's
+            // choice (R217).
             settings_.streaming_support = *result->streaming_support;
-            if (!settings_open_ || pending_streaming_support_ == shown) {
+            if (!settings_open_ || (!streaming_touched_ && confirm_ != Confirm::EnableStreaming)) {
                 pending_streaming_support_ =
                     settings_.streaming_support && settings_.replace_native_keyboard;
                 if (settings_open_) {
@@ -3028,6 +3030,7 @@ void App::reload() {
     pending_replace_native_keyboard_ = settings_.replace_native_keyboard;
     pending_start_with_steamos_ = settings_.start_with_steamos;
     pending_streaming_support_ = settings_.streaming_support && settings_.replace_native_keyboard;
+    streaming_touched_ = false;
     pending_swipe_typing_ = settings_.swipe_typing;
     pending_typing_suggestions_ = settings_.typing_suggestions;
     pending_key_flicks_ = settings_.key_flicks;
@@ -5146,6 +5149,7 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::ReplaceNativeKeyboard) {
         pending_replace_native_keyboard_ = !pending_replace_native_keyboard_;
+        streaming_touched_ = true;
         if (!pending_replace_native_keyboard_) {
             // Streaming support works through replacement. Turning that back
             // on leaves it off, so it is never enabled without its question.
@@ -5161,6 +5165,7 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::StreamingSupport && pending_replace_native_keyboard_ &&
                stream_status_.supported) {
+        streaming_touched_ = true;
         if (pending_streaming_support_ ||
             (settings_.streaming_support && settings_.replace_native_keyboard)) {
             // Off, or back on after ticking it off in this visit: nothing to explain.

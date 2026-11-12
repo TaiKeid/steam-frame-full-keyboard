@@ -2804,6 +2804,65 @@ void native_replacement_settings() {
     require(!errors.empty(), "replacement requires JSON boolean");
     require(sink.events.empty(), "replacement settings send no desktop input");
 }
+// A turn-off that fails brings the flag back on while a reopened Settings visit is asking whether to
+// turn it on: the card keeps the user's answer, and Cancel leaves the box off.
+void streaming_support_failed_turn_off() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.stream_support = [] { return StreamSupportStatus{.supported = true}; };
+    CaptureSink sink;
+    std::atomic<bool> hold{false}, held{false};
+    App app(options, sink, [&](const Settings& settings) {
+        while (hold) {
+            held = true;
+            usleep(1000);
+        }
+        auto kept = settings;
+        kept.streaming_support = true; // turning off cannot be done
+        save_settings(directory.path, kept);
+        if (!settings.streaming_support) {
+            ErrorText reason;
+            reason.english = "the manager cannot be reloaded";
+            throw StreamingSupportWarning("streaming.saved-without-change", reason, true);
+        }
+    });
+    auto open = [&] {
+        app.show_settings();
+        app.move(0, 800, 300);
+        app.scroll(0, 1000, 0);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(100 + i * .05);
+        }
+    };
+    open();
+    click(app, "replace-native-keyboard");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    app.flush_settings();
+    require(app.streaming_support(), "on");
+    // Off fails, and its result waits until the reopened visit has the question open.
+    hold = true;
+    open();
+    click(app, "streaming-support");
+    click(app, "apply");
+    for (int i = 0; i < 1000 && !held; ++i) {
+        usleep(1000);
+    }
+    open();
+    click(app, "streaming-support");
+    require(app.view().confirm && app.view().confirm->title == "Turn on streaming support?",
+            "ticking it again asks");
+    hold = false;
+    app.flush_settings();
+    click(app, "confirm-cancel");
+    require(!control(app.view(), "streaming-support").selected,
+            "Cancel leaves it off though the failed turn-off brought the saved flag back");
+    app.back();
+    require(app.streaming_support(), "what is saved stays on");
+}
 // After the check failed at Steam's start, ✓ does not say streaming support starts after a restart.
 void streaming_support_failed_check() {
     TemporaryDirectory directory;
@@ -3313,6 +3372,7 @@ int main() {
         streaming_support_setting();
         streaming_support_failed_setup();
         streaming_support_failed_check();
+        streaming_support_failed_turn_off();
         keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();

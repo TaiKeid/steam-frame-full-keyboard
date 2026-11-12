@@ -926,6 +926,10 @@ class App {
     bool pending_start_with_steamos_{};
     // Streaming support, as the card shows it: off whenever replacement is.
     bool pending_streaming_support_{};
+    // This Settings visit changed it, or replacement, or answered its
+    // question: a flag that comes back from a failed save leaves the card
+    // alone then (R217).
+    bool streaming_touched_{};
     // Read when Settings opens: whether it can be offered, and whether
     // turning it on has to wait for a SteamOS restart.
     StreamSupportStatus stream_status_;
