@@ -1742,20 +1742,24 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
     cairo_stroke(cr_);
     // The comet: short pieces of the path, each as old as the moment the
     // head passed it; after the trace it burns out where it stopped.
-    constexpr double piece = .1; // of the way between two letters
+    // Pieces end on a fixed grid of tenths of the way between two letters,
+    // so every letter is a piece's end and the comet turns sharply there
+    // instead of cutting the corner by a different amount every frame.
     const double from = std::max(0.0, progress - comet_seconds / demo_step);
     std::vector<std::pair<std::pair<double, double>, double>> pieces; // end point, life left
-    for (double along = from; along < progress - 1e-6; along += piece) {
-        const double end = std::min(along + piece, progress);
+    double start = from;
+    for (int k = static_cast<int>(std::floor(from * 10)) + 1; start < progress - 1e-6; ++k) {
+        const double end = std::min(k / 10.0, progress);
         const double age = t - std::min(end, last) * demo_step;
         const double left = std::clamp(1 - age / comet_seconds, 0.0, 1.0);
         pieces.emplace_back(at(end), left * left * (3 - 2 * left));
+        start = end;
     }
     if (!pieces.empty()) {
         // Clipped to where it can reach, so the groups stay small.
-        double x0 = head.first, y0 = head.second, x1 = head.first, y1 = head.second;
-        for (double along = from; along <= progress; along += piece) {
-            const auto p = at(along);
+        const auto tail = at(from);
+        double x0 = tail.first, y0 = tail.second, x1 = tail.first, y1 = tail.second;
+        for (const auto& [p, eased] : pieces) {
             x0 = std::min(x0, p.first);
             y0 = std::min(y0, p.second);
             x1 = std::max(x1, p.first);
@@ -1770,14 +1774,14 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
         const auto strokes = [&](double width, double strength, Color colour) {
             cairo_push_group(cr_);
             cairo_set_operator(cr_, CAIRO_OPERATOR_SOURCE);
-            auto start = at(from);
+            auto previous = tail;
             for (const auto& [end, eased] : pieces) {
-                cairo_move_to(cr_, start.first, start.second);
+                cairo_move_to(cr_, previous.first, previous.second);
                 cairo_line_to(cr_, end.first, end.second);
                 set_rgba(cr_, colour, eased);
                 cairo_set_line_width(cr_, width * (.25 + .75 * eased));
                 cairo_stroke(cr_);
-                start = end;
+                previous = end;
             }
             cairo_set_operator(cr_, CAIRO_OPERATOR_OVER);
             cairo_pop_group_to_source(cr_);
