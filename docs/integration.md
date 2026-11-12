@@ -24,7 +24,7 @@ The keyboard runs in one of two modes, chosen at launch and fixed for the proces
 | Shell-control protocol | None | Over the connection the shell passed at launch |
 | Instance socket (`vr.sock`) | `recenter-v1`, `quit-v1` | `quit-v1` only |
 | Presentation | SteamOS dashboard and passthrough, as today | The shell decides |
-| Integration card (Replace native keyboard, Start with SteamOS) | Available | Hidden; replacement and boot start inactive |
+| Integration card (Replace native keyboard, Start with SteamOS, Streaming support, Hidden window tooltip) | Available | Hidden; replacement, boot start and Streaming support inactive |
 | X | Exits, or dismisses in replacement mode | Hides the panel |
 | Ends when | Quit, or the user's session ends | Quit, the shell closes its connection, or the shell stays hung (see [Lease](#lease)) |
 
@@ -36,7 +36,7 @@ The Integration card belongs to standalone use with the SteamOS dashboard. In ho
 
 Hiding the card is not enough. Several code paths assume standalone use today, so the launch mode becomes an explicit policy that each of them reads:
 
-- The boot-unit callbacks that `main.cpp` installs for VR startup and saving, and the startup-unit reconciliation on start and reload, are skipped in hosted mode. Saved standalone flags are preserved.
+- The boot-unit callbacks that `main.cpp` installs for VR startup and saving, and the startup-unit reconciliation on start and reload, which also set up Streaming support's drop-in for Steam's start, are skipped in hosted mode. Saved standalone flags, and the drop-in, are preserved.
 - X hides instead of exiting; today it exits unless replacement is on.
 - Settings → Quit remains and ends the hosted keyboard.
 - Dictation-driven visibility (dictation passthrough) and pointer-source selection follow shell presentation instead of the dashboard.

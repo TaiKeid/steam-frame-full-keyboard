@@ -84,7 +84,7 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop
 
 ## Steam fields and the shell sink
 
-- A Steam field reached through native replacement is never a terminal, whatever Gamescope's focus is: standard keys.
+- A Steam field reached through native replacement, or a game or app streamed from a PC through Streaming support, is never a terminal, whatever Gamescope's focus is: standard keys. The keyboard cannot see which program has the PC's focus.
 - With the shell's text sink on, nothing changes (see the shell hint above).
 
 ## Privacy
@@ -103,7 +103,7 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop
 
 - `terminal_keys`: the program list, the kind, and the chord for each action and kind. Pure and unit-tested.
 - `DesktopFocus::edit_keys()`: the focused program's kind, never blocking.
-- `KeySink::edit_keys()`: Gamescope's sink reports it; the native replacement sink reports standard for a Steam field; the shell sink reports standard while it is on.
+- `KeySink::edit_keys()`: Gamescope's sink reports it; the native replacement sink reports standard for a Steam field or a stream from a PC; the shell sink reports standard while it is on.
 - `App`: combines the sink's kind with the shell hint, picks the chord at key down, and uses the Paste chord for dictation's paste paths. `EiSink` uses the Paste chord, with the hint, for the Desktop's Unicode paste.
 - `KeyboardState::down` takes the chord's modifiers instead of always Ctrl.
 

@@ -108,7 +108,7 @@ Interface text uses the interface language's `font_families`, while key legends 
 - Modules that produce messages for the user (updates, output, dictation, native replacement) return a key and its arguments, not text. App localizes them when it shows them, so worker threads never touch the tables.
 - Switching language rebuilds everything that holds text: Settings cards, popups, tooltips and the status line. Chip and label measurements are keyed on the text and follow by themselves.
 
-Only text the user sees in the interface is translated. Never translated: log lines, command-line help and errors, and other technical output; the Debug card, whose language dropdown lists languages by English name; product and protocol names (Full Keyboard, Steam, Steam Frame, SteamOS, Moonlight, Mozc, libei); key legends, which follow the layout; the typing-language list in Settings, which keeps each language's English and native names, since speakers of a language recognize them; error text that comes from a server, shown after a translated lead-in.
+Only text the user sees in the interface is translated. Never translated: log lines, command-line help and errors, and other technical output; the Debug card, whose language dropdown lists languages by English name; product and protocol names (Full Keyboard, Steam, Steam Frame, SteamOS, Windows, Moonlight, Mozc, libei); key legends, which follow the layout; the typing-language list in Settings, which keeps each language's English and native names, since speakers of a language recognize them; error text that comes from a server, shown after a translated lead-in.
 
 ## Fitting the text
 

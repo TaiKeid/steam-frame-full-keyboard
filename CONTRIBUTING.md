@@ -1,6 +1,6 @@
 # Contributing
 
-Full Keyboard for Steam Frame welcomes bug reports, review, and focused fixes. The app serves the Frame dashboard and local applications. Optional native keyboard replacement must preserve native fallback when the app is unavailable. Typing into streamed VR apps is outside the current scope.
+Full Keyboard for Steam Frame welcomes bug reports, review, and focused fixes. The app serves the Frame dashboard, local applications and, with Streaming support, games and applications that Steam streams from a PC. Optional native keyboard replacement must preserve native fallback when the app is unavailable. Typing into streamed VR apps is outside the current scope.
 
 ## Report a bug
 

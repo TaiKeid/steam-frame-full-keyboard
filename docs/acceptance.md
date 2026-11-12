@@ -9,6 +9,9 @@ Use this checklist for a release candidate. Automated core tests and earlier hea
 - Shallow sides; fixed-size caps translate down on press without stretching or exposing a top side.
 - Hover, press and modifier state remain distinguishable at actual headset size.
 - Displayed legends and pointer hit regions align across supported scaling.
+- An edge light along each key's top edge, keys that type no character a tone darker, the Shift character quieter than the key's own, a held key sinking into shade and a shaded latched fill; High Contrast keeps plain keys and Neon its tubes.
+- With Hover fade on, a key the laser leaves dims over a moment; turned off in General, it goes dark at once, and High Contrast keys never fade. The swipe trail is a quiet path with a comet and fades out at release.
+- With the laser on a toolbar icon button, or on Back, Apply and save or Reload config, a tooltip above the case names it and goes as soon as the laser leaves; the language button has none, and only one tooltip shows at a time.
 
 ## Input matrix
 
@@ -107,7 +110,7 @@ See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
 - Compare the movement line with Steam: opaque #3d4450 idle, white while hovered/held, 10% horizontal growth with an 80 ms ease-out transition, and no grown pixels after leaving. Confirm the hit region stays stable and animation stops when idle or pinned.
 - With Grab to move off and the keyboard unpinned, show the AUX head cursor, aim at the line, hold AUX, move your head, and release. Confirm that click/typing still works, another controller cannot steal/release capture, and head tracking loss or dashboard closure cancels movement. No haptic pulse should be sent for the head cursor.
 
-- In General, confirm Hide numpad, Grab to move and Auto leveling labels sit at the left edge and their checkboxes share one column at the right edge. Auto leveling starts checked on a new or older config. Toggle it and use Back to discard; Apply and restart must retain it. With it off, place the keyboard at a small sideways angle and confirm it stays there after release in laser, AUX and grip modes. Re-enable it and confirm the existing 5°/500 ms correction resumes without a pose jump or pitch change. Reload must refresh the checkbox and behavior.
+- In General, confirm Hover fade, Hide numpad, Grab to move and Auto leveling labels sit at the left edge and their checkboxes share one column at the right edge. Auto leveling starts checked on a new or older config. Toggle it and use Back to discard; Apply and restart must retain it. With it off, place the keyboard at a small sideways angle and confirm it stays there after release in laser, AUX and grip modes. Re-enable it and confirm the existing 5°/500 ms correction resumes without a pose jump or pitch change. Reload must refresh the checkbox and behavior.
 
 - With Grab to move off, hold the line with a controller trigger and leave grip released. That same hand's stick up must move the keyboard farther along the ray; down must bring it closer with the existing speed, dead zone and bounds. The other hand's stick must have no effect. Repeat with each controller, release, pin, hide the dashboard and lose tracking to verify depth stops with capture. Ordinary key hover/click must not move depth. An AUX head-cursor capture must ignore both controllers' sticks. Re-enable grip mode and verify its same-hand depth still works.
 
@@ -121,3 +124,12 @@ See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
 - Relaunch the app while its resident panel is hidden. The existing process reopens/recenters and Settings is reachable.
 - Quit Full Keyboard is present only in Settings while replacement is enabled. Explicit Quit ends the process and restores native fallback; native summons remain usable afterward.
 - Uncheck replacement and Apply. The Quit action disappears, normal X exits, and the original Steam button behavior is restored.
+
+## Streaming support
+
+- Off, a stream from a PC keeps Steam's keyboard, which opens at once.
+- Turning it on asks first, and the line under the switch says it needs a SteamOS restart; after the restart that line is gone.
+- In a stream from a Windows PC and from a Linux PC: the keyboard button opens Full Keyboard; letters, Enter, Backspace, Esc, arrows, Ctrl+C, Shift with arrows and a held key arrive; Cyrillic and Japanese arrive from the Windows PC. A key press with the dashboard closed does not click on the PC, and a click on the stream with the panel showing moves typing there.
+- Closing the panel mid-text or while Shift is held still types what was sent and leaves no key down on the PC.
+- Turning it off returns a running stream to Steam's keyboard with no restart, and turning it back on before a restart works without one.
+- `uninstall.sh`, the installer's Uninstall and its Downgrade below 0.18.0 remove its drop-in.

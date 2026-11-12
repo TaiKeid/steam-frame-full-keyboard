@@ -156,8 +156,10 @@ These profiles compose inside Full Keyboard, then submit Unicode text through
 the same Gamescope text connection as the other layouts. English and the local
 Japanese, Chinese and Korean modes can be selected in VR without changing the
 system keymap or relaunching. The receiving app does not need its own IME enabled.
-Shortcut and navigation actions remain native. This still requires a local app
-that accepts Gamescope's text delivery.
+Shortcut and navigation actions remain native. This needs a target that takes
+text: a local app that accepts Gamescope's text delivery, a Steam field through
+native replacement, Moonlight ([streamed games](streamed-games.md)), or, with
+Streaming support, a game Steam streams from a Windows PC.
 
 Traditional Chinese also offers Zhuyin, Cangjie and Quick, whose keys show their
 symbols or radicals. Zhuyin uses the standard keyboard, including the digit and

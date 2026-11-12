@@ -1,6 +1,6 @@
 # Roadmap
 
-Full Keyboard for Steam Frame is an alternative keyboard for local dashboard apps. After a manual install it is launched by hand and leaves the system keyboard untouched; the [installer](installer.md) offers replacement with Start with SteamOS on a first install. The optional replacement bridge handles supported native requests while the app runs. Streamed VR-app input is outside the project scope.
+Full Keyboard for Steam Frame is an alternative keyboard for local dashboard apps and, with Streaming support, for games and applications that Steam streams from a PC. After a manual install it is launched by hand and leaves the system keyboard untouched; the [installer](installer.md) offers replacement with Start with SteamOS, and Streaming support, on a first install. The optional replacement bridge handles supported native requests while the app runs. Streamed VR-app input is outside the project scope.
 
 ## Implemented
 

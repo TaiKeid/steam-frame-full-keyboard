@@ -227,7 +227,7 @@ separate from this host configuration.
 
 ### Measure rendering
 
-`render-benchmark` uses the production renderer with bundled English/Graphite profiles, a temporary config directory, and a `NullSink`. It cannot type into applications. It runs for about 35 seconds after warmup, measuring idle, one and four key presses per second, and forced redraws at a target 60 Hz. Each synthetic press lasts 100 ms; the normal 80 ms press/release animations determine redraw counts. It does not change the installed app or its settings.
+`render-benchmark` uses the production renderer with bundled English/Graphite profiles, a temporary config directory, and a `NullSink`. It cannot type into applications. It runs for about 55 seconds after warmup: idle, one and four key presses per second, and forced redraws at a target 60 Hz, then a wobbling laser over Settings, the Additional languages popup, a drag in it, and the dictation editor. Each synthetic press lasts 100 ms, alternating between two keys; Graphite's 60 ms press and 128 ms release (from its 80 ms `press_duration_ms`) and Hover fade's 0.18 s, stepped at 30 fps, determine redraw counts. It does not change the installed app or its settings.
 
 After configuring the ARM64 build, run on the device:
 
@@ -237,7 +237,7 @@ scp build/frame-arm64/render-benchmark "$FRAME_HOST:/tmp/"
 ssh "$FRAME_HOST" 'XDG_RUNTIME_DIR=/run/user/$(id -u) /tmp/render-benchmark --vr'
 ```
 
-Keep the headset awake and record the build type and runtime conditions. `--vr` requires SteamVR to be running already and creates its own hidden, noninteractive overlay. Omitting it measures CPU painting without connecting to SteamVR. `--full-paint` disables incremental painting, and `--rgba` forces the compatibility upload path. Combine both flags to compare with the original full-render/conversion approach. The final stress workload always forces full paints. Use an optimized build for performance comparisons; the host preset is Debug.
+Keep the headset awake and record the build type and runtime conditions. `--vr` requires SteamVR to be running already and creates its own hidden, noninteractive overlay. Omitting it measures CPU painting without connecting to SteamVR. `--full-paint` disables incremental painting, and `--rgba` forces the compatibility upload path. Combine both flags to compare with the original full-render/conversion approach. The forced workload always forces full paints. Use an optimized build for performance comparisons; the host preset is Debug.
 
 Output separates wall-clock painting and texture submission, with means, medians, p95 values, and process CPU time. Native upload has no pixel conversion; the compatibility path reports conversion and upload together. Upload includes staging copy, GPU fence wait, and OpenVR submission; it is not a GPU-only timer. Total redraw time includes minor measurement overhead. Before timing, the probe checks the overlay alpha flag and reads back its own texture where supported. Frame returns raw BGRA for native textures; matching those bytes verifies transfer but does not replace a headset check of colors and transparent edges. CPU percentages use one logical CPU as 100%, not the entire device.
 

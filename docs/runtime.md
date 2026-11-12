@@ -72,7 +72,7 @@ Cut, Copy and Paste send Ctrl+X, Ctrl+C and Ctrl+V. In a terminal opened from th
 | Grip does nothing | Release it fully, point at the keyboard, then squeeze; wake the controller and verify it is a Frame controller |
 | Japanese only previews text | Check Anthy, fonts, the native text protocol, and the selected mode; see [Japanese input](japanese.md) |
 | After a SteamOS update, a stream from the PC no longer starts, or shows a black window, with Streaming support on | Turn Streaming support off in Settings → Integration and start the stream again; it needs no restart. Report it, and turn it back on after the next Full Keyboard update. See [streamed games](streamed-games.md#what-keeps-it-from-breaking-streaming) |
-| Streaming support is on but Steam's keyboard still opens in a stream | It starts after SteamOS restarts once; Settings says so under the switch. Start a new stream afterwards. If Settings says instead that the streaming library did not pass its check, the check at Steam's start refused it with this Steam version, and a restart alone won't change that: streams stay as Steam makes them. Turn Streaming support off and wait for a Full Keyboard update |
+| Streaming support is on but Steam's keyboard still opens in a stream | It starts after SteamOS restarts once; Settings says so under the switch. Start a new stream afterwards. If Settings says instead that the streaming library did not pass its check, the check at Steam's start refused it with this Steam version, and a restart alone won't change that: streams stay as Steam makes them. Turn Streaming support off and wait for a Full Keyboard update. If it says Streaming support is not available in this installation, a piece it needs is gone, such as Steam's own OpenVR library after a Steam update moved it; it can then be turned off but not on: turn it off and wait for a Full Keyboard update |
 | `install.sh` says Full Keyboard is running | Quit Full Keyboard in Settings, then run it again. The [installer](installer.md) closes a running keyboard itself |
 | New name is absent in Steam Library | A manually added shortcut has its own title; rename it to Full Keyboard in its Properties |
 
@@ -84,7 +84,7 @@ Use the centered Settings → Check for updates button for a verified download, 
 
 For a manual installation, quit Full Keyboard first. `install.sh` holds the instance lock throughout installation and refuses if the app is running. It validates the copied ARM64 binary and profiles in a fresh staging directory before switching `current`, then removes the replaced production release. Settings under `~/.config/framekeyboard` are preserved. The same version can be reinstalled, and older versions can replace newer ones. A failed preparation leaves the current release usable; interrupted cleanup never deletes the release named by `current`.
 
-To roll back, download an older release archive and its checksums, verify it and extract it as described in the README. Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Quit Full Keyboard, then reinstall the older package. For an older package whose `install.sh` predates reinstall support, use `install.sh` from a newer extracted package and pass the older package directory:
+To roll back, download an older release archive and its checksums, verify it and extract it as described in the README. Before rolling back to a release without Start with SteamOS, disable that option and apply it first. Before rolling back to a release older than 0.18.0, turn Streaming support off and apply it first: older releases neither use nor remove its drop-in for Steam's service. The installer's Downgrade does this itself. Quit Full Keyboard, then reinstall the older package. For an older package whose `install.sh` predates reinstall support, use `install.sh` from a newer extracted package and pass the older package directory:
 
 ```sh
 bash /path/to/newer-package/install.sh /path/to/extracted-older-package
@@ -99,15 +99,16 @@ To uninstall, use **Uninstall** in the [installer](installer.md), or run the uni
 bash ~/.local/share/framekeyboard/current/uninstall.sh
 ```
 
-It lists what it will remove and asks first; `--yes` skips the question. It stops the Start with SteamOS service and any running Full Keyboard. A normal stop gives keyboard requests back to Steam's keyboard and removes the bridge's hooks from Steam's UI. It waits on the instance lock until nothing runs, and waits for any install or update in progress. It then removes the startup unit and its links, every installed release, the launcher, the menu entry and the runtime lock directory. It only removes files it recognizes as Full Keyboard's: a launcher, menu entry or unit of the same name written by another program stays. Settings, keyboard placement and custom profiles in `~/.config/framekeyboard` stay unless you add `--purge`. Running it again when nothing is installed is harmless. Releases before the uninstaller was added do not contain it; use the one from a newer extracted package.
+It lists what it will remove and asks first; `--yes` skips the question. It stops the Start with SteamOS service and any running Full Keyboard. A normal stop gives keyboard requests back to Steam's keyboard and removes the bridge's hooks from Steam's UI. It waits on the instance lock until nothing runs, and waits for any install or update in progress. It then turns Streaming support off for a Steam that already loads its library, whose link then leads to Steam's own library, and removes its drop-in for Steam's service, the startup unit and its links, every installed release, the launcher, the menu entry and the runtime lock directory. It only removes files it recognizes as Full Keyboard's: a launcher, menu entry, unit or drop-in of the same name written by another program stays. Settings, keyboard placement and custom profiles in `~/.config/framekeyboard` stay unless you add `--purge`. Running it again when nothing is installed is harmless. Releases before the uninstaller was added do not contain it; use the one from a newer extracted package.
 
-To remove it by hand instead, quit Full Keyboard (Settings → Quit Full Keyboard with native replacement enabled), then run:
+To remove it by hand instead, turn Streaming support off in Settings → Integration if it is on, quit Full Keyboard (Settings → Quit Full Keyboard with native replacement enabled), then run:
 
 ```sh
 systemctl --user disable --now framekeyboard-autostart.service
 rm -f ~/.config/systemd/user/framekeyboard-autostart.service \
       ~/.config/systemd/user/steamvr.service.wants/framekeyboard-autostart.service \
-      ~/.config/systemd/user/gamescope-session.target.wants/framekeyboard-autostart.service
+      ~/.config/systemd/user/gamescope-session.target.wants/framekeyboard-autostart.service \
+      ~/.config/systemd/user/steam.service.d/50-framekeyboard-stream.conf
 systemctl --user daemon-reload
 rm ~/.local/bin/framekeyboard
 rm ~/.local/share/applications/framekeyboard.desktop

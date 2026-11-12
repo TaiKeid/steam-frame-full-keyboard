@@ -64,7 +64,7 @@ After a SteamOS update:
 
 - Refresh the [ARM64 sysroot](building.md#arm64-sysroot) from the Frame, rebuild, and run the ARM64 core tests on the Frame ([tests](building.md#tests)), with `FRAMEKEYBOARD_TEST_ANTHY_REQUIRED=1`.
 - Build releases against the stable SteamOS libraries. A sysroot copied from a beta Frame can tie binaries to newer symbol versions that stable SteamOS can't load, such as glibc 2.43's `acosf` and `sqrtf` in the swipe and whisper engines. Keep such a copy apart until stable catches up, and check release binaries with `objdump -T` for symbol versions newer than stable's.
-- Package again: `scripts/package.sh` checks that the release binaries are AArch64, stripped and free of build paths (`tools/check_release_binary.py`), that the executable has no composition-library or system-libei startup dependency, and that the sysroot has every library version Mozc's prebuilt server needs (`tools/check_frame_libraries.py`).
+- Package again: `scripts/package.sh` checks that the release binaries, the streaming library and its gate included, are AArch64, stripped and free of build paths (`tools/check_release_binary.py`), that the streaming library depends only on Steam's OpenVR library, found in its own folder, and offers only the call it wraps (`tools/check_stream_library.py`), that the executable has no composition-library or system-libei startup dependency, and that the sysroot has every library version Mozc's prebuilt server needs (`tools/check_frame_libraries.py`).
 - Check that every bundled script still renders in the headset, including Arabic, Hebrew, Devanagari, Thai, Greek, CJK and emoji. A missing font shows blank keys.
 
 ## Private behavior
@@ -79,6 +79,7 @@ Nothing pins these. Each one is feature-checked at runtime and fails safe, but a
 | SteamOS microphone filters (WirePlumber smart filters in `/etc/pipewire/pipewire.conf.d/`) and the `pipewire-0-manager` socket | Dictation records the raw microphone | Dictate with and without a game; the log shows "recording the microphone without the game's voice filters" only with a game. See [microphone](dictation.md#microphone) |
 | Gamescope's text and keymap behavior | Typing and Send's pace | If text arrives scrambled: send a 900-character text to a disposable receiver with `text-replace-probe`'s `whole` and `paced` commands, idle and under load, and count wrong characters (see [Send](dictation.md#send)) |
 | Steam app IDs as window names for local games | Native replacement over local games | A local game's keyboard button with replacement on |
+| Steam's streaming client: program name `streaming_client`, keyboard requests on `steamlink_openvr-overlay` with dispatch set, SDL's OpenVR driver loading `SDL_OPENVR_LIBRARY` and asking for `FnTable:IVROverlay_026` (82 functions, `PollNextOverlayEvent` in slot 48), SDL's `SDL_PushEvent`, `SDL_GetKeyboardFocus` and `SDL_GetWindowID` in its process, Steam's library at `~/.local/share/Steam/steamrtarm64/libopenvr_api.so`, and Steam's user service `steam.service` taking drop-ins | [Streaming support](streamed-games.md#through-steams-own-streaming-streaming-support) | Restart SteamOS with it on: Settings shows neither the restart line nor the failed check. In a stream from a PC, the keyboard button opens Full Keyboard and letters, a shortcut and, from a Windows PC, Cyrillic arrive; a key press does not click on the PC. Turned off, the stream goes back to Steam's keyboard |
 | KWin scripting in SteamOS's Desktop (`org.kde.kwin.Scripting`, `workspace.windowActivated`, `resourceClass`) and `libsystemd.so.0` | Terminal Cut, Copy and Paste inside the Desktop ([design](terminal-edit-keys-design.md#steamoss-desktop)) | Open the Desktop with Konsole and Dolphin: Cut shows disabled in Konsole and not in Dolphin, and Copy and Paste work in both |
 
 ## Integration tests
@@ -94,6 +95,11 @@ After any update above, run these in order and stop at the first failure:
    - dictation in editor mode and Type as I speak, on device and self-hosted, with and without a game.
 
 ## Last check
+
+2026-11-12, for 0.18.0:
+- **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists and every Chinese engine pin.
+- **ExecuTorch, frame-perf-overlay, Mozc dictionary and kaomoji data, Unicode emoji:** as for 0.17.0 below; the pins stay.
+- **AppImage runtime:** release 20251108.
 
 2026-11-10, for 0.17.0:
 - **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, and every Chinese engine pin: zstd v1.5.7, ECM v6.31.0, fcitx5 5.1.23, libime 1.1.17, McBopomofo 3.1.1, OpenCC 1.4.2, the rime-cantonese ranks and Boost 1.92.0.

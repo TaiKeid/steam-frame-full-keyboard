@@ -247,7 +247,7 @@ Two-set Hangul (`ko-kr`) needs libhangul when building: the build makes its engi
 
 - **VR placement.** Moving, resizing and auto leveling are off. Pin, Recenter, Stay open over apps and Focus mode still show in the toolbar but have nothing to act on.
 - **Haptics and haptic sounds.**
-- **Steam.** Native keyboard replacement, Start with SteamOS and updates have no effect here. The field is not one of Steam's; the slow field only imitates their timing.
+- **Steam.** Native keyboard replacement, Start with SteamOS, Streaming support and updates have no effect here; Streaming support can be ticked to read its questions, but nothing is installed. The field is not one of Steam's; the slow field only imitates their timing.
 - **Dictation.** The mic key shows only once dictation is set up in Settings, which downloads a speech model or needs a speech server. It would then listen through the PC's microphone. Dictation has not been checked in the simulator.
 - **Swipe typing**, unless the build includes the swipe engine ([building](building.md#dependencies)); without it, Settings keeps swipe typing off.
 - **A full text editor.** The field has no undo or rich text, and ↑ and ↓ move between lines separated by line breaks, not wrapped lines.
