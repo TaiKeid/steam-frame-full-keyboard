@@ -392,6 +392,7 @@ for (const key of ["valve.steam.desktopgame.", "valve.steam.desktopgame.12a", "v
     f.bridge.prepareExternal(s.request, s.externalCandidate.key, false);
     s = f.step();
     assert(!s.stream && !s.eligible && f.nativeOpen(), "a refused stream request stays with Steam's keyboard");
+    assert(f.nodes.size === 0 && s.steam, "and Steam's keyboard shows at once, not at the request deadline");
     f.bridge.dispose();
 }
 // Without SteamVR dispatch, without the minimal flag or from another overlay it is not a stream request.

@@ -875,6 +875,9 @@
             if (!pending || pending.request !== generation || pending.key !== key) return snapshot();
             if (guarded === false) {
                 closeUpdatePresentation();
+                // A stream the helper cannot type into, as without Streaming
+                // support, stays Steam's: shown now, not at the request deadline.
+                if (key === STREAM_KEY) ignoreOpen = true;
                 inspect();
                 return snapshot();
             }
