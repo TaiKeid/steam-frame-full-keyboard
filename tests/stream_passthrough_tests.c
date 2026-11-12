@@ -357,6 +357,29 @@ int main(int argc, char** argv) {
     }
     key(keyboard, 224, 0, false);
     idle_pump();
+    // Ctrl is down and Ctrl+C waits behind a commit when the session ends with Ctrl still held: Ctrl
+    // is let go of at once, so C must not be typed after it.
+    key(keyboard, 224, 0x40, true);
+    pushed_count = 0;
+    check(idle_pump() && pushed_count == 1 && is_key(0, 224, 0x40, 1), "Ctrl held");
+    check(send(keyboard, "Txy", 3, 0) == 3, "a commit behind it");
+    key(keyboard, 6, 0x40, true);
+    key(keyboard, 6, 0x40, false);
+    check(idle_pump() && pushed_count == 3 && is_key(1, 27, 0, 1), "x");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends with Ctrl down");
+    {
+        unsigned ctrl_up = 0, y = 0, c = 0;
+        for (int i = 0; i < 4; ++i) {
+            idle_pump();
+        }
+        for (int k = 3; k < pushed_count; ++k) {
+            ctrl_up += pushed[k].scancode == 224 && !pushed[k].down;
+            y += pushed[k].scancode == 28 && pushed[k].down;
+            c += pushed[k].scancode == 6;
+        }
+        check(ctrl_up == 1 && y == 1 && c == 0,
+              "Ctrl goes up, y is typed, C is neither pressed nor released");
+    }
 
     // 6c. A commit that does not fit is dropped with what follows it until the queue has drained, so the
     // text is cut short, never missing a middle piece; a release still goes through.

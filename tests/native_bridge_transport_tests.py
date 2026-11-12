@@ -1393,6 +1393,54 @@ class Lifecycle(unittest.TestCase):
             channel.close()
         self.assertIsNotNone(bridge.StreamChannel._started(os.getpid()), "this process's start is readable")
 
+    def test_a_newer_streaming_client_takes_over_and_an_older_one_does_not(self):
+        # Real processes, through service(): each waits for a line before it connects, so the order of
+        # connecting can differ from the order of starting.
+        script = ("import os, socket, struct, sys\n"
+                  "sys.stdin.readline()\n"
+                  "s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)\n"
+                  "s.connect(sys.argv[1])\n"
+                  "s.send(b'H' + bytes((int(sys.argv[2]),)) + struct.pack('<I', os.getpid()))\n"
+                  "sys.stdin.read()\n")
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            channel = bridge.StreamChannel(directory, programs=(os.path.basename(os.readlink("/proc/self/exe")),))
+            path = os.path.join(directory, bridge.STREAM_SOCKET)
+            children = []
+
+            def start():
+                child = subprocess.Popen([sys.executable, "-c", script, path, str(bridge.STREAM_PROTOCOL)],
+                                         stdin=subprocess.PIPE)
+                children.append(child)
+                time.sleep(.05)  # start times count in clock ticks
+                return child
+
+            def connect(child, expected):
+                child.stdin.write(b"\n")
+                child.stdin.flush()
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    channel.service()
+                    time.sleep(.02)
+                    if channel.client_pid == expected and time.monotonic() > deadline - 1.5:
+                        break
+                return channel.client_pid
+
+            try:
+                first = start()
+                second = start()
+                self.assertEqual(connect(first, first.pid), first.pid, "the first client connects")
+                self.assertEqual(connect(second, second.pid), second.pid, "a newer stream's client takes over")
+                older = start()
+                newer = start()
+                self.assertEqual(connect(newer, newer.pid), newer.pid, "a newer one again")
+                self.assertEqual(connect(older, newer.pid), newer.pid,
+                                 "one that started earlier is refused, though it connects later")
+            finally:
+                for child in children:
+                    child.stdin.close()
+                    child.wait(5)
+                channel.close()
+
     def test_no_key_of_a_session_follows_a_text_that_failed(self):
         # A client that stops reading: once a text finds no room, the session's keys are refused, so an
         # Enter never arrives without its text; the session's end then hangs up and resets it.
