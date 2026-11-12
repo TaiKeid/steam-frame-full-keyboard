@@ -2804,6 +2804,29 @@ void native_replacement_settings() {
     require(!errors.empty(), "replacement requires JSON boolean");
     require(sink.events.empty(), "replacement settings send no desktop input");
 }
+// After the check failed at Steam's start, ✓ does not say streaming support starts after a restart.
+void streaming_support_failed_check() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.stream_support = [] { return StreamSupportStatus{.supported = true, .failed = true}; };
+    CaptureSink sink;
+    App app(options, sink);
+    app.show_settings();
+    app.move(0, 800, 300);
+    app.scroll(0, 1000, 0);
+    for (int i = 0; i < 40; ++i) {
+        app.tick(100 + i * .05);
+    }
+    click(app, "replace-native-keyboard");
+    click(app, "streaming-support");
+    click(app, "confirm-accept");
+    click(app, "apply");
+    require(app.streaming_support() &&
+                app.view().status != "Streaming support starts after SteamOS restarts.",
+            "no restart is promised after a failed check");
+}
 // Streaming support that cannot be set up: its saved flag goes back, and so does the one in memory, so
 // the card shows what is true and later saves don't quietly try it again.
 void streaming_support_failed_setup() {
@@ -2899,13 +2922,17 @@ void streaming_support_setting() {
     require(!app.view().confirm && control(app.view(), "streaming-support").selected && note(),
             "Accept ticks it and says it waits for a restart");
     require(!app.streaming_support() && !saved(app).streaming_support, "nothing is applied yet");
-    // When the check failed at Steam's start, the card says that instead of asking for a restart.
+    // When the check failed at Steam's start, the card, the question and the status after ✓ say that
+    // instead of promising a restart.
     status.failed = true;
     app.back();
     click(app, "confirm-cancel");
     open();
     click(app, "replace-native-keyboard");
     click(app, "streaming-support");
+    require(app.view().confirm &&
+                app.view().confirm->body.find("SteamOS has to be restarted") == std::string::npos,
+            "the question promises no restart after a failed check");
     click(app, "confirm-accept");
     require(!note() && std::any_of(app.view().field_labels.begin(), app.view().field_labels.end(),
                                    [](const FieldLabel& f) {
@@ -3272,6 +3299,7 @@ int main() {
         native_replacement_settings();
         streaming_support_setting();
         streaming_support_failed_setup();
+        streaming_support_failed_check();
         keep_open_setting();
         favorite_schema();
         fractional_dropdown_scroll();

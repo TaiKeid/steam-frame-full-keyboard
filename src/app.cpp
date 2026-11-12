@@ -1469,9 +1469,10 @@ PanelView App::build_view(bool picker) const {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("popup.save-languages.title"),
                                            tr("popup.save-languages.body")};
     } else if (settings_open_ && confirm_ == Confirm::EnableStreaming) {
-        // What it is, the restart only when one is needed, then the risk.
+        // What it is, the restart only when one is needed and would help,
+        // then the risk.
         auto body = tr("popup.streaming-on.body");
-        if (!stream_status_.active) {
+        if (!stream_status_.active && !stream_status_.failed) {
             body += "\n\n" + tr("popup.streaming-on.restart");
         }
         body += "\n\n" + tr("popup.streaming-on.risk");
@@ -4848,8 +4849,10 @@ void App::apply_settings() {
     settings_.use_drag_to_move = pending_use_drag_to_move_;
     settings_.auto_leveling = pending_auto_leveling_;
     settings_.vibration = pending_vibration_;
-    // Told once it is saved: until SteamOS restarts, streams stay as they were.
-    const bool streaming_waits = streaming_turned_on() && !stream_status_.active;
+    // Told once it is saved: until SteamOS restarts, streams stay as they
+    // were. After a failed check the card says why instead (R201).
+    const bool streaming_waits =
+        streaming_turned_on() && !stream_status_.active && !stream_status_.failed;
     settings_.replace_native_keyboard = pending_replace_native_keyboard_;
     settings_.start_with_steamos = pending_start_with_steamos_;
     settings_.streaming_support = pending_streaming_support_ && pending_replace_native_keyboard_;
