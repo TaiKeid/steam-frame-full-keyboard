@@ -76,5 +76,11 @@ cp scripts/installer-appimage/framekeyboard-installer.desktop \
 ln -s framekeyboard-installer.svg "$appdir/.DirIcon"
 rm -f -- "$image"
 ARCH=aarch64 "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "$image"
-(cd "$out" && sha256sum "${image##*/}" > SHA256SUMS)
-cat "$out/SHA256SUMS"
+# The test installer goes beside packages and their SHA256SUMS, which must list
+# only packages: its own checksum is a file of its own.
+sums=SHA256SUMS
+if [[ $local_packages == 1 ]]; then
+    sums="$name.sha256"
+fi
+(cd "$out" && sha256sum "$name" > "$sums")
+cat "$out/$sums"
