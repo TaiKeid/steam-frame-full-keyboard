@@ -175,7 +175,7 @@
     "installer.page.use-numpad": "Use the numpad?",
     "installer.page.use-numpad.text": "With Yes, you keep the full-size keyboard with its number pad. With No, it becomes tenkeyless: narrower, with the other keys the same size.",
     "installer.ready.manual": "Finish saves your choices. Open Full Keyboard from the application menu when you need it.",
-    "installer.ready.reinstall": "Finish closes the installer. Your settings stay as they were.",
+    "installer.ready.reinstall": "Done. Press Finish to close the installer.",
     "installer.ready.replace": "Finish saves your choices and opens Full Keyboard. From now on it starts with SteamOS.",
     "installer.ready.restart": "Finish saves your choices and restarts SteamOS. From now on Full Keyboard starts with it.",
     "installer.reinstall": "Reinstall",
