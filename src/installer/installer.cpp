@@ -489,6 +489,12 @@ void Installer::poll() {
             quit_ = true;
         } else if (status_.state == State::Failed) {
             finish_pressed_ = false; // Finish again tries again; Back stays gone.
+            // A restart that failed is not tried again: everything else is set
+            // up, so the next Finish opens the keyboard, and the message says
+            // to restart from the power menu.
+            if (status_.error.key == "installer.error.restart") {
+                restart_ = false;
+            }
         }
     }
 }
