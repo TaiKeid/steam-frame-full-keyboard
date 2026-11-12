@@ -1396,13 +1396,17 @@ class Lifecycle(unittest.TestCase):
     def test_a_newer_streaming_client_takes_over_and_an_older_one_does_not(self):
         # Real processes, through service(): each waits for a line before it connects, so the order of
         # connecting can differ from the order of starting.
-        # A child exits with 3 once the helper hangs up on it, refused or replaced.
+        # A child exits with 3 once the helper hangs up on it, refused or replaced, also when that
+        # comes before its hello is out (the helper waits only 0.2 s for one).
         script = ("import os, socket, struct, sys\n"
                   "sys.stdin.readline()\n"
                   "s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)\n"
                   "s.connect(sys.argv[1])\n"
-                  "s.send(b'H' + bytes((int(sys.argv[2]),)) + struct.pack('<I', os.getpid()))\n"
-                  "while s.recv(64):\n"
+                  "try:\n"
+                  "    s.send(b'H' + bytes((int(sys.argv[2]),)) + struct.pack('<I', os.getpid()))\n"
+                  "    while s.recv(64):\n"
+                  "        pass\n"
+                  "except OSError:\n"
                   "    pass\n"
                   "sys.exit(3)\n")
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
