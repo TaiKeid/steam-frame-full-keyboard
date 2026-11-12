@@ -497,8 +497,9 @@ void swipe_trail() {
     for (int i = 0; i < 20; ++i) {
         compare.frame(view, "the path fades out");
     }
-    require(!compare.incremental.animating() && compare.incremental.rgba() == idle,
-            "a finished trail leaves nothing behind");
+    require(!compare.incremental.animating() && compare.incremental.rgba() == idle &&
+                !compare.incremental.trail_layers(),
+            "a finished trail leaves nothing behind, its layers included");
     // A swipe that starts while the last one fades replaces it at once.
     for (int i = 0; i <= 6; ++i) {
         view.swipe_trail.emplace_back(from.x + 20 + 12 * i, from.y + 20);

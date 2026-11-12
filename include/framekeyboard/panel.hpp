@@ -500,6 +500,8 @@ class PanelRenderer {
     // The panel was hidden or shown: the next paint ends what was fading or
     // trailing at once, so nothing from before shows up after a summon.
     void settle() { settle_ = true; }
+    // Whether the swipe trail's layers are allocated; tests check they go.
+    bool trail_layers() const { return trail_ || comet_; }
     // When an animation can next change a pixel: now for key presses, the
     // next 30 fps step for the mic key's bars and ring.
     double next_change() const { return next_change_; }
