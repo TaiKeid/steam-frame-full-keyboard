@@ -1711,27 +1711,76 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
                  lit && fade > .5 ? theme_.latched_legend : theme_.legend);
         }
     }
-    // The trail, up to its moving head.
+    // The trail as the keyboard draws it (panel.cpp), at this demo's scale:
+    // the whole path as a quiet thin line, and over its last moments a comet,
+    // thinner and fainter with age.
+    constexpr double path_width = 2, comet_width = 4.5, glow_width = 11, comet_seconds = .42;
     const auto at = [&](double along) {
         const auto i = std::min(static_cast<std::size_t>(along), points.size() - 2);
         const double f = along - static_cast<double>(i);
         return std::pair{points[i].first + (points[i + 1].first - points[i].first) * f,
                          points[i].second + (points[i + 1].second - points[i].second) * f};
     };
+    const Color path_ink = paint::mix(theme_.legend, theme_.latched, .22);
+    const Color glow = paint::mix(theme_.latched, theme_.legend, .35);
     cairo_move_to(cr_, points[0].first, points[0].second);
     for (std::size_t i = 1; i <= static_cast<std::size_t>(progress); ++i) {
         cairo_line_to(cr_, points[i].first, points[i].second);
     }
     const auto head = at(progress);
     cairo_line_to(cr_, head.first, head.second);
-    set_rgba(cr_, paint::mix(theme_.latched, theme_.legend, .45), .8 * fade);
-    cairo_set_line_width(cr_, 8);
+    set_rgba(cr_, path_ink, .30 * fade);
+    cairo_set_line_width(cr_, path_width);
     cairo_set_line_cap(cr_, CAIRO_LINE_CAP_ROUND);
     cairo_set_line_join(cr_, CAIRO_LINE_JOIN_ROUND);
     cairo_stroke(cr_);
-    cairo_arc(cr_, head.first, head.second, 8, 0, 2 * pi);
-    set_rgba(cr_, theme_.legend, .9 * fade);
-    cairo_fill(cr_);
+    // The comet: short pieces of the path, each as old as the moment the
+    // head passed it; after the trace it burns out where it stopped.
+    constexpr double piece = .1; // of the way between two letters
+    const double from = std::max(0.0, progress - comet_seconds / demo_step);
+    std::vector<std::pair<std::pair<double, double>, double>> pieces; // end point, life left
+    for (double along = from; along < progress - 1e-6; along += piece) {
+        const double end = std::min(along + piece, progress);
+        const double age = t - std::min(end, last) * demo_step;
+        const double left = std::clamp(1 - age / comet_seconds, 0.0, 1.0);
+        pieces.emplace_back(at(end), left * left * (3 - 2 * left));
+    }
+    if (!pieces.empty()) {
+        // Clipped to where it can reach, so the groups stay small.
+        double x0 = head.first, y0 = head.second, x1 = head.first, y1 = head.second;
+        for (double along = from; along <= progress; along += piece) {
+            const auto p = at(along);
+            x0 = std::min(x0, p.first);
+            y0 = std::min(y0, p.second);
+            x1 = std::max(x1, p.first);
+            y1 = std::max(y1, p.second);
+        }
+        const double reach = glow_width / 2 + 2;
+        cairo_save(cr_);
+        cairo_rectangle(cr_, std::floor(x0 - reach), std::floor(y0 - reach),
+                        std::ceil(x1 - x0 + 2 * reach) + 1, std::ceil(y1 - y0 + 2 * reach) + 1);
+        cairo_clip(cr_);
+        // Each piece replaces what lies under it, so joins don't darken.
+        const auto strokes = [&](double width, double strength, Color colour) {
+            cairo_push_group(cr_);
+            cairo_set_operator(cr_, CAIRO_OPERATOR_SOURCE);
+            auto start = at(from);
+            for (const auto& [end, eased] : pieces) {
+                cairo_move_to(cr_, start.first, start.second);
+                cairo_line_to(cr_, end.first, end.second);
+                set_rgba(cr_, colour, eased);
+                cairo_set_line_width(cr_, width * (.25 + .75 * eased));
+                cairo_stroke(cr_);
+                start = end;
+            }
+            cairo_set_operator(cr_, CAIRO_OPERATOR_OVER);
+            cairo_pop_group_to_source(cr_);
+            cairo_paint_with_alpha(cr_, strength * fade);
+        };
+        strokes(glow_width, .16, glow);
+        strokes(comet_width, .9, path_ink);
+        cairo_restore(cr_);
+    }
 }
 
 // A word typed letter by letter: three ways to finish it show under the
