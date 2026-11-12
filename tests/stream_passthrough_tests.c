@@ -588,15 +588,23 @@ int main(int argc, char** argv) {
         }
         key(keyboard, 224, 0, false);
         {
-            unsigned c_with_ctrl = 0;
+            unsigned c_with_ctrl = 0, ctrl_down = 0, ctrl_up = 0;
+            bool ctrl_is_down = true; // the PC's, from before the backlog
             for (int i = 0; i < 4200; ++i) {
                 pushed_count = 0;
                 idle_pump();
                 for (int k = 0; k < pushed_count; ++k) {
                     c_with_ctrl += pushed[k].scancode == 6 && pushed[k].down && pushed[k].mod == 0x40;
+                    if (pushed[k].scancode == 224) {
+                        ctrl_down += pushed[k].down;
+                        ctrl_up += !pushed[k].down;
+                        ctrl_is_down = pushed[k].down;
+                    }
                 }
             }
             check(c_with_ctrl == 1, "the whole Ctrl+C behind the cancelled press is typed");
+            check(ctrl_up == 2 && ctrl_down == 1 && !ctrl_is_down,
+                  "the PC's Ctrl comes up, goes down once for Ctrl+C, and the cancelled press never");
         }
         key(keyboard, 26, 0, false);
         idle_pump();
