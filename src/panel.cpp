@@ -2733,7 +2733,7 @@ void PanelRenderer::settle() {
     settle_ = true;
     // The next paint forgets the trail, damaging where it was; its pixels
     // need nothing kept until then.
-    for (auto* layer : {&trail_, &comet_}) {
+    for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
         if (*layer) {
             cairo_surface_destroy(*layer);
             *layer = nullptr;
@@ -2741,11 +2741,10 @@ void PanelRenderer::settle() {
     }
 }
 PanelRenderer::~PanelRenderer() {
-    if (trail_) {
-        cairo_surface_destroy(trail_);
-    }
-    if (comet_) {
-        cairo_surface_destroy(comet_);
+    for (auto* layer : {trail_, comet_, comet_passes_}) {
+        if (layer) {
+            cairo_surface_destroy(layer);
+        }
     }
     cairo_surface_destroy(surface_);
 }
@@ -3201,7 +3200,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // zeroed each time and might not return to the system (R198). They go
         // under Settings and when the panel hides (settle()).
         const auto release_layers = [&] {
-            for (auto* layer : {&trail_, &comet_}) {
+            for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
                 if (*layer) {
                     cairo_surface_destroy(*layer);
                     *layer = nullptr;
@@ -3292,6 +3291,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 if (!comet_) {
                     comet_ = mapped_layer(panel_width, panel_height);
                 }
+                if (!comet_passes_) {
+                    comet_passes_ = mapped_layer(panel_width, panel_height);
+                }
                 std::vector<std::pair<double, double>> at; // Smoothed points first - 1 to the head.
                 for (std::size_t i = first - 1; i < count; ++i) {
                     at.push_back(trail_point(trail_points_, i));
@@ -3350,13 +3352,19 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 auto* comet = cairo_create(comet_);
                 cairo_rectangle(comet, groups.x, groups.y, groups.width, groups.height);
                 cairo_clip(comet);
-                cairo_set_line_cap(comet, CAIRO_LINE_CAP_ROUND);
                 // Each piece replaces what lies under it instead of adding to
                 // it, so overlapping round caps don't darken the joins, and a
-                // newer, stronger piece wins where two meet.
+                // newer, stronger piece wins where two meet. A pass is drawn on
+                // `comet_passes_`, cleared over `groups` first, as a group
+                // would be, then laid onto the comet within `area`.
                 const auto strokes = [&](double width, double strength, Color colour) {
-                    cairo_push_group(comet);
-                    cairo_set_operator(comet, CAIRO_OPERATOR_SOURCE);
+                    auto* pass = cairo_create(comet_passes_);
+                    cairo_rectangle(pass, groups.x, groups.y, groups.width, groups.height);
+                    cairo_clip(pass);
+                    cairo_set_operator(pass, CAIRO_OPERATOR_CLEAR);
+                    cairo_paint(pass);
+                    cairo_set_operator(pass, CAIRO_OPERATOR_SOURCE);
+                    cairo_set_line_cap(pass, CAIRO_LINE_CAP_ROUND);
                     for (std::size_t i = first; i < count; ++i) {
                         if (!drawn_piece[i - first]) {
                             continue;
@@ -3366,17 +3374,18 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         const double eased = left * left * (3 - 2 * left);
                         const auto& a = at[i - first];
                         const auto& b = at[i - first + 1];
-                        cairo_move_to(comet, a.first, a.second);
-                        cairo_line_to(comet, b.first, b.second);
-                        cairo_set_source_rgba(comet, colour.r, colour.g, colour.b, eased);
-                        cairo_set_line_width(comet, width * (.25 + .75 * eased));
-                        cairo_stroke(comet);
+                        cairo_move_to(pass, a.first, a.second);
+                        cairo_line_to(pass, b.first, b.second);
+                        cairo_set_source_rgba(pass, colour.r, colour.g, colour.b, eased);
+                        cairo_set_line_width(pass, width * (.25 + .75 * eased));
+                        cairo_stroke(pass);
                     }
-                    cairo_set_operator(comet, CAIRO_OPERATOR_OVER);
-                    cairo_pop_group_to_source(comet);
+                    cairo_destroy(pass);
+                    cairo_surface_flush(comet_passes_);
                     cairo_save(comet);
                     cairo_rectangle(comet, area.x, area.y, area.width, area.height);
                     cairo_clip(comet);
+                    cairo_set_source_surface(comet, comet_passes_, 0, 0);
                     cairo_paint_with_alpha(comet, strength);
                     cairo_restore(comet);
                 };

@@ -502,7 +502,7 @@ class PanelRenderer {
     // trail's layers go now, as nothing paints while the panel is hidden.
     void settle();
     // Whether the swipe trail's layers are allocated; tests check they go.
-    bool trail_layers() const { return trail_ || comet_; }
+    bool trail_layers() const { return trail_ || comet_ || comet_passes_; }
     // When an animation can next change a pixel: now for key presses, the
     // next 30 fps step for the mic key's bars and ring.
     double next_change() const { return next_change_; }
@@ -552,6 +552,10 @@ class PanelRenderer {
     // redrawn while any piece of it is alive.
     cairo_surface_t* trail_{};
     cairo_surface_t* comet_{};
+    // Where each of the comet's stroke passes is drawn before it is laid
+    // onto `comet_`: one layer kept with the others, instead of a group
+    // Cairo would allocate, and likely map and fault in, every frame (R225).
+    cairo_surface_t* comet_passes_{};
     std::vector<std::pair<double, double>> trail_points_; // The laser's points, as the view gave them.
     std::vector<double> trail_stamps_;                    // When each was first painted.
     std::size_t trail_drawn_{}; // Smoothed points whose segments are in the path layer.
