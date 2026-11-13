@@ -36,9 +36,9 @@ class Comparison {
         const auto size = static_cast<std::size_t>(cairo_image_surface_get_stride(a)) * texture_height;
         before.assign(cairo_image_surface_get_data(a), cairo_image_surface_get_data(a) + size);
         const bool painted = incremental.paint(view, now);
-        // Drawn afresh: a key image kept past a change it should have
+        // Drawn afresh: a key body kept past a change it should have
         // followed shows up as a difference.
-        full.forget_key_images();
+        full.forget_key_bodies();
         full.paint(view, now, true);
         require_damage(painted, phase);
         auto* b = full.surface();

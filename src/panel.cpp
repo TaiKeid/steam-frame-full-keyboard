@@ -61,6 +61,9 @@ double visible_layout_width(const PanelView& view) {
 namespace {
 // Set by record_label_fits: every label drawn while it is set.
 std::vector<LabelFit>* label_fits{};
+// The renderer's shared key bodies (PanelRenderer::body_atlas_), set while it
+// paints; keys drawn elsewhere draw their bodies themselves.
+std::map<std::string, cairo_surface_t*>* body_atlas{};
 bool list_open(const PanelView& view) {
     return view.candidates && view.candidates->list;
 }
@@ -339,33 +342,33 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
 // The light a keycap or button face catches along its top edge and round its
 // upper corners, and the shade it falls into at its foot. Both stay inside
 // the face, so a key still repaints within its bounds. `strength` fades it:
-// more under the laser, none on a key held down.
+// more under the laser, none on a key held down. One stroke along the edge
+// carries both: its gradient fades the light out over the top 16 pixels (a
+// third of a short face), stays clear, and fades the shade in over the
+// bottom 14.
 void cap_light(cairo_t* cr, const Theme& t, const Rect& face, double radius, double strength = 1) {
     if (plain_keys(t) || strength <= 0) {
         return;
     }
     const bool light = light_theme(t);
+    const double light_end = std::min(16.0, face.height * .3),
+                 shade_start = std::max(light_end, face.height - 14);
     cairo_save(cr);
     rounded(cr, face, radius);
     cairo_clip(cr);
     cairo_set_line_width(cr, 1.5);
-    const Rect line{face.x + .75, face.y + .75, face.width - 1.5, face.height - 1.5};
-    const double line_radius = std::max(1.0, radius - .75);
-    auto* top = cairo_pattern_create_linear(0, face.y, 0, face.y + std::min(16.0, face.height * .3));
-    cairo_pattern_add_color_stop_rgba(top, 0, 1, 1, 1, std::min(1.0, (light ? .9 : .15) * strength));
-    cairo_pattern_add_color_stop_rgba(top, .3, 1, 1, 1, std::min(1.0, (light ? .4 : .05) * strength));
-    cairo_pattern_add_color_stop_rgba(top, 1, 1, 1, 1, 0);
-    rounded(cr, line, line_radius);
-    cairo_set_source(cr, top);
+    auto* edge = cairo_pattern_create_linear(0, face.y, 0, face.y + face.height);
+    cairo_pattern_add_color_stop_rgba(edge, 0, 1, 1, 1, std::min(1.0, (light ? .9 : .15) * strength));
+    cairo_pattern_add_color_stop_rgba(edge, .3 * light_end / face.height, 1, 1, 1,
+                                      std::min(1.0, (light ? .4 : .05) * strength));
+    cairo_pattern_add_color_stop_rgba(edge, light_end / face.height, 1, 1, 1, 0);
+    cairo_pattern_add_color_stop_rgba(edge, shade_start / face.height, 0, 0, 0, 0);
+    cairo_pattern_add_color_stop_rgba(edge, 1, 0, 0, 0, std::min(1.0, (light ? .10 : .30) * strength));
+    rounded(cr, {face.x + .75, face.y + .75, face.width - 1.5, face.height - 1.5},
+            std::max(1.0, radius - .75));
+    cairo_set_source(cr, edge);
     cairo_stroke(cr);
-    cairo_pattern_destroy(top);
-    auto* foot = cairo_pattern_create_linear(0, face.y + face.height - 14, 0, face.y + face.height);
-    cairo_pattern_add_color_stop_rgba(foot, 0, 0, 0, 0, 0);
-    cairo_pattern_add_color_stop_rgba(foot, 1, 0, 0, 0, std::min(1.0, (light ? .10 : .30) * strength));
-    rounded(cr, line, line_radius);
-    cairo_set_source(cr, foot);
-    cairo_stroke(cr);
-    cairo_pattern_destroy(foot);
+    cairo_pattern_destroy(edge);
     cairo_restore(cr);
 }
 // Keys that type a character keep the theme's face. The others (modifiers,
@@ -1349,10 +1352,43 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
     draw_edge(cr, t, face, t.radius, edge_lit, !disabled);
     return face;
 }
+// A key's body at rest, copied from the image every key of its shape, fill
+// and tone shares (body_atlas), which is drawn once at whole pixels. The key
+// must be at whole pixels too (draw_key). Returns the face.
+Rect atlas_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Key& key, KeyFace fill) {
+    const auto& r = key.bounds;
+    cairo_matrix_t matrix;
+    cairo_get_matrix(cr, &matrix);
+    const double scale = matrix.xx;
+    constexpr int margin = 4; // room for antialiasing around the body
+    char name[96];
+    std::snprintf(name, sizeof name, "%.3fx%.3f/%d/%d/%.6f", r.width, r.height, static_cast<int>(fill),
+                  character_key(key) ? 1 : 0, scale);
+    auto& image = (*body_atlas)[name];
+    if (!image) {
+        image = cairo_image_surface_create(
+            CAIRO_FORMAT_ARGB32, static_cast<int>(std::ceil(r.width * scale)) + 2 * margin,
+            static_cast<int>(std::ceil((r.height + t.depth) * scale)) + 2 * margin);
+        auto* body = cairo_create(image);
+        cairo_translate(body, margin, margin);
+        cairo_scale(body, scale, scale);
+        draw_keycap(body, t, tone, {0, 0, r.width, r.height}, 0, 0, fill, false);
+        cairo_destroy(body);
+        cairo_surface_flush(image);
+    }
+    double x = r.x, y = r.y;
+    cairo_user_to_device(cr, &x, &y);
+    cairo_save(cr);
+    cairo_identity_matrix(cr);
+    cairo_set_source_surface(cr, image, std::round(x) - margin, std::round(y) - margin);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    return r;
+}
 // `amount` is how far the key is pressed and `lift` how far it is lit by the
 // laser, each 0 to 1.
-void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
-              double phase = 1, double ring = 0) {
+void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
+                 double phase, double ring) {
     const auto modifiers = view.keyboard->modifiers();
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
@@ -1382,8 +1418,12 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
                          : latched || listening ? KeyFace::Latched
                          : pressing             ? KeyFace::Pressed
                                                 : KeyFace::Plain;
-    const auto face = draw_keycap(cr, t, tone, key.bounds, amount, lift, fill,
-                                  view.hovered_keys.contains(key.id) || amount > 0);
+    // A key at rest copies its body; one moving, lit or in the pressed
+    // colour draws it.
+    const bool edge_lit = view.hovered_keys.contains(key.id) || amount > 0;
+    const auto face = body_atlas && amount == 0 && lift == 0 && !edge_lit && fill != KeyFace::Pressed
+                          ? atlas_keycap(cr, t, tone, key, fill)
+                          : draw_keycap(cr, t, tone, key.bounds, amount, lift, fill, edge_lit);
     if (listening) {
         // Five bars that stay in place; each eases from its old height to its
         // new one as a level passes from right to left, fading toward the
@@ -1630,6 +1670,20 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
         label(cr, text, face, utility ? t.small_font_size : t.font_size, view.language->font, legend,
               true, PANGO_ALIGN_CENTER, false, right_to_left(text));
     }
+}
+// Every key is drawn at whole pixels, moved by less than half a pixel, so
+// the body it shares with keys of its shape (atlas_keycap) lines up with its
+// legends and looks the same wherever the layout's scale puts it.
+void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
+              double phase = 1, double ring = 0) {
+    double x = key.bounds.x, y = key.bounds.y;
+    cairo_user_to_device(cr, &x, &y);
+    double dx = std::round(x) - x, dy = std::round(y) - y;
+    cairo_device_to_user_distance(cr, &dx, &dy);
+    cairo_save(cr);
+    cairo_translate(cr, dx, dy);
+    draw_key_at(cr, view, key, amount, lift, phase, ring);
+    cairo_restore(cr);
 }
 } // namespace
 void record_label_fits(std::vector<LabelFit>* into) {
@@ -2718,26 +2772,6 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
 }
-// The legend state key images are kept for: what a key at rest shows besides
-// the scene, which a Shift tap changes.
-std::string legend_state(const std::set<int>& modifiers, bool caps, bool num, bool shift_locked) {
-    std::string state;
-    for (const int code : modifiers) {
-        state += std::to_string(code) + ',';
-    }
-    state += caps ? 'C' : '-';
-    state += num ? 'N' : '-';
-    state += shift_locked ? 'L' : '-';
-    return state;
-}
-// Whether a key is drawn as it rests, with nothing that changes from frame to
-// frame: not lit or pulled by the laser, and not the mic key with its levels,
-// ring and download.
-bool resting_key(const PanelView& view, const Key& key) {
-    return !view.hovered_keys.contains(key.id) && key.icon != Icon::Mic &&
-           !(view.key_flick && view.key_flick->key == key.id);
-}
-constexpr std::size_t kept_legend_states = 3;
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -2822,21 +2856,17 @@ void PanelRenderer::release_idle_layers(double now) {
 std::size_t PanelRenderer::trail_resident_bytes() const {
     return resident_bytes(trail_) + resident_bytes(comet_) + resident_bytes(comet_passes_);
 }
-void PanelRenderer::forget_key_images() {
-    for (auto& state : key_images_) {
-        for (auto& [id, image] : state.images) {
-            cairo_surface_destroy(image);
-        }
+void PanelRenderer::forget_key_bodies() {
+    for (auto& [name, image] : body_atlas_) {
+        cairo_surface_destroy(image);
     }
-    key_images_.clear();
+    body_atlas_.clear();
 }
-std::size_t PanelRenderer::key_image_bytes() const {
+std::size_t PanelRenderer::key_body_bytes() const {
     std::size_t bytes = 0;
-    for (const auto& state : key_images_) {
-        for (const auto& [id, image] : state.images) {
-            bytes += static_cast<std::size_t>(cairo_image_surface_get_stride(image)) *
-                     static_cast<std::size_t>(cairo_image_surface_get_height(image));
-        }
+    for (const auto& [name, image] : body_atlas_) {
+        bytes += static_cast<std::size_t>(cairo_image_surface_get_stride(image)) *
+                 static_cast<std::size_t>(cairo_image_surface_get_height(image));
     }
     return bytes;
 }
@@ -2844,7 +2874,7 @@ void PanelRenderer::settle() {
     settle_ = true;
     layers_idle_since_ = -1;
     // Nothing paints while the panel is hidden; a summon repaints whole.
-    forget_key_images();
+    forget_key_bodies();
     // The next paint forgets the trail, damaging where it was; its pixels
     // need nothing kept until then.
     for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
@@ -2855,7 +2885,7 @@ void PanelRenderer::settle() {
     }
 }
 PanelRenderer::~PanelRenderer() {
-    forget_key_images();
+    forget_key_bodies();
     for (auto* layer : {trail_, comet_, comet_passes_}) {
         if (layer) {
             cairo_surface_destroy(layer);
@@ -2931,6 +2961,20 @@ const Key* PanelRenderer::swipe_key(const PanelView& view, double x, double y) c
 }
 bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto& t = *view.theme;
+    // Key bodies drawn for another theme or scale go; keys draw theirs from
+    // here while this paint lasts.
+    if (!view.settings) {
+        const double scale = placement(view).scale;
+        if (atlas_theme_ != t || scale != atlas_scale_) {
+            forget_key_bodies();
+            atlas_theme_ = t;
+            atlas_scale_ = scale;
+        }
+    }
+    struct AtlasScope {
+        ~AtlasScope() { body_atlas = nullptr; }
+    } atlas_scope;
+    body_atlas = &body_atlas_;
     const auto modifiers = view.keyboard->modifiers();
     const bool shift_locked =
         view.keyboard->locked(KEY_LEFTSHIFT) || view.keyboard->locked(KEY_RIGHTSHIFT);
@@ -3034,49 +3078,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     };
     const bool controls_changed =
         previous_ && without_candidates(previous_->view.controls) != without_candidates(view.controls);
-    // The kept images for this legend state first in line; the oldest state
-    // beyond the few kept goes.
-    const auto use_legend_state = [&] {
-        const auto state =
-            legend_state(modifiers, view.keyboard->caps(), view.keyboard->num(), shift_locked);
-        const auto kept = std::find_if(key_images_.begin(), key_images_.end(),
-                                       [&](const KeyImages& images) { return images.state == state; });
-        if (kept == key_images_.end()) {
-            key_images_.insert(key_images_.begin(), KeyImages{state, {}, {}});
-        } else {
-            std::rotate(key_images_.begin(), kept, kept + 1);
-        }
-        while (key_images_.size() > kept_legend_states) {
-            for (auto& [id, image] : key_images_.back().images) {
-                cairo_surface_destroy(image);
-            }
-            key_images_.pop_back();
-        }
-    };
-    // What a key at rest is drawn from, besides its legend state: a change
-    // drops the kept key images (key_images_).
-    const bool keys_changed =
-        !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
-        previous_->language != *view.language || previous_->view.keymap != view.keymap ||
-        previous_->view.settings != view.settings || previous_->view.key_labels != view.key_labels ||
-        previous_->view.disabled_keys != view.disabled_keys ||
-        previous_->view.key_flick_hints != view.key_flick_hints ||
-        previous_->view.flick_latin != view.flick_latin ||
-        previous_->view.flick_digits != view.flick_digits ||
-        previous_->view.flick_script_key != view.flick_script_key ||
-        previous_->view.flick_katakana != view.flick_katakana ||
-        previous_->view.hide_numpad != view.hide_numpad || [&] {
-            if (view.settings) {
-                return false; // compared above; no keys show
-            }
-            const auto p = placement(view);
-            return std::array{p.scale, p.x, p.y} != key_placement_;
-        }();
     const bool scene_changed =
-        keys_changed || previous_->modifiers != modifiers || previous_->caps != view.keyboard->caps() ||
-        previous_->num != view.keyboard->num() || previous_->shift_locked != shift_locked ||
-        controls_changed || previous_->view.status != view.status ||
-        previous_->view.settings != view.settings || previous_->view.reading_room != view.reading_room ||
+        !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
+        previous_->language != *view.language || previous_->modifiers != modifiers ||
+        previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
+        previous_->shift_locked != shift_locked || controls_changed ||
+        previous_->view.status != view.status || previous_->view.settings != view.settings ||
+        previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
         (!view.status.empty() && shown_tooltip(previous_->view) != shown_tooltip(view)) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
@@ -3740,20 +3748,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     if (scene_changed) {
         key_bounds_.clear();
-        if (keys_changed) {
-            forget_key_images();
-        }
-        use_legend_state();
         // Capture the exact ink extents, including oversized/custom-font labels.
-        // These surfaces are only used to measure. Every key the layout shows
-        // is measured once per legend state, covered or not, and key_bounds_
-        // takes the ones nothing covers now.
+        // These surfaces are only used to measure. A key's shared body is an
+        // image with transparent room around it; measuring the body drawn
+        // keeps that room out of the bounds, so neighbours' repaints don't
+        // overlap and clip each other's lit keys.
         if (!view.settings) {
             const auto p = placement(view);
-            auto& measured = key_images_.front().bounds;
+            body_atlas = nullptr;
             for (const auto& key : view.layout->keys) {
-                // The mic key's marks follow dictation, so it is measured each time.
-                if (hidden_key(view, key) || (measured.contains(key.id) && key.icon != Icon::Mic)) {
+                if (covered_key(view, key)) {
                     continue;
                 }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
@@ -3767,20 +3771,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // Union the resting and fully depressed positions, then round
                 // outwards to pixel boundaries to avoid clipped antialiasing.
                 const double left = std::floor(x) - 2, top = std::floor(y) - 2;
-                measured[key.id] = {left, top, std::ceil(x + width) + 2 - left,
-                                    std::ceil(y + height + t.travel * p.scale) + 2 - top};
+                key_bounds_[key.id] = {left, top, std::ceil(x + width) + 2 - left,
+                                       std::ceil(y + height + t.travel * p.scale) + 2 - top};
                 cairo_destroy(bounds_cr);
                 cairo_surface_destroy(recording);
             }
-            for (const auto& key : view.layout->keys) {
-                if (!covered_key(view, key)) {
-                    key_bounds_[key.id] = measured.at(key.id);
-                }
-            }
-        }
-        if (!view.settings) {
-            const auto p = placement(view);
-            key_placement_ = {p.scale, p.x, p.y};
+            body_atlas = &body_atlas_;
         }
         previous_ = Snapshot{
             *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
@@ -3799,7 +3795,6 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (!full && damage.empty() && areas.empty()) {
         return false;
     }
-    use_legend_state(); // after forget_key_images, the state's entry again
     marquee_shown_ = marquee_text ? marquee_shift : -1;
     auto* cr = cairo_create(surface_);
     grey_text(cr);
@@ -3871,37 +3866,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
-                if (!intersects) {
-                    continue;
+                if (intersects) {
+                    draw_key(cr, view, key, animations_.at(key.id).amount, hovers_.at(key.id).amount,
+                             mic_phase_, ring_time_);
                 }
-                const double amount = animations_.at(key.id).amount, lift = hovers_.at(key.id).amount;
-                if (amount > 0 || lift > 0 || !resting_key(view, key)) {
-                    draw_key(cr, view, key, amount, lift, mic_phase_, ring_time_);
-                    continue;
-                }
-                // Drawn once at its own place in panel pixels, so its
-                // antialiasing falls exactly as it would on the panel, then
-                // copied at whole pixels.
-                auto& image = key_images_.front().images[key.id];
-                if (!image) {
-                    image =
-                        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(bounds.width),
-                                                   static_cast<int>(bounds.height));
-                    auto* key_cr = cairo_create(image);
-                    grey_text(key_cr);
-                    cairo_translate(key_cr, -bounds.x, -bounds.y);
-                    cairo_translate(key_cr, p.x, p.y);
-                    cairo_scale(key_cr, p.scale, p.scale);
-                    draw_key(key_cr, view, key, 0, 0, mic_phase_, ring_time_);
-                    cairo_destroy(key_cr);
-                    cairo_surface_flush(image);
-                }
-                cairo_save(cr);
-                cairo_identity_matrix(cr);
-                cairo_translate(cr, 0, popup_margin);
-                cairo_set_source_surface(cr, image, bounds.x, bounds.y);
-                cairo_paint(cr);
-                cairo_restore(cr);
             }
             if (view.key_outlines) {
                 draw_key_outlines(cr, view, p.scale);

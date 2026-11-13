@@ -506,11 +506,11 @@ class PanelRenderer {
     void release_idle_layers(double now);
     // Whether the swipe trail's layers are allocated; tests check they go.
     bool trail_layers() const { return trail_ || comet_ || comet_passes_; }
-    // Drops every key's kept image (key_images_); tests compare a renderer
+    // Drops the shared key bodies (body_atlas_); tests compare a renderer
     // that keeps them with one that draws them afresh.
-    void forget_key_images();
-    // How many bytes the kept key images take, for benchmarks.
-    std::size_t key_image_bytes() const;
+    void forget_key_bodies();
+    // How many bytes the shared key bodies take, for benchmarks.
+    std::size_t key_body_bytes() const;
     // How many bytes of them are in memory, for tests that check the pages
     // are kept for the next word and then given back.
     std::size_t trail_resident_bytes() const;
@@ -540,22 +540,13 @@ class PanelRenderer {
     };
     std::optional<Snapshot> previous_;
     std::map<std::string, Rect> key_bounds_;
-    // Each key at rest, drawn once into an image of its own (its key_bounds_
-    // in panel pixels) and copied from then on, so a whole repaint, as every
-    // Shift tap or summon makes, copies keys instead of drawing them again.
-    // A key that is pressed, lit, pulled or the mic key is drawn as before.
-    // Kept per legend state (modifiers, Caps, Num, a locked Shift) for the
-    // last few states, so tapping Shift back and forth draws nothing new;
-    // dropped when anything else a key is drawn from changes, and when the
-    // panel hides.
-    struct KeyImages {
-        std::string state;
-        std::map<std::string, Rect> bounds;
-        std::map<std::string, cairo_surface_t*> images; // owned
-    };
-    std::vector<KeyImages> key_images_; // most recently used first
-    // Where the keys were last placed (scale, x, y): a move redraws them.
-    std::array<double, 3> key_placement_{};
+    // Each key's body at rest (side, face, edge light) drawn once per shape,
+    // fill and tone at whole pixels and shared by every key like it; legends
+    // are drawn over it. Dropped when the theme or the keys' scale changes,
+    // and when the panel hides.
+    std::map<std::string, cairo_surface_t*> body_atlas_;
+    std::optional<Theme> atlas_theme_; // what the bodies were drawn for
+    double atlas_scale_{};
     std::map<std::string, Animation> animations_;
     // How far each key is lit by the laser: 1 at once under it, then fading.
     std::map<std::string, Animation> hovers_;
