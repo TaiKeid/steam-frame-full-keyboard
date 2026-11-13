@@ -1369,6 +1369,13 @@ Rect atlas_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Key& k
         image = cairo_image_surface_create(
             CAIRO_FORMAT_ARGB32, static_cast<int>(std::ceil(r.width * scale)) + 2 * margin,
             static_cast<int>(std::ceil((r.height + t.depth) * scale)) + 2 * margin);
+        if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) {
+            // Not kept: painting an error surface would stop the whole paint
+            // (R260). This key draws its body itself; the next paint tries again.
+            cairo_surface_destroy(image);
+            body_atlas->erase(name);
+            return draw_keycap(cr, t, tone, r, 0, 0, fill, false);
+        }
         auto* body = cairo_create(image);
         cairo_translate(body, margin, margin);
         cairo_scale(body, scale, scale);
