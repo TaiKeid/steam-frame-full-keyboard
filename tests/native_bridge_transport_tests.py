@@ -1741,7 +1741,11 @@ class Lifecycle(unittest.TestCase):
                 self.assertEqual(library.recv(64), b"Tcd")
                 answer(b"D", 1)
                 self.assertEqual(text_results(.3), [(2, False)], "a dropped text is reported as not sent")
-                frames_until(lambda: 2 in client.fallbacks)
+                for _ in range(4):
+                    packet(op="frame", progress=1, ready=True, ack=2, sent=time.monotonic())
+                    time.sleep(.05)
+                # R262: the stream keeps its request, so the panel stays on it and Enter retries there.
+                self.assertEqual(client.fallbacks, [], "a text not sent leaves the stream's request alone")
                 # Not started within its wait, counted from the app's sending it (R257): reported as not
                 # sent, and taken back from the library by its number, so it cannot arrive later (R256).
                 packet(op="text", request=2, id=3, text="ef", sent=time.monotonic() - 1.8)  # commit 2
@@ -1760,6 +1764,9 @@ class Lifecycle(unittest.TestCase):
                         library.recv(64)
                 finally:
                     bridge.STREAM_TEXT_FINISH, bridge.STREAM_TEXT_WAIT_PER_BYTE = wait
+                self.assertEqual(client.fallbacks, [], "none of the texts not sent fell back")
+                packet(op="text", request=2, id=5, text="ij")  # commit 4
+                self.assertEqual(library.recv(64), b"Tij", "and the session goes on: the retry is sent")
             finally:
                 library.close()
                 parent.close()

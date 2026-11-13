@@ -7,7 +7,7 @@
 - Uninstalling after the keyboard ran in a Desktop no longer leaves its KWin script in the runtime folder until the next restart, and the keyboard deletes that script itself when it stops using it.
 - If saving Settings cannot reach SteamOS's service manager, Streaming support no longer stays ticked without being set up; the message says that both Start with SteamOS and Streaming support were left as they were.
 - The private socket Steam's streaming client connects to now exists only while Streaming support is on, instead of whenever Replace native keyboard is.
-- Text typed into a game or application streamed from your PC counts as sent only once it has actually been typed there. Text the stream dropped, as when far more was waiting than it could hold, now shows "Text not sent" instead of going missing silently.
+- Text typed into a game or application streamed from your PC counts as sent only once it has actually been typed there. Text the stream dropped, as when far more was waiting than it could hold, now shows "Text not sent" instead of going missing silently, and the keyboard stays on the stream, so Enter sends it again there.
 
 ## 0.18.0: Streaming support and a new look
 

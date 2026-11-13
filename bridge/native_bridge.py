@@ -1079,10 +1079,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 next_poll = 0
 
         def answer_stream_texts():
-            """Reports texts the library has typed or dropped, and those whose wait ran out. A text
-            that did not go through while its client stays falls back as an immediate failure would;
-            one lost with its client ends the session instead (note_lost)."""
-            nonlocal fallback_request
+            """Reports texts the library has typed or dropped, and those whose wait ran out. Such a
+            text only counts as not sent: the stream keeps its request, so the panel stays on it and
+            Enter retries there, rather than the Frame's own focus taking the keys (R262). Unlike a
+            send that failed at once, it leaves the session usable. One lost with its client ends the
+            session instead (note_lost)."""
             answered = stream.take_results() if stream else []
             now = time.monotonic()
             for token, (_, sent, size) in list(stream_texts.items()):
@@ -1093,14 +1094,11 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         stream.withdraw(token)
                     answered.append((token, False))
             for token, delivered in answered:
-                entry = stream_texts.pop(token, None)
-                if entry is None:
+                if stream_texts.pop(token, None) is None:
                     continue
                 if stream:
                     stream.forget(token)
                 channel.send_result({"op": "text-result", "id": token, "ok": delivered})
-                if not delivered and stream and stream.connected() and entry[0] != gone_request:
-                    fallback_request = entry[0]
 
         def judge_parent():
             # Judge the parent by the frames just read: frames that queued
