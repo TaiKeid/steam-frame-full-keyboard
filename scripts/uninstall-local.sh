@@ -219,7 +219,9 @@ if [[ -n $models && -d $models ]]; then
     rmdir -- "$(dirname -- "$models")" 2> /dev/null || true
 fi
 if [[ -n $runtime_dir && -d $runtime_dir && ! -L $runtime_dir ]]; then
-    rm -f -- "$runtime_dir/vr.lock"
+    # The instance lock, and the script a keyboard that ran in a Desktop wrote
+    # for KWin and could not delete as it stopped.
+    rm -f -- "$runtime_dir/vr.lock" "$runtime_dir/kwin-desktop-focus.js"
     rmdir -- "$runtime_dir" 2> /dev/null || true
 fi
 if $purge && [[ -d $settings ]]; then

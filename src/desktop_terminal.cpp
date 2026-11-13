@@ -253,6 +253,8 @@ bool DesktopTerminal::attach(const std::string& address) {
             api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
             self->keys_ = app_edit_keys(app ? app : "");
             self->reported_ = true;
+            // KWin reads the file as it starts the script, which is now running.
+            self->forget_script();
         }
         api.reply(message, "");
         return 1;
@@ -267,6 +269,7 @@ bool DesktopTerminal::attach(const std::string& address) {
     if (path.empty()) {
         return false;
     }
+    script_ = path;
     bus_ = std::move(fresh);
     // A copy left by a keyboard that stopped without unloading it goes first.
     scripting(bus_->bus, "unloadScript", "s", plugin);
@@ -281,11 +284,18 @@ bool DesktopTerminal::attach(const std::string& address) {
 bool DesktopTerminal::attached(const std::string& address) const {
     return bus_ && bus_->address == address;
 }
+void DesktopTerminal::forget_script() {
+    if (!script_.empty()) {
+        unlink(script_.c_str());
+        script_.clear();
+    }
+}
 void DesktopTerminal::detach() {
     if (bus_) {
         scripting(bus_->bus, "unloadScript", "s", plugin);
         bus_.reset();
     }
+    forget_script();
     kwin_.clear();
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;

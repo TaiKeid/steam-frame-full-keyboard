@@ -40,6 +40,8 @@ def install(home, runtime):
     (home / ".config/framekeyboard/config.json").write_text("{}")
     runtime.mkdir(mode=0o700)
     (runtime / "vr.lock").touch()
+    # Left by a keyboard that ran in a Desktop and was stopped (R254).
+    (runtime / "kwin-desktop-focus.js").write_text("// script\n")
     return root, release
 
 
