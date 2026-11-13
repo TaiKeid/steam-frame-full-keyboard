@@ -48,7 +48,8 @@ struct Samples {
         std::cout << name << ": n=" << wall.size()
                   << " mean_ms=" << std::accumulate(wall.begin(), wall.end(), 0.0) / wall.size()
                   << " median_ms=" << percentile(.5) << " p95_ms=" << percentile(.95)
-                  << " cpu_ms_per_redraw=" << cpu * 1000 / wall.size() << '\n';
+                  << " max_ms=" << sorted.back() << " cpu_ms_per_redraw=" << cpu * 1000 / wall.size()
+                  << '\n';
     }
 };
 class Upload {
@@ -179,9 +180,11 @@ std::pair<double, double> key_position(App& app, const std::string& action) {
     }
     throw std::runtime_error("benchmark key not found");
 }
+// Presses alternate between the keys `first` and `second`.
 void workload(App& app, Upload& upload, const char* name, double duration, double keys_per_second,
-              bool force_redraw, bool use_vr, bool full_paint) {
-    const auto a = key_position(app, "KeyA"), b = key_position(app, "KeyB");
+              bool force_redraw, bool use_vr, bool full_paint, const char* first = "KeyA",
+              const char* second = "KeyB") {
+    const auto a = key_position(app, first), b = key_position(app, second);
     app.cancel();
     app.paint(monotonic_seconds());
     upload.submit(app.renderer);
@@ -322,16 +325,20 @@ int main(int argc, char** argv) {
     fs::path temporary;
     try {
         bool use_vr = false, prefer_native = true, full_paint = false;
+        fs::path png; // the warmed-up panel, for comparing renderers
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
-            if (arg == "--vr") {
+            if (arg == "--png" && i + 1 < argc) {
+                png = argv[++i];
+            } else if (arg == "--vr") {
                 use_vr = true;
             } else if (arg == "--rgba") {
                 prefer_native = false;
             } else if (arg == "--full-paint") {
                 full_paint = true;
             } else {
-                throw std::runtime_error("usage: render-benchmark [--vr] [--rgba] [--full-paint]");
+                throw std::runtime_error(
+                    "usage: render-benchmark [--vr] [--rgba] [--full-paint] [--png FILE]");
             }
         }
         char pattern[] = "/tmp/framekeyboard-render-benchmark-XXXXXX";
@@ -357,11 +364,19 @@ int main(int argc, char** argv) {
             upload.submit(app.renderer);
         }
         upload.verify_upload(app.renderer);
+        if (!png.empty()) {
+            app.renderer.write_png(png);
+            fs::remove_all(temporary);
+            return 0;
+        }
         std::cout << "native_pixels=" << upload.native_pixels() << " full_paint=" << full_paint << '\n';
         workload(app, upload, "idle", 5, 0, false, use_vr, full_paint);
         workload(app, upload, "one_key_per_second", 10, 1, false, use_vr, full_paint);
         workload(app, upload, "four_keys_per_second", 15, 4, false, use_vr, full_paint);
         workload(app, upload, "forced_every_frame", 5, 0, true, use_vr, full_paint);
+        // Each Shift tap changes every legend, so the whole keyboard repaints.
+        workload(app, upload, "shift_four_taps_per_second", 10, 4, false, use_vr, full_paint,
+                 "ShiftLeft", "ShiftLeft");
         screens(app, upload, use_vr);
         fs::remove_all(temporary);
         return 0;
