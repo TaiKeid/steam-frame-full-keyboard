@@ -377,6 +377,7 @@ int main(int argc, char** argv) {
         // Each Shift tap changes every legend, so the whole keyboard repaints.
         workload(app, upload, "shift_four_taps_per_second", 10, 4, false, use_vr, full_paint,
                  "ShiftLeft", "ShiftLeft");
+        std::cout << "key_image_bytes=" << app.renderer.key_image_bytes() << '\n';
         screens(app, upload, use_vr);
         fs::remove_all(temporary);
         return 0;

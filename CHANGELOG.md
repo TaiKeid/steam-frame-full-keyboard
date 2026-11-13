@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shift taps, summoning the keyboard and the laser crossing toolbar buttons redraw the keyboard about nine times faster on the Frame: each key at rest is now drawn once and copied, so a whole redraw takes about 3 ms instead of about 29 ms. The copies take about 5 MB while the keyboard shows.
+
 ## 0.18.0: Streaming support and a new look
 
 - Added **Streaming support** to Settings → Integration, off after a manual install and your choice in the installer: Full Keyboard now types into games and applications that Steam streams from your PC, where only Steam's own keyboard worked before and typed nothing but basic Latin text. Press SteamOS's keyboard button with the stream in front, or click the game while the keyboard is showing. Shortcuts and every key go through, with Ctrl or Alt held for a game's own bindings; from a Windows PC, text in any language arrives too. A Linux PC takes keys and shortcuts but ignores text Steam sends it, so only what keys type arrives there. VR apps streamed from a PC stay unsupported. It needs Replace native keyboard.

@@ -2718,6 +2718,26 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
 }
+// The legend state key images are kept for: what a key at rest shows besides
+// the scene, which a Shift tap changes.
+std::string legend_state(const std::set<int>& modifiers, bool caps, bool num, bool shift_locked) {
+    std::string state;
+    for (const int code : modifiers) {
+        state += std::to_string(code) + ',';
+    }
+    state += caps ? 'C' : '-';
+    state += num ? 'N' : '-';
+    state += shift_locked ? 'L' : '-';
+    return state;
+}
+// Whether a key is drawn as it rests, with nothing that changes from frame to
+// frame: not lit or pulled by the laser, and not the mic key with its levels,
+// ring and download.
+bool resting_key(const PanelView& view, const Key& key) {
+    return !view.hovered_keys.contains(key.id) && key.icon != Icon::Mic &&
+           !(view.key_flick && view.key_flick->key == key.id);
+}
+constexpr std::size_t kept_legend_states = 3;
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
     if (cairo_surface_status(surface_) != CAIRO_STATUS_SUCCESS) {
@@ -2802,9 +2822,29 @@ void PanelRenderer::release_idle_layers(double now) {
 std::size_t PanelRenderer::trail_resident_bytes() const {
     return resident_bytes(trail_) + resident_bytes(comet_) + resident_bytes(comet_passes_);
 }
+void PanelRenderer::forget_key_images() {
+    for (auto& state : key_images_) {
+        for (auto& [id, image] : state.images) {
+            cairo_surface_destroy(image);
+        }
+    }
+    key_images_.clear();
+}
+std::size_t PanelRenderer::key_image_bytes() const {
+    std::size_t bytes = 0;
+    for (const auto& state : key_images_) {
+        for (const auto& [id, image] : state.images) {
+            bytes += static_cast<std::size_t>(cairo_image_surface_get_stride(image)) *
+                     static_cast<std::size_t>(cairo_image_surface_get_height(image));
+        }
+    }
+    return bytes;
+}
 void PanelRenderer::settle() {
     settle_ = true;
     layers_idle_since_ = -1;
+    // Nothing paints while the panel is hidden; a summon repaints whole.
+    forget_key_images();
     // The next paint forgets the trail, damaging where it was; its pixels
     // need nothing kept until then.
     for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
@@ -2815,6 +2855,7 @@ void PanelRenderer::settle() {
     }
 }
 PanelRenderer::~PanelRenderer() {
+    forget_key_images();
     for (auto* layer : {trail_, comet_, comet_passes_}) {
         if (layer) {
             cairo_surface_destroy(layer);
@@ -2993,13 +3034,49 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     };
     const bool controls_changed =
         previous_ && without_candidates(previous_->view.controls) != without_candidates(view.controls);
-    const bool scene_changed =
+    // The kept images for this legend state first in line; the oldest state
+    // beyond the few kept goes.
+    const auto use_legend_state = [&] {
+        const auto state =
+            legend_state(modifiers, view.keyboard->caps(), view.keyboard->num(), shift_locked);
+        const auto kept = std::find_if(key_images_.begin(), key_images_.end(),
+                                       [&](const KeyImages& images) { return images.state == state; });
+        if (kept == key_images_.end()) {
+            key_images_.insert(key_images_.begin(), KeyImages{state, {}, {}});
+        } else {
+            std::rotate(key_images_.begin(), kept, kept + 1);
+        }
+        while (key_images_.size() > kept_legend_states) {
+            for (auto& [id, image] : key_images_.back().images) {
+                cairo_surface_destroy(image);
+            }
+            key_images_.pop_back();
+        }
+    };
+    // What a key at rest is drawn from, besides its legend state: a change
+    // drops the kept key images (key_images_).
+    const bool keys_changed =
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
-        previous_->language != *view.language || previous_->modifiers != modifiers ||
-        previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
-        previous_->shift_locked != shift_locked || controls_changed ||
-        previous_->view.status != view.status || previous_->view.settings != view.settings ||
-        previous_->view.reading_room != view.reading_room ||
+        previous_->language != *view.language || previous_->view.keymap != view.keymap ||
+        previous_->view.settings != view.settings || previous_->view.key_labels != view.key_labels ||
+        previous_->view.disabled_keys != view.disabled_keys ||
+        previous_->view.key_flick_hints != view.key_flick_hints ||
+        previous_->view.flick_latin != view.flick_latin ||
+        previous_->view.flick_digits != view.flick_digits ||
+        previous_->view.flick_script_key != view.flick_script_key ||
+        previous_->view.flick_katakana != view.flick_katakana ||
+        previous_->view.hide_numpad != view.hide_numpad || [&] {
+            if (view.settings) {
+                return false; // compared above; no keys show
+            }
+            const auto p = placement(view);
+            return std::array{p.scale, p.x, p.y} != key_placement_;
+        }();
+    const bool scene_changed =
+        keys_changed || previous_->modifiers != modifiers || previous_->caps != view.keyboard->caps() ||
+        previous_->num != view.keyboard->num() || previous_->shift_locked != shift_locked ||
+        controls_changed || previous_->view.status != view.status ||
+        previous_->view.settings != view.settings || previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
         (!view.status.empty() && shown_tooltip(previous_->view) != shown_tooltip(view)) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
@@ -3663,13 +3740,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }
     if (scene_changed) {
         key_bounds_.clear();
+        if (keys_changed) {
+            forget_key_images();
+        }
+        use_legend_state();
         // Capture the exact ink extents, including oversized/custom-font labels.
-        // These surfaces are only used to measure; pixels are drawn directly onto
-        // the image below, preserving Cairo's original blending and font rendering.
+        // These surfaces are only used to measure. Every key the layout shows
+        // is measured once per legend state, covered or not, and key_bounds_
+        // takes the ones nothing covers now.
         if (!view.settings) {
             const auto p = placement(view);
+            auto& measured = key_images_.front().bounds;
             for (const auto& key : view.layout->keys) {
-                if (covered_key(view, key)) {
+                // The mic key's marks follow dictation, so it is measured each time.
+                if (hidden_key(view, key) || (measured.contains(key.id) && key.icon != Icon::Mic)) {
                     continue;
                 }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
@@ -3683,11 +3767,20 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // Union the resting and fully depressed positions, then round
                 // outwards to pixel boundaries to avoid clipped antialiasing.
                 const double left = std::floor(x) - 2, top = std::floor(y) - 2;
-                key_bounds_[key.id] = {left, top, std::ceil(x + width) + 2 - left,
-                                       std::ceil(y + height + t.travel * p.scale) + 2 - top};
+                measured[key.id] = {left, top, std::ceil(x + width) + 2 - left,
+                                    std::ceil(y + height + t.travel * p.scale) + 2 - top};
                 cairo_destroy(bounds_cr);
                 cairo_surface_destroy(recording);
             }
+            for (const auto& key : view.layout->keys) {
+                if (!covered_key(view, key)) {
+                    key_bounds_[key.id] = measured.at(key.id);
+                }
+            }
+        }
+        if (!view.settings) {
+            const auto p = placement(view);
+            key_placement_ = {p.scale, p.x, p.y};
         }
         previous_ = Snapshot{
             *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
@@ -3706,6 +3799,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     if (!full && damage.empty() && areas.empty()) {
         return false;
     }
+    use_legend_state(); // after forget_key_images, the state's entry again
     marquee_shown_ = marquee_text ? marquee_shift : -1;
     auto* cr = cairo_create(surface_);
     grey_text(cr);
@@ -3777,10 +3871,37 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
-                if (intersects) {
-                    draw_key(cr, view, key, animations_.at(key.id).amount, hovers_.at(key.id).amount,
-                             mic_phase_, ring_time_);
+                if (!intersects) {
+                    continue;
                 }
+                const double amount = animations_.at(key.id).amount, lift = hovers_.at(key.id).amount;
+                if (amount > 0 || lift > 0 || !resting_key(view, key)) {
+                    draw_key(cr, view, key, amount, lift, mic_phase_, ring_time_);
+                    continue;
+                }
+                // Drawn once at its own place in panel pixels, so its
+                // antialiasing falls exactly as it would on the panel, then
+                // copied at whole pixels.
+                auto& image = key_images_.front().images[key.id];
+                if (!image) {
+                    image =
+                        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(bounds.width),
+                                                   static_cast<int>(bounds.height));
+                    auto* key_cr = cairo_create(image);
+                    grey_text(key_cr);
+                    cairo_translate(key_cr, -bounds.x, -bounds.y);
+                    cairo_translate(key_cr, p.x, p.y);
+                    cairo_scale(key_cr, p.scale, p.scale);
+                    draw_key(key_cr, view, key, 0, 0, mic_phase_, ring_time_);
+                    cairo_destroy(key_cr);
+                    cairo_surface_flush(image);
+                }
+                cairo_save(cr);
+                cairo_identity_matrix(cr);
+                cairo_translate(cr, 0, popup_margin);
+                cairo_set_source_surface(cr, image, bounds.x, bounds.y);
+                cairo_paint(cr);
+                cairo_restore(cr);
             }
             if (view.key_outlines) {
                 draw_key_outlines(cr, view, p.scale);
