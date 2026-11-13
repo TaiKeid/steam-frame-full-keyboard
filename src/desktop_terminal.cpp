@@ -345,10 +345,7 @@ bool DesktopTerminal::process() {
         }
         const int result = sd().process(bus_->bus, nullptr);
         if (result < 0) {
-            bus_.reset(); // The Desktop closed: its KWin and the script are gone with it.
-            kwin_.clear();
-            keys_ = EditKeys::Standard;
-            reported_ = false;
+            lose_kwin(); // The Desktop closed: its KWin and the script are gone with it.
             more_ = false;
             break;
         }
@@ -357,13 +354,16 @@ bool DesktopTerminal::process() {
         }
     }
     if (kwin_lost_) {
-        // The script went with that KWin: attach() loads it into the next.
-        bus_.reset();
-        kwin_.clear();
-        kwin_lost_ = false;
-        keys_ = EditKeys::Standard;
-        reported_ = false;
+        lose_kwin(); // The script went with that KWin: attach() loads it into the next.
     }
     return keys_ != before;
+}
+void DesktopTerminal::lose_kwin() {
+    bus_.reset();
+    forget_script();
+    kwin_.clear();
+    kwin_lost_ = false;
+    keys_ = EditKeys::Standard;
+    reported_ = false;
 }
 } // namespace framekeyboard
