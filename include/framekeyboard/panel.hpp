@@ -506,8 +506,9 @@ class PanelRenderer {
     void release_idle_layers(double now);
     // Whether the swipe trail's layers are allocated; tests check they go.
     bool trail_layers() const { return trail_ || comet_ || comet_passes_; }
-    // Drops the shared key bodies (body_atlas_); tests compare a renderer
-    // that keeps them with one that draws them afresh.
+    // Drops the shared key bodies (body_atlas_) and the kept key
+    // measurements (measured_); tests compare a renderer that keeps them with
+    // one that draws and measures afresh.
     void forget_key_bodies();
     // How many bytes the shared key bodies take, for benchmarks.
     std::size_t key_body_bytes() const;
@@ -547,6 +548,14 @@ class PanelRenderer {
     std::map<std::string, cairo_surface_t*> body_atlas_;
     std::optional<Theme> atlas_theme_; // what the bodies were drawn for
     double atlas_scale_{};
+    // Each shown key's measured bounds, by legend state (modifiers, Caps,
+    // Num, a locked Shift), for the last few states (R261): a scene change
+    // that changes no key, such as a status or a tooltip, measures nothing,
+    // and tapping Shift back and forth measures each state once. Dropped when
+    // something keys are drawn from changes (keys_changed in paint). A few
+    // kilobytes.
+    std::vector<std::pair<std::string, std::map<std::string, Rect>>> measured_; // most recent first
+    std::array<double, 3> measured_placement_{}; // scale, x, y the measurements are for
     std::map<std::string, Animation> animations_;
     // How far each key is lit by the laser: 1 at once under it, then fading.
     std::map<std::string, Animation> hovers_;

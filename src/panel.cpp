@@ -2868,6 +2868,7 @@ void PanelRenderer::forget_key_bodies() {
         cairo_surface_destroy(image);
     }
     body_atlas_.clear();
+    measured_.clear();
 }
 std::size_t PanelRenderer::key_body_bytes() const {
     std::size_t bytes = 0;
@@ -3760,11 +3761,50 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // image with transparent room around it; measuring the body drawn
         // keeps that room out of the bounds, so neighbours' repaints don't
         // overlap and clip each other's lit keys.
-        if (!view.settings) {
+        if (view.settings) {
+            measured_.clear(); // Settings can change anything keys are drawn from
+        } else {
             const auto p = placement(view);
+            // What a key at rest is drawn from, besides its legend state: a
+            // change drops every kept measurement (R261).
+            const bool keys_changed = !previous_ || previous_->layout != *view.layout ||
+                                      previous_->theme != t || previous_->language != *view.language ||
+                                      previous_->view.keymap != view.keymap ||
+                                      previous_->view.key_labels != view.key_labels ||
+                                      previous_->view.disabled_keys != view.disabled_keys ||
+                                      previous_->view.key_flick_hints != view.key_flick_hints ||
+                                      previous_->view.flick_latin != view.flick_latin ||
+                                      previous_->view.flick_digits != view.flick_digits ||
+                                      previous_->view.flick_script_key != view.flick_script_key ||
+                                      previous_->view.flick_katakana != view.flick_katakana ||
+                                      previous_->view.hide_numpad != view.hide_numpad ||
+                                      std::array{p.scale, p.x, p.y} != measured_placement_;
+            if (keys_changed) {
+                measured_.clear();
+                measured_placement_ = {p.scale, p.x, p.y};
+            }
+            std::string state;
+            for (const int code : modifiers) {
+                state += std::to_string(code) + ',';
+            }
+            state += view.keyboard->caps() ? 'C' : '-';
+            state += view.keyboard->num() ? 'N' : '-';
+            state += shift_locked ? 'L' : '-';
+            const auto kept = std::find_if(measured_.begin(), measured_.end(),
+                                           [&](const auto& entry) { return entry.first == state; });
+            if (kept == measured_.end()) {
+                measured_.insert(measured_.begin(), {state, {}});
+            } else {
+                std::rotate(measured_.begin(), kept, kept + 1);
+            }
+            measured_.resize(std::min<std::size_t>(measured_.size(), 4));
+            auto& measured = measured_.front().second;
             body_atlas = nullptr;
             for (const auto& key : view.layout->keys) {
-                if (covered_key(view, key)) {
+                // Every shown key, covered or not, once per state; the mic key,
+                // whose marks follow dictation, and a key being pulled each time.
+                if (hidden_key(view, key) || (measured.contains(key.id) && key.icon != Icon::Mic &&
+                                              !(view.key_flick && view.key_flick->key == key.id))) {
                     continue;
                 }
                 auto* recording = cairo_recording_surface_create(CAIRO_CONTENT_COLOR_ALPHA, nullptr);
@@ -3778,12 +3818,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // Union the resting and fully depressed positions, then round
                 // outwards to pixel boundaries to avoid clipped antialiasing.
                 const double left = std::floor(x) - 2, top = std::floor(y) - 2;
-                key_bounds_[key.id] = {left, top, std::ceil(x + width) + 2 - left,
-                                       std::ceil(y + height + t.travel * p.scale) + 2 - top};
+                measured[key.id] = {left, top, std::ceil(x + width) + 2 - left,
+                                    std::ceil(y + height + t.travel * p.scale) + 2 - top};
                 cairo_destroy(bounds_cr);
                 cairo_surface_destroy(recording);
             }
             body_atlas = &body_atlas_;
+            for (const auto& key : view.layout->keys) {
+                if (!covered_key(view, key)) {
+                    key_bounds_[key.id] = measured.at(key.id);
+                }
+            }
         }
         previous_ = Snapshot{
             *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
