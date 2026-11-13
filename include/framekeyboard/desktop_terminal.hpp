@@ -45,14 +45,16 @@ class DesktopTerminal {
   private:
     struct Bus;
     void detach();
-    // Deletes the script file written for KWin (script_): once KWin has run
-    // it, KWin no longer needs the file, and nothing else would remove it.
+    // Deletes the script file written for KWin (script_) as the script is
+    // unloaded. Not before: KWin reads the file asynchronously after start,
+    // and an Active call can come from a stale copy a crashed keyboard left
+    // (R259). uninstall.sh removes a file a stopped keyboard left.
     void forget_script();
     std::unique_ptr<Bus> bus_;
     EditKeys keys_{EditKeys::Standard};
     // KWin's unique bus name: only its calls count. kwin_lost_ when it left.
     std::string kwin_;
-    // The script file in the runtime folder, until KWin has run it.
+    // The script file in the runtime folder, while the script is loaded.
     std::string script_;
     bool kwin_lost_{}, more_{}, reported_{};
 };
