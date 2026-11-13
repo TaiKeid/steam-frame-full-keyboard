@@ -1618,7 +1618,11 @@ class Lifecycle(unittest.TestCase):
             self.assertFalse(os.path.exists(path), "the helper's exit removes it")
 
     def test_stream_channel_waits_for_the_library_to_answer_each_text(self):
-        # R164: a library that confirms (b"Y") answers each commit, b"A" typed or b"D" dropped.
+        # R164, R255: a library that confirms (b"Y") answers each commit by its number, counted on both
+        # sides from the question: b"S" started, b"A" typed, b"D" dropped.
+        def answer(kind, number):
+            return kind + struct.pack("<I", number)
+
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
             channel = bridge.StreamChannel(directory, programs=None)
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
@@ -1627,29 +1631,51 @@ class Lifecycle(unittest.TestCase):
             library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
             channel.service()
             self.assertEqual(library.recv(64), b"Q", "the library is asked to answer")
-            self.assertTrue(channel.send_text("x", 10))
+            self.assertTrue(channel.send_text("x", 10))  # commit 0
             self.assertFalse(channel.waiting(10), "before it confirms, a text counts once sent")
             library.send(b"Y")
-            library.send(b"D")  # the answer to "x", which nobody waits for
+            library.send(answer(b"D", 0))  # nobody waits for commit 0
             channel.service()
-            self.assertTrue(channel.send_text("y" * 2500, 11))
+            self.assertTrue(channel.send_text("y" * 2500, 11))  # commits 1 and 2
             self.assertTrue(channel.waiting(11), "a text waits once the library confirmed")
-            library.send(b"A")
+            library.send(answer(b"S", 1))
+            channel.service()
+            self.assertIsNotNone(channel.started(11), "it started typing")
+            library.send(answer(b"A", 1))
             channel.service()
             self.assertEqual(channel.take_results(), [], "a text in two packets waits for both")
-            library.send(b"A")
+            library.send(answer(b"A", 2))
             channel.service()
             self.assertEqual(channel.take_results(), [(11, True)], "typed once both are")
-            self.assertTrue(channel.send_text("z", 12))
-            library.send(b"D")
+            self.assertTrue(channel.send_text("z", 12))  # commit 3
+            library.send(answer(b"D", 3))
             channel.service()
             self.assertEqual(channel.take_results(), [(12, False)], "a dropped text is not delivered")
-            self.assertTrue(channel.send_text("w", 13))
+            self.assertTrue(channel.send_text("w", 13))  # commit 4
             channel.forget(13)
-            library.send(b"A")
+            library.send(answer(b"A", 4))
             channel.service()
             self.assertEqual(channel.take_results(), [], "an answer nobody waits for any more is ignored")
-            self.assertTrue(channel.send_text("v", 14))
+            self.assertTrue(channel.send_text("u", 15))  # commit 5
+            self.assertTrue(channel.send_text("t", 16))  # commit 6
+            library.send(answer(b"D", 6))
+            library.send(answer(b"A", 5))
+            channel.service()
+            self.assertEqual(channel.take_results(), [(16, False), (15, True)],
+                             "answers out of order go to their own texts")
+            self.assertTrue(channel.send_text("s", 17))  # commit 7
+            channel.withdraw(17)
+            self.assertFalse(channel.waiting(17), "a withdrawn text waits no more")
+            packets = []
+            library.setblocking(False)
+            try:
+                while True:
+                    packets.append(library.recv(4096))
+            except BlockingIOError:
+                pass
+            library.settimeout(1)
+            self.assertEqual(packets[-1], b"W" + struct.pack("<I", 7), "and is taken back by its number")
+            self.assertTrue(channel.send_text("v", 14))  # commit 8
             library.close()
             channel.service()
             self.assertEqual(channel.take_results(), [(14, False)], "a lost library takes its texts along")
@@ -1702,25 +1728,38 @@ class Lifecycle(unittest.TestCase):
                 library.send(b"Y")
                 packet(op="frame", progress=2, ready=True, ack=2, sent=time.monotonic())
                 time.sleep(.1)
-                packet(op="text", request=2, id=1, text="ab")
-                self.assertEqual(text_results(.3), [], "no result while the library is still typing")
+                def answer(kind, number):
+                    library.send(kind + struct.pack("<I", number))
+
+                packet(op="text", request=2, id=1, text="ab")  # commit 0
                 self.assertEqual(library.recv(64), b"Tab")
-                library.send(b"A")
+                answer(b"S", 0)
+                self.assertEqual(text_results(.3), [], "no result while the library is still typing")
+                answer(b"A", 0)
                 self.assertEqual(text_results(.3), [(1, True)], "delivered once typed")
-                packet(op="text", request=2, id=2, text="cd")
+                packet(op="text", request=2, id=2, text="cd")  # commit 1
                 self.assertEqual(library.recv(64), b"Tcd")
-                library.send(b"D")
+                answer(b"D", 1)
                 self.assertEqual(text_results(.3), [(2, False)], "a dropped text is reported as not sent")
                 frames_until(lambda: 2 in client.fallbacks)
-                # A library that stalls: the wait runs out (shortened here) and the text counts as not sent.
-                wait = bridge.STREAM_TEXT_WAIT, bridge.STREAM_TEXT_WAIT_PER_BYTE
-                bridge.STREAM_TEXT_WAIT, bridge.STREAM_TEXT_WAIT_PER_BYTE = .2, 0
+                # Not started within its wait, counted from the app's sending it (R257): reported as not
+                # sent, and taken back from the library by its number, so it cannot arrive later (R256).
+                packet(op="text", request=2, id=3, text="ef", sent=time.monotonic() - 1.8)  # commit 2
+                self.assertEqual(library.recv(64), b"Tef")
+                self.assertEqual(text_results(.5), [(3, False)], "unstarted, it fails when its wait runs out")
+                self.assertEqual(library.recv(64), b"W" + struct.pack("<I", 2), "and is withdrawn")
+                # Started, it gets its typing time, and is not withdrawn when that runs out (shortened).
+                wait = bridge.STREAM_TEXT_FINISH, bridge.STREAM_TEXT_WAIT_PER_BYTE
+                bridge.STREAM_TEXT_FINISH, bridge.STREAM_TEXT_WAIT_PER_BYTE = .2, 0
                 try:
-                    packet(op="text", request=2, id=3, text="ef")
-                    self.assertEqual(library.recv(64), b"Tef")
-                    self.assertEqual(text_results(.6), [(3, False)], "unanswered, it fails when its wait runs out")
+                    packet(op="text", request=2, id=4, text="gh")  # commit 3
+                    self.assertEqual(library.recv(64), b"Tgh")
+                    answer(b"S", 3)
+                    self.assertEqual(text_results(.6), [(4, False)], "started, it fails when its time runs out")
+                    with self.assertRaises(TimeoutError, msg="without a withdrawal"):
+                        library.recv(64)
                 finally:
-                    bridge.STREAM_TEXT_WAIT, bridge.STREAM_TEXT_WAIT_PER_BYTE = wait
+                    bridge.STREAM_TEXT_FINISH, bridge.STREAM_TEXT_WAIT_PER_BYTE = wait
             finally:
                 library.close()
                 parent.close()

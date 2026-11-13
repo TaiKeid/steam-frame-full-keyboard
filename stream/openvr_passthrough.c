@@ -107,7 +107,9 @@ typedef struct {
     uint16_t mod; // modifier state the event reports, as a real keyboard's would
     bool down;
     bool typed; // from a commit ('T'), so balanced: every key it presses it also releases
+    bool first; // a commit's first step: once it is typed, Full Keyboard hears the commit started
     bool ack;   // a commit's last step: once it is typed, Full Keyboard hears whether all of it went
+    uint32_t commit; // the commit's number, counted from Full Keyboard's 'Q'
 } Queued;
 
 static void* overlay_table[kOverlayFunctions];
@@ -133,14 +135,19 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
-// Full Keyboard asked ('Q') to hear of each commit: 'A' once its last step is typed, 'D' when it was
-// dropped or a step of it was refused (R164). A keyboard that never asks gets nothing.
+// Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
+// step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
+// refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
+// keyboard that never asks gets nothing.
 static bool acks;
+static uint32_t next_commit;
 static bool commit_failed; // a step of the commit being typed was refused
 
-static void send_ack(bool typed) {
+static void send_answer(char kind, uint32_t commit) {
     if (acks && stream_socket >= 0) {
-        send(stream_socket, typed ? "A" : "D", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+        unsigned char packet[5] = {(unsigned char)kind};
+        memcpy(packet + 1, &commit, sizeof commit);
+        send(stream_socket, packet, sizeof packet, MSG_NOSIGNAL | MSG_DONTWAIT);
     }
 }
 
@@ -523,8 +530,11 @@ static void consumed(const Queued* step, bool pushed) {
     if (step->typed && !pushed) {
         commit_failed = true;
     }
+    if (step->first) {
+        send_answer('S', step->commit);
+    }
     if (step->ack) {
-        send_ack(!commit_failed);
+        send_answer(commit_failed ? 'D' : 'A', step->commit);
         commit_failed = false;
     }
 }
@@ -677,6 +687,7 @@ static void stream_disconnect(void) {
         stream_socket = -1;
         release_everything();
         acks = commit_failed = false; // the next keyboard asks again
+        next_commit = 0;
     }
 }
 
@@ -726,29 +737,64 @@ static void stream_connect(void) {
     stream_socket = fd;
 }
 
+// Full Keyboard gave up waiting for a commit ('W'): if none of it is typed yet, it goes and is answered
+// as dropped, so text reported as not sent never arrives later (R256). One already typing finishes.
+static void withdraw(uint32_t commit) {
+    bool waiting = false;
+    for (unsigned i = 0; i < queue_count; ++i) {
+        const Queued* item = &queue[(queue_head + i) % kQueue];
+        if (item->typed && item->first && item->commit == commit) {
+            waiting = true;
+            break;
+        }
+    }
+    if (!waiting) {
+        return;
+    }
+    unsigned kept = 0;
+    for (unsigned i = 0; i < queue_count; ++i) {
+        const Queued item = queue[(queue_head + i) % kQueue];
+        if (item.typed && item.commit == commit) {
+            free(item.text);
+            continue;
+        }
+        queue[(queue_head + kept++) % kQueue] = item; // never ahead of what is read
+    }
+    queue_count = kept;
+    send_answer('D', commit);
+}
+
 // Messages from Full Keyboard, one per packet:
 //   'T' text...                      a commit: UTF-8, typed in order
 //   'K' scancode:u16 mod:u16 down:u8  one key event (SDL scancode and modifier bits, little endian)
 //   'R'                               the session ended: release the keys its key events hold and drop
 //                                    those still queued; committed text is still typed
-//   'Q'                               asks for an 'A' or 'D' per later commit; answered with 'Y'
+//   'Q'                               asks for answers per later commit, numbered from 0 in arrival
+//                                    order; answered with 'Y'
+//   'W' commit:u32                    withdraws a commit that has not started: answered 'D'
 static void stream_message(const unsigned char* message, size_t length) {
     overflowed = overflowed && queue_count != 0;
     if (length >= 2 && message[0] == 'T') {
         // Whole, well-formed text only. What the queue cannot take is dropped, and so is what follows
-        // until the queue has drained. Each commit is answered once: when it was dropped, at once;
-        // otherwise with its last step, or at once when it types nothing.
+        // until the queue has drained. Each commit is answered once by its number: when it was
+        // dropped, at once; otherwise with its last step, or at once when it types nothing.
         const unsigned before = queue_count;
+        const uint32_t commit = next_commit++;
         bool queued = false;
         if (!overflowed && valid_utf8(message + 1, length - 1)) {
             queued = queue_typing(message + 1, length - 1);
             overflowed = !queued;
         }
         if (!queued) {
-            send_ack(false);
+            send_answer('D', commit);
         } else if (queue_count == before) {
-            send_ack(true);
+            send_answer('S', commit);
+            send_answer('A', commit);
         } else {
+            for (unsigned i = before; i < queue_count; ++i) {
+                queue[(queue_head + i) % kQueue].commit = commit;
+            }
+            queue[(queue_head + before) % kQueue].first = true;
             queue[(queue_head + queue_count - 1) % kQueue].ack = true;
         }
     } else if (length == 6 && message[0] == 'K') {
@@ -785,7 +831,12 @@ static void stream_message(const unsigned char* message, size_t length) {
         end_session();
     } else if (length == 1 && message[0] == 'Q') {
         acks = true;
+        next_commit = 0;
         send(stream_socket, "Y", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+    } else if (length == 5 && message[0] == 'W' && acks) {
+        uint32_t commit;
+        memcpy(&commit, message + 1, sizeof commit);
+        withdraw(commit);
     }
     // Anything else is from a keyboard newer than this library: ignored.
 }

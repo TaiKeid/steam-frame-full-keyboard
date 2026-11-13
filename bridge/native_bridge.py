@@ -116,10 +116,11 @@ STREAM_KEY = "steamlink_openvr-overlay"
 STREAM_SOCKET = "framekeyboard-stream.sock"
 STREAM_PROTOCOL = 1
 STREAM_TEXT_BYTES = 2000
-# How long a text into a stream may take to be typed before it counts as not delivered: the library types
-# about a character a frame, so this allows ten a second, after two seconds for what is ahead of it. The
-# app waits a little longer (NativeReplacement's stream text limit).
-STREAM_TEXT_WAIT = 2.0
+# How long a text into a stream may take, from the app's sending it: to start typing, after which it is
+# withdrawn if it has not (R256); and once started, to finish, at about a character a frame, so this
+# allows ten a second. The app waits half a second longer (NativeReplacement's stream text limit).
+STREAM_TEXT_START = 2.0
+STREAM_TEXT_FINISH = 1.0
 STREAM_TEXT_WAIT_PER_BYTE = 0.1
 # SDL scancodes (USB HID usages) of the named keys a remote session can press, and whether Shift is
 # held. They are the streaming client's codes: never Linux evdev or Steam key codes.
@@ -156,9 +157,11 @@ class StreamChannel:
     commit, b"K" + scancode, modifiers and down flag for a key event. Closing the socket makes the
     library release whatever it still holds. The library sends b"F" when the user clicks the stream.
 
-    Each client is asked (b"Q") to answer every commit once it is done: b"A" typed, b"D" dropped
-    (R164). A library that can confirms with b"Y"; an older one ignores the question, and its texts
-    count as delivered once on the socket, as before. A text waits for the answers to all its packets.
+    Each client is asked (b"Q") to answer every commit by its number, counted on both sides from the
+    question (R164, R255): b"S" + number when it starts typing, b"A" + number when typed, b"D" + number
+    when dropped. A library that can confirms with b"Y"; an older one ignores the question, and its
+    texts count as delivered once on the socket, as before. A text waits for the answers to all its
+    packets; b"W" + number withdraws one that has not started.
     """
 
     def __init__(self, directory=None, programs=STREAM_PROGRAMS):
@@ -175,12 +178,12 @@ class StreamChannel:
         # A client went away since the main loop last asked (take_lost), even if another has connected
         # since: the library let go of everything it held, so the session typing into it is over (R248).
         self.lost = False
-        # The current client's answers (R164): whether it confirmed it answers, how many commits it was
-        # sent before that (answered too, but nobody waits for them), and per commit sent since, the
-        # text it belongs to, if one waits. `texts` counts each waiting text's unanswered packets.
+        # The current client's answers (R164): whether it confirmed it answers, the number the next
+        # packet will have, each awaited packet's text by number, and per waiting text its unanswered
+        # packets, whether all went, and when it started typing.
         self.answers = False
-        self.unawaited = 0
-        self.awaiting = deque()
+        self.sequence = 0
+        self.packets = {}
         self.texts = {}
         self.results = []
         self.directory = directory or os.environ.get("XDG_RUNTIME_DIR")
@@ -220,20 +223,22 @@ class StreamChannel:
         # What the client had not typed yet went with it.
         self.results.extend((token, False) for token in self.texts)
         self.texts.clear()
-        self.awaiting.clear()
+        self.packets.clear()
         self.answers = False
-        self.unawaited = 0
+        self.sequence = 0
 
-    def _answer(self, typed):
-        if self.unawaited:
-            self.unawaited -= 1
-            return
-        token = self.awaiting.popleft() if self.awaiting else None
+    def _answer(self, kind, number):
+        token = self.packets.get(number)
         text = self.texts.get(token)
+        if kind == b"S":
+            if text is not None and text[2] is None:
+                text[2] = time.monotonic()
+            return
+        self.packets.pop(number, None)
         if text is None:
             return  # nobody waits for it, or its wait ran out
         text[0] -= 1
-        text[1] = text[1] and typed
+        text[1] = text[1] and kind == b"A"
         if text[0] == 0:
             del self.texts[token]
             self.results.append((token, text[1]))
@@ -242,9 +247,21 @@ class StreamChannel:
         """Whether text `token` waits for the client's answer."""
         return token in self.texts
 
+    def started(self, token):
+        """When text `token` started typing, or None."""
+        text = self.texts.get(token)
+        return text[2] if text else None
+
     def forget(self, token):
         """Stop waiting for text `token`; its answers, when they come, are ignored."""
         self.texts.pop(token, None)
+
+    def withdraw(self, token):
+        """Give up on text `token`: its packets that have not started typing are taken back (R256)."""
+        self.forget(token)
+        for number in [n for n, t in self.packets.items() if t == token]:
+            del self.packets[number]
+            self._send(b"W" + struct.pack("<I", number))
 
     def take_results(self):
         """The texts answered since the last call, or lost with the client: (token, delivered)."""
@@ -302,8 +319,8 @@ class StreamChannel:
                     self.clicked = True
                 elif packet == b"Y":
                     self.answers = True
-                elif packet in (b"A", b"D"):
-                    self._answer(packet == b"A")
+                elif len(packet) == 5 and packet[:1] in (b"S", b"A", b"D"):
+                    self._answer(packet[:1], struct.unpack("<I", packet[1:])[0])
         except (BlockingIOError, InterruptedError):
             pass
         except OSError:
@@ -401,12 +418,12 @@ class StreamChannel:
                 end -= 1  # Never cut inside a character.
             ok = self._send(b"T" + data[:end])
             data = data[end:]
-            if ok and self.answers:
-                self.awaiting.append(token if waits else None)
+            if ok:
+                # The library numbers every commit after the question the same way (R255).
                 if waits:
-                    self.texts.setdefault(token, [0, True])[0] += 1
-            elif ok:
-                self.unawaited += 1
+                    self.packets[self.sequence] = token
+                    self.texts.setdefault(token, [0, True, None])[0] += 1
+                self.sequence += 1
         if not ok:
             self.text_failed = True
             self.forget(token)  # It failed now; any answers for its packets are ignored.
@@ -899,8 +916,16 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # The streaming client's socket opens with the first frame that says Streaming support is on,
         # so only the installed, live bridge owns it, and only while the setting is on (R176).
         stream_request = None
-        # Texts into a stream that wait for the library to type them (R164): id -> (request, deadline).
+        # Texts into a stream that wait for the library to type them (R164): id -> (request, when the app
+        # sent it, its size in bytes).
         stream_texts = {}
+
+        def text_deadline(token, sent, size):
+            """Until it starts typing, a text waits from the app's sending it; then, for its typing."""
+            started = stream.started(token) if stream else None
+            if started is None:
+                return sent + STREAM_TEXT_START
+            return started + STREAM_TEXT_FINISH + STREAM_TEXT_WAIT_PER_BYTE * size
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
         # The stream session whose streaming client went away, reported once with the next poll.
         stream_gone = None
@@ -1060,7 +1085,13 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             nonlocal fallback_request
             answered = stream.take_results() if stream else []
             now = time.monotonic()
-            answered += [(token, False) for token, (_, deadline) in stream_texts.items() if now >= deadline]
+            for token, (_, sent, size) in list(stream_texts.items()):
+                if now >= text_deadline(token, sent, size):
+                    # Not started: taken back, so it cannot arrive after being reported as not sent
+                    # (R256). Started: it finishes if the stream resumes.
+                    if stream and stream.started(token) is None:
+                        stream.withdraw(token)
+                    answered.append((token, False))
             for token, delivered in answered:
                 entry = stream_texts.pop(token, None)
                 if entry is None:
@@ -1081,7 +1112,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
-            wake = min([next_poll] + [deadline for _, deadline in stream_texts.values()])
+            wake = min([next_poll] + [text_deadline(token, sent, size)
+                                      for token, (_, sent, size) in stream_texts.items()])
             readable, _, _ = select.select([parent] + (stream.sockets() if stream else []),
                                            [parent] if channel.waiting() else [], [],
                                            0 if pending else max(0, wake - time.monotonic()))
@@ -1129,10 +1161,15 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             ok = not gone and (stream.send_key(message["text"]) if operation == "key"
                                                else stream.send_text(message["text"], message["id"]))
                             if operation == "text" and ok and stream.waiting(message["id"]):
-                                # Answered once the library has typed it (answer_stream_texts).
-                                stream_texts[message["id"]] = (
-                                    message["request"], time.monotonic() + STREAM_TEXT_WAIT +
-                                    STREAM_TEXT_WAIT_PER_BYTE * len(message["text"].encode()))
+                                # Answered once the library has typed it (answer_stream_texts). Its
+                                # wait counts from the app's sending it, on the clock frames use (R257).
+                                now = time.monotonic()
+                                sent = message.get("sent")
+                                if (not isinstance(sent, (int, float)) or isinstance(sent, bool) or
+                                        not now - 10 < sent <= now + .1):
+                                    sent = now
+                                stream_texts[message["id"]] = (message["request"], sent,
+                                                               len(message["text"].encode()))
                         else:
                             # The JS side checks the target and lease again at delivery.
                             ok = evaluate(f"{reference}?.bridge.send({message['request']},"

@@ -750,13 +750,15 @@ bool NativeReplacement::commit_text(const std::string& text) {
         return false;
     }
     const auto id = ++sequence_;
+    // "sent": the helper counts a stream text's wait from here, on the clock frames use (R257).
     if (!packet("{\"op\":\"text\",\"request\":" + std::to_string(state_.request) +
-                ",\"id\":" + std::to_string(id) + ",\"text\":" + encoded(text) + "}")) {
+                ",\"id\":" + std::to_string(id) + ",\"sent\":" + std::to_string(now_) +
+                ",\"text\":" + encoded(text) + "}")) {
         return false;
     }
     pending_id_ = id;
     pending_since_ = now_;
-    pending_limit_ = state_.stream ? 2.5 + .1 * static_cast<double>(text.size()) : 1.0;
+    pending_limit_ = state_.stream ? 3.5 + .1 * static_cast<double>(text.size()) : 1.0;
     pending_text_ = text;
     return false;
 }

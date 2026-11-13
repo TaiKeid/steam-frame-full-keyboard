@@ -189,7 +189,8 @@ void stream_keys() {
         require(local.keys.empty() && !replacement.take_unsupported_control(),
                 "stream keys never reach local input and raise no Steam-field notice");
         // A text into a stream is reported only once the streaming client has typed it (R164), so it
-        // may wait longer than the second a text into Steam may: 2.5 s and a tenth of a second per byte.
+        // may wait longer than the second a text into Steam may: 3.5 s and a tenth of a second per
+        // byte, the helper's limits from the send time the text carries (R257) and half a second.
         const auto stream_state =
             R"({"op":"state","version":1,"request":4,"open":true,"eligible":true,"active":true,)"
             R"("stream":true})";
@@ -199,8 +200,9 @@ void stream_keys() {
                 "a text goes to the stream");
         const auto sent = take(pair[1]);
         const auto at = sent.find("\"id\":");
-        require(sent.find("\"op\":\"text\"") != std::string::npos && at != std::string::npos,
-                "as a text with its id");
+        require(sent.find("\"op\":\"text\"") != std::string::npos && at != std::string::npos &&
+                    sent.find("\"sent\":11.") != std::string::npos,
+                "as a text with its id and the time it was sent");
         const auto id = std::stoull(sent.substr(at + 5));
         for (double now = 11.4; now < 13.7; now += .4) {
             put(pair[1], stream_state); // the helper keeps answering meanwhile
@@ -213,12 +215,17 @@ void stream_keys() {
         require(replacement.commit_text("hello"), "and is delivered once typed");
         require(!replacement.commit_text("again") && replacement.text_pending(), "a second text goes");
         take(pair[1]);
-        for (double now = 14.2; now < 17.1; now += .4) {
+        for (double now = 14.2; now < 17.4; now += .4) {
+            put(pair[1], stream_state);
+            replacement.poll(now);
+        }
+        require(replacement.text_pending(), "unanswered, it still waits after three seconds");
+        for (double now = 17.4; now < 18.3; now += .4) {
             put(pair[1], stream_state);
             replacement.poll(now);
         }
         require(!replacement.commit_text("again") && !replacement.text_pending(),
-                "unanswered past its limit (3 s for five bytes), it fails");
+                "and fails past its limit (4 s for five bytes)");
     }
     close(pair[1]);
 }

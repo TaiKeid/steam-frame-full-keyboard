@@ -167,6 +167,17 @@ static void key(int keyboard, uint16_t scancode, uint16_t mod, bool down) {
           "key packet sent");
 }
 
+// The next answer from the library, if it is `kind` for `commit`.
+static bool answered(int keyboard, char kind, uint32_t commit) {
+    unsigned char answer[8];
+    uint32_t number = 0;
+    if (recv(keyboard, answer, sizeof answer, MSG_DONTWAIT) != 5) {
+        return false;
+    }
+    memcpy(&number, answer + 1, sizeof number);
+    return answer[0] == (unsigned char)kind && number == commit;
+}
+
 // The library looks for the keyboard at most once a second.
 static int accept_keyboard(int server) {
     for (int attempt = 0; attempt < 60; ++attempt) {
@@ -674,10 +685,11 @@ int main(int argc, char** argv) {
     close(keyboard);
     idle_pump();
 
-    // 11. Asked with 'Q', the library answers every later commit once: 'A' when its last step is typed,
-    // 'D' when it was dropped or SDL refused a step of it (R164). Unasked, it answers nothing.
+    // 11. Asked with 'Q', the library answers every later commit by its number, counted from 'Q': 'S'
+    // when its first step is typed, 'A' when its last is, 'D' when it was dropped, malformed, refused
+    // or withdrawn before starting (R164, R255, R256). Unasked, it answers nothing.
     keyboard = accept_keyboard(server);
-    check(keyboard >= 0, "library reconnected for acknowledgements");
+    check(keyboard >= 0, "library reconnected for answers");
     pushed_count = 0;
     unsigned char reply[8];
     send(keyboard, "Tab", 3, MSG_NOSIGNAL);
@@ -692,41 +704,58 @@ int main(int argc, char** argv) {
     pushed_count = 0;
     send(keyboard, "Tab", 3, MSG_NOSIGNAL);
     idle_pump();
-    check(pushed_count == 2 && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
-          "no answer while the commit is still typing");
+    check(pushed_count == 2 && answered(keyboard, 'S', 0) && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
+          "commit 0 started, not yet typed");
     idle_pump();
-    check(pushed_count == 4 && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'A',
-          "'A' once its last step is typed");
+    check(pushed_count == 4 && answered(keyboard, 'A', 0), "'A' for commit 0 once its last step is typed");
     send(keyboard, "T\x01", 2, MSG_NOSIGNAL);
     idle_pump();
-    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'A',
+    check(answered(keyboard, 'S', 1) && answered(keyboard, 'A', 1),
           "a commit that types nothing is answered at once");
     send(keyboard, "T\xD0", 2, MSG_NOSIGNAL);
     idle_pump();
-    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'D',
-          "malformed text is answered as dropped");
+    check(answered(keyboard, 'D', 2), "malformed text is answered as dropped");
     send(keyboard, "Tcd", 3, MSG_NOSIGNAL);
     refuse_events = true;
     idle_pump();
     idle_pump();
     refuse_events = false;
-    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'D',
+    check(answered(keyboard, 'S', 3) && answered(keyboard, 'D', 3),
           "a commit with a step SDL refused is answered as dropped");
     // Two commits of 2000 capitals take 4 entries each per letter, more than the queue holds: the second
-    // and the one after it are dropped and answered at once; the first is still typing.
+    // and the one after it are dropped and answered at once, before the first, still typing, is (R255).
     static char capitals[2001];
     capitals[0] = 'T';
     memset(capitals + 1, 'A', 2000);
-    pushed_count = 0;
     send(keyboard, capitals, sizeof capitals, MSG_NOSIGNAL);
     send(keyboard, capitals, sizeof capitals, MSG_NOSIGNAL);
     send(keyboard, "Tef", 3, MSG_NOSIGNAL);
     idle_pump();
-    int dropped = 0;
-    while (recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1) {
-        dropped += reply[0] == 'D' ? 1 : 100;
-    }
-    check(dropped == 2, "what the queue cannot take is answered as dropped, the rest not yet");
+    check(answered(keyboard, 'D', 5) && answered(keyboard, 'D', 6) && answered(keyboard, 'S', 4) &&
+              recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
+          "out of order, each answer names its commit");
+    close(keyboard);
+    idle_pump();
+    // Withdrawn before it starts, a commit goes and is answered as dropped; one already typing finishes.
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected for withdrawals");
+    send(keyboard, "Q", 1, MSG_NOSIGNAL);
+    idle_pump();
+    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y', "asked again");
+    send(keyboard, capitals, sizeof capitals, MSG_NOSIGNAL);
+    send(keyboard, "Tgh", 3, MSG_NOSIGNAL);
+    idle_pump();
+    check(answered(keyboard, 'S', 0), "commit 0 started");
+    unsigned char withdraw[5] = {'W'};
+    uint32_t number = 1;
+    memcpy(withdraw + 1, &number, sizeof number);
+    send(keyboard, withdraw, sizeof withdraw, MSG_NOSIGNAL);
+    number = 0;
+    memcpy(withdraw + 1, &number, sizeof number);
+    send(keyboard, withdraw, sizeof withdraw, MSG_NOSIGNAL);
+    idle_pump();
+    check(answered(keyboard, 'D', 1) && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
+          "the waiting commit is withdrawn, the typing one is not");
     close(keyboard);
     idle_pump();
 
