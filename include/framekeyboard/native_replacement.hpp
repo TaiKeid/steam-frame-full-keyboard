@@ -149,6 +149,10 @@ class NativeReplacement : public KeySink {
     bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{}, streaming_support_{};
     ButtonPress button_;
     double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{}, adopt_until_{};
+    // How long the pending text may wait for its result: a second, or for a text into a stream,
+    // which the helper reports only once the streaming client has typed it (R164), 2.5 s and a tenth
+    // of a second per byte, half a second past the helper's own limit.
+    double pending_limit_{1.0};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

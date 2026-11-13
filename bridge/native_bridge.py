@@ -116,6 +116,11 @@ STREAM_KEY = "steamlink_openvr-overlay"
 STREAM_SOCKET = "framekeyboard-stream.sock"
 STREAM_PROTOCOL = 1
 STREAM_TEXT_BYTES = 2000
+# How long a text into a stream may take to be typed before it counts as not delivered: the library types
+# about a character a frame, so this allows ten a second, after two seconds for what is ahead of it. The
+# app waits a little longer (NativeReplacement's stream text limit).
+STREAM_TEXT_WAIT = 2.0
+STREAM_TEXT_WAIT_PER_BYTE = 0.1
 # SDL scancodes (USB HID usages) of the named keys a remote session can press, and whether Shift is
 # held. They are the streaming client's codes: never Linux evdev or Steam key codes.
 STREAM_KEYS = {"Backspace": (42, False), "Enter": (40, False), "ShiftEnter": (40, True), "Tab": (43, False),
@@ -150,6 +155,10 @@ class StreamChannel:
     The library types what arrives here into the stream. One packet is one message: b"T" + UTF-8 for a
     commit, b"K" + scancode, modifiers and down flag for a key event. Closing the socket makes the
     library release whatever it still holds. The library sends b"F" when the user clicks the stream.
+
+    Each client is asked (b"Q") to answer every commit once it is done: b"A" typed, b"D" dropped
+    (R164). A library that can confirms with b"Y"; an older one ignores the question, and its texts
+    count as delivered once on the socket, as before. A text waits for the answers to all its packets.
     """
 
     def __init__(self, directory=None, programs=STREAM_PROGRAMS):
@@ -166,6 +175,14 @@ class StreamChannel:
         # A client went away since the main loop last asked (take_lost), even if another has connected
         # since: the library let go of everything it held, so the session typing into it is over (R248).
         self.lost = False
+        # The current client's answers (R164): whether it confirmed it answers, how many commits it was
+        # sent before that (answered too, but nobody waits for them), and per commit sent since, the
+        # text it belongs to, if one waits. `texts` counts each waiting text's unanswered packets.
+        self.answers = False
+        self.unawaited = 0
+        self.awaiting = deque()
+        self.texts = {}
+        self.results = []
         self.directory = directory or os.environ.get("XDG_RUNTIME_DIR")
         self.open()
 
@@ -200,6 +217,39 @@ class StreamChannel:
             self.client = None
             self.client_pid = None
             self.lost = True
+        # What the client had not typed yet went with it.
+        self.results.extend((token, False) for token in self.texts)
+        self.texts.clear()
+        self.awaiting.clear()
+        self.answers = False
+        self.unawaited = 0
+
+    def _answer(self, typed):
+        if self.unawaited:
+            self.unawaited -= 1
+            return
+        token = self.awaiting.popleft() if self.awaiting else None
+        text = self.texts.get(token)
+        if text is None:
+            return  # nobody waits for it, or its wait ran out
+        text[0] -= 1
+        text[1] = text[1] and typed
+        if text[0] == 0:
+            del self.texts[token]
+            self.results.append((token, text[1]))
+
+    def waiting(self, token):
+        """Whether text `token` waits for the client's answer."""
+        return token in self.texts
+
+    def forget(self, token):
+        """Stop waiting for text `token`; its answers, when they come, are ignored."""
+        self.texts.pop(token, None)
+
+    def take_results(self):
+        """The texts answered since the last call, or lost with the client: (token, delivered)."""
+        results, self.results = self.results, []
+        return results
 
     def take_lost(self):
         """Whether a client went away since the last call. A library that hangs up connects again on
@@ -250,6 +300,10 @@ class StreamChannel:
                     self._drop()
                 elif packet == b"F":
                     self.clicked = True
+                elif packet == b"Y":
+                    self.answers = True
+                elif packet in (b"A", b"D"):
+                    self._answer(packet == b"A")
         except (BlockingIOError, InterruptedError):
             pass
         except OSError:
@@ -292,6 +346,7 @@ class StreamChannel:
             self.client = incoming
             self.client_pid = pid
             self.text_failed = False
+            self._send(b"Q")  # Ask it to answer each commit; an older library ignores this.
         self._read()
 
     def sockets(self):
@@ -332,19 +387,29 @@ class StreamChannel:
             self._drop()
             return False
 
-    def send_text(self, text):
+    def send_text(self, text, token=None):
+        """Sends a text; with `token`, and a client that answers, the text then waits (waiting()) for
+        the client to type all of it, and take_results() says how that went."""
         if self.text_failed:
             return False  # A later text alone would leave a hole where the failed one belongs.
         data = text.encode()
         ok = bool(data)
+        waits = token is not None and self.answers
         while data and ok:
             end = min(len(data), STREAM_TEXT_BYTES)
             while end < len(data) and (data[end] & 0xC0) == 0x80:
                 end -= 1  # Never cut inside a character.
             ok = self._send(b"T" + data[:end])
             data = data[end:]
+            if ok and self.answers:
+                self.awaiting.append(token if waits else None)
+                if waits:
+                    self.texts.setdefault(token, [0, True])[0] += 1
+            elif ok:
+                self.unawaited += 1
         if not ok:
             self.text_failed = True
+            self.forget(token)  # It failed now; any answers for its packets are ignored.
         return ok
 
     def send_key(self, name):
@@ -834,6 +899,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # The streaming client's socket opens with the first frame that says Streaming support is on,
         # so only the installed, live bridge owns it, and only while the setting is on (R176).
         stream_request = None
+        # Texts into a stream that wait for the library to type them (R164): id -> (request, deadline).
+        stream_texts = {}
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
         # The stream session whose streaming client went away, reported once with the next poll.
         stream_gone = None
@@ -986,6 +1053,24 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 stream_gone = gone_request = stream_request
                 next_poll = 0
 
+        def answer_stream_texts():
+            """Reports texts the library has typed or dropped, and those whose wait ran out. A text
+            that did not go through while its client stays falls back as an immediate failure would;
+            one lost with its client ends the session instead (note_lost)."""
+            nonlocal fallback_request
+            answered = stream.take_results() if stream else []
+            now = time.monotonic()
+            answered += [(token, False) for token, (_, deadline) in stream_texts.items() if now >= deadline]
+            for token, delivered in answered:
+                entry = stream_texts.pop(token, None)
+                if entry is None:
+                    continue
+                if stream:
+                    stream.forget(token)
+                channel.send_result({"op": "text-result", "id": token, "ok": delivered})
+                if not delivered and stream and stream.connected() and entry[0] != gone_request:
+                    fallback_request = entry[0]
+
         def judge_parent():
             # Judge the parent by the frames just read: frames that queued
             # while the helper waited on Steam are not a stalled parent, and a
@@ -996,9 +1081,10 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
+            wake = min([next_poll] + [deadline for _, deadline in stream_texts.values()])
             readable, _, _ = select.select([parent] + (stream.sockets() if stream else []),
                                            [parent] if channel.waiting() else [], [],
-                                           0 if pending else max(0, next_poll - time.monotonic()))
+                                           0 if pending else max(0, wake - time.monotonic()))
             channel.flush()
             receive([parent] if parent in readable else [])
             if stopping:
@@ -1011,6 +1097,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         stream_click = True
                         next_poll = 0
                 note_lost()
+            answer_stream_texts()
             if pending:
                 message = pending.popleft()
                 operation = message["op"]
@@ -1040,7 +1127,12 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                             # A streamed game: the streaming client types it. Steam is not involved,
                             # so nothing depends on Steam's keyboard or SteamVR's keyboard session.
                             ok = not gone and (stream.send_key(message["text"]) if operation == "key"
-                                               else stream.send_text(message["text"]))
+                                               else stream.send_text(message["text"], message["id"]))
+                            if operation == "text" and ok and stream.waiting(message["id"]):
+                                # Answered once the library has typed it (answer_stream_texts).
+                                stream_texts[message["id"]] = (
+                                    message["request"], time.monotonic() + STREAM_TEXT_WAIT +
+                                    STREAM_TEXT_WAIT_PER_BYTE * len(message["text"].encode()))
                         else:
                             # The JS side checks the target and lease again at delivery.
                             ok = evaluate(f"{reference}?.bridge.send({message['request']},"
@@ -1048,7 +1140,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                                           f"{str(operation == 'key').lower()}) === true", DELIVERY_TIMEOUT)
                 except TimeoutError:
                     ok = False  # Unknown delivery fails this request closed.
-                if operation not in ("dismiss", "stream-key"):
+                if operation not in ("dismiss", "stream-key") and not (
+                        operation == "text" and message["id"] in stream_texts):
                     channel.send_result({"op": f"{operation}-result", "id": message["id"],
                                          "ok": ok is True})
                 if stream:

@@ -674,6 +674,62 @@ int main(int argc, char** argv) {
     close(keyboard);
     idle_pump();
 
+    // 11. Asked with 'Q', the library answers every later commit once: 'A' when its last step is typed,
+    // 'D' when it was dropped or SDL refused a step of it (R164). Unasked, it answers nothing.
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected for acknowledgements");
+    pushed_count = 0;
+    unsigned char reply[8];
+    send(keyboard, "Tab", 3, MSG_NOSIGNAL);
+    idle_pump();
+    idle_pump();
+    check(pushed_count == 4 && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
+          "a keyboard that did not ask hears nothing");
+    send(keyboard, "Q", 1, MSG_NOSIGNAL);
+    idle_pump();
+    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y',
+          "the library confirms it will answer");
+    pushed_count = 0;
+    send(keyboard, "Tab", 3, MSG_NOSIGNAL);
+    idle_pump();
+    check(pushed_count == 2 && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) < 0,
+          "no answer while the commit is still typing");
+    idle_pump();
+    check(pushed_count == 4 && recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'A',
+          "'A' once its last step is typed");
+    send(keyboard, "T\x01", 2, MSG_NOSIGNAL);
+    idle_pump();
+    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'A',
+          "a commit that types nothing is answered at once");
+    send(keyboard, "T\xD0", 2, MSG_NOSIGNAL);
+    idle_pump();
+    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'D',
+          "malformed text is answered as dropped");
+    send(keyboard, "Tcd", 3, MSG_NOSIGNAL);
+    refuse_events = true;
+    idle_pump();
+    idle_pump();
+    refuse_events = false;
+    check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'D',
+          "a commit with a step SDL refused is answered as dropped");
+    // Two commits of 2000 capitals take 4 entries each per letter, more than the queue holds: the second
+    // and the one after it are dropped and answered at once; the first is still typing.
+    static char capitals[2001];
+    capitals[0] = 'T';
+    memset(capitals + 1, 'A', 2000);
+    pushed_count = 0;
+    send(keyboard, capitals, sizeof capitals, MSG_NOSIGNAL);
+    send(keyboard, capitals, sizeof capitals, MSG_NOSIGNAL);
+    send(keyboard, "Tef", 3, MSG_NOSIGNAL);
+    idle_pump();
+    int dropped = 0;
+    while (recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1) {
+        dropped += reply[0] == 'D' ? 1 : 100;
+    }
+    check(dropped == 2, "what the queue cannot take is answered as dropped, the rest not yet");
+    close(keyboard);
+    idle_pump();
+
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
                                              "off", "unicode-keys", NULL};

@@ -107,6 +107,7 @@ typedef struct {
     uint16_t mod; // modifier state the event reports, as a real keyboard's would
     bool down;
     bool typed; // from a commit ('T'), so balanced: every key it presses it also releases
+    bool ack;   // a commit's last step: once it is typed, Full Keyboard hears whether all of it went
 } Queued;
 
 static void* overlay_table[kOverlayFunctions];
@@ -132,6 +133,16 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
+// Full Keyboard asked ('Q') to hear of each commit: 'A' once its last step is typed, 'D' when it was
+// dropped or a step of it was refused (R164). A keyboard that never asks gets nothing.
+static bool acks;
+static bool commit_failed; // a step of the commit being typed was refused
+
+static void send_ack(bool typed) {
+    if (acks && stream_socket >= 0) {
+        send(stream_socket, typed ? "A" : "D", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+    }
+}
 
 static bool switch_file(const char* name) {
     char path[512];
@@ -252,9 +263,9 @@ static uint32_t keycode_for(unsigned scancode) {
 
 // A key counts as down or up only once SDL has taken the event: a release it refuses is tried again at
 // the next clean-up (R249).
-static void push_key(unsigned scancode, unsigned mod, bool down) {
+static bool push_key(unsigned scancode, unsigned mod, bool down) {
     if (!sdl_ready() || scancode == 0 || scancode >= kScancodes) {
-        return;
+        return false;
     }
     SdlEvent event;
     memset(&event, 0, sizeof event);
@@ -264,9 +275,11 @@ static void push_key(unsigned scancode, unsigned mod, bool down) {
     event.key.key = keycode_for(scancode);
     event.key.mod = (uint16_t)mod;
     event.key.down = down;
-    if (push_event(&event)) {
-        held[scancode] = down;
+    if (!push_event(&event)) {
+        return false;
     }
+    held[scancode] = down;
+    return true;
 }
 
 static bool queue_has_room(unsigned items) {
@@ -504,6 +517,18 @@ static void restore_session_modifiers(unsigned mod, unsigned pressed) {
     }
 }
 
+// A queued step is done with: a commit's step SDL refused marks the commit failed, and its last step
+// tells Full Keyboard how the commit went.
+static void consumed(const Queued* step, bool pushed) {
+    if (step->typed && !pushed) {
+        commit_failed = true;
+    }
+    if (step->ack) {
+        send_ack(!commit_failed);
+        commit_failed = false;
+    }
+}
+
 // Types the next step: one text, or key events up to and including the next release, so a tap lands in
 // one pump and the PC sees typing paced a frame apart.
 static void pump_queue(void) {
@@ -515,8 +540,9 @@ static void pump_queue(void) {
         queue_head = (queue_head + 1) % kQueue;
         --queue_count;
         if (next.text) {
-            push_text((const unsigned char*)next.text, next.length);
+            const bool pushed = push_text((const unsigned char*)next.text, next.length);
             free(next.text);
+            consumed(&next, pushed);
             return;
         }
         if (next.typed) {
@@ -524,6 +550,7 @@ static void pump_queue(void) {
                 // Typed text's own tap of a modifier the session holds down, such as a capital's Shift
                 // while the panel's Shift is held: the modifier stays down for the session, whose own
                 // release comes later, so later presses counting on it still have it (R241).
+                consumed(&next, true);
                 if (!next.down) {
                     return; // the step ends where the release would have ended it
                 }
@@ -548,13 +575,14 @@ static void pump_queue(void) {
         } else if (next.down) {
             restore_session_modifiers(next.mod, next.scancode);
         }
-        push_key(next.scancode, next.mod, next.down);
+        const bool pushed = push_key(next.scancode, next.mod, next.down);
         if (next.down && held[next.scancode]) {
             lifted[next.scancode] = false; // down again, as typed text's capital puts Shift
         }
         if (!next.typed) {
             session_held[next.scancode] = next.down;
         }
+        consumed(&next, pushed);
         if (!next.down) {
             return;
         }
@@ -648,6 +676,7 @@ static void stream_disconnect(void) {
         close(stream_socket);
         stream_socket = -1;
         release_everything();
+        acks = commit_failed = false; // the next keyboard asks again
     }
 }
 
@@ -702,14 +731,25 @@ static void stream_connect(void) {
 //   'K' scancode:u16 mod:u16 down:u8  one key event (SDL scancode and modifier bits, little endian)
 //   'R'                               the session ended: release the keys its key events hold and drop
 //                                    those still queued; committed text is still typed
+//   'Q'                               asks for an 'A' or 'D' per later commit; answered with 'Y'
 static void stream_message(const unsigned char* message, size_t length) {
     overflowed = overflowed && queue_count != 0;
     if (length >= 2 && message[0] == 'T') {
         // Whole, well-formed text only. What the queue cannot take is dropped, and so is what follows
-        // until the queue has drained.
-        if (!overflowed && valid_utf8(message + 1, length - 1) &&
-            !queue_typing(message + 1, length - 1)) {
-            overflowed = true;
+        // until the queue has drained. Each commit is answered once: when it was dropped, at once;
+        // otherwise with its last step, or at once when it types nothing.
+        const unsigned before = queue_count;
+        bool queued = false;
+        if (!overflowed && valid_utf8(message + 1, length - 1)) {
+            queued = queue_typing(message + 1, length - 1);
+            overflowed = !queued;
+        }
+        if (!queued) {
+            send_ack(false);
+        } else if (queue_count == before) {
+            send_ack(true);
+        } else {
+            queue[(queue_head + queue_count - 1) % kQueue].ack = true;
         }
     } else if (length == 6 && message[0] == 'K') {
         uint16_t scancode;
@@ -743,6 +783,9 @@ static void stream_message(const unsigned char* message, size_t length) {
         }
     } else if (length == 1 && message[0] == 'R') {
         end_session();
+    } else if (length == 1 && message[0] == 'Q') {
+        acks = true;
+        send(stream_socket, "Y", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
     }
     // Anything else is from a keyboard newer than this library: ignored.
 }

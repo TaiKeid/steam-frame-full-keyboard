@@ -507,8 +507,9 @@ void NativeReplacement::poll(double now) {
         stop();
     }
     // The helper waits up to 0.8 s for Steam to confirm a delivery, through
-    // a half-second UI stall; its answer then needs a moment to arrive.
-    if (pending_id_ && !pending_result_ && now - pending_since_ > 1.0) {
+    // a half-second UI stall; its answer then needs a moment to arrive. A
+    // stream's text waits until it is typed (pending_limit_).
+    if (pending_id_ && !pending_result_ && now - pending_since_ > pending_limit_) {
         diagnostic("text-timeout", now, state_.request);
         pending_result_ = false;
         force_fallback_ = true;
@@ -755,6 +756,7 @@ bool NativeReplacement::commit_text(const std::string& text) {
     }
     pending_id_ = id;
     pending_since_ = now_;
+    pending_limit_ = state_.stream ? 2.5 + .1 * static_cast<double>(text.size()) : 1.0;
     pending_text_ = text;
     return false;
 }
