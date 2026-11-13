@@ -96,6 +96,8 @@ After any update above, run these in order and stop at the first failure:
 
 ## Last check
 
+2026-11-13, for 0.18.1: the same as for 0.18.0 below. SteamOS and Steam had not changed since 0.18.0, so the private-behavior checks were not due.
+
 2026-11-12, for 0.18.0:
 - **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists and every Chinese engine pin.
 - **ExecuTorch, frame-perf-overlay, Mozc dictionary and kaomoji data, Unicode emoji:** as for 0.17.0 below; the pins stay.

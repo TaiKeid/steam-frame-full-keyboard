@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.18.1: Faster redraws and stream typing fixes
 
 - Shift taps, summoning the keyboard and the laser crossing the toolbar's buttons redraw the keyboard about five times faster on the Frame, in about 6 ms instead of about 30: every key of the same shape now shares one drawing of its body, kept in about 0.6 MB, and the keys' edge light takes one stroke instead of two. Keys now sit on whole pixels, each moved by less than half a pixel.
 - A status message, a tooltip or a Shift tap no longer measures every key again unless the keys changed: on the Frame, Shift taps' slowest redraws drop from about 15 ms to about 9 ms.
-- Uninstalling after the keyboard ran in a Desktop no longer leaves its KWin script in the runtime folder until the next restart, and the keyboard deletes that script itself when it stops using it.
+- Uninstalling after the keyboard ran in a Desktop no longer leaves its KWin script in the runtime folder until the next restart, and the keyboard deletes that script itself when it stops using it or the Desktop closes.
 - If saving Settings cannot reach SteamOS's service manager, Streaming support no longer stays ticked without being set up; the message says that both Start with SteamOS and Streaming support were left as they were.
 - The private socket Steam's streaming client connects to now exists only while Streaming support is on, instead of whenever Replace native keyboard is.
-- Text typed into a game or application streamed from your PC counts as sent only once it has actually been typed there. Text the stream dropped, as when far more was waiting than it could hold, now shows "Text not sent" instead of going missing silently, and the keyboard stays on the stream, so Enter sends it again there.
+- Text typed into a game or application streamed from your PC counts as sent only once it has actually been typed there. Text the stream dropped, as when far more was waiting than it could hold, or that could not start typing within two seconds, as when the stream stalls, now shows "Text not sent" instead of going missing silently. It doesn't arrive later by itself, and the keyboard stays on the stream, so Enter sends it again there.
 
 ## 0.18.0: Streaming support and a new look
 
