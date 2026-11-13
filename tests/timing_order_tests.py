@@ -7,6 +7,8 @@ import unittest
 
 
 NUMBER = r"((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?=\s*(?:[,;):]|\bor\b|\band\b|$))"
+# A literal inside an expression; its pattern names what must follow it.
+PLAIN = r"((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))"
 JS = "bridge/steam_bridge.js"
 PY = "bridge/native_bridge.py"
 CPP = "src/native_replacement.cpp"
@@ -29,7 +31,15 @@ SPECS = (
     ("helper startup budget", CPP, r"install_until_\s*=\s*now\s*\+\s*" + NUMBER, 2, 1),
     ("bridge receipt freshness", PY, r"time\.monotonic\(\)\s*-\s*last_parent\s*>\s*" + NUMBER, 1, 1),
     ("bridge frame freshness", PY, r"time\.monotonic\(\)\s*-\s*frame_sent\s*<\s*" + NUMBER, 1, 1),
-    ("text confirmation", CPP, r"now\s*-\s*pending_since_\s*>\s*" + NUMBER, 1, 1),
+    # The wait for Steam's answer to a text; a stream's own wait is checked below.
+    ("text confirmation", CPP, r"pending_limit_\s*=\s*state_\.stream\s*\?[^:;]*:\s*" + NUMBER, 1, 1),
+    ("stream text start", PY, r"\bSTREAM_TEXT_START\s*=\s*" + NUMBER, 1, 1),
+    ("stream text finish", PY, r"\bSTREAM_TEXT_FINISH\s*=\s*" + NUMBER, 1, 1),
+    ("stream text per byte", PY, r"\bSTREAM_TEXT_WAIT_PER_BYTE\s*=\s*" + NUMBER, 1, 1),
+    # The app's stream text wait is base + per byte * size, from the same send time.
+    ("app stream text wait", CPP, r"pending_limit_\s*=\s*state_\.stream\s*\?\s*" + PLAIN + r"(?=\s*\+)", 1, 1),
+    ("app stream text per byte", CPP,
+     r"pending_limit_\s*=\s*state_\.stream\s*\?[^+:;]*\+\s*" + PLAIN + r"(?=\s*\*)", 1, 1),
     ("key confirmation", CPP, r"now\s*-\s*native_since_\s*>\s*" + NUMBER, 1, 1),
     ("helper reply freshness", CPP, r"now\s*-\s*last_reply_\s*>\s*" + NUMBER, 1, 1),
     ("overlay hide", VR, r"monotonic_seconds\(\)\s*-\s*replacement_progress\.load\(\)\s*>\s*" + NUMBER, 1, 1),
@@ -81,6 +91,15 @@ def check_ordering(sources):
     before("Steam lease", "native guard")
     before("native guard", "parent recovery")
     before("parent recovery", "slow-work ceiling")
+    # A stream text: the helper answers, from the app's send time, within its start wait plus its
+    # finish wait and per-byte time, so the app's own wait from the same moment must end later (R257).
+    helper = values["stream text start"][0] + values["stream text finish"][0]
+    if helper >= values["app stream text wait"][0]:
+        raise AssertionError(f"timing rule broken: stream text start + finish < app stream text wait; "
+                             f"got {helper} and {values['app stream text wait'][0]} seconds")
+    if values["stream text per byte"][0] > values["app stream text per byte"][0]:
+        raise AssertionError("timing rule broken: stream text per byte <= app stream text per byte; got "
+                             f"{values['stream text per byte'][0]} and {values['app stream text per byte'][0]}")
 
 
 class TimingOrdering(unittest.TestCase):
@@ -103,9 +122,21 @@ class TimingOrdering(unittest.TestCase):
     def test_confirmation_shorter_than_the_delivery_is_rejected(self):
         sources = dict(self.sources)
         delivery = extract_values(sources)["delivery call"][0]
-        sources[CPP] = re.sub(r"(now\s*-\s*pending_since_\s*>\s*)" + NUMBER,
+        sources[CPP] = re.sub(r"(pending_limit_\s*=\s*state_\.stream\s*\?[^:;]*:\s*)" + NUMBER,
                               lambda match: match[1] + str(delivery), sources[CPP], flags=re.MULTILINE)
         with self.assertRaisesRegex(AssertionError, "delivery call < text confirmation"):
+            check_ordering(sources)
+
+    def test_stream_text_wait_must_outlast_the_helpers(self):
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(STREAM_TEXT_FINISH\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "1.5", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "stream text start \\+ finish < app stream text wait"):
+            check_ordering(sources)
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(STREAM_TEXT_WAIT_PER_BYTE\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "0.2", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "stream text per byte <= app stream text per byte"):
             check_ordering(sources)
 
     def test_delivery_outliving_the_lease_is_rejected(self):
