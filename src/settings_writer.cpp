@@ -69,10 +69,17 @@ void SettingsWriter::run() {
         try {
             (request.reconcile ? reconcile_ : write_)(request.settings);
         } catch (const StartupPreferencesWarning& warning) {
-            result.startup_warning = warning.message();
-            result.startup_reason = warning.reason();
-            if (const auto* streaming = dynamic_cast<const StreamingSupportWarning*>(&warning)) {
+            const auto* streaming = dynamic_cast<const StreamingSupportWarning*>(&warning);
+            // Both failed: the startup flags' warning first, then streaming support's.
+            const auto& first = streaming && streaming->startup() ? *streaming->startup() : warning;
+            result.startup_warning = first.message();
+            result.startup_reason = first.reason();
+            if (streaming) {
                 result.streaming_support = streaming->saved();
+                if (streaming->startup()) {
+                    result.streaming_warning = warning.message();
+                    result.streaming_reason = warning.reason();
+                }
             }
         } catch (const std::exception& error) {
             result.error = error_text(error);

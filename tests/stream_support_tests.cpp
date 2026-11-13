@@ -289,6 +289,28 @@ int main() {
             require(refused && fs::exists(drop_in) && load_settings(config, errors).streaming_support,
                     "a drop-in that cannot be removed keeps the flag on and says so");
         }
+
+        // The user's service manager is unreachable: the boot unit and streaming support both fail in
+        // one save. The streaming flag goes back as well, and the warning carries both (R253).
+        settings.streaming_support = false;
+        save_preferences_with_integration(settings, binary, config, paths, reload, run);
+        require(!fs::exists(drop_in) && !load_settings(config, errors).streaming_support, "off again");
+        settings.streaming_support = true;
+        settings.start_with_steamos = false;
+        const auto unreachable = [] { throw std::runtime_error("the service manager is unreachable"); };
+        bool both = false;
+        try {
+            save_preferences_with_integration(settings, binary, config, paths, unreachable, run);
+        } catch (const StreamingSupportWarning& warning) {
+            both = warning.message().key == "streaming.saved-without-change" && !warning.saved() &&
+                   warning.startup() &&
+                   warning.startup()->message().key == "startup.saved-without-changes";
+        }
+        const auto unchanged = load_settings(config, errors);
+        require(
+            both && !unchanged.streaming_support && unchanged.start_with_steamos && !fs::exists(drop_in),
+            "when the boot unit fails too, the streaming flag still goes back and both warnings come");
+        settings.start_with_steamos = true;
         fs::remove_all(base);
         std::cout << "Streaming support's drop-in, running-Steam handling and preference save passed.\n";
     } catch (const std::exception& error) {

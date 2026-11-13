@@ -20,8 +20,11 @@ class SettingsWriter {
         // the warning's lead-in by key, and what kept them.
         UiText startup_warning;
         ErrorText startup_reason;
-        // Streaming support could not follow: its flag as saved.
+        // Streaming support could not follow: its flag as saved. When the
+        // startup flags failed in the same save, its warning follows theirs.
         std::optional<bool> streaming_support;
+        UiText streaming_warning;
+        ErrorText streaming_reason;
         bool reconcile{};
     };
     explicit SettingsWriter(fs::path directory, Write write = {}, Write reconcile = {});

@@ -4,6 +4,7 @@
 
 - Shift taps, summoning the keyboard and the laser crossing the toolbar's buttons redraw the keyboard about five times faster on the Frame, in about 6 ms instead of about 30: every key of the same shape now shares one drawing of its body, kept in about 0.6 MB, and the keys' edge light takes one stroke instead of two. Keys now sit on whole pixels, each moved by less than half a pixel.
 - Uninstalling after the keyboard ran in a Desktop no longer leaves its KWin script in the runtime folder until the next restart, and the keyboard deletes that script itself once KWin has started it.
+- If saving Settings cannot reach SteamOS's service manager, Streaming support no longer stays ticked without being set up; the message says that both Start with SteamOS and Streaming support were left as they were.
 
 ## 0.18.0: Streaming support and a new look
 

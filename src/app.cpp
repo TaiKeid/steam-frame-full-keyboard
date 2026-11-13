@@ -2838,6 +2838,11 @@ void App::update_save_status() {
             auto warning = result->startup_warning;
             warning.args.emplace_back("error", tr(result->startup_reason));
             save_status_ = status_ = tr(warning);
+            if (!result->streaming_warning.key.empty()) {
+                auto streaming = result->streaming_warning;
+                streaming.args.emplace_back("error", tr(result->streaming_reason));
+                save_status_ = status_ = save_status_ + ' ' + tr(streaming);
+            }
             save_status_is_startup_ = true;
         } else if (result->error.empty()) {
             // Reconciliation does not save JSON, so it cannot resolve a prior

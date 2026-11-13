@@ -404,14 +404,14 @@ void save_preferences_with_integration(const Settings& settings, const fs::path&
         configure_stream_support(saved.replace_native_keyboard && saved.streaming_support, paths, reload,
                                  std::move(run), false);
     } catch (const std::exception& error) {
-        if (!warning) {
-            const bool changed = saved.streaming_support != previous.streaming_support;
-            saved.streaming_support = previous.streaming_support;
-            save_settings(config_dir, saved);
-            throw StreamingSupportWarning(changed ? "streaming.saved-without-change"
-                                                  : "streaming.saved-not-configured",
-                                          error_text(error), saved.streaming_support);
-        }
+        // The flag goes back even when the boot unit failed too: left on, it
+        // would claim streaming support that is not set up (R253).
+        const bool changed = saved.streaming_support != previous.streaming_support;
+        saved.streaming_support = previous.streaming_support;
+        save_settings(config_dir, saved);
+        throw StreamingSupportWarning(changed ? "streaming.saved-without-change"
+                                              : "streaming.saved-not-configured",
+                                      error_text(error), saved.streaming_support, warning);
     }
     if (warning) {
         throw *warning;

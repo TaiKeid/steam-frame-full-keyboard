@@ -2,6 +2,7 @@
 #include "config.hpp"
 #include "startup.hpp"
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -52,14 +53,20 @@ void configure_stream_support(bool enabled, const StreamSupportPaths& paths,
 
 // A save's warning when streaming support could not follow: its flag went
 // back, and `saved()` is the flag as saved, for App to show what is true.
+// `startup()` is the boot unit's warning when that failed in the same save
+// too, so both can be shown (R253).
 class StreamingSupportWarning : public StartupPreferencesWarning {
   public:
-    StreamingSupportWarning(const std::string& key, ErrorText reason, bool saved)
-        : StartupPreferencesWarning(key, std::move(reason)), saved_(saved) {}
+    StreamingSupportWarning(const std::string& key, ErrorText reason, bool saved,
+                            std::optional<StartupPreferencesWarning> startup = {})
+        : StartupPreferencesWarning(key, std::move(reason)), saved_(saved),
+          startup_(std::move(startup)) {}
     bool saved() const { return saved_; }
+    const std::optional<StartupPreferencesWarning>& startup() const { return startup_; }
 
   private:
     bool saved_;
+    std::optional<StartupPreferencesWarning> startup_;
 };
 
 // The preference writer's save and its reconciliation at startup and Reload:
