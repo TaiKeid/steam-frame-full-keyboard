@@ -191,6 +191,11 @@ void stream_keys() {
     }
     close(pair[1]);
 }
+// One frame's packet, as update() sends it.
+std::string take_frame(NativeReplacement& replacement, int fd, double now) {
+    replacement.update(true, true, 2, false, now, true);
+    return take(fd);
+}
 void transport() {
     Local local;
     int pair[2];
@@ -282,6 +287,12 @@ void transport() {
                 "the bridge hears that the panel shows");
         replacement.update(true, true, 2, false, 11.7, true);
         require(take(pair[1]).find("\"shown\":false") != std::string::npos, "and that it does not");
+        // The helper keeps the streaming client's socket only while Streaming support is on (R176).
+        require(take_frame(replacement, pair[1], 11.8).find("\"stream\":false") != std::string::npos,
+                "the bridge hears that Streaming support is off");
+        replacement.set_streaming_support(true);
+        require(take_frame(replacement, pair[1], 11.9).find("\"stream\":true") != std::string::npos,
+                "and that it is on, in every frame");
     }
     close(pair[1]);
 }

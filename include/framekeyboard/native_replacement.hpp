@@ -42,6 +42,9 @@ class NativeReplacement : public KeySink {
     // Why replacement is unavailable, as a key App shows; empty while it works.
     UiText unavailable_reason() const;
     void route(bool remote) { remote_ = remote; }
+    // Whether Streaming support is on: the helper keeps the streaming client's
+    // socket only while it is (R176). Sent with every frame.
+    void set_streaming_support(bool on) { streaming_support_ = on; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }
     // A Steam field is no window of Gamescope's.
@@ -143,7 +146,7 @@ class NativeReplacement : public KeySink {
     unsigned runtime_depth_{};
     State state_;
     Failure failure_{Failure::None};
-    bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{};
+    bool remote_{}, reset_{}, force_fallback_{}, unsupported_control_{}, streaming_support_{};
     ButtonPress button_;
     double last_reply_{}, install_until_{}, next_start_{}, now_{}, pending_since_{}, adopt_until_{};
     double retry_delay_{5};

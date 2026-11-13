@@ -542,6 +542,7 @@ void NativeReplacement::update(bool enabled, bool ready, std::uint64_t acknowled
         ",\"ack\":" + std::to_string(acknowledgement) +
         ",\"watch\":" + (watch_main_loop ? "true" : "false") +
         ",\"standby\":" + (standby ? "true" : "false") + ",\"shown\":" + (shown ? "true" : "false") +
+        ",\"stream\":" + (streaming_support_ ? "true" : "false") +
         ",\"fallbackRequest\":" + std::to_string(state_.request) +
         ",\"fallback\":" + (use_fallback ? "true}" : "false}");
     // Dropped heartbeats never extend a lease. A dropped explicit fallback closes

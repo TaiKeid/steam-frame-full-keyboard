@@ -1562,6 +1562,54 @@ class Lifecycle(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
+    def test_stream_socket_exists_only_while_streaming_support_is_on(self):
+        # R176: the app says in every frame whether Streaming support is on; the socket follows.
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            client = FakeCDP()
+            parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            parent.settimeout(1)
+            worker = threading.Thread(target=bridge.run, args=(child, lambda: client, None, lambda: None),
+                                      kwargs=dict(stream_factory=lambda: bridge.StreamChannel(directory, programs=None)))
+            worker.start()
+            path = os.path.join(directory, bridge.STREAM_SOCKET)
+            library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+
+            def frames(stream, seconds):
+                deadline = time.monotonic() + seconds
+                while time.monotonic() < deadline:
+                    parent.send(json.dumps(dict(op="frame", progress=1, ready=True, ack=2, stream=stream,
+                                                sent=time.monotonic())).encode())
+                    time.sleep(.03)
+                    parent.setblocking(False)
+                    try:
+                        while True:
+                            parent.recv(32768)
+                    except BlockingIOError:
+                        pass
+                    finally:
+                        parent.settimeout(1)
+
+            try:
+                frames(False, .2)
+                self.assertFalse(os.path.exists(path), "no socket while Streaming support is off")
+                frames(True, .2)
+                self.assertTrue(os.path.exists(path), "the socket opens once it is on")
+                library.connect(path)
+                library.send(b"H" + bytes((bridge.STREAM_PROTOCOL,)) + struct.pack("<I", os.getpid()))
+                frames(True, .2)
+                frames(False, .2)
+                self.assertFalse(os.path.exists(path), "turned off, the socket goes")
+                library.settimeout(1)
+                self.assertEqual(library.recv(64), b"", "and the connected library is hung up on")
+                frames(True, .2)
+                self.assertTrue(os.path.exists(path), "turned on again, it opens again")
+            finally:
+                library.close()
+                parent.close()
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(os.path.exists(path), "the helper's exit removes it")
+
     def test_external_guard_restores_on_eof(self):
         self.external_lifecycle(True)
 

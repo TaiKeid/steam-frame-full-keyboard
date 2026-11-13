@@ -4618,6 +4618,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // panel too. So the bridge may poll Steam slowly; `worn` is read at the
         // top of the frame, at least four times a second.
         const bool standby = !worn;
+        replacement.set_streaming_support(app.streaming_support());
         replacement.update(replace, report.ready, report.acknowledgement, fallback || report.fallback,
                            completed, true, standby, lifecycle.visible());
         replacement_progress.store(completed);

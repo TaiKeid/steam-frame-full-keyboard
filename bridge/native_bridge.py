@@ -166,10 +166,14 @@ class StreamChannel:
         # A client went away since the main loop last asked (take_lost), even if another has connected
         # since: the library let go of everything it held, so the session typing into it is over (R248).
         self.lost = False
-        directory = directory or os.environ.get("XDG_RUNTIME_DIR")
-        if not directory:
+        self.directory = directory or os.environ.get("XDG_RUNTIME_DIR")
+        self.open()
+
+    def open(self):
+        """Listen on the socket, unless already listening. Closed while Streaming support is off."""
+        if self.listener is not None or not self.directory:
             return
-        path = os.path.join(directory, STREAM_SOCKET)
+        path = os.path.join(self.directory, STREAM_SOCKET)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_NONBLOCK |
                                  socket.SOCK_CLOEXEC)
         try:
@@ -378,6 +382,7 @@ class StreamChannel:
         self._send(b"R")
 
     def close(self):
+        """Stop listening and remove the socket; a connected client goes, which counts as lost."""
         self._drop()
         if self.listener is not None:
             self.listener.close()
@@ -826,11 +831,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         if result is not True:
             raise BridgeUnavailable("replacement-busy")
         failure_reason = "connection-lost"
-        if stream_factory:
-            try:
-                stream = stream_factory()  # Only the installed, live bridge owns the socket.
-            except OSError:
-                stream = None
+        # The streaming client's socket opens with the first frame that says Streaming support is on,
+        # so only the installed, live bridge owns it, and only while the setting is on (R176).
         stream_request = None
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
         # The stream session whose streaming client went away, reported once with the next poll.
@@ -868,7 +870,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
 
         def receive(readable):
             nonlocal stopping, restore_native, frame, fallback_request, next_poll, last_parent
-            nonlocal frame_sent, watch_main_loop, standby, pending, panel_shown
+            nonlocal frame_sent, watch_main_loop, standby, pending, panel_shown, stream
             # Drain releases before dispatching more work. CDP can be slower than
             # repeat generation; initial clicks stay ordered, repeats do not pile up.
             received = 0
@@ -911,6 +913,18 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                     if standby and message.get("standby") is not True:
                         next_poll = 0  # Awake: fast again now, not after the slow wait.
                     standby = message.get("standby") is True
+                    # A frame without "stream" (an older app, or a test) counts as on. Turned off, the
+                    # socket goes and a connected client with it, ending its session (note_lost).
+                    if message.get("stream") is not False:
+                        if stream is not None:
+                            stream.open()
+                        elif stream_factory:
+                            try:
+                                stream = stream_factory()
+                            except OSError:
+                                stream = None
+                    elif stream is not None:
+                        stream.close()
                 elif operation == "key-up":
                     if type(message.get("id")) is not int or type(message.get("request")) is not int:
                         raise ValueError("invalid-release")
