@@ -45,6 +45,7 @@ enum {
     kSdlKeyDown = 0x300,        // SDL_EVENT_KEY_DOWN
     kSdlKeyUp = 0x301,          // SDL_EVENT_KEY_UP
     kSdlEventBytes = 128,       // sizeof(SDL_Event)
+    kSdlPeekEvent = 1,          // SDL_PEEKEVENT
     kTextSlots = 32,            // texts kept alive for events still in SDL's queue
     kTextBytes = 2048,          // longest text sent as one message
     kQueue = 8192,              // pending key events and texts, in typing order: 128 KB
@@ -70,6 +71,7 @@ enum {
 typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
 typedef bool (*PollFn)(uint64_t overlay, void* event, uint32_t size);
 typedef bool (*PushEventFn)(void* event);
+typedef int (*PeepEventsFn)(void* events, int count, int action, uint32_t min_type, uint32_t max_type);
 typedef void* (*GetKeyboardFocusFn)(void);
 typedef uint32_t (*GetWindowIdFn)(void* window);
 
@@ -179,6 +181,7 @@ static bool valid_utf8(const unsigned char* bytes, size_t length) {
 }
 
 static PushEventFn push_event;
+static PeepEventsFn peep_events;
 static GetKeyboardFocusFn keyboard_focus;
 static GetWindowIdFn window_id;
 
@@ -188,6 +191,7 @@ static bool sdl_ready(void) {
         looked_up = true;
         // SDL is a dependency of the program itself, so its public functions are in the global scope.
         push_event = (PushEventFn)dlsym(RTLD_DEFAULT, "SDL_PushEvent");
+        peep_events = (PeepEventsFn)dlsym(RTLD_DEFAULT, "SDL_PeepEvents");
         keyboard_focus = (GetKeyboardFocusFn)dlsym(RTLD_DEFAULT, "SDL_GetKeyboardFocus");
         window_id = (GetWindowIdFn)dlsym(RTLD_DEFAULT, "SDL_GetWindowID");
     }
@@ -197,6 +201,17 @@ static bool sdl_ready(void) {
 static uint32_t focused_window(void) {
     void* focus = keyboard_focus ? keyboard_focus() : NULL;
     return focus && window_id ? window_id(focus) : 0;
+}
+
+// SDL queues a text event's pointer, not its bytes, so a slot must not be reused while an event that
+// points at it waits. Texts go out in order and a client takes them in order, so while fewer than all
+// but one of the slots' events wait, the next slot is free (R252). Without SDL_PeepEvents, texts go
+// out as they come.
+static bool text_slots_busy(void) {
+    if (!sdl_ready() || !peep_events) {
+        return false;
+    }
+    return peep_events(NULL, 0, kSdlPeekEvent, kSdlTextInput, kSdlTextInput) >= kTextSlots - 1;
 }
 
 static bool push_text(const unsigned char* bytes, size_t length) {
@@ -493,6 +508,9 @@ static void restore_session_modifiers(unsigned mod, unsigned pressed) {
 // one pump and the PC sees typing paced a frame apart.
 static void pump_queue(void) {
     while (queue_count != 0) {
+        if (queue[queue_head].text && text_slots_busy()) {
+            return; // it stays first in line until SDL's client has taken some texts
+        }
         Queued next = queue[queue_head];
         queue_head = (queue_head + 1) % kQueue;
         --queue_count;

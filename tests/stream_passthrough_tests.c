@@ -61,6 +61,12 @@ static Pushed pushed[128];
 static int pushed_count;
 static int failures;
 static bool refuse_events; // SDL refuses every event, as with a full event queue
+// While set, the text events pushed stay in SDL's queue until the test empties it, keeping their
+// pointers, and SDL_PeepEvents counts them (R252).
+static bool model_queue;
+static int waiting_texts;
+static const char* waiting_pointers[64];
+static char waiting_copies[64][64];
 
 bool SDL_PushEvent(void* event) {
     const TextEvent* text = event;
@@ -76,6 +82,10 @@ bool SDL_PushEvent(void* event) {
     entry->window_id = text->window_id;
     if (text->type == kSdlTextInput) {
         snprintf(entry->text, sizeof entry->text, "%s", text->text);
+        if (model_queue && waiting_texts < 64) {
+            waiting_pointers[waiting_texts] = text->text;
+            snprintf(waiting_copies[waiting_texts++], sizeof waiting_copies[0], "%s", text->text);
+        }
     } else if (text->type == kSdlKeyDown || text->type == kSdlKeyUp) {
         const KeyEvent* key = event;
         entry->scancode = key->scancode;
@@ -89,6 +99,13 @@ bool SDL_PushEvent(void* event) {
         ++failures;
     }
     return true;
+}
+int SDL_PeepEvents(void* events, int count, int action, uint32_t min_type, uint32_t max_type) {
+    (void)count;
+    if (!model_queue || events || action != 1 || min_type > kSdlTextInput || max_type < kSdlTextInput) {
+        return 0;
+    }
+    return waiting_texts;
 }
 void* SDL_GetKeyboardFocus(void) {
     return (void*)0x77;
@@ -625,6 +642,37 @@ int main(int argc, char** argv) {
     close(keyboard);
     idle_pump();
     check(pushed_count == 2 && is_key(1, 224, 0, 0), "the next clean-up lets go of Ctrl");
+
+    // 10. SDL keeps a text event's pointer, not its bytes: while 31 texts wait in its queue, the next
+    // waits too, so no slot is reused under an event SDL still holds; once the client takes them, the
+    // rest follow (R252).
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected for the text slots");
+    pushed_count = 0;
+    model_queue = true;
+    // Non-ASCII goes as text; ASCII would be typed as keys. Forty letters from А (U+0410) on.
+    for (int i = 0; i < 40; ++i) {
+        const char packet[3] = {'T', (char)0xD0, (char)(0x90 + i)};
+        send(keyboard, packet, sizeof packet, MSG_NOSIGNAL);
+    }
+    for (int i = 0; i < 45; ++i) {
+        idle_pump();
+    }
+    check(pushed_count == 31 && waiting_texts == 31, "texts wait while 31 are in SDL's queue");
+    bool intact = true;
+    for (int i = 0; i < waiting_texts; ++i) {
+        intact = intact && strcmp(waiting_pointers[i], waiting_copies[i]) == 0;
+    }
+    check(intact, "every waiting event still points at its own text");
+    waiting_texts = 0; // the client takes them
+    for (int i = 0; i < 12; ++i) {
+        idle_pump();
+    }
+    check(pushed_count == 40 && is_text(31, "\xD0\xAF") && is_text(39, "\xD0\xB7"),
+          "the rest follow once SDL's queue drains");
+    model_queue = false;
+    close(keyboard);
+    idle_pump();
 
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
