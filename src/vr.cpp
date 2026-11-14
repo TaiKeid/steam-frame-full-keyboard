@@ -1885,6 +1885,12 @@ class CurveBars {
             hide(bar);
         }
     }
+    // At once, without fading, so it never takes the laser meanwhile.
+    void hide(std::size_t side) {
+        bars_[side].fade.reset();
+        hide(bars_[side]);
+    }
+    bool visible(std::size_t side) const { return bars_[side].visible; }
     // On screen and opaque enough to be seen: only then may the passthrough
     // pointer press it or draw its dot there.
     bool shown(std::size_t side) const {
@@ -4942,8 +4948,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     target = bar_reach[side].update(bar_distance[side]) ? 1 : 0;
                     light = on_bar[0] == side || on_bar[1] == side ? .5 : 0;
                 }
-                if (target > 0 && !held && curve_bar_covers_popup(input_view(), side)) {
-                    target = light = 0;
+                // Over an open dropdown or flick preview it hides at once, as
+                // a resizer does: a fading bar would still take the trigger.
+                if (!held && (target > 0 || bars.visible(side)) &&
+                    curve_bar_covers_popup(input_view(), side)) {
+                    bars.hide(side);
+                    continue;
                 }
                 bars.update(side, curve_bar_frame(view, displayed, side), displayed.width(), target,
                             light, now, held && side == bend_side);
