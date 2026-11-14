@@ -845,9 +845,9 @@ class LaserDrag {
     }
     // A lost hand or laser, or the movement time limit, ends the bend,
     // keeping the curve reached; a laser grazing the twist's plane keeps it
-    // for now.
-    bool bend(PanelPlacement& placement, double now, const std::optional<Ray>& ray) {
-        const auto pose = read_pointer_pose(device());
+    // for now. `pose` and `ray` come from the frame's one pose query.
+    bool bend(PanelPlacement& placement, double now, const std::optional<Transform>& pose,
+              const std::optional<Ray>& ray) {
         if (!pose || !ray || now - started_ > 30) {
             stop();
             return false;
@@ -1360,6 +1360,17 @@ class LaserRays {
                     vr::TrackedControllerRole_RightHand)};
         }
         return *hands_;
+    }
+    // A device's pose this frame, from the same query as its ray.
+    std::optional<Transform> pose(vr::TrackedDeviceIndex_t device) {
+        if (device >= vr::k_unMaxTrackedDeviceCount) {
+            return {};
+        }
+        const auto& state = poses()[device];
+        if (!state.bPoseIsValid || !state.bDeviceIsConnected) {
+            return {};
+        }
+        return from_vr(state.mDeviceToAbsoluteTracking);
     }
     // This frame's tracking poses, queried on the first call in a frame.
     const vr::TrackedDevicePose_t* poses() {
@@ -4693,7 +4704,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             if (drag.source() == MoveSource::Resize) {
                 followed = drag.resize(placement, now, laser_rays.read(drag.device()));
             } else if (drag.source() == MoveSource::Curve) {
-                followed = drag.bend(placement, now, laser_rays.read(drag.device()));
+                followed = drag.bend(placement, now, laser_rays.pose(drag.device()),
+                                     laser_rays.read(drag.device()));
             } else {
                 double stick_y = 0;
                 if (drag.source() == MoveSource::Laser) {
