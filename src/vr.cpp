@@ -1468,13 +1468,8 @@ bool resizer_covers_popup(const PanelView& view, double width, std::size_t side,
                           const ResizerShape& shape) {
     const auto body = panel_case_bounds(view);
     const double half = shape.half_size() * panel_width / width;
-    const Rect area{(side == 1 ? body.x + body.width : body.x) - half, body.y + body.height - half,
-                    2 * half, 2 * half};
-    auto overlaps = [&](const std::optional<Rect>& r) {
-        return r && r->x < area.x + area.width && area.x < r->x + r->width &&
-               r->y < area.y + area.height && area.y < r->y + r->height;
-    };
-    return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
+    return covers_popup(view, {(side == 1 ? body.x + body.width : body.x) - half,
+                               body.y + body.height - half, 2 * half, 2 * half});
 }
 // `frame`'s rotation placed at `point`, for a dot lying on that face.
 Transform frame_at(Transform frame, const Vector3& point) {
@@ -1489,50 +1484,180 @@ Transform corner_frame(const PanelView& view, const PanelPlacement& panel, std::
     const auto corner = case_corner(view, panel.width(), side == 1, true);
     return curve_frame(panel.transform(), panel.width(), panel.curvature(), corner.right, corner.up);
 }
-// The two corner resizers, index 0 left and 1 right. Each is its own overlay,
-// so fading never repaints the keyboard texture. Both are created up front:
-// the watchdog thread hides them by handle.
-class CornerResizers {
+// Two small overlays beside the keyboard, index 0 left and 1 right, each
+// fading with a laser's reach and taking SteamVR's laser only while shown:
+// the corner resizers and the curve bars. This keeps what both share: the
+// creation flags, laser input switched with visibility, event polling with
+// one final drain after hiding, and pose, opacity and visibility sent only
+// when they change. Each is its own overlay, so fading never repaints the
+// keyboard texture. The watchdog thread hides them by their published
+// handles, 0 until created.
+class SideOverlays {
   public:
-    CornerResizers() {
-        for (std::size_t side = 0; side < corners_.size(); ++side) {
-            create(side);
+    struct Slot {
+        vr::VROverlayHandle_t handle{};
+        bool visible{}, drain{};
+        double shown_alpha{-1};
+        Transform placed{};
+        ResizerFade fade;
+        NativePointerInputPolicy native_input;
+    };
+    // `key` gets the side's index appended; `name` is SteamVR's, `label` the log's.
+    SideOverlays(std::string key, std::string name, std::string label)
+        : key_(std::move(key)), name_(std::move(name)), label_(std::move(label)) {}
+    ~SideOverlays() {
+        for (std::size_t side = 0; side < slots_.size(); ++side) {
+            destroy(side);
         }
     }
-    ~CornerResizers() {
-        for (auto& corner : corners_) {
-            if (corner.handle) {
-                vr_overlay()->DestroyOverlay(corner.handle);
+    SideOverlays(const SideOverlays&) = delete;
+    SideOverlays& operator=(const SideOverlays&) = delete;
+    std::array<vr::VROverlayHandle_t, 2> handles() const {
+        return {published_[0].load(std::memory_order_acquire),
+                published_[1].load(std::memory_order_acquire)};
+    }
+    Slot& operator[](std::size_t side) { return slots_[side]; }
+    const Slot& operator[](std::size_t side) const { return slots_[side]; }
+    // The side's overlay, sorted in front of the keyboard, shown in the
+    // dashboard, taking several lasers, and none until shown. False, with a
+    // line in the log, when SteamVR refuses.
+    bool create(std::size_t side) {
+        auto& slot = slots_[side];
+        auto overlay = vr_overlay();
+        const std::string key = key_ + std::to_string(side);
+        bool ok =
+            overlay->CreateOverlay(key.c_str(), name_.c_str(), &slot.handle) == vr::VROverlayError_None;
+        if (ok) {
+            slot.native_input.reset();
+            ok = overlay->SetOverlaySortOrder(slot.handle, 1) == vr::VROverlayError_None &&
+                 set_native_input(slot, false);
+            for (const auto flag :
+                 {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
+                ok = ok && overlay->SetOverlayFlag(slot.handle, flag, true) == vr::VROverlayError_None;
             }
         }
+        if (!ok) {
+            fail(side);
+            return false;
+        }
+        published_[side].store(slot.handle, std::memory_order_release);
+        return true;
     }
-    CornerResizers(const CornerResizers&) = delete;
-    CornerResizers& operator=(const CornerResizers&) = delete;
-    std::array<vr::VROverlayHandle_t, 2> handles() const {
-        return {corners_[0].handle, corners_[1].handle};
+    // Gives the side's overlay up, as when its own setup failed.
+    void fail(std::size_t side) {
+        destroy(side);
+        std::cout << label_ << " unavailable.\n" << std::flush;
     }
     // A hidden overlay receives no laser events: after one final drain its
     // queue is left alone, saving an IPC call per frame, also while idle.
     bool poll(std::size_t side, vr::VREvent_t& event) {
-        auto& corner = corners_[side];
-        if (!corner.handle || (!corner.visible && !corner.drain)) {
+        auto& slot = slots_[side];
+        if (!slot.handle || (!slot.visible && !slot.drain)) {
             return false;
         }
-        if (vr_overlay()->PollNextOverlayEvent(corner.handle, &event, sizeof(event))) {
+        if (vr_overlay()->PollNextOverlayEvent(slot.handle, &event, sizeof(event))) {
             return true;
         }
-        corner.drain = corner.visible;
+        slot.drain = slot.visible;
         return false;
     }
     bool set_native_input(bool enabled, bool force = false) {
         preferred_native_input_ = enabled;
         bool ready = true;
-        for (auto& corner : corners_) {
-            if (corner.handle) {
-                ready = set_native_input(corner, enabled && corner.visible, force) && ready;
+        for (auto& slot : slots_) {
+            if (slot.handle) {
+                ready = set_native_input(slot, enabled && slot.visible, force) && ready;
             }
         }
         return ready;
+    }
+    // Places the side at `world` with `alpha` opacity and shows it, taking
+    // the laser while the keyboard does.
+    void show(std::size_t side, const Transform& world, double alpha) {
+        auto& slot = slots_[side];
+        auto overlay = vr_overlay();
+        if (world != slot.placed) {
+            vr::HmdMatrix34_t transform{};
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) {
+                    transform.m[r][c] = static_cast<float>(world[r][c]);
+                }
+            }
+            overlay->SetOverlayTransformAbsolute(slot.handle, vr::TrackingUniverseStanding, &transform);
+            slot.placed = world;
+        }
+        if (std::abs(alpha - slot.shown_alpha) > .004 || (alpha == 1 && slot.shown_alpha != 1)) {
+            overlay->SetOverlayAlpha(slot.handle, static_cast<float>(alpha));
+            slot.shown_alpha = alpha;
+        }
+        if (!slot.visible) {
+            overlay->ShowOverlay(slot.handle);
+            slot.visible = true;
+        }
+        set_native_input(slot, preferred_native_input_);
+    }
+    // Out of sight, its fade left as it is: it faded out, or its image failed.
+    void conceal(std::size_t side) {
+        auto& slot = slots_[side];
+        if (slot.visible) {
+            vr_overlay()->HideOverlay(slot.handle);
+            slot.visible = false;
+            slot.drain = true;
+        }
+        if (slot.handle) {
+            set_native_input(slot, false);
+        }
+    }
+    // At once, without fading, so it never takes the laser meanwhile.
+    void hide(std::size_t side) {
+        slots_[side].fade.reset();
+        conceal(side);
+    }
+    void hide() {
+        for (std::size_t side = 0; side < slots_.size(); ++side) {
+            hide(side);
+        }
+    }
+    bool visible(std::size_t side) const { return slots_[side].visible; }
+
+  private:
+    void destroy(std::size_t side) {
+        auto& slot = slots_[side];
+        published_[side].store(0, std::memory_order_release);
+        if (slot.handle) {
+            vr_overlay()->DestroyOverlay(slot.handle);
+        }
+        slot.handle = 0;
+        slot.visible = false;
+    }
+    bool set_native_input(Slot& slot, bool enabled, bool force = false) {
+        return slot.native_input.apply(
+            enabled,
+            [&](bool mouse) {
+                return vr_overlay()->SetOverlayInputMethod(slot.handle,
+                                                           mouse ? vr::VROverlayInputMethod_Mouse
+                                                                 : vr::VROverlayInputMethod_None) ==
+                       vr::VROverlayError_None;
+            },
+            force);
+    }
+    std::string key_, name_, label_;
+    bool preferred_native_input_{};
+    std::array<Slot, 2> slots_{};
+    std::array<std::atomic<vr::VROverlayHandle_t>, 2> published_{};
+};
+// The two corner resizers. Both are created up front.
+class CornerResizers {
+  public:
+    CornerResizers() {
+        for (std::size_t side = 0; side < 2; ++side) {
+            overlays_.create(side);
+        }
+    }
+    std::array<vr::VROverlayHandle_t, 2> handles() const { return overlays_.handles(); }
+    bool poll(std::size_t side, vr::VREvent_t& event) { return overlays_.poll(side, event); }
+    bool set_native_input(bool enabled, bool force = false) {
+        return overlays_.set_native_input(enabled, force);
     }
     // Eases toward `target` opacity. A faded-out resizer is hidden, so it never
     // takes the laser; its image is redrawn only when shown at a new radius.
@@ -1541,136 +1666,59 @@ class CornerResizers {
     // redrawn for the final radius once released.
     void update(std::size_t side, const Transform& world, const ResizerShape& shape, double target,
                 double now, bool held = false) {
-        auto& corner = corners_[side];
-        const double alpha = held ? corner.fade.hold(now) : corner.fade.update(target, now);
-        if (!corner.handle) {
+        auto& slot = overlays_[side];
+        const double alpha = held ? slot.fade.hold(now) : slot.fade.update(target, now);
+        if (!slot.handle) {
             return;
         }
         if (alpha < .01) {
-            hide(corner);
+            overlays_.conceal(side);
             return;
         }
         // Held or fading out, the current image stays: replacing it costs a
         // raw upload and flickers.
-        if (corner.shape != shape && !((held || target == 0) && corner.shape) && !draw(side, shape)) {
-            hide(corner);
+        const auto& drawn = images_[side].shape;
+        if (drawn != shape && !((held || target == 0) && drawn) && !draw(side, shape)) {
+            overlays_.conceal(side);
             return;
         }
-        auto overlay = vr_overlay();
-        if (world != corner.placed) {
-            vr::HmdMatrix34_t transform{};
-            for (std::size_t r = 0; r < 3; ++r) {
-                for (std::size_t c = 0; c < 4; ++c) {
-                    transform.m[r][c] = static_cast<float>(world[r][c]);
-                }
-            }
-            overlay->SetOverlayTransformAbsolute(corner.handle, vr::TrackingUniverseStanding,
-                                                 &transform);
-            corner.placed = world;
-        }
-        if (std::abs(alpha - corner.shown_alpha) > .004 || (alpha == 1 && corner.shown_alpha != 1)) {
-            overlay->SetOverlayAlpha(corner.handle, static_cast<float>(alpha));
-            corner.shown_alpha = alpha;
-        }
-        if (!corner.visible) {
-            overlay->ShowOverlay(corner.handle);
-            corner.visible = true;
-        }
-        set_native_input(corner, preferred_native_input_);
+        overlays_.show(side, world, alpha);
     }
-    bool visible(std::size_t side) const { return corners_[side].visible; }
+    bool visible(std::size_t side) const { return overlays_.visible(side); }
     bool contains_mouse(std::size_t side, double x, double y) const {
-        const auto& corner = corners_[side];
-        if (!corner.visible || !corner.shape) {
+        const auto& image = images_[side];
+        if (!overlays_.visible(side) || !image.shape) {
             return false;
         }
-        y = corner.shape->pixels() - y; // OpenVR's mouse coordinates start at the bottom.
-        for (const auto& rectangle : corner.mask.rectangles) {
+        y = image.shape->pixels() - y; // OpenVR's mouse coordinates start at the bottom.
+        for (const auto& rectangle : image.mask.rectangles) {
             if (x >= rectangle[0] && y >= rectangle[1] && x <= rectangle[0] + rectangle[2] &&
                 y <= rectangle[1] + rectangle[3]) {
                 return true;
             }
         }
         return std::any_of(
-            corner.mask.circles.begin(), corner.mask.circles.end(),
+            image.mask.circles.begin(), image.mask.circles.end(),
             [&](const auto& circle) { return std::hypot(x - circle[0], y - circle[1]) <= circle[2]; });
     }
     // On screen and opaque enough to be seen: only then may the passthrough
     // pointer press it. A failed overlay or image never counts.
     bool shown(std::size_t side) const {
-        const auto& corner = corners_[side];
-        return corner.handle && corner.visible && corner.shape && corner.fade.value() > .3;
+        const auto& slot = overlays_[side];
+        return slot.handle && slot.visible && images_[side].shape && slot.fade.value() > .3;
     }
-    void hide() {
-        for (auto& corner : corners_) {
-            corner.fade.reset();
-            hide(corner);
-        }
-    }
-    // At once, without fading, so it never takes the laser meanwhile.
-    void hide(std::size_t side) {
-        corners_[side].fade.reset();
-        hide(corners_[side]);
-    }
+    void hide() { overlays_.hide(); }
+    void hide(std::size_t side) { overlays_.hide(side); }
 
   private:
-    struct Corner {
-        vr::VROverlayHandle_t handle{};
-        bool visible{}, drain{};
-        double shown_alpha{-1};
-        Transform placed{};
+    struct Image {
         // The radius the current image was drawn for; none before the first draw.
         std::optional<ResizerShape> shape;
         ResizerMask mask;
-        ResizerFade fade;
-        NativePointerInputPolicy native_input;
     };
-    bool set_native_input(Corner& corner, bool enabled, bool force = false) {
-        return corner.native_input.apply(
-            enabled,
-            [&](bool mouse) {
-                return vr_overlay()->SetOverlayInputMethod(corner.handle,
-                                                           mouse ? vr::VROverlayInputMethod_Mouse
-                                                                 : vr::VROverlayInputMethod_None) ==
-                       vr::VROverlayError_None;
-            },
-            force);
-    }
-    void hide(Corner& corner) {
-        if (corner.visible) {
-            vr_overlay()->HideOverlay(corner.handle);
-            corner.visible = false;
-            corner.drain = true;
-        }
-        if (corner.handle) {
-            set_native_input(corner, false);
-        }
-    }
-    void create(std::size_t side) {
-        auto& corner = corners_[side];
-        auto overlay = vr_overlay();
-        const std::string key = "org.framekeyboard.resizer." + std::to_string(side);
-        if (overlay->CreateOverlay(key.c_str(), "Full Keyboard resizer", &corner.handle) !=
-            vr::VROverlayError_None) {
-            corner.handle = 0;
-            std::cout << "Corner resizer unavailable.\n" << std::flush;
-            return;
-        }
-        corner.native_input.reset();
-        bool ok = overlay->SetOverlaySortOrder(corner.handle, 1) == vr::VROverlayError_None &&
-                  set_native_input(corner, false);
-        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
-            ok = ok && overlay->SetOverlayFlag(corner.handle, flag, true) == vr::VROverlayError_None;
-        }
-        if (!ok) {
-            overlay->DestroyOverlay(corner.handle);
-            corner.handle = 0;
-            std::cout << "Corner resizer unavailable.\n" << std::flush;
-        }
-    }
     // Image, size, mouse scale and laser mask all depend on the radius.
     bool draw(std::size_t side, const ResizerShape& shape) {
-        auto& corner = corners_[side];
+        const auto handle = overlays_[side].handle;
         const int size = shape.pixels();
         auto pixels = resizer_pixels(corner_of(side), shape);
         vr::HmdVector2_t scale{{static_cast<float>(size), static_cast<float>(size)}};
@@ -1689,46 +1737,30 @@ class CornerResizers {
         }
         auto overlay = vr_overlay();
         const bool ok =
-            overlay->SetOverlayRaw(corner.handle, pixels.data(), static_cast<std::uint32_t>(size),
+            overlay->SetOverlayRaw(handle, pixels.data(), static_cast<std::uint32_t>(size),
                                    static_cast<std::uint32_t>(size), 4) == vr::VROverlayError_None &&
-            overlay->SetOverlayWidthInMeters(corner.handle, static_cast<float>(2 * shape.half_size())) ==
+            overlay->SetOverlayWidthInMeters(handle, static_cast<float>(2 * shape.half_size())) ==
                 vr::VROverlayError_None &&
-            overlay->SetOverlayMouseScale(corner.handle, &scale) == vr::VROverlayError_None &&
-            overlay->SetOverlayIntersectionMask(corner.handle, mask.data(),
-                                                static_cast<std::uint32_t>(mask.size())) ==
-                vr::VROverlayError_None;
-        corner.shape = ok ? std::optional{shape} : std::nullopt;
-        corner.mask = ok ? std::move(area) : ResizerMask{};
+            overlay->SetOverlayMouseScale(handle, &scale) == vr::VROverlayError_None &&
+            overlay->SetOverlayIntersectionMask(
+                handle, mask.data(), static_cast<std::uint32_t>(mask.size())) == vr::VROverlayError_None;
+        images_[side].shape = ok ? std::optional{shape} : std::nullopt;
+        images_[side].mask = ok ? std::move(area) : ResizerMask{};
         return ok;
     }
-    bool preferred_native_input_{};
-    std::array<Corner, 2> corners_{};
+    SideOverlays overlays_{"org.framekeyboard.resizer.", "Full Keyboard resizer", "Corner resizer"};
+    std::array<Image, 2> images_{};
 };
-// The two curve bars, index 0 left and 1 right. Each is its own overlay
-// covering the bar's grab area, with one white pill in its middle, tinted by
-// SetOverlayColor and faded by its alpha, so neither lighting nor fading
-// redraws an image. While shown it takes SteamVR's laser, like a resizer, so
-// a trigger pull there bends the keyboard instead of clicking what lies
-// behind; the grip is read directly. They are created the first time Curved
-// keyboard is on (ensure()), so with it off, as by default, they cost no
-// overlay or image; the watchdog thread hides them by their published handles.
+// The two curve bars. Each covers the bar's grab area with one white pill in
+// its middle, tinted by SetOverlayColor and faded by its alpha, so neither
+// lighting nor fading redraws an image. While shown it takes SteamVR's laser,
+// like a resizer, so a trigger pull there bends the keyboard instead of
+// clicking what lies behind; the grip is read directly. They are created the
+// first time Curved keyboard is on (ensure()), so with it off, as by default,
+// they cost no overlay or image.
 class CurveBars {
   public:
-    CurveBars() = default;
-    ~CurveBars() {
-        for (auto& bar : bars_) {
-            if (bar.handle) {
-                vr_overlay()->DestroyOverlay(bar.handle);
-            }
-        }
-    }
-    CurveBars(const CurveBars&) = delete;
-    CurveBars& operator=(const CurveBars&) = delete;
-    // For the watchdog thread: 0 until created.
-    std::array<vr::VROverlayHandle_t, 2> handles() const {
-        return {published_[0].load(std::memory_order_acquire),
-                published_[1].load(std::memory_order_acquire)};
-    }
+    std::array<vr::VROverlayHandle_t, 2> handles() const { return overlays_.handles(); }
     // Creates both bars the first time it is called, with one image for
     // both. Not tried again after SteamVR refused one.
     void ensure() {
@@ -1736,166 +1768,79 @@ class CurveBars {
             return;
         }
         const auto pixels = curve_bar_pixels();
-        for (std::size_t side = 0; side < bars_.size(); ++side) {
-            create(side, pixels);
-            published_[side].store(bars_[side].handle, std::memory_order_release);
-        }
-    }
-    // As CornerResizers::poll: a hidden bar is drained once, then left alone.
-    bool poll(std::size_t side, vr::VREvent_t& event) {
-        auto& bar = bars_[side];
-        if (!bar.handle || (!bar.visible && !bar.drain)) {
-            return false;
-        }
-        if (vr_overlay()->PollNextOverlayEvent(bar.handle, &event, sizeof(event))) {
-            return true;
-        }
-        bar.drain = bar.visible;
-        return false;
-    }
-    bool set_native_input(bool enabled, bool force = false) {
-        preferred_native_input_ = enabled;
-        bool ready = true;
-        for (auto& bar : bars_) {
-            if (bar.handle) {
-                ready = set_native_input(bar, enabled && bar.visible, force) && ready;
+        for (std::size_t side = 0; side < 2; ++side) {
+            if (overlays_.create(side) && !draw(side, pixels)) {
+                overlays_.fail(side);
             }
         }
-        return ready;
+    }
+    bool poll(std::size_t side, vr::VREvent_t& event) { return overlays_.poll(side, event); }
+    bool set_native_input(bool enabled, bool force = false) {
+        return overlays_.set_native_input(enabled, force);
     }
     // Eases toward `target` opacity as a resizer does; `light` runs from the
     // movement handle's idle grey at 0 to white at 1. A held bar stays opaque.
     // `frame` is the bar's middle on the face (curve_bar_frame).
     void update(std::size_t side, const Transform& frame, double width, double target, double light,
                 double now, bool held = false) {
-        auto& bar = bars_[side];
-        const double alpha = held ? bar.fade.hold(now) : bar.fade.update(target, now);
-        if (!bar.handle) {
+        auto& slot = overlays_[side];
+        auto& look = looks_[side];
+        const double alpha = held ? slot.fade.hold(now) : slot.fade.update(target, now);
+        if (!slot.handle) {
             return;
         }
         if (alpha < .01) {
-            hide(bar);
+            overlays_.conceal(side);
             return;
         }
         auto overlay = vr_overlay();
+        if (width != look.width) {
+            overlay->SetOverlayWidthInMeters(
+                slot.handle, static_cast<float>(2 * curve_bar_reach_x * width / panel_width));
+            look.width = width;
+        }
+        if (light != look.light) {
+            // The movement handle's idle grey, rgb(61, 68, 80), toward white.
+            auto channel = [&](double idle) { return static_cast<float>(idle + (1 - idle) * light); };
+            overlay->SetOverlayColor(slot.handle, channel(61 / 255.0), channel(68 / 255.0),
+                                     channel(80 / 255.0));
+            look.light = light;
+        }
         Transform world = frame;
         for (std::size_t r = 0; r < 3; ++r) {
             world[r][3] += frame[r][2] * .003; // In front of the face, as a resizer.
         }
-        if (world != bar.placed) {
-            vr::HmdMatrix34_t transform{};
-            for (std::size_t r = 0; r < 3; ++r) {
-                for (std::size_t c = 0; c < 4; ++c) {
-                    transform.m[r][c] = static_cast<float>(world[r][c]);
-                }
-            }
-            overlay->SetOverlayTransformAbsolute(bar.handle, vr::TrackingUniverseStanding, &transform);
-            bar.placed = world;
-        }
-        if (width != bar.width) {
-            overlay->SetOverlayWidthInMeters(
-                bar.handle, static_cast<float>(2 * curve_bar_reach_x * width / panel_width));
-            bar.width = width;
-        }
-        if (light != bar.light) {
-            // The movement handle's idle grey, rgb(61, 68, 80), toward white.
-            auto channel = [&](double idle) { return static_cast<float>(idle + (1 - idle) * light); };
-            overlay->SetOverlayColor(bar.handle, channel(61 / 255.0), channel(68 / 255.0),
-                                     channel(80 / 255.0));
-            bar.light = light;
-        }
-        if (std::abs(alpha - bar.shown_alpha) > .004 || (alpha == 1 && bar.shown_alpha != 1)) {
-            overlay->SetOverlayAlpha(bar.handle, static_cast<float>(alpha));
-            bar.shown_alpha = alpha;
-        }
-        if (!bar.visible) {
-            overlay->ShowOverlay(bar.handle);
-            bar.visible = true;
-        }
-        set_native_input(bar, preferred_native_input_);
+        overlays_.show(side, world, alpha);
     }
-    void hide() {
-        for (auto& bar : bars_) {
-            bar.fade.reset();
-            hide(bar);
-        }
-    }
-    // At once, without fading, so it never takes the laser meanwhile.
-    void hide(std::size_t side) {
-        bars_[side].fade.reset();
-        hide(bars_[side]);
-    }
-    bool visible(std::size_t side) const { return bars_[side].visible; }
+    void hide() { overlays_.hide(); }
+    void hide(std::size_t side) { overlays_.hide(side); }
+    bool visible(std::size_t side) const { return overlays_.visible(side); }
     // On screen and opaque enough to be seen: only then may the passthrough
     // pointer press it or draw its dot there.
     bool shown(std::size_t side) const {
-        const auto& bar = bars_[side];
-        return bar.handle && bar.visible && bar.fade.value() > .3;
+        const auto& slot = overlays_[side];
+        return slot.handle && slot.visible && slot.fade.value() > .3;
     }
 
   private:
-    struct Bar {
-        vr::VROverlayHandle_t handle{};
-        bool visible{}, drain{};
-        double shown_alpha{-1}, light{-1}, width{};
-        Transform placed{};
-        ResizerFade fade;
-        NativePointerInputPolicy native_input;
+    struct Look {
+        double light{-1}, width{};
     };
-    bool set_native_input(Bar& bar, bool enabled, bool force = false) {
-        return bar.native_input.apply(
-            enabled,
-            [&](bool mouse) {
-                return vr_overlay()->SetOverlayInputMethod(
-                           bar.handle, mouse ? vr::VROverlayInputMethod_Mouse
-                                             : vr::VROverlayInputMethod_None) == vr::VROverlayError_None;
-            },
-            force);
-    }
-    void hide(Bar& bar) {
-        if (bar.visible) {
-            vr_overlay()->HideOverlay(bar.handle);
-            bar.visible = false;
-            bar.drain = true;
-        }
-        if (bar.handle) {
-            set_native_input(bar, false);
-        }
-    }
-    void create(std::size_t side, const std::vector<std::uint8_t>& pixels) {
-        auto& bar = bars_[side];
-        auto overlay = vr_overlay();
-        const std::string key = "org.framekeyboard.curve-bar." + std::to_string(side);
-        if (overlay->CreateOverlay(key.c_str(), "Full Keyboard curve bar", &bar.handle) !=
-            vr::VROverlayError_None) {
-            bar.handle = 0;
-            std::cout << "Curve bar unavailable.\n" << std::flush;
-            return;
-        }
-        bar.native_input.reset();
+    bool draw(std::size_t side, const std::vector<std::uint8_t>& pixels) {
+        const auto handle = overlays_[side].handle;
         vr::HmdVector2_t mouse{
             {static_cast<float>(curve_bar_image_width), static_cast<float>(curve_bar_image_height)}};
         // SetOverlayRaw takes a non-const buffer but only reads it.
         auto* data = const_cast<std::uint8_t*>(pixels.data());
-        bool ok =
-            overlay->SetOverlayRaw(bar.handle, data, static_cast<std::uint32_t>(curve_bar_image_width),
-                                   static_cast<std::uint32_t>(curve_bar_image_height),
-                                   4) == vr::VROverlayError_None &&
-            overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
-            overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
-            set_native_input(bar, false);
-        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
-            ok = ok && overlay->SetOverlayFlag(bar.handle, flag, true) == vr::VROverlayError_None;
-        }
-        if (!ok) {
-            overlay->DestroyOverlay(bar.handle);
-            bar.handle = 0;
-            std::cout << "Curve bar unavailable.\n" << std::flush;
-        }
+        auto overlay = vr_overlay();
+        return overlay->SetOverlayRaw(handle, data, static_cast<std::uint32_t>(curve_bar_image_width),
+                                      static_cast<std::uint32_t>(curve_bar_image_height),
+                                      4) == vr::VROverlayError_None &&
+               overlay->SetOverlayMouseScale(handle, &mouse) == vr::VROverlayError_None;
     }
-    bool preferred_native_input_{}, created_{};
-    std::array<Bar, 2> bars_{};
-    std::array<std::atomic<vr::VROverlayHandle_t>, 2> published_{};
+    SideOverlays overlays_{"org.framekeyboard.curve-bar.", "Full Keyboard curve bar", "Curve bar"};
+    std::array<Look, 2> looks_{};
+    bool created_{};
 };
 class VrPanel {
   public:

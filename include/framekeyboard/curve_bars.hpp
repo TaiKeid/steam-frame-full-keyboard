@@ -32,8 +32,11 @@ struct CurveBarReach {
     Vector3 point{};
 };
 std::optional<CurveBarReach> curve_bar_reach(const Transform& bar, double width, const Ray& ray);
-// Whether a bar's grab area, in panel pixels, overlaps an open dropdown or a
-// flick preview, which a bar in front of the keyboard would cover.
+// Whether `area`, in panel pixels, overlaps an open dropdown or a flick
+// preview: both may extend past the case, where a side overlay in front of
+// the keyboard (a corner resizer or a curve bar) would take their clicks.
+bool covers_popup(const PanelView& view, const Rect& area);
+// Whether a bar's grab area covers a popup (covers_popup).
 bool curve_bar_covers_popup(const PanelView& view, std::size_t side);
 // A bar overlay's image: its grab area at 2 pixels per texture pixel, clear
 // but for a white pill with rounded ends in its middle. RGBA, not

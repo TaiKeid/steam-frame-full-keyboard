@@ -53,16 +53,18 @@ std::optional<CurveBarReach> curve_bar_reach(const Transform& bar, double width,
                    std::max(0.0, std::abs(dot(offset, axis[1])) - curve_bar_reach_y * meters));
     return reach;
 }
-bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
-    const auto body = panel_case_bounds(view);
-    const double middle = side == 1 ? body.x + body.width + curve_bar_gap : body.x - curve_bar_gap;
-    const Rect area{middle - curve_bar_reach_x, body.y + body.height / 2 - curve_bar_reach_y,
-                    2 * curve_bar_reach_x, 2 * curve_bar_reach_y};
+bool covers_popup(const PanelView& view, const Rect& area) {
     auto overlaps = [&](const std::optional<Rect>& r) {
         return r && r->x < area.x + area.width && area.x < r->x + r->width &&
                r->y < area.y + area.height && area.y < r->y + r->height;
     };
     return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
+}
+bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
+    const auto body = panel_case_bounds(view);
+    const double middle = side == 1 ? body.x + body.width + curve_bar_gap : body.x - curve_bar_gap;
+    return covers_popup(view, {middle - curve_bar_reach_x, body.y + body.height / 2 - curve_bar_reach_y,
+                               2 * curve_bar_reach_x, 2 * curve_bar_reach_y});
 }
 std::vector<std::uint8_t> curve_bar_pixels() {
     constexpr int width = curve_bar_image_width, height = curve_bar_image_height;
