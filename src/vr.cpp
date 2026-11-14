@@ -2583,8 +2583,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     };
     auto stop_drag = [&](bool align_after_release = false) {
         // A resize or a bend changes only the panel's size or shape.
-        const bool resizing =
-            drag.active() && (drag.source() == MoveSource::Resize || drag.source() == MoveSource::Curve);
+        const bool bending = drag.active() && drag.source() == MoveSource::Curve;
+        const bool resizing = bending || (drag.active() && drag.source() == MoveSource::Resize);
+        if (bending) {
+            // Let go within a few millimetres of flat, it becomes flat.
+            placement.set_curvature(settled_curvature(placement.width(), placement.curvature()));
+        }
         feedback.cancel();
         // Tracking loss or timeout may already have stopped LaserDrag. Always
         // release the app's input gate as well; repeated cleanup is harmless.

@@ -1094,6 +1094,11 @@ void curve_tests() {
     near(fk::curvature_for_depth(1, -.1), 0, "pushing past flat stays flat");
     require(fk::curvature_for_depth(2, .05) < fk::curvature_for_depth(1, .05),
             "a wider keyboard needs less curvature for the same depth");
+    // Let go within 5 mm of flat, a bend becomes flat; any more stays.
+    near(fk::settled_curvature(1, fk::curvature_for_depth(1, .004)), 0,
+         "a bend let go 4 mm deep snaps flat");
+    const double kept = fk::curvature_for_depth(1, .006);
+    near(fk::settled_curvature(1, kept), kept, "a bend let go 6 mm deep stays");
     // A ray hits the arc where the face is, with u along the arc.
     const auto target = fk::curve_frame(panel, 1, curvature, .3, .1);
     std::array<double, 3> toward{target[0][3], target[1][3] - 1, target[2][3]};

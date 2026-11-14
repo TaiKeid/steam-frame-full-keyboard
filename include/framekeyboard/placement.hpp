@@ -68,6 +68,12 @@ double curve_depth(double width, double curvature);
 // The curvature whose ends come `depth` meters toward the viewer, kept
 // between flat and maximum_curvature.
 double curvature_for_depth(double width, double depth);
+// A bend let go with its ends less than this far toward the viewer becomes
+// exactly flat: hand tremor would otherwise leave an unmoved grab, or a push
+// back to flat, a few millimetres bent (owner's ask, 2026-11-14).
+constexpr double curve_snap_depth = .005;
+// `curvature` as kept when a bend ends: flat under curve_snap_depth.
+double settled_curvature(double width, double curvature);
 // Where a pointer ray meets the panel's front face. The overlay is centered on
 // its transform, width meters wide and width * height_over_width tall; u and v
 // run from its top-left corner to 1 at the opposite edges. On a curved panel

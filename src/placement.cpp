@@ -321,6 +321,9 @@ double curvature_for_depth(double width, double depth) {
     }
     return (low + high) / 2;
 }
+double settled_curvature(double width, double curvature) {
+    return curve_depth(width, curvature) < curve_snap_depth ? 0 : curvature;
+}
 std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, double height_over_width,
                                       const std::array<double, 3>& origin,
                                       const std::array<double, 3>& direction, double curvature) {
