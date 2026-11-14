@@ -1842,6 +1842,94 @@ class CurveBars {
     std::array<Look, 2> looks_{};
     bool created_{};
 };
+// The curve bars and their state across frames: the last scan of the
+// hands' lasers, each bar's reach and the bar a bend holds. The frame loop
+// scans before it reads the grips and updates after the drag; what happens
+// is decided in curve_bars.cpp (scan_curve_bars, curve_bar_look).
+class CurveBarController {
+  public:
+    std::array<vr::VROverlayHandle_t, 2> handles() const { return bars_.handles(); }
+    bool poll(std::size_t side, vr::VREvent_t& event) { return bars_.poll(side, event); }
+    bool set_native_input(bool enabled, bool force = false) {
+        return bars_.set_native_input(enabled, force);
+    }
+    void hide() {
+        bars_.hide();
+        reach_ = {};
+    }
+    const CurveBarScan& scan() const { return scan_; }
+    // Before the grips are read. While the bars can't be used (`offered`
+    // false) no laser is on one; the views are built only when they can.
+    void scan(bool offered, const PanelPlacement& panel, LaserRays& rays,
+              const std::function<PanelView()>& geometry, const std::function<PanelView()>& full_view) {
+        scan_ = {};
+        if (!offered) {
+            return;
+        }
+        const auto view = geometry();
+        const std::array<Transform, 2> frames{curve_bar_frame(view, panel, 0),
+                                              curve_bar_frame(view, panel, 1)};
+        const auto hands = rays.hands();
+        std::optional<PanelView> full; // Only once a ray is on a bar.
+        scan_ = scan_curve_bars(frames, panel.width(), {rays.read(hands[0]), rays.read(hands[1])},
+                                [&](std::size_t side) {
+                                    if (!full) {
+                                        full = full_view();
+                                    }
+                                    return curve_bar_covers_popup(*full, side);
+                                });
+    }
+    // A bend started on `side`: it stays lit while the other fades.
+    void began(std::size_t side) { bend_side_ = side; }
+    // After the drag. `shown`: the bars may show now. `bending`: a bend holds
+    // the keyboard; `dragging`: any drag does. The views are built only when
+    // the bars may show, the full one only when a popup could matter.
+    void update(bool shown, bool bending, bool dragging,
+                const std::function<const PanelView&()>& geometry, const PanelPlacement& panel,
+                const std::function<const PanelView&()>& full_view, double now) {
+        if (!shown) {
+            hide();
+            return;
+        }
+        bars_.ensure(); // The first time Curved keyboard is on.
+        const auto& view = geometry();
+        for (std::size_t side = 0; side < 2; ++side) {
+            // The reach follows the lasers only while nothing is dragged.
+            const bool near = !dragging && reach_[side].update(scan_.distance[side]);
+            const auto look = curve_bar_look(side, bending ? std::optional{bend_side_} : std::nullopt,
+                                             dragging, near, scan_.lit(side), bars_.visible(side),
+                                             [&] { return curve_bar_covers_popup(full_view(), side); });
+            if (look.hide) {
+                bars_.hide(side);
+                continue;
+            }
+            bars_.update(side, curve_bar_frame(view, panel, side), panel.width(), look.target,
+                         look.light, now, bending && side == bend_side_);
+        }
+    }
+    // Passthrough: the shown bar a ray is on, with the face's frame at the
+    // ray's point there, for the dot.
+    std::optional<std::pair<std::size_t, Transform>>
+    ray_on(const PanelView& view, const PanelPlacement& panel, const Ray& ray) const {
+        for (std::size_t side = 0; side < 2; ++side) {
+            if (!bars_.shown(side)) {
+                continue;
+            }
+            const auto frame = curve_bar_frame(view, panel, side);
+            if (const auto reach = curve_bar_reach(frame, panel.width(), ray);
+                reach && reach->distance == 0) {
+                return std::pair{side, frame_at(frame, reach->point)};
+            }
+        }
+        return {};
+    }
+
+  private:
+    CurveBars bars_;
+    CurveBarScan scan_;
+    std::array<ResizerReach, 2> reach_{};
+    std::size_t bend_side_ = 1;
+};
 class VrPanel {
   public:
     ~VrPanel() {
@@ -2071,7 +2159,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     VrPanel panel;
     panel.connect();
     CornerResizers resizers;
-    CurveBars bars;
+    CurveBarController bars;
     bool native_input_failed = false;
     auto set_native_input = [&](bool enabled, bool force = false) {
         const bool panel_ready = panel.set_native_input(enabled, force);
@@ -2201,10 +2289,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     double dashboard_pointer_checked = -1;
     // The corner being resized; it stays shown while the other fades.
     std::size_t resize_side = 1;
-    // Curve bars fade in for a hand's laser like the resizers; the bar a grip
-    // bends with stays lit while the other fades.
-    std::array<ResizerReach, 2> bar_reach{};
-    std::size_t bend_side = 1;
     // Passthrough with the dashboard closed: the panel takes no SteamVR laser
     // events and the passthrough pointer drives it.
     bool scene_input = false;
@@ -3708,35 +3792,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             grip_input.reset();
         }
         // Which curve bar each hand's laser is on, by the pose shown: a grip
-        // there bends the keyboard, and wins over grab-to-move. Also each
-        // bar's nearest laser, for its fade below. Only hands: the head
-        // cursor has no grip.
-        std::array<std::optional<std::size_t>, 2> on_bar{};
-        std::array<double, 2> bar_distance{INFINITY, INFINITY};
-        if (!headset_input.blocked() && lifecycle.visible() && displayed.ready() && !drag.active() &&
-            panel.curves() && app.allows_movement(MoveSource::Curve)) {
-            const auto view = app.geometry();
-            const std::array<Transform, 2> frames{curve_bar_frame(view, displayed, 0),
-                                                  curve_bar_frame(view, displayed, 1)};
-            std::optional<PanelView> full; // Built only when a ray is on a bar.
-            const auto hands = laser_rays.hands();
-            for (std::size_t hand = 0; hand < hands.size(); ++hand) {
-                const auto ray = laser_rays.read(hands[hand]);
-                for (std::size_t side = 0; ray && side < 2; ++side) {
-                    const auto reach = curve_bar_reach(frames[side], displayed.width(), *ray);
-                    if (!reach) {
-                        continue;
-                    }
-                    bar_distance[side] = std::min(bar_distance[side], reach->distance);
-                    // A bar hidden over an open dropdown takes no grip.
-                    if (reach->distance == 0 && !on_bar[hand] &&
-                        !curve_bar_covers_popup(full ? *full : *(full = app.input_view()), side)) {
-                        on_bar[hand] = side;
-                    }
-                }
-            }
-        }
-        const bool on_any_bar = on_bar[0] || on_bar[1];
+        // there bends the keyboard, and wins over grab-to-move. Only hands:
+        // the head cursor has no grip.
+        bars.scan(
+            !headset_input.blocked() && lifecycle.visible() && displayed.ready() && !drag.active() &&
+                panel.curves() && app.allows_movement(MoveSource::Curve),
+            displayed, laser_rays, [&] { return app.geometry(); }, [&] { return app.input_view(); });
+        const auto& on_bar = bars.scan().on_bar;
+        const bool on_any_bar = bars.scan().any();
         // A grab starts only from a hand whose laser is on the panel, and a grip
         // drag follows its own hand. Otherwise reading both controllers' render
         // models each frame finds nothing to do; a reset latch then needs a
@@ -3903,7 +3966,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                          {handle[0][3], handle[1][3], handle[2][3]}, *ray, now)) {
                 return false;
             }
-            bend_side = side;
+            bars.began(side);
             feedback.cancel();
             app.set_dragging(true, true);
             std::cout << "Keyboard bend started: " << (by_grip ? "grip" : "trigger") << ".\n"
@@ -4239,16 +4302,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // frame at the ray's point, for the dot.
             std::array<std::optional<std::pair<std::size_t, Transform>>, 2> on_scene_bar{};
             for (std::size_t hand = 0; hand < samples.size(); ++hand) {
-                for (std::size_t side = 0;
-                     samples[hand].ray && !on_resizer[hand] && side < 2 && !on_scene_bar[hand]; ++side) {
-                    if (!bars.shown(side)) {
-                        continue;
-                    }
-                    const auto frame = curve_bar_frame(view, displayed, side);
-                    if (const auto reach = curve_bar_reach(frame, displayed.width(), *samples[hand].ray);
-                        reach && reach->distance == 0) {
-                        on_scene_bar[hand] = std::pair{side, frame_at(frame, reach->point)};
-                    }
+                if (samples[hand].ray && !on_resizer[hand]) {
+                    on_scene_bar[hand] = bars.ray_on(view, displayed, *samples[hand].ray);
                 }
             }
             // Where each ray meets the panel's accepted areas, if it does.
@@ -4805,33 +4860,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // light up while it is on one, and turn white while its grip bends
         // the keyboard; the other bar fades out meanwhile, and so do both
         // while the keyboard moves or resizes. Pinning or the switch hides them.
-        const bool held = drag.active() && drag.source() == MoveSource::Curve;
-        if (headset_input.blocked() || !lifecycle.visible() || !displayed.ready() || !panel.curves() ||
-            (!held && !app.allows_movement(MoveSource::Curve))) {
-            bars.hide();
-            bar_reach = {};
-        } else {
-            bars.ensure(); // The first time Curved keyboard is on.
-            const auto& view = case_view();
-            for (std::size_t side = 0; side < 2; ++side) {
-                double target = 0, light = 0;
-                if (held) {
-                    target = light = side == bend_side ? 1 : 0;
-                } else if (!drag.active()) {
-                    target = bar_reach[side].update(bar_distance[side]) ? 1 : 0;
-                    light = on_bar[0] == side || on_bar[1] == side ? .5 : 0;
-                }
-                // Over an open dropdown or flick preview it hides at once, as
-                // a resizer does: a fading bar would still take the trigger.
-                if (!held && (target > 0 || bars.visible(side)) &&
-                    curve_bar_covers_popup(input_view(), side)) {
-                    bars.hide(side);
-                    continue;
-                }
-                bars.update(side, curve_bar_frame(view, displayed, side), displayed.width(), target,
-                            light, now, held && side == bend_side);
-            }
-        }
+        // Over an open dropdown or flick preview a bar hides at once, as a
+        // resizer does: a fading bar would still take the trigger.
+        const bool bending = drag.active() && drag.source() == MoveSource::Curve;
+        bars.update(!headset_input.blocked() && lifecycle.visible() && displayed.ready() &&
+                        panel.curves() && (bending || app.allows_movement(MoveSource::Curve)),
+                    bending, drag.active(), case_view, displayed, input_view, now);
         for (std::size_t side = 0; side < 2; ++side) {
             if (!resizers.visible(side)) {
                 forget_sound_surface(side == 0 ? sound_resize_left : sound_resize_right, now);

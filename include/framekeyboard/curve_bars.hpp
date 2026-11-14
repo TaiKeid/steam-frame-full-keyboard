@@ -3,8 +3,11 @@
 #include "framekeyboard/placement.hpp"
 #include "framekeyboard/resizer.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -38,6 +41,36 @@ std::optional<CurveBarReach> curve_bar_reach(const Transform& bar, double width,
 bool covers_popup(const PanelView& view, const Rect& area);
 // Whether a bar's grab area covers a popup (covers_popup).
 bool curve_bar_covers_popup(const PanelView& view, std::size_t side);
+// Which bar each hand's laser is on (index 0 left hand, 1 right), and each
+// bar's nearest laser, in meters from its grab area; infinite when no laser
+// meets its plane.
+struct CurveBarScan {
+    std::array<std::optional<std::size_t>, 2> on_bar{};
+    std::array<double, 2> distance{std::numeric_limits<double>::infinity(),
+                                   std::numeric_limits<double>::infinity()};
+    bool any() const { return on_bar[0] || on_bar[1]; }
+    // A laser is on this bar: it lights up.
+    bool lit(std::size_t side) const { return on_bar[0] == side || on_bar[1] == side; }
+};
+// `bars`: the bars' frames on the face (curve_bar_frame); `rays` by hand.
+// `covered(side)`, asked only for a ray on that bar: whether it is hidden
+// over a popup, and so takes no hand.
+CurveBarScan scan_curve_bars(const std::array<Transform, 2>& bars, double width,
+                             const std::array<std::optional<Ray>, 2>& rays,
+                             const std::function<bool(std::size_t)>& covered);
+// What a bar shows this frame: an opacity to ease toward and a light, 0 for
+// the movement handle's grey to 1 for white, or hidden at once.
+struct CurveBarLook {
+    double target{}, light{};
+    bool hide{};
+};
+// `bending`: the bar a bend holds, if one does, white and opaque while the
+// other fades; `dragging`: a move or resize holds the keyboard, so both fade;
+// `near`: a laser within the bar's reach (ResizerReach); `lit`: a laser on it;
+// `visible`: it shows now. `covered()`, asked only for a bar that is wanted
+// or shows and is not held: over a popup it hides at once.
+CurveBarLook curve_bar_look(std::size_t side, std::optional<std::size_t> bending, bool dragging,
+                            bool near, bool lit, bool visible, const std::function<bool()>& covered);
 // A bar overlay's image: its grab area at 2 pixels per texture pixel, clear
 // but for a white pill with rounded ends in its middle. RGBA, not
 // premultiplied, rows from the top; tinted and faded by the overlay.

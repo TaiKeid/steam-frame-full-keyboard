@@ -1231,6 +1231,40 @@ void curve_bar_tests() {
     with_popup.popup = fk::Rect{body.x - 80, body.y + body.height / 2 - 20, 100, 40};
     require(fk::curve_bar_covers_popup(with_popup, 0) && !fk::curve_bar_covers_popup(with_popup, 1),
             "a dropdown over the left bar's area covers it alone");
+    // The scan: a left-hand laser at the left bar's middle is on that bar; a
+    // ray turned away meets neither. A covered bar takes no hand.
+    placed.set_curvature(0);
+    const std::array<fk::Transform, 2> bars{fk::curve_bar_frame(view, placed, 0),
+                                            fk::curve_bar_frame(view, placed, 1)};
+    const fk::Ray at_left{{bars[0][0][3], bars[0][1][3], bars[0][2][3] + 1}, {0, 0, -1}};
+    const fk::Ray away{{0, 1, 0}, {0, 0, 1}};
+    auto scan = fk::scan_curve_bars(bars, width, {at_left, away}, [](std::size_t) { return false; });
+    require(scan.on_bar[0] == 0u && !scan.on_bar[1] && scan.any() && scan.lit(0) && !scan.lit(1),
+            "the left hand's laser is on the left bar, the right hand's on none");
+    require(scan.distance[0] == 0 && scan.distance[1] > .1, "each bar's nearest laser");
+    scan = fk::scan_curve_bars(bars, width, {at_left, std::nullopt},
+                               [](std::size_t side) { return side == 0; });
+    require(!scan.any() && scan.distance[0] == 0, "a bar covered by a popup takes no hand");
+    // The look: a held bar is white and opaque, the other fades; a move or
+    // resize fades both; near and lit fades in half lit; over a popup a shown
+    // bar hides at once. The popup is asked only when it could matter.
+    bool asked = false;
+    const auto uncovered = [&] {
+        asked = true;
+        return false;
+    };
+    auto look = fk::curve_bar_look(0, std::size_t{0}, true, false, false, true, uncovered);
+    require(look.target == 1 && look.light == 1 && !look.hide && !asked,
+            "the bar a bend holds is white");
+    look = fk::curve_bar_look(1, std::size_t{0}, true, true, true, true, uncovered);
+    require(look.target == 0 && look.light == 0 && !look.hide, "the other bar fades while one bends");
+    look = fk::curve_bar_look(0, std::nullopt, true, true, true, false, uncovered);
+    require(look.target == 0 && !look.hide && !asked, "a move or resize fades both bars");
+    look = fk::curve_bar_look(0, std::nullopt, false, true, true, false, uncovered);
+    require(look.target == 1 && look.light == .5 && !look.hide && asked,
+            "near and lit, a bar fades in half lit");
+    look = fk::curve_bar_look(0, std::nullopt, false, false, false, true, [] { return true; });
+    require(look.hide, "over a popup a shown bar hides at once");
     // The image: an opaque pill in the middle of a clear grab area.
     const auto pixels = fk::curve_bar_pixels();
     require(pixels.size() ==

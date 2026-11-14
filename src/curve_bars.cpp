@@ -66,6 +66,40 @@ bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
     return covers_popup(view, {middle - curve_bar_reach_x, body.y + body.height / 2 - curve_bar_reach_y,
                                2 * curve_bar_reach_x, 2 * curve_bar_reach_y});
 }
+CurveBarScan scan_curve_bars(const std::array<Transform, 2>& bars, double width,
+                             const std::array<std::optional<Ray>, 2>& rays,
+                             const std::function<bool(std::size_t)>& covered) {
+    CurveBarScan scan;
+    for (std::size_t hand = 0; hand < rays.size(); ++hand) {
+        for (std::size_t side = 0; rays[hand] && side < bars.size(); ++side) {
+            const auto reach = curve_bar_reach(bars[side], width, *rays[hand]);
+            if (!reach) {
+                continue;
+            }
+            scan.distance[side] = std::min(scan.distance[side], reach->distance);
+            if (reach->distance == 0 && !scan.on_bar[hand] && !covered(side)) {
+                scan.on_bar[hand] = side;
+            }
+        }
+    }
+    return scan;
+}
+CurveBarLook curve_bar_look(std::size_t side, std::optional<std::size_t> bending, bool dragging,
+                            bool near, bool lit, bool visible, const std::function<bool()>& covered) {
+    if (bending) {
+        const double held = side == *bending ? 1 : 0;
+        return {held, held, false};
+    }
+    CurveBarLook look;
+    if (!dragging) {
+        look.target = near ? 1 : 0;
+        look.light = lit ? .5 : 0;
+    }
+    if ((look.target > 0 || visible) && covered()) {
+        return {0, 0, true};
+    }
+    return look;
+}
 std::vector<std::uint8_t> curve_bar_pixels() {
     constexpr int width = curve_bar_image_width, height = curve_bar_image_height;
     constexpr double radius = curve_bar_width / 2 * curve_bar_image_scale;
