@@ -4026,8 +4026,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             const auto ray = laser_rays.read(device);
             const auto handle = curve_bar_frame(app.geometry(), displayed, side);
+            // From the saved bend, not the shown one: a flat keyboard shows the
+            // resting bend, and a grab let go unmoved must keep it at 0.
             if (!ray || !drag.start_bend(device, pointer, by_grip, displayed.transform(),
-                                         displayed.width(), displayed.curvature(),
+                                         displayed.width(), placement.curvature(),
                                          {handle[0][3], handle[1][3], handle[2][3]}, *ray, now)) {
                 return false;
             }
