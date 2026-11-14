@@ -3961,9 +3961,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return; // A handle press must never also reach a key.
             }
             // Grabbing cannot also type if grip and trigger arrive together.
-            const bool grabbing = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
-                return grip.active && grip.held && grip.device == device;
-            });
+            // Only with Grab to move on: otherwise grips are read just for the
+            // curve bars, and a bend already keeps presses off the keys.
+            const bool grabbing =
+                app.use_drag_to_move() && std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
+                    return grip.active && grip.held && grip.device == device;
+                });
             if (app.pinned() || !grabbing) {
                 const bool key_pressed = app.down(pointer, x, y, now);
                 if (key_pressed) {
