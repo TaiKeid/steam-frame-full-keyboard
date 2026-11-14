@@ -957,14 +957,14 @@ class ScenePointer {
             hand.armed = hand.held = false;
         }
     }
-    std::array<SceneSample, 2> poll(const PanelPlacement& panel, double height_over_width) {
+    // `poses`: this frame's tracking poses, from LaserRays, which queries
+    // them once a frame for every reader.
+    std::array<SceneSample, 2> poll(const PanelPlacement& panel, double height_over_width,
+                                    const vr::TrackedDevicePose_t* poses) {
         std::array<SceneSample, 2> result{};
         if (!ready_ || !panel.ready()) {
             return result;
         }
-        vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount]{};
-        vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses,
-                                                     vr::k_unMaxTrackedDeviceCount);
         for (std::size_t i = 0; i < hands_.size(); ++i) {
             auto& hand = hands_[i];
             auto& sample = result[i];
@@ -1361,6 +1361,15 @@ class LaserRays {
         }
         return *hands_;
     }
+    // This frame's tracking poses, queried on the first call in a frame.
+    const vr::TrackedDevicePose_t* poses() {
+        if (!posed_) {
+            vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses_.data(),
+                                                         vr::k_unMaxTrackedDeviceCount);
+            posed_ = true;
+        }
+        return poses_.data();
+    }
     std::optional<Ray> read(vr::TrackedDeviceIndex_t device) {
         if (device >= vr::k_unMaxTrackedDeviceCount) {
             return {};
@@ -1378,12 +1387,7 @@ class LaserRays {
             info->kind != vr::TrackedDeviceClass_HMD) {
             return {};
         }
-        if (!posed_) {
-            vr_system()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, poses_.data(),
-                                                         vr::k_unMaxTrackedDeviceCount);
-            posed_ = true;
-        }
-        const auto& state = poses_[device];
+        const auto& state = poses()[device];
         if (!state.bPoseIsValid || !state.bDeviceIsConnected) {
             return {};
         }
@@ -4283,8 +4287,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return std::any_of(areas.begin(), areas.end(),
                                    [&](const Rect& r) { return r.contains(x, y); });
             };
-            auto samples =
-                scene_pointer.poll(displayed, static_cast<double>(texture_height) / panel_width);
+            // The bar scan above may have read the poses already this frame.
+            auto samples = scene_pointer.poll(
+                displayed, static_cast<double>(texture_height) / panel_width, laser_rays.poses());
             detect_headset_suspend();
             if (headset_input.blocked()) {
                 samples = {};
