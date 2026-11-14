@@ -2797,9 +2797,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     // switch jitters the keys, so a bend starting from flat would. This much
     // (a radius of about 150 m on a 0.95 m keyboard, the ends 0.7 mm closer)
     // keeps it on the curved path and looks flat; the saved bend stays 0.
+    // Flat while a shell forwards its pointer: its texture coordinates come
+    // from a flat quad (docs/integration.md).
     constexpr double resting_curvature = .001;
     auto shown_curvature = [&] {
-        return app.curved_keyboard() && panel.curves()
+        return app.curved_keyboard() && panel.curves() && !app.forwarded()
                    ? std::max(placement.curvature(), resting_curvature)
                    : 0.0;
     };
