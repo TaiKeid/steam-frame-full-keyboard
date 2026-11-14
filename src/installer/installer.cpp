@@ -113,13 +113,15 @@ constexpr std::array<std::pair<const char*, const char*>, Installer::pages> page
     {"installer.page.suggestions", "installer.page.suggestions.text"},
     {"installer.page.pull", "installer.page.pull.text"},
     {"installer.page.use-numpad", "installer.page.use-numpad.text"},
+    {"installer.page.curved", "installer.page.curved.text"},
     {"installer.page.streaming", "installer.page.streaming.text"},
 }};
 // Finish's summary names each answer as Settings does, not by its question.
 constexpr std::array<const char*, Installer::pages> summary_keys{
     "setting.replace-native-keyboard", "setting.swipe-typing",
     "setting.typing-suggestions",      "setting.key-flicks",
-    "installer.summary.numpad",        "setting.streaming-support"};
+    "installer.summary.numpad",        "setting.curved-keyboard",
+    "setting.streaming-support"};
 
 // What installing `chosen` does to `installed`: nothing installed, newer,
 // older or the same. Returns the key for the main button and the key for
@@ -196,16 +198,26 @@ Color Installer::dim() const {
 bool Installer::busy() const {
     return status_.state == State::Running && status_.task != Task::Releases;
 }
-double Installer::choice_shown(int page) const {
-    const double target = choice(page) ? 1 : 0;
-    if (page != page_) {
+int Installer::wizard_pages() const {
+    return numpad_feature + 1 + (curved_page() ? 1 : 0) + (streaming_page() ? 1 : 0);
+}
+int Installer::feature(int page) const {
+    // The pages up to the numpad are always there; then each offered one.
+    if (page <= numpad_feature) {
+        return page;
+    }
+    return page == numpad_feature + 1 && curved_page() ? curved_feature : streaming_feature;
+}
+double Installer::choice_shown(int feature) const {
+    const double target = choice(feature) ? 1 : 0;
+    if (page_ >= wizard_pages() || feature != this->feature(page_)) {
         return target;
     }
     const double turned = ease_in_out((now_ - choice_changed_) / .4);
     return 1 - target + (2 * target - 1) * turned;
 }
-bool Installer::choice(int page) const {
-    switch (page) {
+bool Installer::choice(int feature) const {
+    switch (feature) {
     case 0:
         return choices_.replace_native;
     case 1:
@@ -216,9 +228,14 @@ bool Installer::choice(int page) const {
         return choices_.pull_for_shift;
     case 4:
         return choices_.numpad;
+    case curved_feature:
+        return curved_page() && choices_.curved;
     default:
         return streaming_page() && choices_.streaming && streaming_blocked().key.empty();
     }
+}
+bool Installer::curved_page() const {
+    return installing_.empty() || at_least(installing_, curved_release);
 }
 bool Installer::streaming_page() const {
     // An older release cannot take the answer, so it is not asked.
@@ -229,7 +246,7 @@ UiText Installer::streaming_blocked() const {
     return choices_.replace_native ? UiText{} : ui("installer.page.streaming.needs-replace");
 }
 bool Installer::restart_offered() const {
-    return first_install_ && choice(pages - 1) && status_.streaming_restart;
+    return first_install_ && choice(streaming_feature) && status_.streaming_restart;
 }
 bool Installer::streaming_failed() const {
     return status_.task == Task::Finish && status_.state == State::Failed &&
@@ -367,10 +384,13 @@ void Installer::activate(const Hit& hit) {
         break;
     case Action::Choice: {
         const bool yes = hit.index == 0;
-        if (choice(page_) != yes) {
+        if (page_ >= wizard_pages()) {
+            break;
+        }
+        if (choice(feature(page_)) != yes) {
             choice_changed_ = now_; // The page's picture follows the choice.
         }
-        switch (page_) {
+        switch (feature(page_)) {
         case 0:
             choices_.replace_native = yes;
             break;
@@ -386,7 +406,10 @@ void Installer::activate(const Hit& hit) {
         case 4:
             choices_.numpad = yes;
             break;
-        case 5:
+        case curved_feature:
+            choices_.curved = yes;
+            break;
+        case streaming_feature:
             choices_.streaming = yes;
             break;
         }
@@ -416,7 +439,8 @@ void Installer::activate(const Hit& hit) {
         if (first_install_) {
             // The answer as shown: No where the page could not be answered.
             auto choices = choices_;
-            choices.streaming = choice(pages - 1);
+            choices.curved = choice(curved_feature);
+            choices.streaming = choice(streaming_feature);
             backend_.finish(choices, restart_ && restart_offered());
         } else {
             quit_ = true;
@@ -1329,9 +1353,10 @@ void Installer::paint_progress() {
 }
 void Installer::paint_wizard_page(int page) {
     const double t = std::max(0.0, now_ - (page == page_ ? page_turned_ : page_from_turned_));
+    const int asks = feature(page);
     // A feature answered No plays on, dimmed. The numpad's picture shows
     // either answer instead.
-    const double lit = page == 4 ? 1 : .3 + .7 * choice_shown(page);
+    const double lit = asks == numpad_feature ? 1 : .3 + .7 * choice_shown(asks);
     stage_plate(stage);
     cairo_save(cr_);
     paint::rounded(cr_, stage, theme_.radius + 4);
@@ -1339,7 +1364,7 @@ void Installer::paint_wizard_page(int page) {
     if (lit < 1) {
         cairo_push_group(cr_);
     }
-    switch (page) {
+    switch (asks) {
     case 0:
         paint_replace_demo(stage, t);
         break;
@@ -1355,6 +1380,9 @@ void Installer::paint_wizard_page(int page) {
     case 4:
         paint_numpad_demo(stage, t);
         break;
+    case curved_feature:
+        paint_curve_demo(stage, t);
+        break;
     default:
         paint_stream_demo(stage, t);
         break;
@@ -1367,10 +1395,10 @@ void Installer::paint_wizard_page(int page) {
 
     // The question, what it means and Yes/No, centred beside the stage.
     constexpr double choice_height = 62, choice_width = 300, under_title = 14, over_choice = 30;
-    const auto title = tr(page_keys[page].first);
-    const auto explanation = tr(page_keys[page].second);
+    const auto title = tr(page_keys[static_cast<std::size_t>(asks)].first);
+    const auto explanation = tr(page_keys[static_cast<std::size_t>(asks)].second);
     // Streaming support's page says why it stays at No when it has to.
-    const auto blocked = page == pages - 1 ? streaming_blocked() : UiText{};
+    const auto blocked = asks == streaming_feature ? streaming_blocked() : UiText{};
     const auto reason = blocked.key.empty() ? std::string{} : localization_.text(blocked);
     constexpr double over_reason = 12;
     const double reason_height = reason.empty()
@@ -1391,7 +1419,7 @@ void Installer::paint_wizard_page(int page) {
     block(explanation, {column_x, y, column_width, room}, 21, dim());
     y += text_height + over_choice;
     segments({column_x + 4, y, std::min(choice_width, column_width - 8), choice_height}, Action::Choice,
-             choice(page) ? 0 : 1, reason.empty());
+             choice(asks) ? 0 : 1, reason.empty());
     if (!reason.empty()) {
         block(reason, {column_x, y + choice_height + over_reason, column_width, 60}, 18, dim());
     }
@@ -1432,8 +1460,11 @@ void Installer::paint_finish_page() {
     const auto value = tr(note);
     // On a first install, what Finish saves: each setting and its answer.
     // A long name takes two lines; all of them share the largest size at
-    // which the list fits under the note.
-    constexpr double gap = 20, chip_width = 96, chip_height = 36, row_pad = 14, pitch = 1.12;
+    // which the list fits under the note. Seven answers fit only with the
+    // rows drawn tighter too: once the names are as small as they go, the
+    // chips shrink and the rows close up.
+    constexpr double gap = 20, chip_width = 96, pitch = 1.12;
+    double chip_height = 36, row_pad = 14;
     const double label_width = column_width - chip_width - 16;
     const double h = block(value, {0, 0, column_width, 130}, 22, ink, PANGO_WEIGHT_NORMAL, false);
     const Color label_ink = paint::mix(theme_.legend, theme_.surface, .2);
@@ -1442,12 +1473,21 @@ void Installer::paint_finish_page() {
     for (;; size -= 1) {
         list_height = 0;
         for (std::size_t page = 0; page < static_cast<std::size_t>(wizard_pages()); ++page) {
-            labels[page] = block(tr(summary_keys[page]), {0, 0, label_width, height}, size, label_ink,
+            const auto asks = static_cast<std::size_t>(feature(static_cast<int>(page)));
+            labels[page] = block(tr(summary_keys[asks]), {0, 0, label_width, height}, size, label_ink,
                                  PANGO_WEIGHT_NORMAL, false, PANGO_ALIGN_LEFT, pitch);
             list_height += std::max(chip_height, labels[page]) + row_pad;
         }
-        if (h + gap + list_height <= stage.height || size <= 16) {
+        if (h + gap + list_height <= stage.height) {
             break;
+        }
+        if (size <= 16) {
+            if (row_pad <= 6) {
+                break;
+            }
+            chip_height = 30;
+            row_pad = 6;
+            size = 17; // Measured again at 16.
         }
     }
     double y = stage.y + std::max(0.0, (stage.height - h - gap - list_height) * .45);
@@ -1460,9 +1500,11 @@ void Installer::paint_finish_page() {
         cairo_rectangle(cr_, column_x + 4, y, column_width - 8, 1);
         set_rgba(cr_, theme_.legend, .07);
         cairo_fill(cr_);
-        block(tr(summary_keys[page]), {column_x, y + (row - label) / 2, label_width, height}, size,
-              label_ink, PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_LEFT, pitch);
-        const bool yes = choice(page);
+        const int asks = feature(page);
+        block(tr(summary_keys[static_cast<std::size_t>(asks)]),
+              {column_x, y + (row - label) / 2, label_width, height}, size, label_ink,
+              PANGO_WEIGHT_NORMAL, true, PANGO_ALIGN_LEFT, pitch);
+        const bool yes = choice(asks);
         const Rect chip{column_x + column_width - chip_width - 4, y + (row - chip_height) / 2,
                         chip_width, chip_height};
         if (yes) {
@@ -1472,7 +1514,8 @@ void Installer::paint_finish_page() {
             paint::source(cr_, paint::mix(card_fill, theme_.surface, .7));
             cairo_fill(cr_);
         }
-        text(tr(yes ? "installer.yes" : "installer.no"), chip, 18, yes ? theme_.latched_legend : dim());
+        text(tr(yes ? "installer.yes" : "installer.no"), chip, chip_height < 36 ? 16 : 18,
+             yes ? theme_.latched_legend : dim());
         y += row;
     }
 }
@@ -1993,6 +2036,99 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
     const double f = ease_in_out((hop - std::floor(hop)) / .6);
     laser(s, from.first + (to.first - from.first) * f, from.second + (to.second - from.second) * f,
           numpad < 1 ? 0 : phase(c, typing - .4, .3) * (1 - phase(c, typing + digits * step, .3)));
+}
+
+// The whole keyboard bent as Curved keyboard bends it: part of a cylinder
+// whose middle stays and whose ends come toward you, seen from above as in
+// the headset, so the ends draw larger and lower. A laser from the right
+// reaches the left handle, which fades in, lights up with the laser on it
+// and turns white while held, as the real one does (vr.cpp, CurveBars);
+// turning the hand bends the keyboard, which keeps the curve when let go,
+// and the same handle pushes it flat again.
+void Installer::paint_curve_demo(const Rect& s, double t) {
+    // The real proportions, in the picture's pixels at mini_scale: the
+    // handle is 8 by 200 texture pixels, its middle 42 outside the case.
+    constexpr double fit = .86, most = .12, eye = 1.5, drop = .3;
+    const double width = panel_width * mini_scale * fit, height = case_bottom * mini_scale * fit;
+    const double cx = s.x + s.width / 2, cy = s.y + s.height / 2 - 6;
+    const double kx = cx - panel_width * mini_scale / 2, ky = cy - case_bottom * mini_scale / 2;
+
+    constexpr double cycle = 6.4, arrive = .8, grab = 1.0, bent = 2.2, let_go = 2.6, regrab = 3.4,
+                     flat = 4.6, release = 4.8, leave = 5.4;
+    const double c = std::fmod(t, cycle);
+    const double curvature = most * ease_in_out(phase(c, grab, bent - grab)) *
+                             (1 - ease_in_out(phase(c, regrab, flat - regrab)));
+    // A point of the flat picture, `u` pixels across from its middle, on the
+    // arc: where it lands and how much larger and lower it draws, both by
+    // how far it came toward you. The lowering is gentle (owner's pick of
+    // four shapes), so the arc stays shallow across the middle.
+    const double radius = curvature > 1e-6 ? width / (2 * pi * curvature) : 0;
+    struct Placed {
+        double x, scale, lower, turn;
+    };
+    const auto place = [&](double u) {
+        if (radius <= 0) {
+            return Placed{cx + u * fit, 1, 0, 0};
+        }
+        const double turn = u * fit / radius, toward = radius * (1 - std::cos(turn));
+        const double scale = eye * width / (eye * width - toward);
+        return Placed{cx + radius * std::sin(turn) * scale, scale, drop * toward, turn};
+    };
+
+    // The picture flat, then drawn again in narrow columns, each where the
+    // arc puts it. A column's left and right edges land exactly where the
+    // arc puts them, and it slants by how much lower its right edge draws,
+    // so neighbours join without steps or seams.
+    cairo_push_group(cr_);
+    small_picture(mini_.get(), mini_scale, kx, ky, 1);
+    auto* flat_picture = cairo_pop_group(cr_);
+    constexpr double column = 4;
+    for (double x = kx - 6; x < kx + panel_width * mini_scale + 6; x += column) {
+        const auto left = place(x - cx), right = place(x + column - cx);
+        const double across = (right.x - left.x) / column, slant = (right.lower - left.lower) / column;
+        const double tall = (left.scale + right.scale) / 2 * fit;
+        cairo_save(cr_);
+        // Sharp clips: each pixel belongs to one column, as a soft overlap
+        // would draw the case's see-through edge twice in a faint line.
+        cairo_set_antialias(cr_, CAIRO_ANTIALIAS_NONE);
+        cairo_rectangle(cr_, left.x, s.y, right.x - left.x, s.height);
+        cairo_clip(cr_);
+        cairo_set_antialias(cr_, CAIRO_ANTIALIAS_DEFAULT);
+        // Picture (x, y) to stage: x' = left.x + across (x - x0),
+        // y' = cy + tall (y - cy) + left.lower + slant (x - x0).
+        cairo_matrix_t matrix;
+        cairo_matrix_init(&matrix, across, slant, 0, tall, left.x - across * x,
+                          cy - tall * cy + left.lower - slant * x);
+        cairo_transform(cr_, &matrix);
+        cairo_set_source(cr_, flat_picture);
+        cairo_paint(cr_);
+        cairo_restore(cr_);
+    }
+    cairo_pattern_destroy(flat_picture);
+
+    // The left handle: it fades in as the laser arrives and out after it
+    // leaves; grey, half lit with the laser on it, white while held.
+    const auto handle = place(-(panel_width / 2 + 42) * mini_scale);
+    const double shown =
+        ease_in_out(phase(c, arrive - .3, .3)) * (1 - ease_in_out(phase(c, release + .2, .3)));
+    const bool held = (c >= grab && c < let_go) || (c >= regrab && c < release);
+    const double light = held ? 1 : c >= arrive && c < release ? .5 : 0;
+    const double bar_width = std::max(2.5, 8 * mini_scale * fit * handle.scale);
+    const double bar_height = 200 * mini_scale * fit * handle.scale;
+    const double bar_y = cy + handle.lower;
+    paint::rounded(cr_, {handle.x - bar_width / 2, bar_y - bar_height / 2, bar_width, bar_height},
+                   bar_width / 2);
+    const auto channel = [&](double idle) { return idle + (1 - idle) * light; };
+    cairo_set_source_rgba(cr_, channel(61 / 255.0), channel(68 / 255.0), channel(80 / 255.0), shown);
+    cairo_fill(cr_);
+
+    // The laser: across the keys to the handle, on it while it bends, then away.
+    const double start_x = cx + width * .2, start_y = cy + height * .1;
+    const double there = ease_in_out(phase(c, 0, arrive)),
+                 away = ease_in_out(phase(c, release, leave - release));
+    const double x = start_x + (handle.x - start_x) * there + (start_x - handle.x) * away;
+    const double y = start_y + (bar_y - start_y) * there + (start_y - bar_y) * away;
+    laser(s, x, y, std::min(phase(c, 0, .2), 1 - phase(c, leave - .1, .2)));
 }
 
 // A game or application streamed from the PC with a text line open: the

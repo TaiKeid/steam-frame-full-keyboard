@@ -161,6 +161,8 @@
     "installer.loading": "Looking for versions…",
     "installer.next": "Next",
     "installer.no": "No",
+    "installer.page.curved": "Enable Curved keyboard?",
+    "installer.page.curved.text": "Point at a handle beside the keyboard, hold the trigger or grip and pull it up, or turn your hand, to bend the keyboard around you. Push it back to flatten it again.",
     "installer.page.pull": "Enable Pull for Shift?",
     "installer.page.pull.text": "Pull a key down to type its Shift character, without pressing Shift.",
     "installer.page.replace": "Replace the native keyboard?",

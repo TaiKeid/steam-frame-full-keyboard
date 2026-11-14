@@ -22,11 +22,16 @@ namespace framekeyboard::installer {
 class Installer {
   public:
     static constexpr int width = 1280, height = 800;
-    // Wizard pages at most; the page after the last is Finish. The last one,
-    // Streaming support, is offered only for releases that have it.
-    static constexpr int pages = 6;
+    // Wizard pages at most; the page after the last is Finish. Each asks
+    // about one feature, by its number here; Curved keyboard and Streaming
+    // support are offered only for releases that have them, so a page's
+    // place in the wizard and its feature can differ.
+    static constexpr int pages = 7;
+    static constexpr int numpad_feature = 4, curved_feature = 5, streaming_feature = 6;
     // The pages the release being installed gets.
-    int wizard_pages() const { return streaming_page() ? pages : pages - 1; }
+    int wizard_pages() const;
+    // The feature a wizard page, by its place, asks about.
+    int feature(int page) const;
     enum class Action {
         None,
         Install,
@@ -107,6 +112,7 @@ class Installer {
     void paint_suggestions_demo(const Rect& stage, double t);
     void paint_pull_demo(const Rect& stage, double t);
     void paint_numpad_demo(const Rect& stage, double t);
+    void paint_curve_demo(const Rect& stage, double t);
     void paint_stream_demo(const Rect& stage, double t);
     // The keyboard's picture, scaled beforehand, with its top left at
     // (x, y); the case narrows over the numpad, which fades, as `numpad`
@@ -151,7 +157,10 @@ class Installer {
     double text_width(const std::string& value, double size) const;
     std::string tr(std::string_view key, const UiArgs& args = {}) const;
     Color dim() const;
-    bool choice(int page) const;
+    // A feature's answer, by its number (feature()).
+    bool choice(int feature) const;
+    // Whether the release being installed has Curved keyboard, and so its page.
+    bool curved_page() const;
     // Whether the release being installed has Streaming support, and so its page.
     bool streaming_page() const;
     // Why the Streaming support page cannot be answered Yes; empty when it can.
@@ -163,7 +172,7 @@ class Installer {
     // Finish without it beside Try again.
     bool streaming_failed() const;
     // The same as 1 or 0, easing for a moment after the choice changes.
-    double choice_shown(int page) const;
+    double choice_shown(int feature) const;
     // How far the install has come, 0..1, for the bar and the Finish badge.
     double progress() const;
     bool first_install() const { return first_install_; }

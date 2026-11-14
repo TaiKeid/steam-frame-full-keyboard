@@ -372,6 +372,8 @@ class SystemBackend : public Backend {
             settings.typing_suggestions = choices.suggestions;
             settings.key_flicks = choices.pull_for_shift;
             settings.hide_numpad = !choices.numpad;
+            // Off for a release without it, which ignores the setting anyway.
+            settings.curved_keyboard = choices.curved;
             try {
                 save_preferences_with_startup(settings, install_root() / "current/bin/framekeyboard",
                                               config);

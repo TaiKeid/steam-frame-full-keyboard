@@ -20,6 +20,8 @@ inline constexpr const char* oldest_release = "0.16.0";
 // The first release with Streaming support. An older one cannot take that
 // answer, so the wizard leaves its page out.
 inline constexpr const char* streaming_release = "0.18.0";
+// The first release with Curved keyboard.
+inline constexpr const char* curved_release = "0.19.0";
 
 // Whether a dotted version is at least another.
 inline bool at_least(std::string_view version, std::string_view minimum) {
@@ -49,7 +51,7 @@ struct Release {
 // the keyboard can do, while features new in an update stay opt-in.
 struct Choices {
     bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true},
-        streaming{true};
+        curved{true}, streaming{true};
 };
 
 enum class Task { None, Releases, Install, Uninstall, Finish };

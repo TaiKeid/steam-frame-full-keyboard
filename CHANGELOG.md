@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added **Curved keyboard** to Settings → General, under Hover fade, off by default: the keyboard can bend around you. With it on, a short handle fades in beside the keyboard's left or right edge when your laser comes near; point at it, hold the trigger or grip and pull it up, toward you, or turn your hand so its laser sweeps up, to curve the keyboard; push it back or turn the other way to flatten it, and let go to keep the curve. It goes up to a quarter circle, works with Grab to move on or off, and pinning hides the bars. The curve is saved with the keyboard's position, and the corner resizers and the laser outside the dashboard follow it.
+- The installer asks about Curved keyboard after Use the numpad, Yes by default like its other questions, when installing 0.19.0 or newer; its picture shows the keyboard bending from its handle.
 
 ## 0.18.1: Faster redraws and stream typing fixes
 

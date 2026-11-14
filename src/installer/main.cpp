@@ -139,11 +139,13 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
             {{2.1, "page-3-suggestions"}},
             {{1.1, "page-4-pulling"}, {1.7, "page-4-pulled"}, {2.3, "page-4-typed"}},
             {{1.0, "page-5-numpad"}},
-            {{1.6, "page-6-streaming"}, {3.6, "page-6-streamed"}},
+            {{1.0, "page-6-curve-reach"}, {2.0, "page-6-curving"}, {3.0, "page-6-curved"}},
+            {{1.6, "page-7-streaming"}, {3.6, "page-7-streamed"}},
         };
         for (int page = 0; page < installer.wizard_pages(); ++page) {
             double waited = page == 0 ? 1.0 : 0; // The first page came with the slide.
-            for (const auto& [at, name] : moments[static_cast<std::size_t>(page)]) {
+            // By feature: an older release skips Curved keyboard's page.
+            for (const auto& [at, name] : moments[static_cast<std::size_t>(installer.feature(page))]) {
                 wait(std::max(0.0, at - waited));
                 waited = at;
                 save(name);
