@@ -3829,13 +3829,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!headset_input.blocked() && lifecycle.visible() && displayed.ready() && !drag.active() &&
             panel.curves() && app.allows_movement(MoveSource::Curve)) {
             const auto view = app.geometry();
+            const std::array<Transform, 2> frames{curve_bar_frame(view, displayed, 0),
+                                                  curve_bar_frame(view, displayed, 1)};
             std::optional<PanelView> full; // Built only when a ray is on a bar.
             const auto hands = laser_rays.hands();
             for (std::size_t hand = 0; hand < hands.size(); ++hand) {
                 const auto ray = laser_rays.read(hands[hand]);
                 for (std::size_t side = 0; ray && side < 2; ++side) {
-                    const auto reach =
-                        curve_bar_reach(curve_bar_frame(view, displayed, side), displayed.width(), *ray);
+                    const auto reach = curve_bar_reach(frames[side], displayed.width(), *ray);
                     if (!reach) {
                         continue;
                     }
@@ -4841,14 +4842,28 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
         }
+        // The resizers' and curve bars' views, built at most once a frame:
+        // case geometry, and the full view, with its controls and popup, only
+        // when a resizer or bar is wanted or shown.
+        std::optional<PanelView> case_geometry, full_view;
+        const auto case_view = [&]() -> const PanelView& {
+            if (!case_geometry) {
+                case_geometry = app.geometry();
+            }
+            return *case_geometry;
+        };
+        const auto input_view = [&]() -> const PanelView& {
+            if (!full_view) {
+                full_view = app.input_view();
+            }
+            return *full_view;
+        };
         // Corner resizers fade in wherever any laser comes near: either hand's,
         // and the head cursor while it is the dashboard's pointer. Pinning hides them.
         if (headset_input.blocked() || !lifecycle.visible() || !displayed.ready()) {
             resizers.hide();
         } else {
-            // Case geometry only; the full view, with its controls and popup, is
-            // built just when a resizer is wanted or shown.
-            const auto view = app.geometry();
+            const auto& view = case_view();
             const auto shape = resizer_shape(view, displayed.width());
             const std::array<Transform, 2> corner{corner_frame(view, displayed, 0),
                                                   corner_frame(view, displayed, 1)};
@@ -4883,12 +4898,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     target[side] = 1;
                 }
             }
-            std::optional<PanelView> full;
             for (std::size_t side = 0; side < 2; ++side) {
-                if ((target[side] > 0 || resizers.visible(side)) && !full) {
-                    full = app.input_view();
-                }
-                if (full && resizer_covers_popup(*full, displayed.width(), side, shape)) {
+                if ((target[side] > 0 || resizers.visible(side)) &&
+                    resizer_covers_popup(input_view(), displayed.width(), side, shape)) {
                     resizers.hide(side);
                     continue;
                 }
@@ -4906,8 +4918,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             bars.hide();
             bar_reach = {};
         } else {
-            const auto view = app.geometry();
-            std::optional<PanelView> full;
+            const auto& view = case_view();
             for (std::size_t side = 0; side < 2; ++side) {
                 double target = 0, light = 0;
                 if (held) {
@@ -4916,13 +4927,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     target = bar_reach[side].update(bar_distance[side]) ? 1 : 0;
                     light = on_bar[0] == side || on_bar[1] == side ? .5 : 0;
                 }
-                if (target > 0 && !held) {
-                    if (!full) {
-                        full = app.input_view();
-                    }
-                    if (curve_bar_covers_popup(*full, side)) {
-                        target = light = 0;
-                    }
+                if (target > 0 && !held && curve_bar_covers_popup(input_view(), side)) {
+                    target = light = 0;
                 }
                 bars.update(side, curve_bar_frame(view, displayed, side), displayed.width(), target,
                             light, now, held && side == bend_side);
