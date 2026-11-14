@@ -124,6 +124,9 @@ struct Settings {
     // Hover fade: a key the laser leaves dims over a moment instead of going
     // dark at once; on unless turned off.
     bool hover_fade{true};
+    // Curved keyboard: bars beside the keyboard bend it, held with the grip
+    // and pulled; the bend is kept with the placement. Off by default.
+    bool curved_keyboard{};
     // Pops on keyboard keys: "off", "press", "release" or "both".
     std::string haptic_sounds{"off"};
     // The keyboard's own vibration pulses: press, release, hover and flick

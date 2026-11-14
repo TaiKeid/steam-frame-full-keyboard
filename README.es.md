@@ -32,7 +32,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 - **Modo de foco** (Focus mode): con el reemplazo nativo, el teclado sigue visible cuando se cierra un campo de texto, listo para el siguiente campo o app, y avisa cuando escribiría en una ventana que no puedes ver.
 - **Compatibilidad con streaming** (Streaming support): escribe en juegos y apps que Steam retransmite desde tu PC, con atajos y cualquier tecla, y desde un PC con Windows, texto en cualquier idioma. Consulta [juegos en streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
 - Escritura con el láser del mando, con clics hápticos y respuesta al pasar por encima, además de sonidos de tecla opcionales con seis efectos.
-- Muévelo con el asa de debajo del teclado o agarrándolo, cambia su tamaño desde cualquiera de las esquinas inferiores, ánclalo en su sitio y deja que la nivelación automática lo enderece después de moverlo.
+- Muévelo con el asa de debajo del teclado o agarrándolo, cambia su tamaño desde cualquiera de las esquinas inferiores, cúrvalo a tu alrededor, ánclalo en su sitio y deja que la nivelación automática lo enderece después de moverlo.
 - Seguimiento del panel, posición guardada y recuperación volviendo a abrirlo para recentrarlo.
 - Trece temas, claros y oscuros y uno de alto contraste, con una opción de Fondo transparente. Las distribuciones, los idiomas y los temas son archivos JSON editables, que se eligen en un menú de ajustes dentro de la RV.
 - Reemplazo opcional del teclado nativo, inicio con SteamOS y actualizaciones desde la app con reversión automática.
@@ -125,6 +125,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Cambiar entre tus idiomas | Pulsa el botón de idioma, el último de los botones de la barra de herramientas |
 | Alejar / acercar | Mientras sujetas la línea de movimiento o agarras el teclado, empuja hacia arriba / abajo el joystick de ese mismo mando |
 | Cambiar el tamaño | Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera de una esquina inferior del teclado, mantén el gatillo sobre el tirador de esquina que aparece y arrastra. El teclado crece o se encoge alrededor de su centro |
+| Curvarlo a tu alrededor | Activa **Teclado curvo** en la tarjeta de ajustes **General** y aplica. Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera del borde izquierdo o derecho del teclado, mantén el gatillo o el agarre (grip) sobre la barra que aparece y tira de ella hacia arriba, hacia ti, o gira la mano para que el láser suba; empújala de vuelta para aplanarlo. La curva se conserva al reiniciar |
 | Ocultar el teclado numérico | En Ajustes, marca General → Ocultar teclado numérico y pulsa Aplicar y guardar |
 | Ver detrás del teclado | En Ajustes, pon General → Fondo en Semitransparente o Invisible y pulsa Aplicar y guardar |
 | Cambiar distribución, idioma o tema | Abre el icono del engranaje, elige los perfiles y pulsa **Aplicar y guardar** |

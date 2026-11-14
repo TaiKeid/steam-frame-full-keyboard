@@ -32,7 +32,7 @@ Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-inst
 - **Fokusmodus** (Focus mode): Mit nativem Ersatz bleibt die Tastatur offen, wenn ein Textfeld schließt, bereit für das nächste Feld oder die nächste App, und warnt, wenn sie in ein Fenster tippen würde, das Sie nicht sehen.
 - **Streaming-Unterstützung** (Streaming support): tippt in Spiele und Anwendungen, die Steam von Ihrem PC streamt, mit Tastenkürzeln und jeder Taste, und von einem Windows-PC Text in jeder Sprache. Siehe [gestreamte Spiele](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
 - Tippen mit dem Controller-Laser, mit haptischen Klicks und Hover-Rückmeldung, dazu optionale Tastentöne mit sechs Effekten.
-- Bewegen Sie sie mit dem Griff unter der Tastatur oder durch Greifen, ändern Sie die Größe an einer der unteren Ecken, heften Sie sie an, und lassen Sie sie nach dem Bewegen von der automatischen Ausrichtung geraderücken.
+- Bewegen Sie sie mit dem Griff unter der Tastatur oder durch Greifen, ändern Sie die Größe an einer der unteren Ecken, biegen Sie sie um sich herum, heften Sie sie an, und lassen Sie sie nach dem Bewegen von der automatischen Ausrichtung geraderücken.
 - Folgt dem Dashboard, speichert die Position und lässt sich durch erneutes Starten wieder zentrieren.
 - Dreizehn Designs, hell und dunkel und eines mit hohem Kontrast, mit einer durchscheinenden Hintergrund-Option. Layouts, Sprachen und Designs sind bearbeitbare JSON-Dateien, ausgewählt in einem Einstellungsmenü in VR.
 - Optionaler Ersatz der nativen Tastatur, Start mit SteamOS und Updates in der App mit automatischem Zurücksetzen.
@@ -125,6 +125,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Zwischen Ihren Sprachen wechseln | Den Sprachknopf drücken, den letzten Knopf der Werkzeugleiste |
 | Weiter weg / näher heran | Beim Halten der Bewegungslinie oder beim Greifen den Thumbstick desselben Controllers nach oben / unten drücken |
 | Größe ändern | Lösen, mit dem Laser eines der beiden Controller knapp außerhalb einer unteren Ecke der Tastatur zielen, dann den Abzug auf dem eingeblendeten Eckgriff halten und ziehen. Die Tastatur wächst oder schrumpft um ihre Mitte |
+| Um sich herum biegen | **Gebogene Tastatur** (Curved keyboard) in der Einstellungskarte **Allgemein** aktivieren und übernehmen. Lösen, mit dem Laser eines der beiden Controller knapp neben den linken oder rechten Rand der Tastatur zielen, dann den Abzug oder den Griff auf der eingeblendeten Leiste halten und sie nach oben, zu sich ziehen oder die Hand drehen, sodass der Laser nach oben wandert; Zurückdrücken macht die Tastatur wieder flach. Die Biegung bleibt nach einem Neustart erhalten |
 | Ziffernblock ausblenden | In den Einstellungen Allgemein → **Ziffernblock ausblenden** anhaken und **Übernehmen und speichern** |
 | Hinter die Tastatur sehen | In den Einstellungen Allgemein → **Hintergrund** auf **Halbtransparent** oder **Unsichtbar** stellen und **Übernehmen und speichern** |
 | Layout, Sprache oder Design ändern | Das Zahnradsymbol öffnen, Profile wählen, dann **Übernehmen und speichern** (Apply and save) |

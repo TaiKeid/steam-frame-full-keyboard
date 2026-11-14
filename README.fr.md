@@ -32,7 +32,7 @@ Pour installer depuis un terminal, voir [Installation manuelle](#installation-ma
 - **Mode focus** (Focus mode) : avec le remplacement natif, le clavier reste affiché quand un champ de texte se ferme, prêt pour le champ ou l'appli suivants, et vous avertit quand il taperait dans une fenêtre que vous ne voyez pas.
 - **Prise en charge du streaming** (Streaming support) : tape dans les jeux et applis que Steam diffuse depuis votre PC, avec les raccourcis et chaque touche, et depuis un PC Windows du texte dans n'importe quelle langue. Voir [jeux en streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
 - La frappe au laser de la manette, avec des clics haptiques et un retour au survol, et des sons de touches facultatifs avec six effets.
-- Déplacez-le avec la poignée sous le clavier ou en le saisissant, redimensionnez-le depuis l'un des coins inférieurs, épinglez-le, et laissez la mise à l'horizontale automatique le redresser après un déplacement.
+- Déplacez-le avec la poignée sous le clavier ou en le saisissant, redimensionnez-le depuis l'un des coins inférieurs, incurvez-le autour de vous, épinglez-le, et laissez la mise à l'horizontale automatique le redresser après un déplacement.
 - Il suit le tableau de bord, mémorise sa position et se recentre en le relançant.
 - Treize thèmes, clairs et sombres dont un à contraste élevé, avec une option d'arrière-plan transparent. Les dispositions, les langues et les thèmes sont des fichiers JSON modifiables, choisis dans un menu de paramètres en VR.
 - Le remplacement facultatif du clavier natif, le lancement avec SteamOS, et des mises à jour dans l'appli avec retour arrière automatique.
@@ -125,6 +125,7 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Basculer entre vos langues | Appuyer sur le bouton de langue, le dernier des boutons de la barre d'outils |
 | Éloigner / rapprocher | En tenant la ligne de déplacement ou en saisissant le clavier, pousser le joystick de cette même manette vers le haut / le bas |
 | Changer la taille | Désépingler, viser avec le laser de l'une ou l'autre manette juste à l'extérieur d'un coin inférieur du clavier, puis maintenir la gâchette sur la poignée de coin qui apparaît et faire glisser. Le clavier grandit ou rétrécit autour de son centre |
+| L'incurver autour de vous | Activer **Clavier incurvé** (Curved keyboard) dans la carte de paramètres **Général** et appliquer. Désépingler, viser avec le laser de l'une ou l'autre manette juste à l'extérieur du bord gauche ou droit du clavier, puis maintenir la gâchette ou la poignée sur la barre qui apparaît et la tirer vers le haut, vers soi, ou tourner la main pour faire monter le laser ; la repousser aplatit le clavier. La courbure est conservée après un redémarrage |
 | Masquer le pavé numérique | Dans les paramètres, cocher Général → **Masquer le pavé numérique** puis **Appliquer et enregistrer** |
 | Voir derrière le clavier | Dans les paramètres, régler Général → **Arrière-plan** sur **Semi-transparent** ou **Invisible** puis **Appliquer et enregistrer** |
 | Changer de disposition, de langue ou de thème | Ouvrir l'icône d'engrenage, choisir les profils, puis **Appliquer et enregistrer** (Apply and save) |

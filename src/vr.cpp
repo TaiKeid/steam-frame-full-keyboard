@@ -823,6 +823,40 @@ class LaserDrag {
         trigger_.begin(device, now);
         return true;
     }
+    // A curve bar held by this controller: the ends follow the hand's pull
+    // and its laser's twist (PanelBend). Held by the grip, or by the trigger
+    // like a resize, with the pointer that pressed it. `panel`, `width` and
+    // `curvature` as shown, so the pull follows the face in sight; `handle`
+    // is the held bar's middle and `ray` its laser now.
+    bool start_bend(vr::TrackedDeviceIndex_t device, unsigned pointer, bool by_grip,
+                    const Transform& panel, double width, double curvature, const Vector3& handle,
+                    const Ray& ray, double now) {
+        const auto pose = read_pointer_pose(device);
+        if (!pose || !capture_.begin(MoveSource::Curve, device, pointer, by_grip)) {
+            return false;
+        }
+        bend_.begin(panel, width, curvature, handle, position(*pose), ray.origin, ray.direction);
+        started_ = updated_ = now;
+        trigger_.reset();
+        if (!by_grip) {
+            trigger_.begin(device, now);
+        }
+        return true;
+    }
+    // A lost hand or laser, or the movement time limit, ends the bend,
+    // keeping the curve reached; a laser grazing the twist's plane keeps it
+    // for now.
+    bool bend(PanelPlacement& placement, double now, const std::optional<Ray>& ray) {
+        const auto pose = read_pointer_pose(device());
+        if (!pose || !ray || now - started_ > 30) {
+            stop();
+            return false;
+        }
+        if (const auto curvature = bend_.update(position(*pose), ray->direction)) {
+            placement.set_curvature(*curvature);
+        }
+        return true;
+    }
     // A lost ray or the movement time limit ends the resize; a ray off the
     // panel plane keeps the last size.
     bool resize(PanelPlacement& placement, double now, const std::optional<Ray>& ray) {
@@ -847,6 +881,8 @@ class LaserDrag {
         return true;
     }
     bool active() const { return capture_.active(); }
+    // Held by the grip: grab-to-move, or a curve bar taken with the grip.
+    bool by_grip() const { return capture_.by_grip(); }
     vr::TrackedDeviceIndex_t device() const { return capture_.device(); }
     std::optional<MoveSource> source() const { return capture_.source(); }
     bool owns_pointer(unsigned device, unsigned pointer) const {
@@ -854,13 +890,18 @@ class LaserDrag {
     }
     // Whether a laser capture can end on the trigger's own release, without
     // a pointer event: only for a Frame controller with a calibrated trigger.
-    bool watches_trigger() const { return source() != MoveSource::Grip && trigger_.watching(); }
-    bool trigger_released(double now) { return source() != MoveSource::Grip && trigger_.released(now); }
+    bool watches_trigger() const { return laser_held() && trigger_.watching(); }
+    bool trigger_released(double now) { return laser_held() && trigger_.released(now); }
     void stop() { capture_.reset(); }
 
   private:
+    bool laser_held() const { return active() && !capture_.by_grip(); }
+    static std::array<double, 3> position(const Transform& pose) {
+        return {pose[0][3], pose[1][3], pose[2][3]};
+    }
     PanelDrag transform_;
     PanelResize resize_;
+    PanelBend bend_;
     MoveCapture capture_;
     double started_{}, updated_{};
     TriggerWatch trigger_;
@@ -978,8 +1019,8 @@ class ScenePointer {
                 }
             }
             sample.ray = Ray{origin, direction};
-            sample.hit =
-                panel_ray_hit(panel.transform(), panel.width(), height_over_width, origin, direction);
+            sample.hit = panel_ray_hit(panel.transform(), panel.width(), height_over_width, origin,
+                                       direction, panel.curvature());
         }
         return result;
     }
@@ -1132,15 +1173,17 @@ class SceneCursors {
             }
         }
     }
-    void show(std::size_t hand, const Transform& panel, const PanelHit& hit) {
+    // `surface`: the face's frame where the ray meets it (curve_frame), its
+    // position the point itself, so the dot also lies flat on a curved panel.
+    void show(std::size_t hand, const Transform& surface) {
         auto& dot = dots_[hand];
         if (!dot.handle && !create(hand)) {
             return;
         }
-        Transform world = panel;
+        Transform world = surface;
         for (std::size_t r = 0; r < 3; ++r) {
             // Just in front of the face, so the keyboard never covers it.
-            world[r][3] = hit.point[r] + panel[r][2] * .003;
+            world[r][3] += surface[r][2] * .003;
         }
         if (world != dot.placed) {
             vr::HmdMatrix34_t transform{};
@@ -1425,6 +1468,19 @@ bool resizer_covers_popup(const PanelView& view, double width, std::size_t side,
     };
     return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
 }
+// `frame`'s rotation placed at `point`, for a dot lying on that face.
+Transform frame_at(Transform frame, const Vector3& point) {
+    for (std::size_t r = 0; r < 3; ++r) {
+        frame[r][3] = point[r];
+    }
+    return frame;
+}
+// A bottom case corner's frame on the face (curve_frame): a resizer sits
+// there turned with the bend, so the resizer helpers take it with no offset.
+Transform corner_frame(const PanelView& view, const PanelPlacement& panel, std::size_t side) {
+    const auto corner = case_corner(view, panel.width(), side == 1, true);
+    return curve_frame(panel.transform(), panel.width(), panel.curvature(), corner.right, corner.up);
+}
 // The two corner resizers, index 0 left and 1 right. Each is its own overlay,
 // so fading never repaints the keyboard texture. Both are created up front:
 // the watchdog thread hides them by handle.
@@ -1640,6 +1696,265 @@ class CornerResizers {
     bool preferred_native_input_{};
     std::array<Corner, 2> corners_{};
 };
+// Curve bars (Curved keyboard) sit beside the case's left and right edges at
+// its middle row. In texture pixels, like the movement handle below the case:
+// a pill 8 wide and 200 tall whose middle lies 42 from the case, as the
+// handle's does below it. A grip takes a bar anywhere within 30 of its middle
+// line and 20 beyond its ends.
+constexpr double curve_bar_width = 8, curve_bar_height = 200, curve_bar_gap = 42;
+constexpr double curve_bar_reach_x = 30, curve_bar_reach_y = curve_bar_height / 2 + 20;
+// A bar's middle as an offset from the overlay center, along the arc.
+PanelOffset curve_bar_offset(const PanelView& view, double width, std::size_t side) {
+    const auto top = case_corner(view, width, side == 1, false);
+    const auto bottom = case_corner(view, width, side == 1, true);
+    const double outward = (side == 1 ? 1 : -1) * curve_bar_gap * width / panel_width;
+    return {top.right + outward, (top.up + bottom.up) / 2};
+}
+// The bar's frame on the panel's face (curve_frame): it follows the bend.
+Transform curve_bar_frame(const PanelView& view, const PanelPlacement& panel, std::size_t side) {
+    const auto middle = curve_bar_offset(view, panel.width(), side);
+    return curve_frame(panel.transform(), panel.width(), panel.curvature(), middle.right, middle.up);
+}
+// Where a ray meets a bar's plane, and how far that lies from its grab area
+// (0 inside), in meters; none when the ray misses the plane or meets its back.
+struct CurveBarReach {
+    double distance{};
+    Vector3 point{};
+};
+std::optional<CurveBarReach> curve_bar_reach(const Transform& bar, double width, const Ray& ray) {
+    Vector3 axis[3]{}, middle{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        middle[r] = bar[r][3];
+        for (std::size_t c = 0; c < 3; ++c) {
+            axis[c][r] = bar[r][c];
+        }
+    }
+    auto dot = [](const Vector3& a, const Vector3& b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    };
+    const double approach = dot(ray.direction, axis[2]);
+    if (!(approach < -1e-6)) {
+        return {};
+    }
+    const Vector3 to_middle{middle[0] - ray.origin[0], middle[1] - ray.origin[1],
+                            middle[2] - ray.origin[2]};
+    const double along = dot(to_middle, axis[2]) / approach;
+    if (!std::isfinite(along) || along < 0) {
+        return {};
+    }
+    CurveBarReach reach;
+    for (std::size_t r = 0; r < 3; ++r) {
+        reach.point[r] = ray.origin[r] + ray.direction[r] * along;
+    }
+    const Vector3 offset{reach.point[0] - middle[0], reach.point[1] - middle[1],
+                         reach.point[2] - middle[2]};
+    const double meters = width / panel_width;
+    reach.distance =
+        std::hypot(std::max(0.0, std::abs(dot(offset, axis[0])) - curve_bar_reach_x * meters),
+                   std::max(0.0, std::abs(dot(offset, axis[1])) - curve_bar_reach_y * meters));
+    return reach;
+}
+// Whether a bar's grab area, in panel pixels, overlaps an open dropdown or a
+// flick preview, which a bar in front of the keyboard would cover.
+bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
+    const auto body = panel_case_bounds(view);
+    const double middle = side == 1 ? body.x + body.width + curve_bar_gap : body.x - curve_bar_gap;
+    const Rect area{middle - curve_bar_reach_x, body.y + body.height / 2 - curve_bar_reach_y,
+                    2 * curve_bar_reach_x, 2 * curve_bar_reach_y};
+    auto overlaps = [&](const std::optional<Rect>& r) {
+        return r && r->x < area.x + area.width && area.x < r->x + r->width &&
+               r->y < area.y + area.height && area.y < r->y + r->height;
+    };
+    return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
+}
+// The two curve bars, index 0 left and 1 right. Each is its own overlay
+// covering the bar's grab area, with one white pill in its middle, tinted by
+// SetOverlayColor and faded by its alpha, so neither lighting nor fading
+// redraws an image. While shown it takes SteamVR's laser, like a resizer, so
+// a trigger pull there bends the keyboard instead of clicking what lies
+// behind; the grip is read directly. Both are created up front: the watchdog
+// thread hides them by handle.
+class CurveBars {
+  public:
+    CurveBars() {
+        for (std::size_t side = 0; side < bars_.size(); ++side) {
+            create(side);
+        }
+    }
+    ~CurveBars() {
+        for (auto& bar : bars_) {
+            if (bar.handle) {
+                vr_overlay()->DestroyOverlay(bar.handle);
+            }
+        }
+    }
+    CurveBars(const CurveBars&) = delete;
+    CurveBars& operator=(const CurveBars&) = delete;
+    std::array<vr::VROverlayHandle_t, 2> handles() const { return {bars_[0].handle, bars_[1].handle}; }
+    // As CornerResizers::poll: a hidden bar is drained once, then left alone.
+    bool poll(std::size_t side, vr::VREvent_t& event) {
+        auto& bar = bars_[side];
+        if (!bar.handle || (!bar.visible && !bar.drain)) {
+            return false;
+        }
+        if (vr_overlay()->PollNextOverlayEvent(bar.handle, &event, sizeof(event))) {
+            return true;
+        }
+        bar.drain = bar.visible;
+        return false;
+    }
+    bool set_native_input(bool enabled, bool force = false) {
+        preferred_native_input_ = enabled;
+        bool ready = true;
+        for (auto& bar : bars_) {
+            if (bar.handle) {
+                ready = set_native_input(bar, enabled && bar.visible, force) && ready;
+            }
+        }
+        return ready;
+    }
+    // Eases toward `target` opacity as a resizer does; `light` runs from the
+    // movement handle's idle grey at 0 to white at 1. A held bar stays opaque.
+    // `frame` is the bar's middle on the face (curve_bar_frame).
+    void update(std::size_t side, const Transform& frame, double width, double target, double light,
+                double now, bool held = false) {
+        auto& bar = bars_[side];
+        const double alpha = held ? bar.fade.hold(now) : bar.fade.update(target, now);
+        if (!bar.handle) {
+            return;
+        }
+        if (alpha < .01) {
+            hide(bar);
+            return;
+        }
+        auto overlay = vr_overlay();
+        Transform world = frame;
+        for (std::size_t r = 0; r < 3; ++r) {
+            world[r][3] += frame[r][2] * .003; // In front of the face, as a resizer.
+        }
+        if (world != bar.placed) {
+            vr::HmdMatrix34_t transform{};
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 4; ++c) {
+                    transform.m[r][c] = static_cast<float>(world[r][c]);
+                }
+            }
+            overlay->SetOverlayTransformAbsolute(bar.handle, vr::TrackingUniverseStanding, &transform);
+            bar.placed = world;
+        }
+        if (width != bar.width) {
+            overlay->SetOverlayWidthInMeters(
+                bar.handle, static_cast<float>(2 * curve_bar_reach_x * width / panel_width));
+            bar.width = width;
+        }
+        if (light != bar.light) {
+            // The movement handle's idle grey, rgb(61, 68, 80), toward white.
+            auto channel = [&](double idle) { return static_cast<float>(idle + (1 - idle) * light); };
+            overlay->SetOverlayColor(bar.handle, channel(61 / 255.0), channel(68 / 255.0),
+                                     channel(80 / 255.0));
+            bar.light = light;
+        }
+        if (std::abs(alpha - bar.shown_alpha) > .004 || (alpha == 1 && bar.shown_alpha != 1)) {
+            overlay->SetOverlayAlpha(bar.handle, static_cast<float>(alpha));
+            bar.shown_alpha = alpha;
+        }
+        if (!bar.visible) {
+            overlay->ShowOverlay(bar.handle);
+            bar.visible = true;
+        }
+        set_native_input(bar, preferred_native_input_);
+    }
+    void hide() {
+        for (auto& bar : bars_) {
+            bar.fade.reset();
+            hide(bar);
+        }
+    }
+    // On screen and opaque enough to be seen: only then may the passthrough
+    // pointer press it or draw its dot there.
+    bool shown(std::size_t side) const {
+        const auto& bar = bars_[side];
+        return bar.handle && bar.visible && bar.fade.value() > .3;
+    }
+
+  private:
+    // Image pixels per texture pixel.
+    static constexpr int scale = 2;
+    struct Bar {
+        vr::VROverlayHandle_t handle{};
+        bool visible{}, drain{};
+        double shown_alpha{-1}, light{-1}, width{};
+        Transform placed{};
+        ResizerFade fade;
+        NativePointerInputPolicy native_input;
+    };
+    bool set_native_input(Bar& bar, bool enabled, bool force = false) {
+        return bar.native_input.apply(
+            enabled,
+            [&](bool mouse) {
+                return vr_overlay()->SetOverlayInputMethod(
+                           bar.handle, mouse ? vr::VROverlayInputMethod_Mouse
+                                             : vr::VROverlayInputMethod_None) == vr::VROverlayError_None;
+            },
+            force);
+    }
+    void hide(Bar& bar) {
+        if (bar.visible) {
+            vr_overlay()->HideOverlay(bar.handle);
+            bar.visible = false;
+            bar.drain = true;
+        }
+        if (bar.handle) {
+            set_native_input(bar, false);
+        }
+    }
+    void create(std::size_t side) {
+        auto& bar = bars_[side];
+        auto overlay = vr_overlay();
+        const std::string key = "org.framekeyboard.curve-bar." + std::to_string(side);
+        if (overlay->CreateOverlay(key.c_str(), "Full Keyboard curve bar", &bar.handle) !=
+            vr::VROverlayError_None) {
+            bar.handle = 0;
+            std::cout << "Curve bar unavailable.\n" << std::flush;
+            return;
+        }
+        bar.native_input.reset();
+        // The grab area, clear but for a white pill with rounded ends in its
+        // middle; RGBA, not premultiplied. The whole area takes the laser.
+        const int width = static_cast<int>(2 * curve_bar_reach_x * scale);
+        const int height = static_cast<int>(2 * curve_bar_reach_y * scale);
+        const double radius = curve_bar_width / 2 * scale;
+        const double reach = (curve_bar_height / 2 - curve_bar_width / 2) * scale;
+        std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const double dx = x + .5 - width / 2.0;
+                const double dy = std::max(0.0, std::abs(y + .5 - height / 2.0) - reach);
+                const double alpha = std::clamp(radius + .5 - std::hypot(dx, dy), 0.0, 1.0);
+                auto* p = &pixels[static_cast<std::size_t>((y * width + x) * 4)];
+                p[0] = p[1] = p[2] = 255;
+                p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
+            }
+        }
+        vr::HmdVector2_t mouse{{static_cast<float>(width), static_cast<float>(height)}};
+        bool ok =
+            overlay->SetOverlayRaw(bar.handle, pixels.data(), static_cast<std::uint32_t>(width),
+                                   static_cast<std::uint32_t>(height), 4) == vr::VROverlayError_None &&
+            overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
+            overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
+            set_native_input(bar, false);
+        for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
+            ok = ok && overlay->SetOverlayFlag(bar.handle, flag, true) == vr::VROverlayError_None;
+        }
+        if (!ok) {
+            overlay->DestroyOverlay(bar.handle);
+            bar.handle = 0;
+            std::cout << "Curve bar unavailable.\n" << std::flush;
+        }
+    }
+    bool preferred_native_input_{};
+    std::array<Bar, 2> bars_{};
+};
 class VrPanel {
   public:
     ~VrPanel() {
@@ -1743,7 +2058,23 @@ class VrPanel {
             "Place keyboard");
         check(vr_overlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
               "Resize keyboard");
+        // Curved keyboard: the bend is set only when it changes. A runtime
+        // that refuses it leaves the panel flat for good, said once, and
+        // curves() tells the rest to treat it as flat.
+        const auto curvature = static_cast<float>(placement.curvature());
+        if (curvature != curvature_ && curves()) {
+            const auto error = vr_overlay()->SetOverlayCurvature(handle_, curvature);
+            if (error == vr::VROverlayError_None) {
+                curvature_ = curvature;
+            } else {
+                curvature_refused_ = true;
+                std::cout << "Keyboard curvature unavailable: "
+                          << vr_overlay()->GetOverlayErrorNameFromEnum(error) << ".\n"
+                          << std::flush;
+            }
+        }
     }
+    bool curves() const { return !curvature_refused_; }
     std::uint64_t universe() const {
         vr::ETrackedPropertyError error{};
         const auto id = vr_system()->GetUint64TrackedDeviceProperty(
@@ -1843,6 +2174,8 @@ class VrPanel {
     std::optional<bool> scroll_;
     NativePointerInputPolicy native_input_;
     std::vector<Rect> mask_areas_;
+    float curvature_{}; // As SteamVR has it; overlays start flat.
+    bool curvature_refused_{};
 };
 } // namespace
 int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, double duration) {
@@ -1851,11 +2184,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     VrPanel panel;
     panel.connect();
     CornerResizers resizers;
+    CurveBars bars;
     bool native_input_failed = false;
     auto set_native_input = [&](bool enabled, bool force = false) {
         const bool panel_ready = panel.set_native_input(enabled, force);
         const bool corners_ready = resizers.set_native_input(enabled, force);
-        if (!panel_ready || !corners_ready) {
+        const bool bars_ready = bars.set_native_input(enabled, force);
+        if (!panel_ready || !corners_ready || !bars_ready) {
             if (!std::exchange(native_input_failed, true)) {
                 std::cerr << "Native pointer input could not be updated; retrying.\n";
             }
@@ -1879,9 +2214,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
                 vr_overlay()->HideOverlay(panel.handle());
-                for (const auto handle : resizers.handles()) {
-                    if (handle) {
-                        vr_overlay()->HideOverlay(handle);
+                for (const auto& handles : {resizers.handles(), bars.handles()}) {
+                    for (const auto handle : handles) {
+                        if (handle) {
+                            vr_overlay()->HideOverlay(handle);
+                        }
                     }
                 }
                 replacement_stalled.store(true);
@@ -1977,6 +2314,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     double dashboard_pointer_checked = -1;
     // The corner being resized; it stays shown while the other fades.
     std::size_t resize_side = 1;
+    // Curve bars fade in for a hand's laser like the resizers; the bar a grip
+    // bends with stays lit while the other fades.
+    std::array<ResizerReach, 2> bar_reach{};
+    std::size_t bend_side = 1;
     // Passthrough with the dashboard closed: the panel takes no SteamVR laser
     // events and the passthrough pointer drives it.
     bool scene_input = false;
@@ -2251,6 +2592,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Size survives tracking-space changes, including a reset event before
         // the first valid head pose. Restore the world pose only after checking its universe.
         placement.set_width(saved->width);
+        placement.set_curvature(saved->curvature);
     }
     HorizonAlignment horizon;
     bool auto_leveling = app.auto_leveling();
@@ -2280,7 +2622,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return Transform{{{z, 0, x, panel[0][3]}, {0, 1, 0, panel[1][3]}, {-x, 0, z, panel[2][3]}}};
     };
     auto stop_drag = [&](bool align_after_release = false) {
-        const bool resizing = drag.active() && drag.source() == MoveSource::Resize;
+        // A resize or a bend changes only the panel's size or shape.
+        const bool resizing =
+            drag.active() && (drag.source() == MoveSource::Resize || drag.source() == MoveSource::Curve);
         feedback.cancel();
         // Tracking loss or timeout may already have stopped LaserDrag. Always
         // release the app's input gate as well; repeated cleanup is harmless.
@@ -2288,7 +2632,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.set_dragging(false);
         if (resizing) {
             // A resize keeps the pose: no re-facing, and the room or dashboard
-            // leveling reference stays as it was. Keep the width reached.
+            // leveling reference stays as it was. Keep the width or bend reached.
             transform_dirty = true;
         } else if (align_after_release) {
             // Release may arrive without another movement sample. Schedule the
@@ -2330,12 +2674,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     scene_last = {};
                     cursors.hide();
                     resizers.hide();
+                    bars.hide();
                 },
             .hide_overlay =
                 [&] {
                     std::cout << "Full Keyboard overlay hidden.\n" << std::flush;
                     app.panel_hidden();
                     resizers.hide();
+                    bars.hide();
                     if (cut_exit) {
                         end_exit();
                     } else {
@@ -2421,6 +2767,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         return {room_facing ? LevelReference::Room : LevelReference::None, room_facing};
     };
+    // The bend shown: the saved one while Curved keyboard is on and SteamVR
+    // curves the panel, else flat. `placement` keeps the saved bend either way.
+    // While it is on, the keyboard never shows exactly flat: SteamVR draws a
+    // flat overlay apart from a curved one, and the first frame after the
+    // switch jitters the keys, so a bend starting from flat would. This much
+    // (a radius of about 150 m on a 0.95 m keyboard, the ends 0.7 mm closer)
+    // keeps it on the curved path and looks flat; the saved bend stays 0.
+    constexpr double resting_curvature = .001;
+    auto shown_curvature = [&] {
+        return app.curved_keyboard() && panel.curves()
+                   ? std::max(placement.curvature(), resting_curvature)
+                   : 0.0;
+    };
     auto place_panel = [&](double now) {
         const auto [level_to, reference] = level_reference();
         if (level_to != leveled_to) {
@@ -2429,12 +2788,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             leveled_to = level_to;
             horizon.retarget(now);
         }
-        const auto aligned = horizon.update(placement.transform(), now,
-                                            drag.active() && drag.source() != MoveSource::Resize,
+        const bool moving =
+            drag.active() && drag.source() != MoveSource::Resize && drag.source() != MoveSource::Curve;
+        const auto aligned = horizon.update(placement.transform(), now, moving,
                                             auto_leveling && shell_level && !anchor, reference);
         if (!displayed.ready() || aligned != displayed.transform() ||
-            placement.width() != displayed.width() || transform_dirty) {
+            placement.width() != displayed.width() || shown_curvature() != displayed.curvature() ||
+            transform_dirty) {
             displayed.restore(aligned, placement.width());
+            displayed.set_curvature(shown_curvature());
             panel.place(displayed, motion.offset(now));
             transform_dirty = false;
         }
@@ -3431,22 +3793,52 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (!lifecycle.visible()) {
             grip_input.reset();
         }
+        // Which curve bar each hand's laser is on, by the pose shown: a grip
+        // there bends the keyboard, and wins over grab-to-move. Also each
+        // bar's nearest laser, for its fade below. Only hands: the head
+        // cursor has no grip.
+        std::array<std::optional<std::size_t>, 2> on_bar{};
+        std::array<double, 2> bar_distance{INFINITY, INFINITY};
+        if (!headset_input.blocked() && lifecycle.visible() && displayed.ready() && !drag.active() &&
+            panel.curves() && app.allows_movement(MoveSource::Curve)) {
+            const auto view = app.geometry();
+            std::optional<PanelView> full; // Built only when a ray is on a bar.
+            const auto hands = laser_rays.hands();
+            for (std::size_t hand = 0; hand < hands.size(); ++hand) {
+                const auto ray = laser_rays.read(hands[hand]);
+                for (std::size_t side = 0; ray && side < 2; ++side) {
+                    const auto reach =
+                        curve_bar_reach(curve_bar_frame(view, displayed, side), displayed.width(), *ray);
+                    if (!reach) {
+                        continue;
+                    }
+                    bar_distance[side] = std::min(bar_distance[side], reach->distance);
+                    // A bar hidden over an open dropdown takes no grip.
+                    if (reach->distance == 0 && !on_bar[hand] &&
+                        !curve_bar_covers_popup(full ? *full : *(full = app.input_view()), side)) {
+                        on_bar[hand] = side;
+                    }
+                }
+            }
+        }
+        const bool on_any_bar = on_bar[0] || on_bar[1];
         // A grab starts only from a hand whose laser is on the panel, and a grip
         // drag follows its own hand. Otherwise reading both controllers' render
         // models each frame finds nothing to do; a reset latch then needs a
         // released sample again, so a grip held while pointing in starts nothing.
         const bool grip_wanted =
-            (drag.active() && drag.source() == MoveSource::Grip) ||
+            drag.by_grip() || on_any_bar ||
             std::any_of(hovered_devices.begin(), hovered_devices.end(), [](bool on) { return on; });
         if (!grip_wanted) {
             grip_input.reset();
         }
-        const auto grips =
-            grip_wanted && !headset_input.blocked() && lifecycle.visible() && app.use_drag_to_move()
-                ? grip_input.poll()
-                : std::array<GrabSample, 2>{};
+        // Grab-to-move reads the grip over the keys; Curved keyboard over its bars.
+        const bool grip_used = app.use_drag_to_move() || drag.by_grip() || on_any_bar;
+        const auto grips = grip_wanted && !headset_input.blocked() && lifecycle.visible() && grip_used
+                               ? grip_input.poll()
+                               : std::array<GrabSample, 2>{};
         detect_headset_suspend();
-        if (!app.use_drag_to_move()) {
+        if (!grip_used) {
             grip_input.reset();
         }
         if (drag.active() && !app.allows_movement(*drag.source())) {
@@ -3556,8 +3948,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return;
             }
             const auto ray = laser_rays.read(device);
+            // On a curved keyboard the resize follows the laser on the plane
+            // through the bent corners, which have come forward by the bend.
+            auto plane = displayed.transform();
+            const double forward = curve_depth(displayed.width(), displayed.curvature());
+            for (std::size_t r = 0; r < 3; ++r) {
+                plane[r][3] += plane[r][2] * forward;
+            }
             PanelResize resize;
-            if (!ray || !resize.begin(displayed.transform(), displayed.width(), *ray) ||
+            if (!ray || !resize.begin(plane, displayed.width(), *ray) ||
                 !drag.start_resize(device, pointer, resize, now)) {
                 return;
             }
@@ -3567,6 +3966,29 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             feedback.cancel();
             app.set_dragging(true, true);
             std::cout << "Keyboard resize started.\n" << std::flush;
+        };
+        // A curve bar bends the keyboard, held by the trigger like a resizer or
+        // by the grip; it wins over grab-to-move. Only the bend changes.
+        auto start_bend = [&](std::size_t side, vr::TrackedDeviceIndex_t device, unsigned pointer,
+                              bool by_grip) {
+            detect_headset_suspend();
+            if (headset_input.blocked() || drag.active() || !displayed.ready() || !panel.curves() ||
+                !app.allows_movement(MoveSource::Curve)) {
+                return false;
+            }
+            const auto ray = laser_rays.read(device);
+            const auto handle = curve_bar_frame(app.geometry(), displayed, side);
+            if (!ray || !drag.start_bend(device, pointer, by_grip, displayed.transform(),
+                                         displayed.width(), displayed.curvature(),
+                                         {handle[0][3], handle[1][3], handle[2][3]}, *ray, now)) {
+                return false;
+            }
+            bend_side = side;
+            feedback.cancel();
+            app.set_dragging(true, true);
+            std::cout << "Keyboard bend started: " << (by_grip ? "grip" : "trigger") << ".\n"
+                      << std::flush;
+            return true;
         };
         auto pointer_up = [&](unsigned pointer, vr::TrackedDeviceIndex_t device, double x, double y) {
             detect_headset_suspend();
@@ -3644,6 +4066,40 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 if (event.eventType == vr::VREvent_MouseButtonDown) {
                     if (pointer_device(device)) {
                         start_resize(side, device, pointer);
+                    }
+                } else if (drag.owns_pointer(device, pointer)) {
+                    stop_drag(true);
+                }
+            }
+        }
+        // Curve bar clicks, before the keyboard's like the resizers': a trigger
+        // pressed on a bar holds a bend until it is released.
+        for (std::size_t side = 0; side < 2; ++side) {
+            while (bars.poll(side, event)) {
+                detect_headset_suspend();
+                if (headset_input.blocked() || !lifecycle.visible() || scene_input ||
+                    !dashboard_visible || done || app.quitting() || app.forwarded()) {
+                    continue;
+                }
+                const auto device = event.trackedDeviceIndex;
+                if (event.eventType == vr::VREvent_FocusLeave) {
+                    // As for a resizer: without a trigger to watch (the head
+                    // cursor), leaving the bar ends the bend, keeping it.
+                    if (drag.active() && drag.source() == MoveSource::Curve && !drag.by_grip() &&
+                        drag.device() == device && !drag.watches_trigger()) {
+                        stop_drag(true);
+                    }
+                    continue;
+                }
+                if ((event.eventType != vr::VREvent_MouseButtonDown &&
+                     event.eventType != vr::VREvent_MouseButtonUp) ||
+                    event.data.mouse.button != vr::VRMouseButton_Left) {
+                    continue;
+                }
+                const auto pointer = event.data.mouse.cursorIndex;
+                if (event.eventType == vr::VREvent_MouseButtonDown) {
+                    if (pointer_device(device)) {
+                        start_bend(side, device, pointer, false);
                     }
                 } else if (drag.owns_pointer(device, pointer)) {
                     stop_drag(true);
@@ -3847,11 +4303,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     if (!resizers.shown(side)) {
                         continue;
                     }
-                    if (const auto point = resizer_hit(
-                            displayed.transform(), case_corner(view, displayed.width(), side == 1, true),
-                            corner_of(side), resizer_shape(view, displayed.width()),
-                            *samples[hand].ray)) {
+                    if (const auto point =
+                            resizer_hit(corner_frame(view, displayed, side), {}, corner_of(side),
+                                        resizer_shape(view, displayed.width()), *samples[hand].ray)) {
                         on_resizer[hand] = std::pair{side, *point};
+                    }
+                }
+            }
+            // A shown curve bar the ray is on, beside the case: its face's
+            // frame at the ray's point, for the dot.
+            std::array<std::optional<std::pair<std::size_t, Transform>>, 2> on_scene_bar{};
+            for (std::size_t hand = 0; hand < samples.size(); ++hand) {
+                for (std::size_t side = 0;
+                     samples[hand].ray && !on_resizer[hand] && side < 2 && !on_scene_bar[hand]; ++side) {
+                    if (!bars.shown(side)) {
+                        continue;
+                    }
+                    const auto frame = curve_bar_frame(view, displayed, side);
+                    if (const auto reach = curve_bar_reach(frame, displayed.width(), *samples[hand].ray);
+                        reach && reach->distance == 0) {
+                        on_scene_bar[hand] = std::pair{side, frame_at(frame, reach->point)};
                     }
                 }
             }
@@ -3930,7 +4401,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     pointer_devices[pointer] = sample.device;
                 }
                 if (at) {
-                    cursors.show(hand, displayed.transform(), *sample.hit);
+                    const double width = displayed.width();
+                    const double height = width * texture_height / panel_width;
+                    cursors.show(hand, curve_frame(displayed.transform(), width, displayed.curvature(),
+                                                   (sample.hit->u - .5) * width,
+                                                   (.5 - sample.hit->v) * height));
                     scene_inside[hand] = true;
                     scene_gap[hand].reset();
                     pointer_move(pointer, sample.device, at->first, at->second, true);
@@ -3940,11 +4415,16 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 } else {
                     // The ray may rest on a shown corner resizer, found above.
                     if (const auto& resizer = on_resizer[hand]) {
-                        PanelHit hit;
-                        hit.point = resizer->second;
-                        cursors.show(hand, displayed.transform(), hit);
+                        cursors.show(hand, frame_at(corner_frame(view, displayed, resizer->first),
+                                                    resizer->second));
                         if (sample.pressed) {
                             start_resize(resizer->first, sample.device, pointer);
+                        }
+                    } else if (const auto& bar = on_scene_bar[hand]) {
+                        // On a curve bar the trigger or the grip bends.
+                        cursors.show(hand, bar->second);
+                        if (sample.pressed) {
+                            start_bend(bar->first, sample.device, pointer, false);
                         }
                     } else {
                         cursors.hide(hand);
@@ -4074,7 +4554,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             feedback.cancel_pointer(pointer);
             pointer_devices.erase(pointer);
         }
-        if (drag.active() && drag.source() == MoveSource::Grip) {
+        if (drag.by_grip()) {
             const bool held = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
                 return grip.active && grip.held && grip.device == drag.device();
             });
@@ -4082,9 +4562,26 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 stop_drag(true);
             }
         } else if (!headset_input.blocked() && !drag.active() && lifecycle.visible() &&
-                   placement.ready() && app.allows_movement(MoveSource::Grip)) {
+                   placement.ready() && displayed.ready() && on_any_bar) {
+            // A grip on a curve bar bends the keyboard, one bar at a time.
+            const auto hands = laser_rays.hands();
+            for (std::size_t hand = 0; hand < hands.size(); ++hand) {
+                const bool pressed = std::any_of(grips.begin(), grips.end(), [&](const auto& grip) {
+                    return grip.active && grip.pressed && grip.device == hands[hand];
+                });
+                if (on_bar[hand] && pressed && start_bend(*on_bar[hand], hands[hand], 0, true)) {
+                    break;
+                }
+            }
+        }
+        if (!drag.active() && !headset_input.blocked() && lifecycle.visible() && placement.ready() &&
+            app.allows_movement(MoveSource::Grip)) {
+            const auto hands = laser_rays.hands();
             for (const auto& grip : grips) {
-                if (grip.active && grip.pressed && grip.device < hovered_devices.size() &&
+                // A hand on a curve bar never moves the keyboard instead.
+                const bool on_a_bar =
+                    (grip.device == hands[0] && on_bar[0]) || (grip.device == hands[1] && on_bar[1]);
+                if (grip.active && grip.pressed && !on_a_bar && grip.device < hovered_devices.size() &&
                     hovered_devices[grip.device] && drag.start(grip, displayed, now, MoveSource::Grip)) {
                     // Capture the visible pose, not the uncorrected pose behind
                     // horizon assistance, so regrabbing never snaps the keyboard.
@@ -4159,6 +4656,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             bool followed = false;
             if (drag.source() == MoveSource::Resize) {
                 followed = drag.resize(placement, now, laser_rays.read(drag.device()));
+            } else if (drag.source() == MoveSource::Curve) {
+                followed = drag.bend(placement, now, laser_rays.read(drag.device()));
             } else {
                 double stick_y = 0;
                 if (drag.source() == MoveSource::Laser) {
@@ -4300,6 +4799,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 }
             }
         }
+        // Curved keyboard switched, or SteamVR refused the bend: place it again.
+        if (displayed.ready() && shown_curvature() != displayed.curvature()) {
+            transform_dirty = true;
+        }
         if (lifecycle.visible() && placement.ready() && (transform_dirty || horizon.animating())) {
             place_panel(now);
         }
@@ -4312,9 +4815,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // built just when a resizer is wanted or shown.
             const auto view = app.geometry();
             const auto shape = resizer_shape(view, displayed.width());
-            const auto corner = [&](std::size_t side) {
-                return case_corner(view, displayed.width(), side == 1, true);
-            };
+            const std::array<Transform, 2> corner{corner_frame(view, displayed, 0),
+                                                  corner_frame(view, displayed, 1)};
             // Nearest laser to each bracket; none counts as infinitely far.
             std::array<double, 2> distance{INFINITY, INFINITY};
             std::array<double, 2> target{};
@@ -4336,8 +4838,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 for (const auto device : lasers) {
                     const auto ray = laser_rays.read(device);
                     for (std::size_t side = 0; ray && side < 2; ++side) {
-                        const auto bend =
-                            resizer_target(displayed.transform(), corner(side), corner_of(side), shape);
+                        const auto bend = resizer_target(corner[side], {}, corner_of(side), shape);
                         distance[side] = std::min(distance[side], ray_distance(*ray, bend));
                     }
                 }
@@ -4356,8 +4857,40 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     resizers.hide(side);
                     continue;
                 }
-                resizers.update(side, resizer_transform(displayed.transform(), corner(side)), shape,
-                                target[side], now, resizing && side == resize_side);
+                resizers.update(side, resizer_transform(corner[side], {}), shape, target[side], now,
+                                resizing && side == resize_side);
+            }
+        }
+        // Curve bars (Curved keyboard) fade in as a hand's laser comes near,
+        // light up while it is on one, and turn white while its grip bends
+        // the keyboard; the other bar fades out meanwhile, and so do both
+        // while the keyboard moves or resizes. Pinning or the switch hides them.
+        const bool held = drag.active() && drag.source() == MoveSource::Curve;
+        if (headset_input.blocked() || !lifecycle.visible() || !displayed.ready() || !panel.curves() ||
+            (!held && !app.allows_movement(MoveSource::Curve))) {
+            bars.hide();
+            bar_reach = {};
+        } else {
+            const auto view = app.geometry();
+            std::optional<PanelView> full;
+            for (std::size_t side = 0; side < 2; ++side) {
+                double target = 0, light = 0;
+                if (held) {
+                    target = light = side == bend_side ? 1 : 0;
+                } else if (!drag.active()) {
+                    target = bar_reach[side].update(bar_distance[side]) ? 1 : 0;
+                    light = on_bar[0] == side || on_bar[1] == side ? .5 : 0;
+                }
+                if (target > 0 && !held) {
+                    if (!full) {
+                        full = app.input_view();
+                    }
+                    if (curve_bar_covers_popup(*full, side)) {
+                        target = light = 0;
+                    }
+                }
+                bars.update(side, curve_bar_frame(view, displayed, side), displayed.width(), target,
+                            light, now, held && side == bend_side);
             }
         }
         for (std::size_t side = 0; side < 2; ++side) {
@@ -4673,8 +5206,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     app.cancel();
     if (displayed.ready()) {
         try {
-            save_placement(placement_path, {displayed.transform(), displayed.width(), placement_universe,
-                                            previous_dashboard, dashboard_anchor.bar(), true});
+            // The saved bend, also while Curved keyboard is off and the panel shows flat.
+            save_placement(placement_path,
+                           {displayed.transform(), displayed.width(), placement_universe,
+                            previous_dashboard, dashboard_anchor.bar(), true, placement.curvature()});
         } catch (const std::exception& error) {
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }

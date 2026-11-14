@@ -275,9 +275,55 @@ std::optional<Transform> DashboardAnchor::update(std::optional<Transform> main,
     full_rotation_ = true;
     return anchor_;
 }
+namespace {
+// Below this the panel counts as flat: the radius would be kilometers.
+constexpr double flat_curvature = 1e-6;
+constexpr double pi = 3.14159265358979323846;
+// A curved panel's arc in panel space: radius r about an axis parallel to up
+// through (0, *, r), so the middle stays at the origin and the ends come
+// toward the viewer. `angle` is the turn from the middle, right positive.
+struct Arc {
+    double radius{};
+    double angle(double right) const { return right / radius; }
+};
+std::optional<Arc> arc(double width, double curvature) {
+    if (!(curvature > flat_curvature) || !(width > 0)) {
+        return {};
+    }
+    return Arc{width / (2 * pi * curvature)};
+}
+} // namespace
+Transform curve_frame(const Transform& panel, double width, double curvature, double right, double up) {
+    Transform local{{{1, 0, 0, right}, {0, 1, 0, up}, {0, 0, 1, 0}}};
+    if (const auto bend = arc(width, std::min(curvature, maximum_curvature))) {
+        const double a = bend->angle(right), c = std::cos(a), s = std::sin(a);
+        // Columns: along the arc, up, toward the axis (the viewer's side).
+        local = {{{c, 0, -s, bend->radius * s}, {0, 1, 0, up}, {s, 0, c, bend->radius * (1 - c)}}};
+    }
+    return compose(panel, local);
+}
+double curve_depth(double width, double curvature) {
+    const auto bend = arc(width, std::min(curvature, maximum_curvature));
+    return bend ? bend->radius * (1 - std::cos(bend->angle(width / 2))) : 0;
+}
+double curvature_for_depth(double width, double depth) {
+    if (!(depth > 0) || !(width > 0)) {
+        return 0;
+    }
+    if (depth >= curve_depth(width, maximum_curvature)) {
+        return maximum_curvature;
+    }
+    // The depth grows steadily with the curvature up to the maximum.
+    double low = 0, high = maximum_curvature;
+    for (int i = 0; i < 48; ++i) {
+        const double middle = (low + high) / 2;
+        (curve_depth(width, middle) < depth ? low : high) = middle;
+    }
+    return (low + high) / 2;
+}
 std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, double height_over_width,
                                       const std::array<double, 3>& origin,
-                                      const std::array<double, 3>& direction) {
+                                      const std::array<double, 3>& direction, double curvature) {
     auto column = [&](std::size_t c) {
         return std::array<double, 3>{panel[0][c], panel[1][c], panel[2][c]};
     };
@@ -285,6 +331,47 @@ std::optional<PanelHit> panel_ray_hit(const Transform& panel, double width, doub
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     };
     const auto right = column(0), up = column(1), normal = column(2), center = column(3);
+    if (const auto bend = arc(width, std::min(curvature, maximum_curvature))) {
+        // Into panel space, where the face is x² + (z − r)² = r².
+        const std::array<double, 3> offset{origin[0] - center[0], origin[1] - center[1],
+                                           origin[2] - center[2]};
+        const std::array<double, 3> o{dot(offset, right), dot(offset, up), dot(offset, normal)};
+        const std::array<double, 3> d{dot(direction, right), dot(direction, up), dot(direction, normal)};
+        const double r = bend->radius;
+        const double a = d[0] * d[0] + d[2] * d[2];
+        const double b = 2 * (o[0] * d[0] + (o[2] - r) * d[2]);
+        const double c = o[0] * o[0] + (o[2] - r) * (o[2] - r) - r * r;
+        const double discriminant = b * b - 4 * a * c;
+        if (!(a > 1e-12) || !(discriminant >= 0)) {
+            return {}; // Along the axis, or past the cylinder.
+        }
+        const double root = std::sqrt(discriminant);
+        for (const double t : {(-b - root) / (2 * a), (-b + root) / (2 * a)}) {
+            if (!(t >= 0)) {
+                continue;
+            }
+            const double x = o[0] + t * d[0], y = o[1] + t * d[1], z = o[2] + t * d[2];
+            const double angle = std::atan2(x, r - z);
+            // Only the panel's own arc, and only its face toward the viewer,
+            // whose normal points at the axis: (−sin, 0, cos).
+            if (std::abs(angle) * r > width / 2 ||
+                !(-std::sin(angle) * d[0] + std::cos(angle) * d[2] < -1e-6)) {
+                continue;
+            }
+            PanelHit hit;
+            hit.distance = t;
+            hit.u = angle * r / width + .5;
+            hit.v = .5 - y / (width * height_over_width);
+            if (hit.v < 0 || hit.v > 1) {
+                continue;
+            }
+            for (std::size_t i = 0; i < 3; ++i) {
+                hit.point[i] = origin[i] + direction[i] * t;
+            }
+            return hit;
+        }
+        return {};
+    }
     // Only the face toward the viewer (+z) is visible; a ray from behind misses.
     const double approach = dot(direction, normal);
     if (!(approach < -1e-6) || width <= 0) {
@@ -392,6 +479,84 @@ void PanelPlacement::restore(const Transform& world, double width) {
 }
 void PanelPlacement::set_width(double width) {
     width_ = std::clamp(width, minimum_width, maximum_width);
+}
+void PanelPlacement::set_curvature(double curvature) {
+    curvature_ = std::isfinite(curvature) ? std::clamp(curvature, 0.0, maximum_curvature) : 0;
+}
+namespace {
+double dot3(const std::array<double, 3>& a, const std::array<double, 3>& b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+} // namespace
+void PanelBend::begin(const Transform& panel, double width, double curvature,
+                      const std::array<double, 3>& handle, const std::array<double, 3>& hand,
+                      const std::array<double, 3>& origin, const std::array<double, 3>& direction) {
+    for (std::size_t r = 0; r < 3; ++r) {
+        normal_[r] = panel[r][2];
+    }
+    start_ = hand;
+    handle_ = handle;
+    origin_ = origin;
+    width_ = width;
+    depth_ = curve_depth(width, curvature);
+    // The plane's own normal: the laser's direction without its part along
+    // the face's normal. Shorter than 0.2 (within about 12 degrees of the
+    // normal), the plane would be met only at a grazing angle.
+    const double length = std::sqrt(dot3(direction, direction));
+    std::array<double, 3> across{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        across[r] = length > 0 ? direction[r] / length : 0;
+    }
+    const double along = dot3(across, normal_);
+    for (std::size_t r = 0; r < 3; ++r) {
+        across[r] -= along * normal_[r];
+    }
+    const double off_normal = std::sqrt(dot3(across, across));
+    twist_ = off_normal >= .2;
+    if (twist_) {
+        for (std::size_t r = 0; r < 3; ++r) {
+            across_[r] = across[r] / off_normal;
+        }
+        const auto start = swept(direction);
+        twist_ = start.has_value();
+        swept_ = start.value_or(0);
+    }
+}
+std::optional<double> PanelBend::swept(const std::array<double, 3>& direction) const {
+    const double length = std::sqrt(dot3(direction, direction));
+    const double approach = dot3(direction, across_);
+    // Grazing: under about 3 degrees, a tremble would sweep meters.
+    if (!(length > 0) || !(std::abs(approach) >= .05 * length)) {
+        return {};
+    }
+    std::array<double, 3> to_handle{};
+    for (std::size_t r = 0; r < 3; ++r) {
+        to_handle[r] = handle_[r] - origin_[r];
+    }
+    const double t = dot3(to_handle, across_) / approach;
+    if (!(t >= 0)) {
+        return {};
+    }
+    double result = 0;
+    for (std::size_t r = 0; r < 3; ++r) {
+        result += (origin_[r] + direction[r] * t - handle_[r]) * normal_[r];
+    }
+    return result;
+}
+std::optional<double> PanelBend::update(const std::array<double, 3>& hand,
+                                        const std::array<double, 3>& direction) const {
+    double pulled = 0;
+    for (std::size_t r = 0; r < 3; ++r) {
+        pulled += (hand[r] - start_[r]) * normal_[r];
+    }
+    if (twist_) {
+        const auto now = swept(direction);
+        if (!now) {
+            return {};
+        }
+        pulled += *now - swept_;
+    }
+    return curvature_for_depth(width_, depth_ + pulled);
 }
 void PanelPlacement::recenter(const Transform& head, const Transform* dashboard_bottom,
                               double height_over_width) {

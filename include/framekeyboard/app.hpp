@@ -248,6 +248,7 @@ class App {
     void end_dictation_for_update();
     bool dictation_helper_running() const { return dictation_ && dictation_->running(); }
     bool use_drag_to_move() const { return settings_.use_drag_to_move; }
+    bool curved_keyboard() const { return settings_.curved_keyboard; }
     bool auto_leveling() const { return settings_.auto_leveling; }
     // Standalone-only: a hosted keyboard never replaces Steam's or starts at boot.
     bool replace_native_keyboard() const { return settings_.replace_native_keyboard && !hosted(); }
@@ -288,13 +289,18 @@ class App {
     // speak stops when it changes: its phrases belong to the old field.
     void set_native_request(std::uint64_t request);
     bool allows_movement(MoveSource source) const {
-        // Corner resizers work in either movement mode; only the pin locks
-        // them, or a shell's lock or forwarded pointer.
-        if (source == MoveSource::Resize ? locked_resize() : locked_move()) {
+        // Corner resizers and curve bars work in either movement mode; only
+        // the pin locks them, or a shell's lock or forwarded pointer. A bend
+        // changes the panel's shape, so a shell's resize lock holds it too.
+        const bool shape = source == MoveSource::Resize || source == MoveSource::Curve;
+        if (shape ? locked_resize() : locked_move()) {
+            return false;
+        }
+        if (source == MoveSource::Curve && !curved_keyboard()) {
             return false;
         }
         return !pinned() && !forwarded() &&
-               (source == MoveSource::Resize || use_drag_to_move() == (source == MoveSource::Grip));
+               (shape || use_drag_to_move() == (source == MoveSource::Grip));
     }
     void summon();
     // A corner resize holds the same input gate as movement.
@@ -915,6 +921,7 @@ class App {
     bool pending_hide_numpad_{};
     std::string pending_background_surface_{"visible"};
     bool pending_hover_fade_{true};
+    bool pending_curved_keyboard_{};
     std::string pending_haptic_sounds_{"off"};
     std::string pending_haptic_effect_{"e"};
     int pending_haptic_volume_{75};

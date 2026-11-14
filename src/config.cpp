@@ -764,6 +764,9 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         if (auto* fade = field(document.get(), "hover_fade", json_type_boolean, true)) {
             settings.hover_fade = json_object_get_boolean(fade);
         }
+        if (auto* curved = field(document.get(), "curved_keyboard", json_type_boolean, true)) {
+            settings.curved_keyboard = json_object_get_boolean(curved);
+        }
         if (auto* drag = field(document.get(), "use_drag_to_move", json_type_boolean, true)) {
             settings.use_drag_to_move = json_object_get_boolean(drag);
         }
@@ -1060,6 +1063,8 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_string(settings->background_surface.c_str()));
         json_object_object_add(document.get(), "hover_fade",
                                json_object_new_boolean(settings->hover_fade));
+        json_object_object_add(document.get(), "curved_keyboard",
+                               json_object_new_boolean(settings->curved_keyboard));
         json_object_object_add(document.get(), "haptic_sounds",
                                json_object_new_string(settings->haptic_sounds.c_str()));
         json_object_object_add(document.get(), "haptic_effect",

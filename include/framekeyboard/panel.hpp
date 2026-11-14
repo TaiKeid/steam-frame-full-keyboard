@@ -60,7 +60,8 @@ enum class ControlKind {
     ChooseTheme,
     HideNumpad,
     ChooseBackgroundSurface,
-    HoverFade, // Settings: a key the laser leaves dims slowly
+    HoverFade,      // Settings: a key the laser leaves dims slowly
+    CurvedKeyboard, // Settings: curve bars beside the keyboard bend it
     ChooseHapticSounds,
     ChooseHapticEffect,
     ChooseHapticVolume,

@@ -274,6 +274,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_hover_fade_ = settings_.hover_fade;
+    pending_curved_keyboard_ = settings_.curved_keyboard;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -940,6 +941,9 @@ void App::update_settings_ui() {
         field(ControlKind::HoverFade,
               checkbox("hover-fade", tr("setting.hover-fade"), pending_hover_fade_, true,
                        tr("setting.hover-fade.note"))),
+        field(ControlKind::CurvedKeyboard,
+              checkbox("curved-keyboard", tr("setting.curved-keyboard"), pending_curved_keyboard_, true,
+                       tr("setting.curved-keyboard.note"))),
         field(ControlKind::HideNumpad,
               checkbox("hide-numpad", tr("setting.hide-numpad"), pending_hide_numpad_)),
         field(ControlKind::UseDragToMove,
@@ -2667,6 +2671,7 @@ void App::show_settings() {
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_hover_fade_ = settings_.hover_fade;
+    pending_curved_keyboard_ = settings_.curved_keyboard;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -2979,6 +2984,7 @@ void App::reload() {
         settings_.hide_numpad = updated_settings.hide_numpad;
         settings_.background_surface = updated_settings.background_surface;
         settings_.hover_fade = updated_settings.hover_fade;
+        settings_.curved_keyboard = updated_settings.curved_keyboard;
         settings_.haptic_sounds = updated_settings.haptic_sounds;
         settings_.haptic_effect = updated_settings.haptic_effect;
         settings_.haptic_volume = updated_settings.haptic_volume;
@@ -3031,6 +3037,7 @@ void App::reload() {
     pending_hide_numpad_ = settings_.hide_numpad;
     pending_background_surface_ = settings_.background_surface;
     pending_hover_fade_ = settings_.hover_fade;
+    pending_curved_keyboard_ = settings_.curved_keyboard;
     pending_haptic_sounds_ = settings_.haptic_sounds;
     pending_haptic_effect_ = settings_.haptic_effect;
     pending_haptic_volume_ = settings_.haptic_volume;
@@ -4864,6 +4871,7 @@ void App::apply_settings() {
     settings_.hide_numpad = pending_hide_numpad_;
     settings_.background_surface = pending_background_surface_;
     settings_.hover_fade = pending_hover_fade_;
+    settings_.curved_keyboard = pending_curved_keyboard_;
     settings_.haptic_sounds = pending_haptic_sounds_;
     settings_.haptic_effect = pending_haptic_effect_;
     settings_.haptic_volume = pending_haptic_volume_;
@@ -5231,6 +5239,9 @@ void App::action(const ControlAction& command) {
         choose_swipe(command.index);
     } else if (kind == ControlKind::HoverFade) {
         pending_hover_fade_ = !pending_hover_fade_;
+        update_settings_ui();
+    } else if (kind == ControlKind::CurvedKeyboard) {
+        pending_curved_keyboard_ = !pending_curved_keyboard_;
         update_settings_ui();
     } else if (kind == ControlKind::AutoLeveling) {
         pending_auto_leveling_ = !pending_auto_leveling_;

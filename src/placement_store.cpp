@@ -50,6 +50,8 @@ void validate_transform(const Transform& m) {
 }
 void validate(const SavedPlacement& saved) {
     require(std::isfinite(saved.width) && saved.width >= .45 && saved.width <= 2);
+    require(std::isfinite(saved.curvature) && saved.curvature >= 0 &&
+            saved.curvature <= maximum_curvature);
     validate_transform(saved.transform);
     if (saved.dashboard) {
         validate_transform(*saved.dashboard);
@@ -115,6 +117,11 @@ std::optional<SavedPlacement> load_placement(const std::filesystem::path& path) 
         require(json_object_is_type(full_rotation, json_type_boolean));
         saved.dashboard_full_rotation = json_object_get_boolean(full_rotation);
     }
+    // Optional: files from before the curved keyboard have none, and are flat.
+    json_object* curvature{};
+    if (json_object_object_get_ex(document.get(), "curvature", &curvature)) {
+        saved.curvature = number(curvature);
+    }
     validate(saved);
     return saved;
 }
@@ -135,6 +142,7 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
     }
     json_object_object_add(document.get(), "dashboard_full_rotation",
                            json_object_new_boolean(saved.dashboard_full_rotation));
+    json_object_object_add(document.get(), "curvature", json_object_new_double(saved.curvature));
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';
     std::filesystem::create_directories(path.parent_path());

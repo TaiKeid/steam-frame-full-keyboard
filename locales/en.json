@@ -275,6 +275,8 @@
     "setting.background-surface.invisible": "Invisible",
     "setting.background-surface.semi-transparent": "Semi-transparent",
     "setting.background-surface.visible": "Visible",
+    "setting.curved-keyboard": "Curved keyboard",
+    "setting.curved-keyboard.note": "Point at a handle on either side and pull it up to change curvature",
     "setting.desktop-unicode": "KDE Desktop Unicode",
     "setting.desktop-unicode.note-paste": "Emoji and other Unicode characters are pasted. Fast, but replaces what is in the clipboard.",
     "setting.desktop-unicode.note-type": "You will see Unicode codes typed for emoji and other Unicode characters. Slow.",

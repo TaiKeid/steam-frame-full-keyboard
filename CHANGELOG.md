@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added **Curved keyboard** to Settings → General, under Hover fade, off by default: the keyboard can bend around you. With it on, a short handle fades in beside the keyboard's left or right edge when your laser comes near; point at it, hold the trigger or grip and pull it up, toward you, or turn your hand so its laser sweeps up, to curve the keyboard; push it back or turn the other way to flatten it, and let go to keep the curve. It goes up to a quarter circle, works with Grab to move on or off, and pinning hides the bars. The curve is saved with the keyboard's position, and the corner resizers and the laser outside the dashboard follow it.
+
 ## 0.18.1: Faster redraws and stream typing fixes
 
 - Shift taps, summoning the keyboard and the laser crossing the toolbar's buttons redraw the keyboard about five times faster on the Frame, in about 6 ms instead of about 30: every key of the same shape now shares one drawing of its body, kept in about 0.6 MB, and the keys' edge light takes one stroke instead of two. Keys now sit on whole pixels, each moved by less than half a pixel.

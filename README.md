@@ -32,7 +32,7 @@ To install from a terminal instead, see [Install manually](#install-manually).
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
 - **Streaming support**: types into games and applications Steam streams from your PC, with shortcuts and every key, and from a Windows PC text in any language. See [streamed games](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
 - Controller laser typing with haptic clicks and hover feedback, plus optional key sounds with six effects.
-- Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, pin it in place, and let auto leveling straighten it after a move.
+- Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, curve it around you, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
 - Thirteen themes, light and dark and one high-contrast, with a see-through Background option. Layouts, languages and themes are editable JSON files, chosen in a settings menu inside VR.
 - Optional native keyboard replacement, start with SteamOS, and in-app updates with automatic rollback.
@@ -125,6 +125,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Switch between your languages | Press the language button, the last of the toolbar buttons |
 | Move farther / closer | While holding the movement line or grabbing, push that same controller's thumbstick up / down |
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
+| Curve it around you | Turn on **Curved keyboard** in the **General** settings card and apply. Unpin, aim either controller's laser just outside the left or right edge of the keyboard, then hold the trigger or grip on the handle that fades in and pull it up, toward you, or turn your hand so its laser sweeps up; push it back to flatten the keyboard. The curve stays after a restart |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
 | See behind the keyboard | In Settings, set General → Background to Semi-transparent or Invisible and Apply and save |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |

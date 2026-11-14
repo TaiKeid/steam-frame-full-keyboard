@@ -48,6 +48,32 @@ bool has(const PanelView& view, const std::string& id) {
     return std::any_of(view.controls.begin(), view.controls.end(),
                        [&](const Control& c) { return c.id == id; });
 }
+// A Settings row wholly below its card's fold is left out of the view until
+// the card scrolls: scroll each card down in turn until the row is there.
+void reveal(App& app, const std::string& id, unsigned pointer = 0) {
+    for (std::size_t i = 0; !has(app.view(), id) && app.view().settings && i < app.view().cards.size();
+         ++i) {
+        // Over the card's rows, where click() scrolls a card too, and within
+        // the part of it on screen: the row of cards may have scrolled sideways.
+        const auto card = app.view().cards[i].bounds;
+        const double left = std::max(card.x, 0.0),
+                     right = std::min(card.x + card.width, double(panel_width));
+        if (right - left < 20) {
+            continue;
+        }
+        app.move(pointer, (left + right) / 2, 300);
+        app.scroll(pointer, 0, 20);
+        static double now = 400;
+        for (int step = 0; step < 40; ++step) {
+            app.tick(now += .05);
+        }
+    }
+}
+// The control, after scrolling its card to it if it lies below the fold.
+Control shown_control(App& app, const std::string& id) {
+    reveal(app, id);
+    return control(app.view(), id);
+}
 void click(App& app, const std::string& id, unsigned pointer = 0) {
     if (!has(app.view(), id) && app.view().settings) {
         // The Integration card is cut off at the right until the row scrolls.
@@ -58,6 +84,7 @@ void click(App& app, const std::string& id, unsigned pointer = 0) {
             app.tick(now += .05);
         }
     }
+    reveal(app, id, pointer);
     auto c = control(app.view(), id);
     auto center_x = [](const Control& item) { return item.bounds.x + item.bounds.width / 2; };
     auto center_y = [](const Control& item) { return item.bounds.y + item.bounds.height / 2; };
@@ -2072,17 +2099,25 @@ void behavior_settings() {
     require(settings_view.cards.size() == 4 && settings_view.cards[1].title == "General" &&
                 !control(settings_view, "use-drag-to-move").selected,
             "General card has an unchecked movement preference");
-    const auto numpad_bounds = control(settings_view, "hide-numpad").bounds;
-    const auto movement_bounds = control(settings_view, "use-drag-to-move").bounds;
-    const auto leveling_bounds = control(settings_view, "auto-leveling").bounds;
+    // Auto leveling, the General card's last row, lies below its fold until the card scrolls.
+    reveal(app, "auto-leveling");
+    const auto scrolled_view = app.view();
+    const auto numpad_bounds = control(scrolled_view, "hide-numpad").bounds;
+    const auto movement_bounds = control(scrolled_view, "use-drag-to-move").bounds;
+    const auto leveling_bounds = control(scrolled_view, "auto-leveling").bounds;
     require(numpad_bounds.x == movement_bounds.x && movement_bounds.x == leveling_bounds.x &&
                 movement_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y,
             "General checkboxes form one evenly spaced vertical column");
     const auto theme_bounds = control(settings_view, "theme").bounds;
     require(movement_bounds.x + movement_bounds.width == theme_bounds.x + theme_bounds.width,
             "General controls share one right edge");
-    for (const auto* text : {"Theme", "Hide numpad", "Grab to move", "Auto leveling"}) {
-        require(std::any_of(settings_view.field_labels.begin(), settings_view.field_labels.end(),
+    const std::array<std::pair<const char*, const PanelView*>, 4> labels{
+        {{"Theme", &settings_view},
+         {"Hide numpad", &settings_view},
+         {"Grab to move", &settings_view},
+         {"Auto leveling", &scrolled_view}}};
+    for (const auto& [text, view] : labels) {
+        require(std::any_of(view->field_labels.begin(), view->field_labels.end(),
                             [&](const FieldLabel& field) {
                                 return field.text == text && field.left &&
                                        field.bounds.x == settings_view.cards[1].bounds.x + 30 &&
@@ -2181,13 +2216,13 @@ void auto_leveling_settings() {
     App app(options, sink);
     require(app.auto_leveling(), "Auto leveling is enabled on a new install");
     app.show_settings();
-    require(control(app.view(), "auto-leveling").selected, "Auto leveling starts checked");
+    require(shown_control(app, "auto-leveling").selected, "Auto leveling starts checked");
     click(app, "auto-leveling");
-    require(app.auto_leveling() && !control(app.view(), "auto-leveling").selected,
+    require(app.auto_leveling() && !shown_control(app, "auto-leveling").selected,
             "Auto leveling stays pending until Apply");
     app.back();
     app.show_settings();
-    require(control(app.view(), "auto-leveling").selected, "Back discards Auto leveling edits");
+    require(shown_control(app, "auto-leveling").selected, "Back discards Auto leveling edits");
     click(app, "auto-leveling");
     click(app, "apply");
     require(!app.auto_leveling() && !saved(app).auto_leveling, "Apply disables and saves Auto leveling");
@@ -2202,7 +2237,7 @@ void auto_leveling_settings() {
     save_settings(directory.path, settings);
     app.show_settings();
     click(app, "reload");
-    require(app.auto_leveling() && control(app.view(), "auto-leveling").selected,
+    require(app.auto_leveling() && shown_control(app, "auto-leveling").selected,
             "Reload applies saved Auto leveling and refreshes its checkbox");
     require(sink.events.empty(), "Auto leveling settings send no desktop input");
     std::ofstream(directory.path / "config.json")
@@ -2241,6 +2276,41 @@ void hover_fade_settings() {
     std::vector<std::string> errors;
     load_settings(directory.path, errors);
     require(!errors.empty(), "Hover fade requires a JSON boolean");
+}
+// Curved keyboard (docs/configuration.md): off unless turned on, under Hover
+// fade; the curve bars bend only while it is on and the keyboard unpinned.
+void curved_keyboard_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    require(!app.curved_keyboard() && !app.allows_movement(MoveSource::Curve),
+            "Curved keyboard is off for a new install, and its bars bend nothing");
+    app.show_settings();
+    const auto view = app.view();
+    require(!control(view, "curved-keyboard").selected &&
+                control(view, "hover-fade").bounds.y < control(view, "curved-keyboard").bounds.y &&
+                control(view, "curved-keyboard").bounds.y < control(view, "hide-numpad").bounds.y,
+            "Curved keyboard starts off, between Hover fade and Hide numpad");
+    click(app, "curved-keyboard");
+    require(control(app.view(), "curved-keyboard").selected && !app.curved_keyboard(),
+            "Curved keyboard stays pending until Apply");
+    click(app, "apply");
+    require(app.curved_keyboard() && saved(app).curved_keyboard,
+            "Apply turns Curved keyboard on and saves it");
+    require(app.allows_movement(MoveSource::Curve), "with it on, an unpinned keyboard can be bent");
+    {
+        App reopened(options, sink);
+        require(reopened.curved_keyboard(), "Curved keyboard on survives a restart");
+    }
+    require(sink.events.empty(), "Curved keyboard settings send no desktop input");
+    std::ofstream(directory.path / "config.json")
+        << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us","theme":"graphite"},"curved_keyboard":"true"})";
+    std::vector<std::string> errors;
+    load_settings(directory.path, errors);
+    require(!errors.empty(), "Curved keyboard requires a JSON boolean");
 }
 // The Additional languages popup (docs/configuration.md): the main language,
 // the ordered languages after it, tap and drag, and the question on leaving.
@@ -3414,6 +3484,7 @@ int main() {
         behavior_settings();
         auto_leveling_settings();
         hover_fade_settings();
+        curved_keyboard_settings();
         native_replacement_settings();
         streaming_support_setting();
         streaming_support_failed_setup();

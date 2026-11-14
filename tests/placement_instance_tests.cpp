@@ -528,6 +528,30 @@ void persistence_tests() {
     require(fk::load_placement(path)->dashboard_bar == anchored.dashboard_bar,
             "dashboard bar reference survives close and reopen");
     require(fk::load_placement(path)->dashboard_full_rotation, "full-rotation marker persists");
+    require(fk::load_placement(path)->curvature == 0, "an unbent keyboard saves flat");
+    auto curved = anchored;
+    curved.curvature = .1;
+    fk::save_placement(path, curved);
+    near(fk::load_placement(path)->curvature, .1,
+         "the Curved keyboard's bend survives close and reopen");
+    curved.curvature = .3;
+    bool steep_rejected = false;
+    try {
+        fk::save_placement(path, curved);
+    } catch (const std::exception&) {
+        steep_rejected = true;
+    }
+    require(steep_rejected, "a bend past a quarter circle is rejected");
+    {
+        // Saved before the curved keyboard: no curvature, so flat.
+        TemporaryDirectory legacy;
+        std::ofstream(legacy.path / "placement.json")
+            << R"({"schema_version":1,"space":"standing","universe":"1","width_m":1,)"
+               R"("transform":[[1,0,0,0],[0,1,0,1],[0,0,1,-1]]})";
+        require(fk::load_placement(legacy.path / "placement.json")->curvature == 0,
+                "a placement from before the curved keyboard loads flat");
+    }
+    fk::save_placement(path, anchored);
     auto bad_anchor = anchored;
     (*bad_anchor.dashboard)[0][0] = 2;
     bool bad_anchor_rejected = false;
@@ -1032,6 +1056,122 @@ void ray_hit_tests() {
     near(hit->v, .5, "tilted center hit is vertically centered");
     near(hit->distance, .4, "tilted hit distance follows the normal");
 }
+// Curved keyboard geometry (placement.hpp): the arc keeps the width, its
+// middle stays on the transform and the ends come toward the viewer.
+void curve_tests() {
+    auto close = [](double actual, double expected, double tolerance, const char* message) {
+        require(std::abs(actual - expected) < tolerance, message);
+    };
+    // Upright panel 1 m ahead of the origin, facing back toward it (+z).
+    const fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    const double aspect = .625, curvature = .1;
+    const double radius = 1 / (2 * std::numbers::pi * curvature);
+    const auto flat = fk::curve_frame(panel, 1, 0, .3, .1);
+    require(flat[0][0] == 1 && flat[2][2] == 1, "a flat frame keeps the panel's rotation");
+    near(flat[0][3], .3, "a flat frame lies at its offset");
+    near(flat[1][3], 1.1, "a flat frame's up offset");
+    near(flat[2][3], -1, "a flat frame lies on the plane");
+    const auto middle = fk::curve_frame(panel, 1, curvature, 0, 0);
+    for (std::size_t r = 0; r < 3; ++r) {
+        for (std::size_t c = 0; c < 4; ++c) {
+            near(middle[r][c], panel[r][c], "a curved panel's middle stays on its transform");
+        }
+    }
+    const auto end = fk::curve_frame(panel, 1, curvature, .5, 0);
+    const double turn = .5 / radius;
+    near(end[0][3], radius * std::sin(turn), "the right end lies on the arc, inside the flat width");
+    near(end[2][3], -1 + radius * (1 - std::cos(turn)), "the right end comes toward the viewer");
+    near(fk::curve_depth(1, curvature), radius * (1 - std::cos(turn)),
+         "curve_depth is the ends' advance");
+    near(end[0][2], -std::sin(turn), "the right end's face turns toward the middle");
+    near(end[2][2], std::cos(turn), "the right end still faces the viewer");
+    near(fk::curve_depth(1, 0), 0, "a flat panel has no depth");
+    // Depth and curvature map both ways, kept between flat and a quarter circle.
+    close(fk::curvature_for_depth(1, fk::curve_depth(1, curvature)), curvature, 1e-9,
+          "curvature_for_depth undoes curve_depth");
+    near(fk::curvature_for_depth(1, 10), fk::maximum_curvature, "a deep pull stops at a quarter circle");
+    near(fk::curvature_for_depth(1, -.1), 0, "pushing past flat stays flat");
+    require(fk::curvature_for_depth(2, .05) < fk::curvature_for_depth(1, .05),
+            "a wider keyboard needs less curvature for the same depth");
+    // A ray hits the arc where the face is, with u along the arc.
+    const auto target = fk::curve_frame(panel, 1, curvature, .3, .1);
+    std::array<double, 3> toward{target[0][3], target[1][3] - 1, target[2][3]};
+    const double length = std::hypot(toward[0], toward[1], toward[2]);
+    for (auto& value : toward) {
+        value /= length;
+    }
+    auto hit = fk::panel_ray_hit(panel, 1, aspect, {0, 1, 0}, toward, curvature);
+    require(hit.has_value(), "a ray at a point of the arc hits it");
+    close(hit->u, .8, 1e-9, "u runs along the arc");
+    close(hit->v, .5 - .1 / aspect, 1e-9, "v runs down the panel");
+    for (std::size_t i = 0; i < 3; ++i) {
+        close(hit->point[i], target[i][3], 1e-9, "the hit lies on the arc");
+    }
+    // Straight ahead near the right end: the arc is nearer than the plane.
+    hit = fk::panel_ray_hit(panel, 1, aspect, {.49, 1, 0}, {0, 0, -1}, curvature);
+    require(hit.has_value(), "a ray just inside the bent end hits it");
+    const double angle = std::asin(.49 / radius);
+    close(hit->point[2], -1 + radius * (1 - std::cos(angle)), 1e-9,
+          "the bent end is met in front of the plane");
+    close(hit->u, angle * radius + .5, 1e-9, "u counts the arc, not the chord");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {.499, 1, 0}, {0, 0, -1}, curvature),
+            "beyond the bent end the ray misses, though it would hit the flat panel");
+    require(fk::panel_ray_hit(panel, 1, aspect, {.499, 1, 0}, {0, 0, -1}).has_value(),
+            "the same ray hits the flat panel");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {0, 1, -2}, {0, 0, 1}, curvature),
+            "a ray from behind a curved panel misses");
+    require(!fk::panel_ray_hit(panel, 1, aspect, {0, 1, 0}, {0, 1, 0}, curvature),
+            "a ray along the bend's axis misses");
+    // Pulling: the hand along the face's normal brings the ends as far
+    // toward the viewer. Held from the right, the laser to the left handle
+    // at (-.55, 1, -1) crosses an upright plane there.
+    const std::array<double, 3> handle{-.55, 1, -1}, hand{.5, 1, 0};
+    auto toward_point = [](const std::array<double, 3>& from, const std::array<double, 3>& to) {
+        return std::array<double, 3>{to[0] - from[0], to[1] - from[1], to[2] - from[2]};
+    };
+    fk::PanelBend bend;
+    bend.begin(panel, 1, 0, handle, hand, hand, toward_point(hand, handle));
+    const auto aimed = toward_point(hand, handle);
+    auto depth = [&](std::optional<double> bent) {
+        require(bent.has_value(), "the laser still meets the twist's plane");
+        return fk::curve_depth(1, *bent);
+    };
+    close(depth(bend.update({.5, 1, .05}, aimed)), .05, 1e-9, "a 5 cm pull brings the ends 5 cm closer");
+    near(depth(bend.update({.5, 1.1, 0}, aimed)), 0, "moving the hand along the face does not bend it");
+    near(depth(bend.update({.5, 1, -.1}, aimed)), 0, "pushing a flat keyboard keeps it flat");
+    // Twisting: turning the hand until its laser crosses the plane 5 cm
+    // closer does the same, and so do both halves together.
+    const auto twisted = toward_point(hand, {-.55, 1, -.95});
+    close(depth(bend.update(hand, twisted)), .05, 1e-9,
+          "a twist sweeping 5 cm brings the ends 5 cm closer");
+    close(depth(bend.update({.5, 1, .03}, toward_point(hand, {-.55, 1, -.98}))), .05, 1e-9,
+          "a 3 cm pull and a 2 cm twist add up");
+    near(depth(bend.update(hand, toward_point(hand, {-.55, 1.2, -1}))), 0,
+         "sweeping along the handle does not bend it");
+    require(!bend.update(hand, {0, 0, -1}), "a laser along the plane keeps the last bend");
+    require(!bend.update(hand, {1, 0, 0}), "a laser turned away from the plane keeps the last bend");
+    // A laser along the normal meets no plane well: only pulling counts.
+    bend.begin(panel, 1, curvature, handle, {-.55, 1, 0}, {-.55, 1, 0}, {0, 0, -1});
+    close(depth(bend.update({-.55, 1, -.02}, {0, 0, -1})), fk::curve_depth(1, curvature) - .02, 1e-9,
+          "pushing back flattens it by as much");
+    close(depth(bend.update({-.55, 1, 0}, {.2, 0, -1})), fk::curve_depth(1, curvature), 1e-9,
+          "held straight on, turning the hand changes nothing");
+    // The bend is a placement property that a restore keeps.
+    fk::PanelPlacement placed;
+    placed.set_curvature(.4);
+    near(placed.curvature(), fk::maximum_curvature, "the bend stops at a quarter circle");
+    placed.set_curvature(curvature);
+    placed.restore(panel, 1);
+    near(placed.curvature(), curvature, "a restore keeps the bend");
+    // A bar held by the grip owns no pointer; one held by the trigger does.
+    fk::MoveCapture grip;
+    require(grip.begin(fk::MoveSource::Curve, 3, 1, true) && grip.by_grip() && !grip.owns_pointer(3, 1),
+            "a grip-held bend owns no pointer");
+    fk::MoveCapture trigger;
+    require(trigger.begin(fk::MoveSource::Curve, 3, 1) && !trigger.by_grip() &&
+                trigger.owns_pointer(3, 1),
+            "a trigger-held bend belongs to its laser's pointer");
+}
 void resizer_tests() {
     // Upright panel 1 m wide, centered 1 m ahead at eye height 1, facing +z.
     const fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
@@ -1367,6 +1507,7 @@ int main() {
     try {
         placement_tests();
         ray_hit_tests();
+        curve_tests();
         resizer_tests();
         passthrough_tests();
         dashboard_tab_tests();

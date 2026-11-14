@@ -32,7 +32,7 @@ Para instalar pelo terminal, veja [Instalação manual](#instalação-manual).
 - **Modo de foco** (Focus mode): com a substituição nativa, o teclado continua aberto quando um campo de texto fecha, pronto para o próximo campo ou app, e avisa quando digitaria em uma janela que você não está vendo.
 - **Suporte a streaming** (Streaming support): digita em jogos e apps que o Steam transmite do seu PC, com atalhos e qualquer tecla, e de um PC com Windows, texto em qualquer idioma. Veja [jogos por streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
 - Digitação com o laser do controle, com cliques hápticos e retorno ao passar o laser, além de sons de tecla opcionais com seis efeitos.
-- Mova o teclado pela alça abaixo dele ou agarrando-o, redimensione-o por qualquer canto inferior, fixe-o no lugar e deixe o nivelamento automático endireitá-lo depois de mover.
+- Mova o teclado pela alça abaixo dele ou agarrando-o, redimensione-o por qualquer canto inferior, curve-o ao seu redor, fixe-o no lugar e deixe o nivelamento automático endireitá-lo depois de mover.
 - Acompanhamento do painel, posição salva e recuperação abrindo o app de novo para recentralizar.
 - Treze temas, claros e escuros e um de alto contraste, com uma opção de Fundo transparente. Layouts, idiomas e temas são arquivos JSON editáveis, escolhidos em um menu de configurações dentro da RV.
 - Substituição opcional do teclado nativo, início com o SteamOS e atualizações pelo app com reversão automática.
@@ -125,6 +125,7 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Alternar entre seus idiomas | Pressione o botão de idioma, o último dos botões da barra de ferramentas |
 | Afastar / aproximar | Enquanto segura a linha de movimento ou agarra o teclado, empurre o direcional analógico desse mesmo controle para cima / para baixo |
 | Mudar o tamanho | Desafixe, mire o laser de qualquer controle logo fora de um canto inferior do teclado, segure o gatilho na alça de canto que aparece e arraste. O teclado cresce ou encolhe em torno do centro |
+| Curvar ao seu redor | Ative **Teclado curvo** no cartão de configurações **Geral** e aplique. Desafixe, mire o laser de qualquer controle logo fora da borda esquerda ou direita do teclado, segure o gatilho ou o grip na barra que aparece e puxe-a para cima, na sua direção, ou gire a mão para o laser subir; empurre-a de volta para deixar o teclado reto de novo. A curva continua depois de reiniciar |
 | Ocultar o teclado numérico | Nas Configurações, marque Geral → Ocultar teclado numérico e use Aplicar e salvar |
 | Ver atrás do teclado | Nas Configurações, defina Geral → Fundo como Semitransparente ou Invisível e use Aplicar e salvar |
 | Mudar layout, idioma ou tema | Abra o ícone de engrenagem, escolha os perfis e depois **Aplicar e salvar** |

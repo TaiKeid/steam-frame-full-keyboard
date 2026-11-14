@@ -12,6 +12,8 @@ struct SavedPlacement {
     std::optional<Transform> dashboard{};
     std::optional<Transform> dashboard_bar{};
     bool dashboard_full_rotation{};
+    // The curved keyboard's bend, kept while Curved keyboard is off; 0 flat.
+    double curvature{};
 };
 std::optional<SavedPlacement> load_placement(const std::filesystem::path& path);
 void save_placement(const std::filesystem::path& path, const SavedPlacement& placement);
