@@ -4344,11 +4344,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             update_key_sounds(now);
             // A ray off the keyboard that meets a floating window's overlay
-            // brings SteamVR's laser to click it (WindowLaser).
+            // brings SteamVR's laser to click it (WindowLaser). A ray on a
+            // corner resizer or a curve bar is on the keyboard's own controls:
+            // its trigger must not also click the window behind them.
             bool on_window = false;
             for (std::size_t hand = 0; hand < samples.size() && !on_window; ++hand) {
                 const auto& sample = samples[hand];
-                if (sample.ray && !sample.lost && !inside[hand] && !on_resizer[hand]) {
+                if (sample.ray && !sample.lost && !inside[hand] && !on_resizer[hand] &&
+                    !on_scene_bar[hand]) {
                     hidden_focus.overlays.discover(now);
                     const auto visible = hidden_focus.overlays.visible();
                     if (!visible.empty()) {
