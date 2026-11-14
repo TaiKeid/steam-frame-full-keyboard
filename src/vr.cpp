@@ -1787,15 +1787,12 @@ bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
 // SetOverlayColor and faded by its alpha, so neither lighting nor fading
 // redraws an image. While shown it takes SteamVR's laser, like a resizer, so
 // a trigger pull there bends the keyboard instead of clicking what lies
-// behind; the grip is read directly. Both are created up front: the watchdog
-// thread hides them by handle.
+// behind; the grip is read directly. They are created the first time Curved
+// keyboard is on (ensure()), so with it off, as by default, they cost no
+// overlay or image; the watchdog thread hides them by their published handles.
 class CurveBars {
   public:
-    CurveBars() {
-        for (std::size_t side = 0; side < bars_.size(); ++side) {
-            create(side);
-        }
-    }
+    CurveBars() = default;
     ~CurveBars() {
         for (auto& bar : bars_) {
             if (bar.handle) {
@@ -1805,7 +1802,23 @@ class CurveBars {
     }
     CurveBars(const CurveBars&) = delete;
     CurveBars& operator=(const CurveBars&) = delete;
-    std::array<vr::VROverlayHandle_t, 2> handles() const { return {bars_[0].handle, bars_[1].handle}; }
+    // For the watchdog thread: 0 until created.
+    std::array<vr::VROverlayHandle_t, 2> handles() const {
+        return {published_[0].load(std::memory_order_acquire),
+                published_[1].load(std::memory_order_acquire)};
+    }
+    // Creates both bars the first time it is called, with one image for
+    // both. Not tried again after SteamVR refused one.
+    void ensure() {
+        if (std::exchange(created_, true)) {
+            return;
+        }
+        const auto pixels = pill();
+        for (std::size_t side = 0; side < bars_.size(); ++side) {
+            create(side, pixels);
+            published_[side].store(bars_[side].handle, std::memory_order_release);
+        }
+    }
     // As CornerResizers::poll: a hidden bar is drained once, then left alone.
     bool poll(std::size_t side, vr::VREvent_t& event) {
         auto& bar = bars_[side];
@@ -1929,7 +1942,27 @@ class CurveBars {
             set_native_input(bar, false);
         }
     }
-    void create(std::size_t side) {
+    // The grab area's image, clear but for a white pill with rounded ends in
+    // its middle; RGBA, not premultiplied. The whole area takes the laser.
+    static constexpr int image_width = static_cast<int>(2 * curve_bar_reach_x * scale);
+    static constexpr int image_height = static_cast<int>(2 * curve_bar_reach_y * scale);
+    static std::vector<std::uint8_t> pill() {
+        const double radius = curve_bar_width / 2 * scale;
+        const double reach = (curve_bar_height / 2 - curve_bar_width / 2) * scale;
+        std::vector<std::uint8_t> pixels(static_cast<std::size_t>(image_width * image_height * 4));
+        for (int y = 0; y < image_height; ++y) {
+            for (int x = 0; x < image_width; ++x) {
+                const double dx = x + .5 - image_width / 2.0;
+                const double dy = std::max(0.0, std::abs(y + .5 - image_height / 2.0) - reach);
+                const double alpha = std::clamp(radius + .5 - std::hypot(dx, dy), 0.0, 1.0);
+                auto* p = &pixels[static_cast<std::size_t>((y * image_width + x) * 4)];
+                p[0] = p[1] = p[2] = 255;
+                p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
+            }
+        }
+        return pixels;
+    }
+    void create(std::size_t side, const std::vector<std::uint8_t>& pixels) {
         auto& bar = bars_[side];
         auto overlay = vr_overlay();
         const std::string key = "org.framekeyboard.curve-bar." + std::to_string(side);
@@ -1940,30 +1973,15 @@ class CurveBars {
             return;
         }
         bar.native_input.reset();
-        // The grab area, clear but for a white pill with rounded ends in its
-        // middle; RGBA, not premultiplied. The whole area takes the laser.
-        const int width = static_cast<int>(2 * curve_bar_reach_x * scale);
-        const int height = static_cast<int>(2 * curve_bar_reach_y * scale);
-        const double radius = curve_bar_width / 2 * scale;
-        const double reach = (curve_bar_height / 2 - curve_bar_width / 2) * scale;
-        std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const double dx = x + .5 - width / 2.0;
-                const double dy = std::max(0.0, std::abs(y + .5 - height / 2.0) - reach);
-                const double alpha = std::clamp(radius + .5 - std::hypot(dx, dy), 0.0, 1.0);
-                auto* p = &pixels[static_cast<std::size_t>((y * width + x) * 4)];
-                p[0] = p[1] = p[2] = 255;
-                p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
-            }
-        }
-        vr::HmdVector2_t mouse{{static_cast<float>(width), static_cast<float>(height)}};
-        bool ok =
-            overlay->SetOverlayRaw(bar.handle, pixels.data(), static_cast<std::uint32_t>(width),
-                                   static_cast<std::uint32_t>(height), 4) == vr::VROverlayError_None &&
-            overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
-            overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
-            set_native_input(bar, false);
+        vr::HmdVector2_t mouse{{static_cast<float>(image_width), static_cast<float>(image_height)}};
+        // SetOverlayRaw takes a non-const buffer but only reads it.
+        auto* data = const_cast<std::uint8_t*>(pixels.data());
+        bool ok = overlay->SetOverlayRaw(bar.handle, data, static_cast<std::uint32_t>(image_width),
+                                         static_cast<std::uint32_t>(image_height),
+                                         4) == vr::VROverlayError_None &&
+                  overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
+                  overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
+                  set_native_input(bar, false);
         for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
             ok = ok && overlay->SetOverlayFlag(bar.handle, flag, true) == vr::VROverlayError_None;
         }
@@ -1973,8 +1991,9 @@ class CurveBars {
             std::cout << "Curve bar unavailable.\n" << std::flush;
         }
     }
-    bool preferred_native_input_{};
+    bool preferred_native_input_{}, created_{};
     std::array<Bar, 2> bars_{};
+    std::array<std::atomic<vr::VROverlayHandle_t>, 2> published_{};
 };
 class VrPanel {
   public:
@@ -4941,6 +4960,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             bars.hide();
             bar_reach = {};
         } else {
+            bars.ensure(); // The first time Curved keyboard is on.
             const auto& view = case_view();
             for (std::size_t side = 0; side < 2; ++side) {
                 double target = 0, light = 0;
