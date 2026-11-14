@@ -2347,6 +2347,23 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::array<ClickWatch, 2> click_watches;
     // Devices whose laser is over the keyboard (grip moves; the click watch skips them).
     std::array<bool, vr::k_unMaxTrackedDeviceCount> hovered_devices{};
+    // Devices whose laser is on one of the keyboard's own corner resizers or
+    // curve bars, a bit for each (resizers 0 and 1, bars 2 and 3), from
+    // SteamVR's focus events there: the click watch counts them as on the
+    // keyboard, so a pull there never reads as a click on another window.
+    std::array<std::uint8_t, vr::k_unMaxTrackedDeviceCount> on_own_controls{};
+    auto track_own_controls = [&](const vr::VREvent_t& event, unsigned control) {
+        const auto device = event.trackedDeviceIndex;
+        if (device >= on_own_controls.size()) {
+            return;
+        }
+        const auto bit = static_cast<std::uint8_t>(1u << control);
+        if (event.eventType == vr::VREvent_FocusEnter) {
+            on_own_controls[device] |= bit;
+        } else if (event.eventType == vr::VREvent_FocusLeave) {
+            on_own_controls[device] &= static_cast<std::uint8_t>(~bit);
+        }
+    };
     bool hidden_window_shown = false; // Keep open's amber cue
     double clicks_checked = -1;
     // Whether the focused app's window is in sight, read once per focus sample
@@ -2443,7 +2460,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             auto& click = click_watches[hand];
             const auto device = vr_system()->GetTrackedDeviceIndexForControllerRole(
                 hand ? vr::TrackedControllerRole_RightHand : vr::TrackedControllerRole_LeftHand);
-            if (device < hovered_devices.size() && hovered_devices[device]) {
+            if (device < hovered_devices.size() &&
+                (hovered_devices[device] || on_own_controls[device])) {
                 click = {};
                 continue;
             }
@@ -2664,6 +2682,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     set_native_input(false);
                     reset_sound_activity();
                     hovered_devices.fill(false);
+                    on_own_controls.fill(0);
                     pointer_devices.clear();
                     key_holds = {};
                     gap_watches.clear();
@@ -3326,6 +3345,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             clear_sound_pointers(now);
             end_forwarded();
             hovered_devices.fill(false);
+            on_own_controls.fill(0);
             pointer_devices.clear();
             scene_pointer.reset();
             scene_inside.fill(false);
@@ -3754,6 +3774,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             app.release_input(false);
             clear_sound_pointers(now);
             hovered_devices.fill(false);
+            on_own_controls.fill(0);
             pointer_devices.clear();
             scene_pointer.reset();
             scene_inside.fill(false);
@@ -4011,6 +4032,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // the keyboard in the same frame must start the capture before it ends.
         for (std::size_t side = 0; side < 2; ++side) {
             while (resizers.poll(side, event)) {
+                track_own_controls(event, static_cast<unsigned>(side));
                 detect_headset_suspend();
                 if (headset_input.blocked() || !lifecycle.visible() || scene_input ||
                     !dashboard_visible || done || app.quitting() || app.forwarded()) {
@@ -4080,6 +4102,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // pressed on a bar holds a bend until it is released.
         for (std::size_t side = 0; side < 2; ++side) {
             while (bars.poll(side, event)) {
+                track_own_controls(event, 2 + static_cast<unsigned>(side));
                 detect_headset_suspend();
                 if (headset_input.blocked() || !lifecycle.visible() || scene_input ||
                     !dashboard_visible || done || app.quitting() || app.forwarded()) {
@@ -4214,6 +4237,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     hovered_devices[event.trackedDeviceIndex] = false;
                 } else {
                     hovered_devices.fill(false);
+                    on_own_controls.fill(0);
                 }
                 // Off the keys with the trigger at rest: only the hover ends.
                 // Without swipe state there is nothing to keep, nor to watch.
@@ -4247,6 +4271,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             case vr::VREvent_Modal_Cancel:
                 reset_sound_activity();
                 hovered_devices.fill(false);
+                on_own_controls.fill(0);
                 lifecycle.focus_lost();
                 break;
             default:
