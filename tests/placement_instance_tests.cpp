@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/curve_bars.hpp"
 #include "framekeyboard/feedback.hpp"
 #include "framekeyboard/grip.hpp"
 #include "framekeyboard/held_keys.hpp"
@@ -1172,6 +1173,71 @@ void curve_tests() {
                 trigger.owns_pointer(3, 1),
             "a trigger-held bend belongs to its laser's pointer");
 }
+// Curve bars (curve_bars.hpp): beside the case at its middle row, on the
+// arc, with a grab area the laser reaches, and the image of their pill.
+void curve_bar_tests() {
+    TemporaryDirectory temp;
+    fk::Options options;
+    options.config_dir = temp.path;
+    fk::NullSink sink;
+    fk::App app(options, sink);
+    const auto view = app.geometry();
+    const auto body = fk::panel_case_bounds(view);
+    const double width = 1, meters = width / fk::panel_width;
+    const auto left = fk::curve_bar_offset(view, width, 0), right = fk::curve_bar_offset(view, width, 1);
+    const auto bottom = fk::case_corner(view, width, false, true),
+               top = fk::case_corner(view, width, false, false);
+    near(left.right, bottom.right - fk::curve_bar_gap * meters,
+         "the left bar sits its gap outside the case");
+    near(right.right, fk::case_corner(view, width, true, true).right + fk::curve_bar_gap * meters,
+         "the right bar sits its gap outside the case");
+    near(left.up, (bottom.up + top.up) / 2, "the bars sit at the case's middle row");
+    // Upright 1 m ahead of the origin, facing it.
+    const fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    fk::PanelPlacement placed;
+    placed.restore(panel, width);
+    auto frame = fk::curve_bar_frame(view, placed, 0);
+    near(frame[0][3], left.right, "flat, the bar lies at its offset");
+    near(frame[2][3], -1, "flat, the bar lies on the panel's plane");
+    placed.set_curvature(.1);
+    frame = fk::curve_bar_frame(view, placed, 0);
+    require(frame[2][3] > -1 && frame[0][2] > 0,
+            "bent, the left bar comes forward and turns toward the middle");
+    // A ray at the bar's middle is on it, one aimed 5 cm beyond its reach
+    // is 5 cm off, and one turned away misses.
+    const fk::Vector3 middle{frame[0][3], frame[1][3], frame[2][3]};
+    const fk::Vector3 normal{frame[0][2], frame[1][2], frame[2][2]},
+        up{frame[0][1], frame[1][1], frame[2][1]};
+    const fk::Ray straight{{middle[0] + normal[0], middle[1] + normal[1], middle[2] + normal[2]},
+                           {-normal[0], -normal[1], -normal[2]}};
+    auto reach = fk::curve_bar_reach(frame, width, straight);
+    require(reach && reach->distance == 0, "a ray at the bar's middle is on it");
+    fk::Ray above = straight;
+    for (std::size_t i = 0; i < 3; ++i) {
+        above.origin[i] += up[i] * (fk::curve_bar_reach_y * meters + .05);
+    }
+    reach = fk::curve_bar_reach(frame, width, above);
+    require(reach && std::abs(reach->distance - .05) < 1e-9, "a ray 5 cm beyond the reach is 5 cm off");
+    require(!fk::curve_bar_reach(frame, width, {middle, normal}), "a ray turned away misses");
+    // An open dropdown over a bar's grab area covers that bar only.
+    require(!fk::curve_bar_covers_popup(view, 0) && !fk::curve_bar_covers_popup(view, 1),
+            "with nothing open, no bar is covered");
+    auto with_popup = view;
+    with_popup.popup = fk::Rect{body.x - 80, body.y + body.height / 2 - 20, 100, 40};
+    require(fk::curve_bar_covers_popup(with_popup, 0) && !fk::curve_bar_covers_popup(with_popup, 1),
+            "a dropdown over the left bar's area covers it alone");
+    // The image: an opaque pill in the middle of a clear grab area.
+    const auto pixels = fk::curve_bar_pixels();
+    require(pixels.size() ==
+                static_cast<std::size_t>(fk::curve_bar_image_width * fk::curve_bar_image_height * 4),
+            "one RGBA image of the grab area");
+    const auto alpha = [&](int x, int y) {
+        return pixels[static_cast<std::size_t>((y * fk::curve_bar_image_width + x) * 4 + 3)];
+    };
+    require(alpha(fk::curve_bar_image_width / 2, fk::curve_bar_image_height / 2) == 255 &&
+                alpha(0, 0) == 0 && alpha(fk::curve_bar_image_width / 2, 1) == 0,
+            "an opaque pill in a clear area");
+}
 void resizer_tests() {
     // Upright panel 1 m wide, centered 1 m ahead at eye height 1, facing +z.
     const fk::Transform panel{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
@@ -1508,6 +1574,7 @@ int main() {
         placement_tests();
         ray_hit_tests();
         curve_tests();
+        curve_bar_tests();
         resizer_tests();
         passthrough_tests();
         dashboard_tab_tests();

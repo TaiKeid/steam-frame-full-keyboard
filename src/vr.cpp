@@ -1,4 +1,5 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/curve_bars.hpp"
 #include "framekeyboard/desktop_focus.hpp"
 #include "framekeyboard/focus_visibility.hpp"
 #include "framekeyboard/grip.hpp"
@@ -1454,14 +1455,6 @@ class LaserRays {
 ResizeCorner corner_of(std::size_t side) {
     return side == 0 ? ResizeCorner::Left : ResizeCorner::Right;
 }
-// A case corner as an offset from the overlay center. The texture adds
-// popup_margin above and below the case, so its center is the case's middle row.
-PanelOffset case_corner(const PanelView& view, double width, bool right, bool bottom) {
-    const auto body = panel_case_bounds(view);
-    const double meters = width / panel_width;
-    return {((right ? body.x + body.width : body.x) - panel_width / 2.0) * meters,
-            (texture_height / 2.0 - popup_margin - (bottom ? body.y + body.height : body.y)) * meters};
-}
 // The bracket follows the case's corner radius, which scales with the panel.
 // Quantized to 0.25 mm so a resize redraws the image only now and then.
 ResizerShape resizer_shape(const PanelView& view, double width) {
@@ -1711,77 +1704,6 @@ class CornerResizers {
     bool preferred_native_input_{};
     std::array<Corner, 2> corners_{};
 };
-// Curve bars (Curved keyboard) sit beside the case's left and right edges at
-// its middle row. In texture pixels, like the movement handle below the case:
-// a pill 8 wide and 200 tall whose middle lies 42 from the case, as the
-// handle's does below it. A grip takes a bar anywhere within 30 of its middle
-// line and 20 beyond its ends.
-constexpr double curve_bar_width = 8, curve_bar_height = 200, curve_bar_gap = 42;
-constexpr double curve_bar_reach_x = 30, curve_bar_reach_y = curve_bar_height / 2 + 20;
-// A bar's middle as an offset from the overlay center, along the arc.
-PanelOffset curve_bar_offset(const PanelView& view, double width, std::size_t side) {
-    const auto top = case_corner(view, width, side == 1, false);
-    const auto bottom = case_corner(view, width, side == 1, true);
-    const double outward = (side == 1 ? 1 : -1) * curve_bar_gap * width / panel_width;
-    return {top.right + outward, (top.up + bottom.up) / 2};
-}
-// The bar's frame on the panel's face (curve_frame): it follows the bend.
-Transform curve_bar_frame(const PanelView& view, const PanelPlacement& panel, std::size_t side) {
-    const auto middle = curve_bar_offset(view, panel.width(), side);
-    return curve_frame(panel.transform(), panel.width(), panel.curvature(), middle.right, middle.up);
-}
-// Where a ray meets a bar's plane, and how far that lies from its grab area
-// (0 inside), in meters; none when the ray misses the plane or meets its back.
-struct CurveBarReach {
-    double distance{};
-    Vector3 point{};
-};
-std::optional<CurveBarReach> curve_bar_reach(const Transform& bar, double width, const Ray& ray) {
-    Vector3 axis[3]{}, middle{};
-    for (std::size_t r = 0; r < 3; ++r) {
-        middle[r] = bar[r][3];
-        for (std::size_t c = 0; c < 3; ++c) {
-            axis[c][r] = bar[r][c];
-        }
-    }
-    auto dot = [](const Vector3& a, const Vector3& b) {
-        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    };
-    const double approach = dot(ray.direction, axis[2]);
-    if (!(approach < -1e-6)) {
-        return {};
-    }
-    const Vector3 to_middle{middle[0] - ray.origin[0], middle[1] - ray.origin[1],
-                            middle[2] - ray.origin[2]};
-    const double along = dot(to_middle, axis[2]) / approach;
-    if (!std::isfinite(along) || along < 0) {
-        return {};
-    }
-    CurveBarReach reach;
-    for (std::size_t r = 0; r < 3; ++r) {
-        reach.point[r] = ray.origin[r] + ray.direction[r] * along;
-    }
-    const Vector3 offset{reach.point[0] - middle[0], reach.point[1] - middle[1],
-                         reach.point[2] - middle[2]};
-    const double meters = width / panel_width;
-    reach.distance =
-        std::hypot(std::max(0.0, std::abs(dot(offset, axis[0])) - curve_bar_reach_x * meters),
-                   std::max(0.0, std::abs(dot(offset, axis[1])) - curve_bar_reach_y * meters));
-    return reach;
-}
-// Whether a bar's grab area, in panel pixels, overlaps an open dropdown or a
-// flick preview, which a bar in front of the keyboard would cover.
-bool curve_bar_covers_popup(const PanelView& view, std::size_t side) {
-    const auto body = panel_case_bounds(view);
-    const double middle = side == 1 ? body.x + body.width + curve_bar_gap : body.x - curve_bar_gap;
-    const Rect area{middle - curve_bar_reach_x, body.y + body.height / 2 - curve_bar_reach_y,
-                    2 * curve_bar_reach_x, 2 * curve_bar_reach_y};
-    auto overlaps = [&](const std::optional<Rect>& r) {
-        return r && r->x < area.x + area.width && area.x < r->x + r->width &&
-               r->y < area.y + area.height && area.y < r->y + r->height;
-    };
-    return overlaps(view.popup) || overlaps(flick_preview_bounds(view));
-}
 // The two curve bars, index 0 left and 1 right. Each is its own overlay
 // covering the bar's grab area, with one white pill in its middle, tinted by
 // SetOverlayColor and faded by its alpha, so neither lighting nor fading
@@ -1813,7 +1735,7 @@ class CurveBars {
         if (std::exchange(created_, true)) {
             return;
         }
-        const auto pixels = pill();
+        const auto pixels = curve_bar_pixels();
         for (std::size_t side = 0; side < bars_.size(); ++side) {
             create(side, pixels);
             published_[side].store(bars_[side].handle, std::memory_order_release);
@@ -1912,8 +1834,6 @@ class CurveBars {
     }
 
   private:
-    // Image pixels per texture pixel.
-    static constexpr int scale = 2;
     struct Bar {
         vr::VROverlayHandle_t handle{};
         bool visible{}, drain{};
@@ -1942,26 +1862,6 @@ class CurveBars {
             set_native_input(bar, false);
         }
     }
-    // The grab area's image, clear but for a white pill with rounded ends in
-    // its middle; RGBA, not premultiplied. The whole area takes the laser.
-    static constexpr int image_width = static_cast<int>(2 * curve_bar_reach_x * scale);
-    static constexpr int image_height = static_cast<int>(2 * curve_bar_reach_y * scale);
-    static std::vector<std::uint8_t> pill() {
-        const double radius = curve_bar_width / 2 * scale;
-        const double reach = (curve_bar_height / 2 - curve_bar_width / 2) * scale;
-        std::vector<std::uint8_t> pixels(static_cast<std::size_t>(image_width * image_height * 4));
-        for (int y = 0; y < image_height; ++y) {
-            for (int x = 0; x < image_width; ++x) {
-                const double dx = x + .5 - image_width / 2.0;
-                const double dy = std::max(0.0, std::abs(y + .5 - image_height / 2.0) - reach);
-                const double alpha = std::clamp(radius + .5 - std::hypot(dx, dy), 0.0, 1.0);
-                auto* p = &pixels[static_cast<std::size_t>((y * image_width + x) * 4)];
-                p[0] = p[1] = p[2] = 255;
-                p[3] = static_cast<std::uint8_t>(std::lround(alpha * 255));
-            }
-        }
-        return pixels;
-    }
     void create(std::size_t side, const std::vector<std::uint8_t>& pixels) {
         auto& bar = bars_[side];
         auto overlay = vr_overlay();
@@ -1973,15 +1873,17 @@ class CurveBars {
             return;
         }
         bar.native_input.reset();
-        vr::HmdVector2_t mouse{{static_cast<float>(image_width), static_cast<float>(image_height)}};
+        vr::HmdVector2_t mouse{
+            {static_cast<float>(curve_bar_image_width), static_cast<float>(curve_bar_image_height)}};
         // SetOverlayRaw takes a non-const buffer but only reads it.
         auto* data = const_cast<std::uint8_t*>(pixels.data());
-        bool ok = overlay->SetOverlayRaw(bar.handle, data, static_cast<std::uint32_t>(image_width),
-                                         static_cast<std::uint32_t>(image_height),
-                                         4) == vr::VROverlayError_None &&
-                  overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
-                  overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
-                  set_native_input(bar, false);
+        bool ok =
+            overlay->SetOverlayRaw(bar.handle, data, static_cast<std::uint32_t>(curve_bar_image_width),
+                                   static_cast<std::uint32_t>(curve_bar_image_height),
+                                   4) == vr::VROverlayError_None &&
+            overlay->SetOverlayMouseScale(bar.handle, &mouse) == vr::VROverlayError_None &&
+            overlay->SetOverlaySortOrder(bar.handle, 1) == vr::VROverlayError_None &&
+            set_native_input(bar, false);
         for (const auto flag : {vr::VROverlayFlags_VisibleInDashboard, vr::VROverlayFlags_MultiCursor}) {
             ok = ok && overlay->SetOverlayFlag(bar.handle, flag, true) == vr::VROverlayError_None;
         }
