@@ -1050,6 +1050,26 @@ void theme_cards() {
     view.themes = popup;
     Comparison compare;
     compare.frame(view, "picker open");
+    {
+        // Settings under the picker is hidden whole, so it is not drawn:
+        // with or without its cards, labels and rows the picture is the same
+        // (R293).
+        auto covered = view;
+        covered.cards = {{"General", {18, 78, 760, 476}}, {"Typing", {800, 78, 760, 476}}};
+        FieldLabel label;
+        label.text = "Theme";
+        label.bounds = {48, 140, 300, 52};
+        label.clip = {18, 130, 760, 400};
+        label.left = true;
+        covered.field_labels = {label};
+        covered.controls.push_back({"theme", "Graphite", {420, 140, 320, 52}});
+        PanelRenderer with, without;
+        with.paint(covered, 1, true);
+        without.paint(view, 1, true);
+        if (with.rgba() != without.rgba()) {
+            throw std::runtime_error("Settings hidden under the picker changes no pixel");
+        }
+    }
     // Drawn under the popup, the cards would show through where it is clipped.
     const auto area = [&] {
         double total = 0;

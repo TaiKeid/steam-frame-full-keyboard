@@ -237,6 +237,17 @@ Rect clip_bounds(cairo_t* cr) {
     cairo_clip_extents(cr, &left, &top, &right, &bottom);
     return {left, top, right - left, bottom - top};
 }
+// Whether a panel with rounded corners hides all of `r`: inside it, and in
+// the band between its top and bottom corners or between its side ones.
+bool hidden_under(const Rect& r, const Rect& panel, double radius) {
+    const double right = r.x + r.width, bottom = r.y + r.height;
+    const double panel_right = panel.x + panel.width, panel_bottom = panel.y + panel.height;
+    const bool inside =
+        r.x >= panel.x && r.y >= panel.y && right <= panel_right && bottom <= panel_bottom;
+    const bool clear = (r.y >= panel.y + radius && bottom <= panel_bottom - radius) ||
+                       (r.x >= panel.x + radius && right <= panel_right - radius);
+    return inside && clear;
+}
 // The panel is a texture seen at any angle, with no fixed pixel layout, so
 // text is antialiased in grey even where the system's fonts ask for subpixel
 // (coloured) antialiasing, as SteamOS's do: that would fringe every legend
@@ -571,6 +582,16 @@ void interface_label(cairo_t* cr, const std::string& text, Rect r, double size,
                      PangoAlignment alignment = PANGO_ALIGN_CENTER, bool wrap = false,
                      bool right_to_left = false, double below = 0) {
     constexpr double smallest = 9, step = .94;
+    // Wholly outside this pass's clip, it would draw nothing: no layout is
+    // built (R293). The room is grown generously, as centred text may run
+    // past it. The interface tour, recording every label's fit, sees all.
+    if (!label_fits) {
+        const double reach = std::max(2 * size, r.height) + below;
+        if (!overlaps({r.x - size, r.y - reach, r.width + 2 * size, r.height + 2 * reach},
+                      clip_bounds(cr))) {
+            return;
+        }
+    }
     auto* layout = pango_cairo_create_layout(cr);
     if (right_to_left) {
         pango_layout_set_auto_dir(layout, FALSE);
@@ -4405,9 +4426,22 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (view.ime_band && !view.settings) {
             draw_ime_band(cr, view);
         }
-        if (view.settings) {
+        // A popup that covers Settings (the theme picker, Additional
+        // languages) hides what lies wholly under its panel: none of it is
+        // drawn, in a full repaint or a pass (R293).
+        const std::optional<Rect> covering = !view.settings ? std::nullopt
+                                             : view.themes  ? std::optional<Rect>(view.themes->panel)
+                                             : view.languages
+                                                 ? std::optional<Rect>(view.languages->panel)
+                                                 : std::nullopt;
+        const auto hidden = [&](const Rect& r) {
+            return covering && hidden_under(r, *covering, t.radius + 6); // modal_panel's corners
+        };
+        constexpr Rect settings_cards_area{18, 78, 1564, 476};
+        if (view.settings && !hidden(settings_cards_area)) {
             cairo_save(cr);
-            cairo_rectangle(cr, 18, 78, 1564, 476);
+            cairo_rectangle(cr, settings_cards_area.x, settings_cards_area.y, settings_cards_area.width,
+                            settings_cards_area.height);
             cairo_clip(cr);
             for (const auto& card : view.cards) {
                 draw_settings_card(cr, t, card.bounds);
@@ -4429,6 +4463,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             cairo_restore(cr);
             for (const auto& field : view.field_labels) {
+                if (hidden(field.clip)) {
+                    continue;
+                }
                 cairo_save(cr);
                 cairo_rectangle(cr, field.clip.x, field.clip.y, field.clip.width, field.clip.height);
                 cairo_clip(cr);
@@ -4656,7 +4693,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
                 !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
-                !control.id.starts_with("languages-") && !control.id.starts_with("themes-")) {
+                !control.id.starts_with("languages-") && !control.id.starts_with("themes-") &&
+                !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
                 draw_control(control);
             }
         }
@@ -4665,8 +4703,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             for (const auto& control : view.controls) {
                 if (control.action.kind == ControlKind::Updates) {
                     const auto& r = control.bounds;
-                    interface_label(cr, view.version, {r.x + r.width + 6, r.y, 120, r.height}, 16,
-                                    view.interface_font, disabled_legend(t), false, PANGO_ALIGN_LEFT);
+                    const Rect label{r.x + r.width + 6, r.y, 120, r.height};
+                    if (!hidden(label)) {
+                        interface_label(cr, view.version, label, 16, view.interface_font,
+                                        disabled_legend(t), false, PANGO_ALIGN_LEFT);
+                    }
                 }
             }
         }
