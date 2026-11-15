@@ -238,6 +238,11 @@ class KeyboardState {
     void hold_down(int code);
     // Lets up every modifier kept down that is no longer held or locked.
     void settle_held_down();
+    // Whether a Cut, Copy or Paste whose chord holds `chord` may go down now;
+    // lets up kept-down modifiers it doesn't hold, so they don't join it.
+    bool make_room_for_shortcut(const std::vector<int>& chord);
+    // Records a lock for take_new_locks(), keeping only the newest few.
+    void note_new_lock(unsigned pointer);
     KeySink& sink_;
     OutputController* output_{};
     std::map<unsigned, Press> presses_;

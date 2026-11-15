@@ -774,8 +774,55 @@ void stream_client() {
     require(output.failures() == 1 && output.retry_text() == "b" && !output.retry_uncertain(),
             "only the third is kept, certainly not sent");
 }
+// A modifier kept down by a direct hold (a lock, KeyboardState::hold_down)
+// comes up for text instead of holding it back; a key a hand holds still
+// makes text wait (R280).
+void text_lifts_modifier_holds() {
+    struct Immediate : Transport {
+        bool commit_text(const std::string& value) override {
+            events.push_back(value);
+            return true;
+        }
+    } sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    output.tick(1);
+    output.send(KEY_LEFTALT, 1);
+    require(output.holds(KEY_LEFTALT), "the hold is down");
+    require(output.commit_text("hi"), "text is accepted");
+    require(sink.events == std::vector<std::string>{"56:1", "56:0", "hi"} && !output.holds(KEY_LEFTALT),
+            "Alt comes up, then the text goes");
+    output.native_press(1, {KEY_A}, KEY_A, 1.1);
+    require(output.commit_text("x"), "more text is accepted");
+    require(sink.events.back() == "30:1", "it waits while a hand holds A");
+    output.release(1);
+    output.tick(1.2);
+    require(sink.events.back() == "x", "and goes once A is up");
+}
+// A direct hold let go before it was delivered is dropped, so the modifier
+// never taps alone ahead of the chord that used it (R281).
+void early_release_drops_direct_hold() {
+    struct Stream : Transport {
+        bool stream_focused() const override { return true; }
+    } sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    output.tick(1);
+    output.native_press(9, {KEY_A}, 0, 1);
+    output.release(9);
+    sink.events.clear();
+    output.send(KEY_LEFTMETA, 1); // Within the stream's gap: still queued.
+    output.native_press(1, {KEY_LEFTMETA, KEY_E}, KEY_E, 1.005);
+    output.release(1);
+    output.send(KEY_LEFTMETA, 0);
+    output.tick(1.05);
+    require(sink.events == std::vector<std::string>{"125:1", "18:1", "18:0", "125:0"},
+            "only the chord's own Super press and release reach the target");
+}
 int main() {
     try {
+        text_lifts_modifier_holds();
+        early_release_drops_direct_hold();
         ordering();
         stream_client();
         failure_and_retry();

@@ -501,6 +501,116 @@ void modifier_lock_tests(const fk::Layout& layout) {
     require(sink.events == Events{{KEY_LEFTALT, 0}, {KEY_LEFTALT, 1}, {KEY_TAB, 1}, {KEY_TAB, 0}},
             "and the next key presses it again");
     state.cancel_all();
+    // Copy goes through a kept-down Ctrl; any other kept-down modifier comes
+    // up for it and goes down again with the next key that uses it (R279).
+    const auto copy = key(layout, "Copy");
+    state.down(0, ctrl, 100);
+    state.tick(101);
+    state.up(0);
+    state.down(0, letter, 101.5);
+    state.up(0);
+    sink.events.clear();
+    require(state.down(0, copy, 102), "Copy goes through a kept-down Ctrl");
+    state.up(0);
+    require(sink.events == Events{{KEY_C, 1}, {KEY_C, 0}}, "as C under the Ctrl already down");
+    state.cancel_all();
+    state.down(0, alt, 110);
+    state.tick(111);
+    state.up(0);
+    state.down(0, tab, 111.5);
+    state.up(0);
+    sink.events.clear();
+    require(state.down(0, copy, 112), "Copy goes through a kept-down Alt");
+    state.up(0);
+    state.down(0, tab, 112.5);
+    state.up(0);
+    require(sink.events == Events{{KEY_LEFTALT, 0},
+                                  {KEY_LEFTCTRL, 1},
+                                  {KEY_C, 1},
+                                  {KEY_C, 0},
+                                  {KEY_LEFTCTRL, 0},
+                                  {KEY_LEFTALT, 1},
+                                  {KEY_TAB, 1},
+                                  {KEY_TAB, 0}},
+            "Alt comes up for Copy and goes down again with the next key");
+    require(state.locked(KEY_LEFTALT), "and stays locked");
+    state.cancel_all();
+    // Locks nobody takes (outside VR) keep only the newest few (R282).
+    for (int i = 0; i < 20; ++i) {
+        state.down(0, ctrl, 200 + 2 * i);
+        state.tick(201 + 2 * i);
+        state.up(0);
+        state.down(0, ctrl, 201.5 + 2 * i);
+        state.up(0);
+    }
+    require(state.take_new_locks().size() <= 8, "the new-lock list stays small");
+    state.cancel_all();
+    // In a Steam field a held modifier is refused; the shortcut it was for
+    // leaves nothing queued, so the next key still arrives (R278).
+    {
+        struct RefusesModifiers : fk::KeySink {
+            std::vector<std::pair<int, int>> events;
+            void send(int code, int value) override { events.emplace_back(code, value); }
+            fk::Delivery deliver_key(int code, int value) override {
+                if (value == 1 && fk::is_modifier(code)) {
+                    return fk::Delivery::Failure;
+                }
+                send(code, value);
+                return fk::Delivery::Success;
+            }
+        } field;
+        fk::OutputController queue(field);
+        queue.set_enabled(true);
+        fk::KeyboardState typing(queue);
+        typing.down(0, ctrl, 120);
+        queue.admit(true, 120.1);
+        typing.down(1, letter, 120.1);
+        typing.up(1);
+        typing.up(0);
+        queue.admit(true, 120.3);
+        typing.down(0, key(layout, "Backspace"), 120.3);
+        queue.tick(120.35);
+        typing.up(0);
+        queue.tick(120.4);
+        require(std::count(field.events.begin(), field.events.end(), std::pair{KEY_BACKSPACE, 1}) == 1 &&
+                    std::count(field.events.begin(), field.events.end(), std::pair{KEY_BACKSPACE, 0}) ==
+                        1,
+                "after a shortcut the field refused, the next key still arrives");
+    }
+    // Text lets a kept-down Alt up instead of waiting for the unlock, and the
+    // next key presses it again (R280).
+    {
+        struct Typing : fk::KeySink {
+            std::vector<std::string> events;
+            void send(int code, int value) override {
+                events.push_back(std::to_string(code) + ":" + std::to_string(value));
+            }
+            bool commit_text(const std::string& text) override {
+                events.push_back(text);
+                return true;
+            }
+        } field;
+        fk::OutputController queue(field);
+        queue.set_enabled(true);
+        fk::KeyboardState typing(queue);
+        typing.down(0, alt, 140);
+        typing.tick(141);
+        typing.up(0);
+        typing.down(0, tab, 141.5);
+        queue.tick(141.5);
+        typing.up(0);
+        queue.tick(141.6);
+        require(queue.commit_text("hi"), "text is accepted while Alt is kept down");
+        queue.tick(141.7);
+        typing.down(0, tab, 142);
+        queue.tick(142);
+        typing.up(0);
+        queue.tick(142.1);
+        require(field.events == std::vector<std::string>{"56:1", "15:1", "15:0", "56:0", "hi", "56:1",
+                                                         "15:1", "15:0"},
+                "Alt comes up for the text and goes down again with the next Tab");
+        typing.cancel_all();
+    }
     // The same through the output queue, as the app sends keys.
     Capture target;
     fk::OutputController output(target);

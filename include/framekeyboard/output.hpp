@@ -53,6 +53,9 @@ class OutputController : public KeySink, public TextOutput {
     bool text_press(unsigned pointer, const std::string& text, double now) override;
     void release(unsigned pointer);
     void release_modifier(int code);
+    // Whether send() holds this key down: a direct hold not yet let go, by
+    // its owner or for text (lift_modifier_holds).
+    bool holds(int code) const { return direct_.contains(code); }
     // Ends every hold as if each pointer let go, for a change that keeps the
     // target: held keys come up now, and accepted text and taps still finish
     // in order. cancel() also abandons them, for a target that is gone.
@@ -154,6 +157,11 @@ class OutputController : public KeySink, public TextOutput {
     void fail(std::size_t delivered = 0, bool uncertain = true);
     void drop_holds();
     void release_codes(Entry& entry, std::optional<int> only = {});
+    // Ends a direct hold (send): released, or dropped while still queued.
+    std::map<int, std::shared_ptr<Entry>>::iterator
+    release_direct(std::map<int, std::shared_ptr<Entry>>::iterator held);
+    // Lets up direct holds of modifiers already delivered, ahead of text.
+    void lift_modifier_holds();
     void status(UiText message);
     KeySink& target_;
     std::deque<std::shared_ptr<Entry>> queue_, retry_;

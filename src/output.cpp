@@ -65,9 +65,7 @@ void OutputController::set_enabled(bool value) {
 void OutputController::send(int code, int value) {
     if (value == 0) {
         if (auto held = direct_.find(code); held != direct_.end()) {
-            held->second->held = false;
-            release_codes(*held->second);
-            direct_.erase(held);
+            release_direct(held);
         }
     } else if (value == 1 && enabled_ && !direct_.contains(code) && admit(true)) {
         auto entry = std::make_shared<Entry>();
@@ -82,7 +80,10 @@ void OutputController::send(int code, int value) {
 void OutputController::native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code,
                                     double now, double first_repeat) {
     now_ = now;
-    if (!enabled_ || codes.empty()) {
+    // After a failure nothing is queued until the next admit(): a chord
+    // queued now, behind a direct hold that just failed (a modifier refused
+    // by a Steam field), would fail again later and drop the keys after it.
+    if (!enabled_ || failed_ || codes.empty()) {
         return;
     }
     auto entry = std::make_shared<Entry>();
@@ -263,6 +264,26 @@ void OutputController::release(unsigned pointer) {
         // A release never needs queue capacity or waits behind unrelated text.
         release_codes(entry);
         active_.erase(found);
+    }
+}
+std::map<int, std::shared_ptr<OutputController::Entry>>::iterator
+OutputController::release_direct(std::map<int, std::shared_ptr<Entry>>::iterator held) {
+    auto entry = held->second;
+    const auto next = direct_.erase(held);
+    entry->held = false;
+    if (!entry->started) {
+        // Not delivered yet: dropped, so a modifier let go at once never taps
+        // alone ahead of the chord that used it (a lone Super opens menus).
+        std::erase(queue_, entry);
+        return next;
+    }
+    release_codes(*entry);
+    return next;
+}
+void OutputController::lift_modifier_holds() {
+    for (auto held = direct_.begin(); held != direct_.end();) {
+        held =
+            is_modifier(held->first) && held->second->started ? release_direct(held) : std::next(held);
     }
 }
 void OutputController::release_modifier(int code) {
@@ -446,6 +467,13 @@ void OutputController::drain(bool fresh_tick) {
         }
         if (!entry->text.empty()) {
             // Never attempt a Unicode commit while a physical chord is held.
+            // A modifier a lock keeps down (KeyboardState::hold_down) would
+            // hold the text back until unlock: it comes up for the text, and
+            // the next key that uses it presses it again (holds()). A key a
+            // hand holds still makes the text wait.
+            if (!delivered_.empty()) {
+                lift_modifier_holds();
+            }
             if (!delivered_.empty()) {
                 return;
             }

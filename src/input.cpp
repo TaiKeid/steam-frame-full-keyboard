@@ -533,8 +533,8 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     if (presses_.contains(pointer)) {
         return false;
     }
-    // A second pointer must not turn Copy into Ctrl+Shift+C while a chord is held.
-    if (key.action_kind == ActionKind::Shortcut && !references_.empty()) {
+    if (key.action_kind == ActionKind::Shortcut &&
+        !make_room_for_shortcut(shortcut_modifiers.value_or(std::vector<int>{KEY_LEFTCTRL}))) {
         return false;
     }
     now_ = now;
@@ -566,8 +566,10 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         }
         return true;
     }
-    // A modifier tap latches visually but emits nothing until used. This avoids
-    // leaving Ctrl physically held while the user navigates another application.
+    // A modifier tap latches visually but emits nothing until used, so a
+    // latched Ctrl is never left physically down while the user navigates
+    // another application. A held or locked Ctrl, Alt or Super does stay
+    // down once a key has used it (stays_down), until let go or unlocked.
     // A shortcut holds its own chord's modifiers, in order, never latched ones.
     std::set<int> modifiers_used;
     if (key.action_kind == ActionKind::Shortcut) {
@@ -609,8 +611,15 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     // takes it in its own chord, so its release order is unchanged.
     if (!press.codes.empty()) {
         for (const int modifier : modifiers_used) {
-            if (stays_down(modifier) && wanted_down(modifier) && !held_down_.contains(modifier)) {
+            if (!stays_down(modifier) || !wanted_down(modifier)) {
+                continue;
+            }
+            if (!held_down_.contains(modifier)) {
                 hold_down(modifier);
+            } else if (output_ && !output_->holds(modifier)) {
+                // Let up meanwhile, for text or by a failure: down again,
+                // on the reference it already has.
+                output_->send(modifier, 1);
             }
         }
     }
@@ -679,7 +688,7 @@ bool KeyboardState::up(unsigned pointer) {
             // The second tap of a double tap locks, as holding does.
             latched_.erase(press.modifier);
             locked_.insert(press.modifier);
-            new_locks_.push_back(pointer);
+            note_new_lock(pointer);
             last_tap_ = 0;
         } else {
             if (!latched_.erase(press.modifier)) {
@@ -701,6 +710,46 @@ bool KeyboardState::up(unsigned pointer) {
     // unless another hand holds it or it is still locked.
     settle_held_down();
     return true;
+}
+bool KeyboardState::make_room_for_shortcut(const std::vector<int>& chord) {
+    // A second pointer must not turn Copy into Ctrl+Shift+C while a chord is
+    // held: any reference but a kept-down modifier's own refuses it.
+    const bool chord_held = std::any_of(references_.begin(), references_.end(), [&](const auto& item) {
+        return !held_down_.contains(item.first) || item.second > 1;
+    });
+    if (chord_held) {
+        return false;
+    }
+    // A kept-down Ctrl stays for Copy, Cut and Paste, whose chords hold Ctrl
+    // anyway; any other kept-down modifier comes up for them, so a locked Alt
+    // doesn't turn Copy into Alt+Ctrl+C, and goes down again with the next
+    // key that uses it.
+    const auto in_chord = [&](int code) {
+        // Either Ctrl stands for the chord's Ctrl.
+        const int same = code == KEY_RIGHTCTRL ? KEY_LEFTCTRL : code;
+        return std::find(chord.begin(), chord.end(), code) != chord.end() ||
+               std::find(chord.begin(), chord.end(), same) != chord.end();
+    };
+    for (auto it = held_down_.begin(); it != held_down_.end();) {
+        if (in_chord(*it)) {
+            ++it;
+            continue;
+        }
+        const int code = *it;
+        it = held_down_.erase(it);
+        release(code); // Sends it without an output queue.
+        if (output_) {
+            output_->send(code, 0);
+        }
+    }
+    return true;
+}
+void KeyboardState::note_new_lock(unsigned pointer) {
+    // Only VR takes these for its haptic; elsewhere the newest few are kept.
+    if (new_locks_.size() >= 8) {
+        new_locks_.erase(new_locks_.begin());
+    }
+    new_locks_.push_back(pointer);
 }
 bool KeyboardState::stays_down(int code) const {
     if (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT) {
@@ -821,6 +870,7 @@ void KeyboardState::end_all(bool cancel_delivery) {
     locked_.clear();
     held_down_.clear(); // Their references and holds went with the rest above.
     rings_.clear();
+    new_locks_.clear();
     last_tap_ = 0;
     if (failure) {
         std::rethrow_exception(failure);
@@ -836,7 +886,7 @@ bool KeyboardState::tick(double now) {
             latched_.erase(press.modifier);
             locked_.insert(press.modifier);
             rings_[press.id] = press.at; // Its ring goes round even if let go now.
-            new_locks_.push_back(pointer);
+            note_new_lock(pointer);
             changed = true;
         }
     }

@@ -96,6 +96,11 @@ with each chord. A sticky modifier locks after 0.9 s held unused or on a
 double tap; one that a key uses before it is let go was a slow chord, and turns
 back into a hold. A tap on a locked key ends every lock and lets kept-down
 modifiers up.
+Text never goes out while a key is down, so the output queue lets such a
+kept-down modifier up ahead of a text commit (a key a hand holds still makes
+text wait), and the next chord that uses it presses it again. Cut, Copy and
+Paste keep a kept-down Ctrl, which their chords hold anyway, and let any other
+kept-down modifier up for themselves.
 Up to 32 output entries can wait for delivery, with at most 32 Unicode characters
 per text entry. A longer composition, up to 1,024 code points, is admitted as a
 whole batch or refused without changing the queue. Once admitted, the output
