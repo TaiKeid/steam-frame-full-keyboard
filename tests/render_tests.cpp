@@ -1085,6 +1085,32 @@ void theme_cards() {
     if (area() == 0 || area() > themes_well_bounds.width * themes_well_bounds.height * 1.2) {
         throw std::runtime_error("a scroll repaints the well, not Settings");
     }
+    // The laser moving from one card to another repaints those two cards,
+    // not the screen (R292).
+    {
+        const auto& from = view.themes->cards[1];
+        const auto& to = view.themes->cards[6];
+        view.hovered_controls = {"themes-card-" + from.id};
+        compare.frame(view, "the laser on a card");
+        view.hovered_controls = {"themes-card-" + to.id};
+        compare.frame(view, "the laser on another card");
+        if (area() == 0) {
+            throw std::runtime_error("a hover moving between cards repaints its cards, not everything");
+        }
+        const auto near = [](const Rect& r, const Rect& card) {
+            return r.x >= card.x - 20 && r.y >= card.y + popup_margin - 20 &&
+                   r.x + r.width <= card.x + card.width + 20 &&
+                   r.y + r.height <= card.y + card.height + popup_margin + 20;
+        };
+        for (const auto& r : compare.incremental.damage()) {
+            if (!near(r, from.bounds) && !near(r, to.bounds)) {
+                throw std::runtime_error(
+                    "a hover moving between cards repaints more than its two cards");
+            }
+        }
+        view.hovered_controls.clear();
+        compare.frame(view, "the laser leaves the cards");
+    }
     // Every frame below is compared with a full repaint (R299).
     const auto card_control = [&](const std::string& id) -> Control& {
         return *std::find_if(view.controls.begin(), view.controls.end(),
