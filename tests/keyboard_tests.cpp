@@ -449,6 +449,31 @@ void modifier_lock_tests(const fk::Layout& layout) {
     state.up(0);
     require(!state.locked(KEY_LEFTCTRL) && state.modifiers().empty(),
             "a slower second tap clears the latch");
+    // From a latch tapped earlier, a double tap locks too: its first tap
+    // clears the latch, its second locks.
+    state.down(0, ctrl, 34);
+    state.up(0);
+    state.tick(36);
+    require(state.modifiers() == std::set<int>{KEY_LEFTCTRL}, "Ctrl latched a while ago");
+    state.down(0, ctrl, 36);
+    state.up(0);
+    state.down(0, ctrl, 36.2);
+    state.up(0);
+    require(state.locked(KEY_LEFTCTRL) && state.take_new_locks() == std::vector<unsigned>{0},
+            "a double tap on a latched Ctrl locks it");
+    state.down(0, ctrl, 37);
+    state.up(0);
+    // A key used between two quick taps makes the second a first tap again.
+    state.down(0, ctrl, 38);
+    state.up(0);
+    state.down(1, tab, 38.1);
+    state.up(1);
+    state.down(0, ctrl, 38.2);
+    state.up(0);
+    require(!state.locked(KEY_LEFTCTRL) && state.modifiers() == std::set<int>{KEY_LEFTCTRL},
+            "tap, key, tap latches again and does not lock");
+    state.down(0, ctrl, 39);
+    state.up(0);
     // A hold another key used never locks, and its ring goes at once.
     state.down(0, alt, 40);
     state.down(1, tab, 40.2);

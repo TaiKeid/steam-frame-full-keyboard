@@ -550,8 +550,10 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         // Every sticky modifier locks: Shift, Ctrl, Alt, AltGr and the left
         // Super. The right Super is momentary (not sticky) and never does.
         press.lockable = key.sticky && !press.unlocks;
+        // Two quick taps lock whatever the first did: latched the modifier,
+        // or cleared a latch it already had. A key used in between starts over.
         press.double_tap = press.lockable && !press.used && last_tap_ == code &&
-                           now - last_tap_at_ <= double_tap_seconds && latched_.contains(code);
+                           now - last_tap_at_ <= double_tap_seconds;
         if (!key.sticky) {
             // A momentary Super key must reach the OS even without a chord.
             // Keep its own reference so overlapping hands share one down/up.
@@ -936,6 +938,7 @@ void KeyboardState::use_modifiers() {
         }
     }
     latched_.clear();
+    last_tap_ = 0; // A tap after this is a first tap, not the second of a double tap.
 }
 
 std::set<int> KeyboardState::modifiers() const {
