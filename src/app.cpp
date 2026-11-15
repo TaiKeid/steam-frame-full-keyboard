@@ -2647,6 +2647,7 @@ void App::set_interaction_active(bool active) {
     interaction_active_ = active;
     if (active) {
         refresh_typing();
+        load_visible_pictures();
     } else {
         output_.set_enabled(false);
         if (themes_) {

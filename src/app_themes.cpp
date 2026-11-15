@@ -182,6 +182,22 @@ std::optional<ScrollRoom> App::themes_scroll_room(double x, double y) const {
     }
     return ScrollRoom{themes_->target > 0, themes_->target < limit};
 }
+// Shown again, the cards in view take their saved pictures at once, so the
+// first frame does not show them blank and fill them in one by one (R298).
+void App::load_visible_pictures() {
+    if (!settings_open_ || !themes_) {
+        return;
+    }
+    const auto order = theme_order();
+    std::vector<const Theme*> visible;
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        if (in_view(card_bounds(i), themes_->scroll)) {
+            visible.push_back(order[i]);
+        }
+    }
+    themes_->previews.load_saved(visible, theme_store_);
+    dirty = true;
+}
 void App::tick_themes(double now) {
     auto& state = *themes_;
     const double elapsed = state.last_tick < 0 ? 0 : std::clamp(now - state.last_tick, 0.0, .1);

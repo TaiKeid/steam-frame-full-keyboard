@@ -77,6 +77,10 @@ class ThemePreviews {
     // store write its index.
     bool fill_one(const std::vector<const Theme*>& themes, const Profiles& profiles,
                   ThemePreviewStore& store);
+    // Loads every saved picture of `themes` not yet in memory, drawing none:
+    // a few file reads, for the cards in view when the panel shows again
+    // (R298). Those it cannot load are left to fill_one.
+    void load_saved(const std::vector<const Theme*>& themes, ThemePreviewStore& store);
     // Frees every picture, and the keymap drawing them needs.
     void clear();
 

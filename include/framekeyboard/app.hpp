@@ -1181,6 +1181,7 @@ class App {
     bool themes_scroll(unsigned pointer, double dy);
     std::optional<ScrollRoom> themes_scroll_room(double x, double y) const;
     void tick_themes(double now);
+    void load_visible_pictures();
     void address_key(const std::string& key);
     // The Dictation card's connection line, as its key (setting.dictation-test.*,
     // which the shell protocol also maps): empty until Test runs.

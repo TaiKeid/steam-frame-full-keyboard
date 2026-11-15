@@ -3322,6 +3322,8 @@ void theme_picker() {
                                             [](const auto& card) { return card.preview != nullptr; }),
                 "a hidden picker keeps no pictures and loads none");
         app.set_interaction_active(true);
+        require(pictured(app.view()),
+                "shown again, the cards in view have their pictures at once (R298)");
         for (int i = 0; i < 40; ++i) {
             app.tick(now += .02);
         }

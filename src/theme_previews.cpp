@@ -350,6 +350,17 @@ bool ThemePreviews::fill_one(const std::vector<const Theme*>& themes, const Prof
     return false;
 }
 
+void ThemePreviews::load_saved(const std::vector<const Theme*>& themes, ThemePreviewStore& store) {
+    for (const auto* theme : themes) {
+        if (find(*theme)) {
+            continue;
+        }
+        if (auto image = store.load(*theme)) {
+            previews_[theme->id] = {*theme, std::move(image)};
+        }
+    }
+}
+
 void ThemePreviews::clear() {
     previews_.clear();
     keymap_.reset();
