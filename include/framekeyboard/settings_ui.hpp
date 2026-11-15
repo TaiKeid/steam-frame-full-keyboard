@@ -1,22 +1,9 @@
 #pragma once
 
+#include "glide.hpp"
 #include "panel.hpp"
 
-#include <cmath>
-
 namespace framekeyboard {
-// A scroll position gliding toward its target after `elapsed` seconds: about
-// 70 ms to cover most of a step, settling once within half a pixel. The
-// Settings cards, the languages popup and the theme picker all glide so.
-// True if it moved.
-inline bool glide(double& shown, double target, double elapsed) {
-    if (shown == target) {
-        return false;
-    }
-    shown = std::abs(target - shown) < .5 ? target
-                                          : shown + (target - shown) * (1 - std::exp(-elapsed / .07));
-    return true;
-}
 struct SettingChoice {
     std::string id, name;
     // Disabled choices stay listed, dimmed, so the reason can be seen.

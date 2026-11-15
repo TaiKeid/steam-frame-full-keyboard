@@ -272,9 +272,9 @@ void SettingsUi::reset() {
 bool SettingsUi::tick(double now) {
     const double elapsed = last_tick_ < 0 ? 0 : std::clamp(now - last_tick_, 0.0, .1);
     last_tick_ = now;
-    bool moved = glide(horizontal_, horizontal_target_, elapsed);
+    bool moved = ease_scroll(horizontal_, horizontal_target_, elapsed);
     for (auto& [id, target] : vertical_target_) {
-        moved |= glide(vertical_[id], target, elapsed);
+        moved |= ease_scroll(vertical_[id], target, elapsed);
     }
     return moved;
 }

@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace framekeyboard {
 class EmojiGlyphs;
@@ -208,6 +209,8 @@ constexpr double languages_row_height = 56, additional_row_height = 62;
 // holds a grid of cards, four across: a preview of the keyboard in that
 // theme over its name. Two rows show and the third peeks in; it scrolls.
 constexpr Rect themes_popup_bounds = languages_popup_bounds;
+// Each card's control is this followed by its theme's ID.
+inline constexpr std::string_view theme_card_prefix = "themes-card-";
 constexpr Rect themes_well_bounds = languages_well_bounds;
 constexpr int theme_columns = 4;
 constexpr double theme_card_pad = 16, theme_card_gap = 16;
@@ -478,6 +481,14 @@ bool hidden_key(const PanelView& view, const Key& key);
 // The layout's width without its hidden numpad.
 double visible_layout_width(const PanelView& view);
 // A rectangle in layout coordinates, in panel coordinates.
+// What the theme picker repaints when only its cards changed between two
+// views: the cards whose pictures arrived (R287), or the well when they
+// scrolled, entered or left. Empty when the picker did not change or
+// anything else did, which a full repaint covers.
+std::vector<Rect> theme_cards_damage(const PanelView& before, const PanelView& now);
+// The cards the laser left and entered, when nothing else in the hover
+// changed (R292); empty otherwise.
+std::vector<Rect> theme_hover_damage(const PanelView& before, const PanelView& now);
 Rect panel_rect(const PanelView& view, Rect layout_rect);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
@@ -584,7 +595,7 @@ class PanelRenderer {
         PanelView view;
         std::set<int> modifiers;
         bool caps{}, num{};
-        bool shift_locked{}; // a locked Shift fills its arrow, with the same modifiers
+        bool shift_locked{};  // a locked Shift fills its arrow, with the same modifiers
         std::set<int> locked; // locked modifiers show a border, with the same modifiers
     };
     std::optional<Snapshot> previous_;

@@ -1,10 +1,23 @@
 #pragma once
 
+#include <cmath>
 #include <optional>
 #include <utility>
 #include <vector>
 
 namespace framekeyboard {
+// A scroll position easing toward its target after `elapsed` seconds: about
+// 70 ms to cover most of a step, settling once within half a pixel. The
+// Settings cards, the languages popup and the theme picker all scroll so.
+// True if it moved.
+inline bool ease_scroll(double& shown, double target, double elapsed) {
+    if (shown == target) {
+        return false;
+    }
+    shown = std::abs(target - shown) < .5 ? target
+                                          : shown + (target - shown) * (1 - std::exp(-elapsed / .07));
+    return true;
+}
 // Kinetic scrolling along one axis after a laser drag, shared by the emoji
 // grid and the Japanese candidates: a quick drag keeps gliding after the
 // release, slowing down like a phone list, and bounces back from an end it

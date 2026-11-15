@@ -1181,6 +1181,9 @@ class App {
     bool themes_scroll(unsigned pointer, double dy);
     std::optional<ScrollRoom> themes_scroll_room(double x, double y) const;
     void tick_themes(double now);
+    // After anything that may change the themes (every update_settings_ui:
+    // a Reload, a shell's theme): their pictures and the scroll follow.
+    void themes_reloaded();
     void load_visible_pictures();
     void address_key(const std::string& key);
     // The Dictation card's connection line, as its key (setting.dictation-test.*,

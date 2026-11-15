@@ -107,7 +107,7 @@ void App::append_themes(PanelView& v) const {
         card.surface = theme.surface;
         // Its button: the card, as far as the well shows it.
         add({ControlKind::ChooseTheme, 0, theme.id},
-            {"themes-card-" + theme.id, card.name, bounds, card.selected}, popup.well);
+            {std::string(theme_card_prefix) + theme.id, card.name, bounds, card.selected}, popup.well);
         popup.cards.push_back(std::move(card));
     }
     if (const double limit = themes_limit(); limit > 0) {
@@ -182,6 +182,18 @@ std::optional<ScrollRoom> App::themes_scroll_room(double x, double y) const {
     }
     return ScrollRoom{themes_->target > 0, themes_->target < limit};
 }
+void App::themes_reloaded() {
+    if (!themes_) {
+        return;
+    }
+    // Removed themes' saved pictures go, every theme is looked at again
+    // (R297), and the picker's end stays in place (R289).
+    theme_store_.sync(theme_order());
+    themes_->filled = false;
+    const double limit = themes_limit();
+    themes_->scroll = std::min(themes_->scroll, limit);
+    themes_->target = std::min(themes_->target, limit);
+}
 // Shown again, the cards in view take their saved pictures at once, so the
 // first frame does not show them blank and fill them in one by one (R298).
 void App::load_visible_pictures() {
@@ -203,7 +215,7 @@ void App::tick_themes(double now) {
     const double elapsed = state.last_tick < 0 ? 0 : std::clamp(now - state.last_tick, 0.0, .1);
     state.last_tick = now;
     // Stick steps glide, as the cards do.
-    if (glide(state.scroll, state.target, elapsed)) {
+    if (ease_scroll(state.scroll, state.target, elapsed)) {
         dirty = true;
     }
     // Hidden, the pictures are freed (set_interaction_active) and none load.

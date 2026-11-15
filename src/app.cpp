@@ -1116,15 +1116,7 @@ void App::update_settings_ui() {
         languages_->additional.scroll = std::min(languages_->additional.scroll, limit);
         languages_->additional.target = std::min(languages_->additional.target, limit);
     }
-    if (themes_) {
-        // A Reload may have removed themes: their saved pictures go, and the
-        // picker's end stays in place (R289).
-        theme_store_.sync(theme_order());
-        themes_->filled = false; // a theme may have changed
-        const double limit = themes_limit();
-        themes_->scroll = std::min(themes_->scroll, limit);
-        themes_->target = std::min(themes_->target, limit);
-    }
+    themes_reloaded();
 }
 // Plays what the keys would, by the choices still pending in Settings. Like a
 // key, it stays silent while muted or the microphone is listening.

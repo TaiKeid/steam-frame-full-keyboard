@@ -998,6 +998,66 @@ void carried_row() {
     view.languages->lifted.reset();
     compare.frame(view, "row dropped");
 }
+// The rules for repainting only theme cards, on views alone (R300): which
+// changes keep to the cards, and which fall back to a full repaint.
+void theme_damage_rules() {
+    PanelView before;
+    before.settings = true;
+    PanelView::ThemesView picker;
+    picker.panel = themes_popup_bounds;
+    picker.well = themes_well_bounds;
+    picker.title = "Theme";
+    for (int i = 0; i < 3; ++i) {
+        PanelView::ThemesView::Card card;
+        card.id = "t" + std::to_string(i);
+        card.bounds = {100.0 + 400 * i, 100, 365, 212};
+        picker.cards.push_back(card);
+        before.controls.push_back({std::string(theme_card_prefix) + card.id, card.id, card.bounds});
+    }
+    before.controls.push_back({"themes-close", "Back", {30, 18, 60, 42}});
+    before.themes = picker;
+    auto require = [](bool condition, const char* message) {
+        if (!condition) {
+            throw std::runtime_error(message);
+        }
+    };
+    require(theme_cards_damage(before, before).empty() && theme_hover_damage(before, before).empty(),
+            "nothing changed, nothing to repaint");
+    auto now = before;
+    now.themes->cards[1].preview.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1),
+                                       cairo_surface_destroy);
+    const auto pictures = theme_cards_damage(before, now);
+    require(pictures.size() == 1 && pictures[0].x <= 500 && pictures[0].x + pictures[0].width >= 865,
+            "a picture arriving repaints its card");
+    now = before;
+    for (auto& card : now.themes->cards) {
+        card.bounds.y -= 30;
+    }
+    for (auto& control : now.controls) {
+        if (control.id.starts_with(theme_card_prefix)) {
+            control.bounds.y -= 30;
+        }
+    }
+    const auto scrolled = theme_cards_damage(before, now);
+    require(scrolled.size() == 1 && scrolled[0].width >= themes_well_bounds.width,
+            "a scroll repaints the well");
+    now = before;
+    now.themes->title = "Other";
+    require(theme_cards_damage(before, now).empty(), "anything else in the picker repaints whole");
+    now = before;
+    now.themes->cards[0].preview = before.themes->cards[0].preview;
+    now.controls.back().label = "Close";
+    now.themes->cards[2].preview.reset(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1),
+                                       cairo_surface_destroy);
+    require(theme_cards_damage(before, now).empty(), "another control changing repaints whole");
+    auto hovered = before;
+    hovered.hovered_controls = {std::string(theme_card_prefix) + "t0"};
+    now = before;
+    now.hovered_controls = {std::string(theme_card_prefix) + "t2"};
+    require(theme_hover_damage(hovered, now).size() == 2, "a hover moving between cards repaints both");
+    now.hovered_controls.insert("themes-close");
+    require(theme_hover_damage(hovered, now).empty(), "a hover on anything else repaints whole");
+}
 // The theme picker's cards repaint alone (R287): a picture that arrives
 // repaints its card, a scroll the well, never the Settings screen under them;
 // and Settings draws no card controls under the popup.
@@ -1280,6 +1340,7 @@ int main() {
         swipe_trail("contrast");
         swipe_trail("ember"); // a trail in its own colours
         slow_trail();
+        theme_damage_rules();
         theme_cards();
         status_line();
         carried_row();

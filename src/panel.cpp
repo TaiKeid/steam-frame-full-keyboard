@@ -1861,7 +1861,94 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     cairo_new_path(cr);
     cairo_restore(cr);
 }
+// A popup's own controls, drawn with it over Settings rather than with
+// Settings' controls under it.
+bool popup_control(const std::string& id) {
+    for (const std::string_view prefix : {"address-", "confirm-", "languages-", "themes-"}) {
+        if (id.starts_with(prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
 } // namespace
+std::vector<Rect> theme_cards_damage(const PanelView& before, const PanelView& now) {
+    if (!before.themes || !now.themes || before.themes == now.themes) {
+        return {};
+    }
+    const auto& old_picker = *before.themes;
+    const auto& picker = *now.themes;
+    if (old_picker.panel != picker.panel || old_picker.well != picker.well ||
+        old_picker.title != picker.title) {
+        return {};
+    }
+    // Every control but the cards is the same, in the same order.
+    const auto card = [](const Control& control) { return control.id.starts_with(theme_card_prefix); };
+    auto a = before.controls.cbegin(), b = now.controls.cbegin();
+    const auto a_end = before.controls.cend(), b_end = now.controls.cend();
+    for (;; ++a, ++b) {
+        a = std::find_if_not(a, a_end, card);
+        b = std::find_if_not(b, b_end, card);
+        if (a == a_end || b == b_end) {
+            if (a != a_end || b != b_end) {
+                return {};
+            }
+            break;
+        }
+        if (!(*a == *b)) {
+            return {};
+        }
+    }
+    // Only pictures: those cards, with the room their caps' shading takes.
+    if (old_picker.thumb == picker.thumb && old_picker.cards.size() == picker.cards.size()) {
+        std::vector<Rect> changed;
+        for (std::size_t i = 0; i < picker.cards.size(); ++i) {
+            auto earlier = old_picker.cards[i];
+            earlier.preview = picker.cards[i].preview;
+            if (!(earlier == picker.cards[i])) {
+                changed.clear();
+                break;
+            }
+            if (old_picker.cards[i].preview != picker.cards[i].preview) {
+                changed.push_back(pixel_bounds(picker.cards[i].bounds, tone_shadow + 1));
+            }
+        }
+        if (!changed.empty()) {
+            return changed;
+        }
+    }
+    // Scrolled: the well, which clips the cards and holds the thumb.
+    return {pixel_bounds(picker.well, 2)};
+}
+std::vector<Rect> theme_hover_damage(const PanelView& before, const PanelView& now) {
+    if (!before.themes || !now.themes || before.hovered_controls == now.hovered_controls) {
+        return {};
+    }
+    std::vector<std::string> moved;
+    std::set_symmetric_difference(before.hovered_controls.begin(), before.hovered_controls.end(),
+                                  now.hovered_controls.begin(), now.hovered_controls.end(),
+                                  std::back_inserter(moved));
+    std::vector<Rect> areas;
+    for (const auto& id : moved) {
+        if (!id.starts_with(theme_card_prefix)) {
+            return {};
+        }
+        const auto found = areas.size();
+        for (const auto* picker : {&*before.themes, &*now.themes}) {
+            for (const auto& card : picker->cards) {
+                const auto area = pixel_bounds(card.bounds, tone_shadow + 1);
+                if (id.compare(theme_card_prefix.size(), std::string::npos, card.id) == 0 &&
+                    std::find(areas.begin(), areas.end(), area) == areas.end()) {
+                    areas.push_back(area); // once, where the card did not move
+                }
+            }
+        }
+        if (areas.size() == found) {
+            return {};
+        }
+    }
+    return areas;
+}
 cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, const Language& language,
                                       const LanguageMap& keymap, int width, int height) {
     // The corner in the layout's own units: Shift, Z, X and C over Ctrl,
@@ -3306,92 +3393,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                      [](const Control& c) { return c.action.kind != ControlKind::SwipeCandidate; });
         return result;
     };
-    // The theme picker's cards changing alone: pictures arriving, or the
-    // well scrolling (R287). Their controls move with them; nothing else may
-    // differ. Empty when the picker did not change or something else did.
-    const std::vector<Rect> theme_cards_damage = [&]() -> std::vector<Rect> {
-        if (!previous_ || !previous_->view.themes || !view.themes ||
-            previous_->view.themes == view.themes) {
-            return {};
-        }
-        const auto& before = *previous_->view.themes;
-        const auto& now = *view.themes;
-        if (before.panel != now.panel || before.well != now.well || before.title != now.title) {
-            return {};
-        }
-        const auto card = [](const Control& control) { return control.id.starts_with("themes-card-"); };
-        auto a = previous_->view.controls.cbegin(), b = view.controls.cbegin();
-        const auto a_end = previous_->view.controls.cend(), b_end = view.controls.cend();
-        for (;; ++a, ++b) {
-            a = std::find_if_not(a, a_end, card);
-            b = std::find_if_not(b, b_end, card);
-            if (a == a_end || b == b_end) {
-                if (a != a_end || b != b_end) {
-                    return {};
-                }
-                break;
-            }
-            if (!(*a == *b)) {
-                return {};
-            }
-        }
-        // Only pictures: those cards, with the room their caps' shading takes.
-        if (before.thumb == now.thumb && before.cards.size() == now.cards.size()) {
-            std::vector<Rect> changed;
-            for (std::size_t i = 0; i < now.cards.size(); ++i) {
-                auto earlier = before.cards[i];
-                earlier.preview = now.cards[i].preview;
-                if (!(earlier == now.cards[i])) {
-                    changed.clear();
-                    break;
-                }
-                if (before.cards[i].preview != now.cards[i].preview) {
-                    changed.push_back(pixel_bounds(now.cards[i].bounds, tone_shadow + 1));
-                }
-            }
-            if (!changed.empty()) {
-                return changed;
-            }
-        }
-        // Scrolled: the well, which clips the cards and holds the thumb.
-        return {pixel_bounds(now.well, 2)};
-    }();
-    // The laser moving between theme cards and nothing else: only the cards
-    // it left and entered repaint (R292). Empty when anything else in the
-    // hover changed, or a card it names is not in view.
-    const std::vector<Rect> theme_hover_damage = [&]() -> std::vector<Rect> {
-        if (!previous_ || !previous_->view.themes || !view.themes ||
-            previous_->view.hovered_controls == view.hovered_controls) {
-            return {};
-        }
-        std::vector<std::string> moved;
-        std::set_symmetric_difference(
-            previous_->view.hovered_controls.begin(), previous_->view.hovered_controls.end(),
-            view.hovered_controls.begin(), view.hovered_controls.end(), std::back_inserter(moved));
-        std::vector<Rect> areas;
-        for (const auto& id : moved) {
-            if (!id.starts_with("themes-card-")) {
-                return {};
-            }
-            const auto before = areas.size();
-            using Cards = std::vector<PanelView::ThemesView::Card>;
-            for (const Cards* cards :
-                 {static_cast<const Cards*>(&previous_->view.themes->cards), &view.themes->cards}) {
-                for (const auto& card : *cards) {
-                    if (id.compare(std::string_view("themes-card-").size(), std::string::npos,
-                                   card.id) == 0) {
-                        areas.push_back(pixel_bounds(card.bounds, tone_shadow + 1));
-                    }
-                }
-            }
-            if (areas.size() == before) {
-                return {};
-            }
-        }
-        return areas;
-    }();
+    const auto theme_cards = previous_ ? theme_cards_damage(previous_->view, view) : std::vector<Rect>{};
+    const auto theme_hover = previous_ ? theme_hover_damage(previous_->view, view) : std::vector<Rect>{};
     const bool controls_changed =
-        previous_ && theme_cards_damage.empty() &&
+        previous_ && theme_cards.empty() &&
         without_candidates(previous_->view.controls) != without_candidates(view.controls);
     const bool scene_changed =
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
@@ -3443,11 +3448,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     // or that carried row, or the theme picker's cards.
     const bool settings_still =
         previous_ && view.settings && previous_->view.settings &&
-        (!theme_cards_damage.empty() ||
+        (!theme_cards.empty() ||
          (previous_->view.controls == view.controls && previous_->view.themes == view.themes)) &&
         previous_->view.cards == view.cards && previous_->view.field_labels == view.field_labels &&
         previous_->view.popup == view.popup && previous_->view.status == view.status &&
-        (previous_->view.hovered_controls == view.hovered_controls || !theme_hover_damage.empty()) &&
+        (previous_->view.hovered_controls == view.hovered_controls || !theme_hover.empty()) &&
         previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
         (only_lifted_moved || previous_->view.languages == view.languages);
     bool full = force_full || scene_changed || (view.settings && !settings_still);
@@ -4058,7 +4063,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
     }
     if (!full) {
-        for (const auto* areas : {&theme_cards_damage, &theme_hover_damage}) {
+        for (const auto* areas : {&theme_cards, &theme_hover}) {
             for (const auto& area : *areas) {
                 damage_area(area);
             }
@@ -4110,7 +4115,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& control : view.controls) {
             if (previous_->view.hovered_controls.contains(control.id) !=
                     view.hovered_controls.contains(control.id) &&
-                (theme_hover_damage.empty() || !control.id.starts_with("themes-card-"))) {
+                (theme_hover.empty() || !control.id.starts_with(theme_card_prefix))) {
                 full = true;
             }
         }
@@ -4692,9 +4697,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         };
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
-                !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
-                !control.id.starts_with("languages-") && !control.id.starts_with("themes-") &&
-                !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
+                !popup_control(control.id) && !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
                 draw_control(control);
             }
         }
@@ -4951,7 +4954,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_clip(cr);
             for (const auto& card : popup.cards) {
                 const auto& r = card.bounds;
-                const bool hovered = view.hovered_controls.contains("themes-card-" + card.id);
+                const bool hovered =
+                    view.hovered_controls.contains(std::string(theme_card_prefix) + card.id);
                 draw_cap(cr, t, r, hovered, card.selected, true);
                 const Rect picture{r.x + theme_preview_inset, r.y + theme_preview_inset,
                                    static_cast<double>(theme_preview_width),
@@ -4978,7 +4982,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_fill(cr);
             }
             for (const auto& control : view.controls) {
-                if (control.id.starts_with("themes-") && !control.id.starts_with("themes-card-")) {
+                if (control.id.starts_with("themes-") && !control.id.starts_with(theme_card_prefix)) {
                     draw_control(control);
                 }
             }
