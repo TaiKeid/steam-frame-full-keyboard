@@ -1165,7 +1165,7 @@ class App {
         ThemePreviews previews;
     };
     std::optional<ThemesPopup> themes_;
-    fs::path theme_previews_dir_; // where the pictures are kept, if anywhere
+    ThemePreviewStore theme_store_; // the pictures on disk, for the whole process
     std::vector<const Theme*> theme_order() const;
     double themes_limit() const;
     void open_themes();

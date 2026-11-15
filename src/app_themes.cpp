@@ -44,7 +44,9 @@ double App::themes_limit() const {
 void App::open_themes() {
     settings_ui_.close_popup();
     themes_ = ThemesPopup{};
-    themes_->previews.set_directory(theme_previews_dir_);
+    // The first picker of the process checks the saved pictures' index;
+    // each one removes those of themes no longer present.
+    theme_store_.sync(theme_order());
     // The chosen theme's card in view: its row at the top if it would be cut off.
     const auto order = theme_order();
     for (std::size_t i = 0; i < order.size(); ++i) {
@@ -201,7 +203,7 @@ void App::tick_themes(double now) {
             }
         }
     }
-    if (state.previews.fill_one(wanted, profiles_)) {
+    if (state.previews.fill_one(wanted, profiles_, theme_store_)) {
         dirty = true;
     }
 }

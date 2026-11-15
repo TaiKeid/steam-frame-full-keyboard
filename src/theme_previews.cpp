@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <glib.h>
 #include <system_error>
 #include <unistd.h>
@@ -14,9 +15,8 @@
 
 namespace framekeyboard {
 namespace {
-// A theme ID as a file name's first half: anything but letters, digits, dot,
-// dash and underscore becomes an underscore, so "~", which separates it from
-// the key, never appears in it.
+// A theme ID as a file name: anything but letters, digits, dot, dash and
+// underscore (all a theme ID uses) becomes an underscore.
 std::string file_stem(const std::string& id) {
     std::string stem;
     for (const char c : id) {
@@ -87,11 +87,29 @@ bool write_preview(const fs::path& file, cairo_surface_t* image) {
     written = std::fclose(out) == 0 && written;
     return written;
 }
+constexpr const char* index_name = "index.txt";
+constexpr const char* index_title = "Full Keyboard theme pictures";
+// Raised when the pictures are drawn differently within one version, as
+// between development builds, so the index clears them.
+constexpr int drawing_revision = 4;
+// The index's second line: what drew the pictures. Any difference, such as
+// another release, clears them all.
+std::string drawn_by() {
+    return std::string("drawn by ") + FRAMEKEYBOARD_VERSION + ", " +
+           std::to_string(theme_preview_width) + "x" + std::to_string(theme_preview_height) +
+           ", drawing " + std::to_string(drawing_revision);
+}
+// Each process writes its own partial file and renames it into place, so two
+// keyboards (the app and the simulator, say) never mix their bytes.
+fs::path partial_of(const fs::path& file) {
+    auto partial = file;
+    partial += "." + std::to_string(getpid()) + ".partial";
+    return partial;
+}
 } // namespace
 
-std::string theme_preview_key(const Theme& t) {
-    std::string text = std::string("theme preview 3 ") + FRAMEKEYBOARD_VERSION + " " +
-                       std::to_string(theme_preview_width) + "x" + std::to_string(theme_preview_height);
+std::string theme_preview_hash(const Theme& t) {
+    std::string text = "theme picture";
     char buffer[64];
     const auto add = [&](double value) {
         std::snprintf(buffer, sizeof buffer, " %.5f", value);
@@ -120,9 +138,149 @@ std::string theme_preview_key(const Theme& t) {
         add(value);
     }
     auto* hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, text.c_str(), -1);
-    std::string key(hash);
+    std::string result(hash, 16);
     g_free(hash);
-    return key;
+    return result;
+}
+
+void ThemePreviewStore::sync(const std::vector<const Theme*>& themes) {
+    if (!read_) {
+        read_index();
+    }
+    std::set<std::string> ids;
+    for (const auto* theme : themes) {
+        ids.insert(theme->id);
+    }
+    if (ids == synced_) {
+        return;
+    }
+    synced_ = ids;
+    // Themes deleted since their pictures were saved.
+    bool removed = false;
+    for (auto entry = recorded_.begin(); entry != recorded_.end();) {
+        if (ids.contains(entry->first)) {
+            ++entry;
+            continue;
+        }
+        std::error_code ignored;
+        fs::remove(picture_file(entry->first), ignored);
+        hashes_.erase(entry->first);
+        entry = recorded_.erase(entry);
+        removed = true;
+    }
+    if (removed) {
+        write_index();
+    }
+}
+
+std::shared_ptr<cairo_surface_t> ThemePreviewStore::load(const Theme& theme) {
+    if (directory_.empty()) {
+        return nullptr;
+    }
+    if (!read_) {
+        read_index();
+    }
+    const auto found = recorded_.find(theme.id);
+    if (found == recorded_.end() || found->second != hash(theme)) {
+        return nullptr;
+    }
+    return read_preview(picture_file(theme.id));
+}
+
+void ThemePreviewStore::save(const Theme& theme, cairo_surface_t* picture) {
+    if (directory_.empty()) {
+        return;
+    }
+    if (!read_) {
+        read_index();
+    }
+    std::error_code error;
+    fs::create_directories(directory_, error);
+    const auto file = picture_file(theme.id);
+    const auto partial = partial_of(file);
+    bool saved = false;
+    if (!error && write_preview(partial, picture)) {
+        fs::rename(partial, file, error);
+        saved = !error;
+    }
+    if (saved) {
+        recorded_[theme.id] = hash(theme);
+    } else {
+        // A failure only means drawing it again next time.
+        std::error_code ignored;
+        fs::remove(partial, ignored);
+        recorded_.erase(theme.id);
+    }
+    write_index();
+}
+
+const std::string& ThemePreviewStore::hash(const Theme& theme) {
+    auto found = hashes_.find(theme.id);
+    if (found == hashes_.end() || !(found->second.theme == theme)) {
+        found = hashes_.insert_or_assign(theme.id, Hashed{theme, theme_preview_hash(theme)}).first;
+    }
+    return found->second.hash;
+}
+
+fs::path ThemePreviewStore::picture_file(const std::string& id) const {
+    return directory_ / (file_stem(id) + file_extension);
+}
+
+void ThemePreviewStore::read_index() {
+    read_ = true;
+    recorded_.clear();
+    if (directory_.empty()) {
+        return;
+    }
+    std::ifstream in(directory_ / index_name);
+    std::string title, drawn;
+    if (std::getline(in, title) && std::getline(in, drawn) && title == index_title &&
+        drawn == drawn_by()) {
+        std::string id, hash;
+        while (in >> id >> hash) {
+            recorded_[id] = hash;
+        }
+        return;
+    }
+    // No index, or another version's: other code drew these pictures. Only
+    // files of ours go (older builds saved PNGs); no exceptions, as a folder
+    // that changes while it is read only stops the clean-up.
+    std::error_code error;
+    fs::directory_iterator entry(directory_, error);
+    for (; !error && entry != fs::directory_iterator(); entry.increment(error)) {
+        const auto extension = entry->path().extension();
+        if (extension == file_extension || extension == ".png" || extension == ".partial") {
+            std::error_code ignored;
+            fs::remove(entry->path(), ignored);
+        }
+    }
+    write_index();
+}
+
+void ThemePreviewStore::write_index() {
+    if (directory_.empty()) {
+        return;
+    }
+    std::error_code error;
+    fs::create_directories(directory_, error);
+    if (error) {
+        return;
+    }
+    const auto file = directory_ / index_name;
+    const auto partial = partial_of(file);
+    std::ofstream out(partial, std::ios::trunc);
+    out << index_title << '\n' << drawn_by() << '\n';
+    for (const auto& [id, hash] : recorded_) {
+        out << id << ' ' << hash << '\n';
+    }
+    out.close();
+    if (out) {
+        fs::rename(partial, file, error);
+    }
+    if (!out || error) {
+        std::error_code ignored;
+        fs::remove(partial, ignored);
+    }
 }
 
 std::shared_ptr<cairo_surface_t> ThemePreviews::find(const Theme& theme) const {
@@ -130,13 +288,21 @@ std::shared_ptr<cairo_surface_t> ThemePreviews::find(const Theme& theme) const {
     return found != previews_.end() && found->second.theme == theme ? found->second.image : nullptr;
 }
 
-bool ThemePreviews::fill_one(const std::vector<const Theme*>& themes, const Profiles& profiles) {
+bool ThemePreviews::fill_one(const std::vector<const Theme*>& themes, const Profiles& profiles,
+                             ThemePreviewStore& store) {
     for (const auto* theme : themes) {
         if (const auto found = previews_.find(theme->id);
             found != previews_.end() && found->second.theme == *theme) {
             continue; // Current, or known not to draw.
         }
-        previews_[theme->id] = {*theme, load_or_draw(*theme, theme_preview_key(*theme), profiles)};
+        auto image = store.load(*theme);
+        if (!image) {
+            image = draw(*theme, profiles);
+            if (image) {
+                store.save(*theme, image.get());
+            }
+        }
+        previews_[theme->id] = {*theme, std::move(image)};
         return true;
     }
     return false;
@@ -147,15 +313,7 @@ void ThemePreviews::clear() {
     keymap_.reset();
 }
 
-std::shared_ptr<cairo_surface_t> ThemePreviews::load_or_draw(const Theme& theme, const std::string& key,
-                                                             const Profiles& profiles) {
-    const auto stem = file_stem(theme.id);
-    const auto file = directory_ / (stem + "~" + key + file_extension);
-    if (!directory_.empty()) {
-        if (auto loaded = read_preview(file)) {
-            return loaded;
-        }
-    }
+std::shared_ptr<cairo_surface_t> ThemePreviews::draw(const Theme& theme, const Profiles& profiles) {
     const auto layout = profiles.layouts.find("en-us-full");
     const auto language = profiles.languages.find("en-us");
     if (layout == profiles.layouts.end() || language == profiles.languages.end()) {
@@ -172,36 +330,6 @@ std::shared_ptr<cairo_surface_t> ThemePreviews::load_or_draw(const Theme& theme,
                                           theme_preview_width, theme_preview_height));
     if (cairo_surface_status(drawn.get()) != CAIRO_STATUS_SUCCESS) {
         return nullptr;
-    }
-    // Saved for the next picker; a failure only means drawing it again then.
-    // Each process writes its own partial file, so two keyboards (the app
-    // and the simulator, say) saving the same preview never mix their bytes.
-    if (!directory_.empty()) {
-        std::error_code error;
-        fs::create_directories(directory_, error);
-        auto partial = file;
-        partial += "." + std::to_string(getpid()) + ".partial";
-        bool saved = false;
-        if (!error && write_preview(partial, drawn.get())) {
-            fs::rename(partial, file, error);
-            saved = !error;
-        }
-        if (!saved) {
-            std::error_code ignored;
-            fs::remove(partial, ignored);
-        } else {
-            // This theme's older previews, drawn from what it was before. No
-            // exceptions: a folder that changes while it is read only stops
-            // the clean-up.
-            fs::directory_iterator entry(directory_, error);
-            for (; !error && entry != fs::directory_iterator(); entry.increment(error)) {
-                const auto name = entry->path().filename().string();
-                std::error_code ignored;
-                if (name.starts_with(stem + "~") && entry->path() != file) {
-                    fs::remove(entry->path(), ignored);
-                }
-            }
-        }
     }
     return drawn;
 }

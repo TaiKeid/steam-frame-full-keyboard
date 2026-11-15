@@ -213,16 +213,17 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     // The theme picker's previews; with no cache folder known they are drawn
     // each time instead of saved.
     // A relative XDG_CACHE_HOME is ignored, as the XDG spec asks.
-    theme_previews_dir_ = options.theme_previews_dir;
-    if (theme_previews_dir_.empty()) {
+    auto previews = options.theme_previews_dir;
+    if (previews.empty()) {
         const char* cache = std::getenv("XDG_CACHE_HOME");
         const char* home = std::getenv("HOME");
         if (cache && *cache == '/') {
-            theme_previews_dir_ = fs::path(cache) / "framekeyboard/theme-previews";
+            previews = fs::path(cache) / "framekeyboard/theme-previews";
         } else if (home && *home) {
-            theme_previews_dir_ = fs::path(home) / ".cache/framekeyboard/theme-previews";
+            previews = fs::path(home) / ".cache/framekeyboard/theme-previews";
         }
     }
+    theme_store_.set_directory(previews);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     // Cangjie's and Quick's character order; before any composer loads a table.
     set_character_ranks(data_resource(options.data_dir, "chinese/char-ranks.txt"));
@@ -1116,7 +1117,9 @@ void App::update_settings_ui() {
         languages_->additional.target = std::min(languages_->additional.target, limit);
     }
     if (themes_) {
-        // So does a reload that removes a theme (R289).
+        // A Reload may have removed themes: their saved pictures go, and the
+        // picker's end stays in place (R289).
+        theme_store_.sync(theme_order());
         const double limit = themes_limit();
         themes_->scroll = std::min(themes_->scroll, limit);
         themes_->target = std::min(themes_->target, limit);

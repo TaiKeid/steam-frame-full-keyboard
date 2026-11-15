@@ -3266,13 +3266,23 @@ void theme_picker() {
                            [](const auto& card) { return card.preview != nullptr; });
     };
     const auto themes = load_profiles({}, {}).themes.size();
-    // A picture of Graphite drawn from older values, and one of another theme
-    // whose ID merely starts the same: only the first goes when Graphite's
-    // current picture is saved.
+    const auto index = options.theme_previews_dir / "index.txt";
+    const auto index_lines = [&] {
+        std::ifstream in(index);
+        std::vector<std::string> lines;
+        for (std::string line; std::getline(in, line);) {
+            lines.push_back(line);
+        }
+        return lines;
+    };
+    // Pictures from before the index (another version's, as far as it can
+    // tell) go when it is first read; a file not of ours stays.
     fs::create_directories(options.theme_previews_dir);
     const auto stale = options.theme_previews_dir / "graphite~0123.argb";
-    const auto other = options.theme_previews_dir / "graphite_x~0123.argb";
+    const auto png = options.theme_previews_dir / "graphite~0123.png";
+    const auto other = options.theme_previews_dir / "notes.txt";
     std::ofstream(stale) << "old";
+    std::ofstream(png) << "old";
     std::ofstream(other) << "other";
     std::map<fs::path, fs::file_time_type> first;
     {
@@ -3294,11 +3304,14 @@ void theme_picker() {
             app.tick(now += .02);
         }
         require(pictured(app.view()), "every card in view gets its picture");
-        require(!fs::exists(stale) && fs::exists(other),
-                "saving a theme's picture removes its older ones, and no other theme's");
-        fs::remove(other);
+        require(!fs::exists(stale) && !fs::exists(png) && fs::exists(other),
+                "the first picker clears pictures from before its index, and only those");
         first = saved();
-        require(first.size() == themes, "every theme's picture is saved, one file each");
+        require(first.size() == themes && fs::exists(options.theme_previews_dir / "graphite.argb"),
+                "every theme's picture is saved, one file each, named by its ID");
+        const auto lines = index_lines();
+        require(lines.size() == 2 + themes && lines[1].starts_with("drawn by "),
+                "the index records the version that drew them and a hash per theme");
         // Hidden, the pictures are freed and none load; shown, they come back (R285).
         app.set_interaction_active(false);
         for (int i = 0; i < 10; ++i) {
@@ -3339,21 +3352,104 @@ void theme_picker() {
         require(pictured(app.view()) && saved() == first,
                 "a second picker loads the saved pictures instead of drawing them again");
     }
+    // Opens the picker scrolled to its end and lets every picture load.
+    const auto picker_at_end = [&](App& app, double& now) {
+        app.show_settings();
+        click(app, "theme");
+        const auto& well = themes_well_bounds;
+        app.move(0, well.x + well.width / 2, well.y + well.height / 2);
+        app.scroll(0, 0, 100);
+        for (int i = 0; i < 100; ++i) {
+            app.tick(now += .02);
+        }
+    };
+    {
+        // Another version's index: every picture is drawn again.
+        auto lines = index_lines();
+        const auto current = lines[1];
+        lines[1] = "drawn by 0.0.1, 349x160, drawing 1";
+        std::ofstream out(index);
+        for (const auto& line : lines) {
+            out << line << '\n';
+        }
+        out.close();
+        App app(options, sink);
+        double now = 10;
+        picker_at_end(app, now);
+        app.scroll(0, 0, -100);
+        for (int i = 0; i < 100; ++i) {
+            app.tick(now += .02);
+        }
+        const auto again = saved();
+        require(again.size() == first.size() &&
+                    std::all_of(again.begin(), again.end(),
+                                [&](const auto& file) { return first.at(file.first) != file.second; }) &&
+                    index_lines()[1] == current,
+                "pictures another version drew are all drawn again, and the index takes this one");
+        first = again;
+    }
+    const auto themes_dir = options.config_dir / "themes";
+    fs::create_directories(themes_dir);
+    const auto user_theme = [&](const std::string& id, const std::string& latched) {
+        std::ofstream(themes_dir / (id + ".json"))
+            << R"({"schema_version":1,"id":")" << id << R"(","name":")" << id
+            << R"(","surface":"#101010","surface_radius":20,"key_top":"#303030",)"
+               R"("key_middle":"#282828","key_bottom":"#202020","key_side_top":"#181818",)"
+               R"("key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,"key_depth":3.5,)"
+               R"("key_press_travel":3,"press_duration_ms":80,"hover":"#404040",)"
+               R"("latched":")"
+            << latched << R"(","disabled":"#151515"})";
+    };
+    {
+        // An edited theme of the user's own is drawn again, alone; a deleted
+        // one's picture goes the next time a picker opens.
+        const auto picture = options.theme_previews_dir / "zz-edit.argb";
+        user_theme("zz-edit", "#335577");
+        fs::file_time_type drawn;
+        {
+            App app(options, sink);
+            double now = 10;
+            picker_at_end(app, now);
+            require(fs::exists(picture), "a theme of the user's own gets its picture");
+            drawn = fs::last_write_time(picture);
+        }
+        user_theme("zz-edit", "#aa3355");
+        {
+            App app(options, sink);
+            double now = 10;
+            picker_at_end(app, now);
+            auto now_saved = saved();
+            require(fs::last_write_time(picture) != drawn, "an edited theme's picture is drawn again");
+            now_saved.erase(picture);
+            require(now_saved == first, "and no other theme's");
+        }
+        fs::remove(themes_dir / "zz-edit.json");
+        {
+            App app(options, sink);
+            app.show_settings();
+            click(app, "theme");
+            const auto lines = index_lines();
+            require(!fs::exists(picture) &&
+                        std::none_of(lines.begin(), lines.end(),
+                                     [](const auto& line) { return line.starts_with("zz-edit "); }),
+                    "a deleted theme's picture and index line go when a picker opens");
+        }
+    }
     auto theme = load_profiles({}, {}).themes.at("graphite");
-    const auto key = theme_preview_key(theme);
+    const auto hash = theme_preview_hash(theme);
+    ThemePreviewStore store; // no folder: nothing saved
     ThemePreviews previews;
     const auto profiles = load_profiles({}, {});
-    previews.fill_one({&theme}, profiles);
-    require(previews.find(theme) && !previews.fill_one({&theme}, profiles),
+    previews.fill_one({&theme}, profiles, store);
+    require(previews.find(theme) && !previews.fill_one({&theme}, profiles, store),
             "a theme with its picture needs nothing more");
     theme.latched.r += .1;
-    require(theme_preview_key(theme) != key && !previews.find(theme) &&
-                previews.fill_one({&theme}, profiles) && previews.find(theme),
-            "an edited theme's picture is drawn again");
-    // A reload that removes themes keeps the picker's end in place (R289).
+    require(theme_preview_hash(theme) != hash && hash.size() == 16 && !previews.find(theme) &&
+                previews.fill_one({&theme}, profiles, store) && previews.find(theme),
+            "an edited theme's picture is drawn again in memory too");
+    // A reload that removes themes keeps the picker's end in place (R289),
+    // and removes their pictures.
     {
-        const auto themes_dir = options.config_dir / "themes";
-        fs::create_directories(themes_dir);
         // Enough themes of the user's own for one more row of cards.
         const auto columns = static_cast<std::size_t>(theme_columns);
         const auto rows = [&](std::size_t count) { return (count + columns - 1) / columns; };
@@ -3362,25 +3458,14 @@ void theme_picker() {
             ++extra;
         }
         for (std::size_t i = 0; i < extra; ++i) {
-            const auto id = "zz-user-" + std::to_string(i);
-            std::ofstream(themes_dir / (id + ".json"))
-                << R"({"schema_version":1,"id":")" << id << R"(","name":"User )" << i
-                << R"(","surface":"#101010","surface_radius":20,"key_top":"#303030",)"
-                   R"("key_middle":"#282828","key_bottom":"#202020","key_side_top":"#181818",)"
-                   R"("key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,"key_depth":3.5,)"
-                   R"("key_press_travel":3,"press_duration_ms":80,"hover":"#404040",)"
-                   R"("latched":"#335577","disabled":"#151515"})";
+            user_theme("zz-user-" + std::to_string(i), "#335577");
         }
         App app(options, sink);
-        app.show_settings();
-        click(app, "theme");
-        const auto& well = themes_well_bounds;
-        app.move(0, well.x + well.width / 2, well.y + well.height / 2);
-        app.scroll(0, 0, 100);
         double now = 50;
-        for (int i = 0; i < 40; ++i) {
-            app.tick(now += .02);
-        }
+        picker_at_end(app, now);
+        const auto& well = themes_well_bounds;
+        require(fs::exists(options.theme_previews_dir / "zz-user-0.argb"),
+                "the user's themes get pictures");
         for (std::size_t i = 0; i < extra; ++i) {
             fs::remove(themes_dir / ("zz-user-" + std::to_string(i) + ".json"));
         }
@@ -3397,6 +3482,8 @@ void theme_picker() {
                                 return card.bounds.y + card.bounds.height > well.y + well.height - 20;
                             }),
             "after a reload removes a row of themes, the picker still ends at its last row");
+        require(!fs::exists(options.theme_previews_dir / "zz-user-0.argb"),
+                "and their pictures are removed");
     }
 }
 void fractional_dropdown_scroll() {
