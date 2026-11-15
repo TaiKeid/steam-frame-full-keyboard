@@ -29,7 +29,7 @@ std::shared_ptr<cairo_surface_t> own(cairo_surface_t* surface) {
 } // namespace
 
 std::string theme_preview_key(const Theme& t) {
-    std::string text = std::string("theme preview 2 ") + FRAMEKEYBOARD_VERSION + " " +
+    std::string text = std::string("theme preview 3 ") + FRAMEKEYBOARD_VERSION + " " +
                        std::to_string(theme_preview_width) + "x" + std::to_string(theme_preview_height);
     char buffer[64];
     const auto add = [&](double value) {

@@ -1875,8 +1875,9 @@ cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, 
         // show as a sliver along the top.
         if (r.x < corner.x + corner.width && r.x + r.width > corner.x &&
             r.y < corner.y + corner.height && r.y + r.height > corner.y + 8) {
-            // No shared bodies here: body_atlas is null outside paint().
-            draw_key(cr, view, key, key.id == "ControlLeft" ? 1 : 0, key.id == "MetaLeft" ? 1 : 0);
+            // Ctrl in its held colours but not moved down: the cards stay
+            // level. No shared bodies here: body_atlas is null outside paint().
+            draw_key(cr, view, key, 0, key.id == "MetaLeft" ? 1 : 0);
         }
     }
     cairo_destroy(cr);
