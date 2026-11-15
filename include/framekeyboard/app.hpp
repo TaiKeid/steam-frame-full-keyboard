@@ -1160,9 +1160,12 @@ class App {
         };
         std::optional<Drag> drag;
         double last_tick{-1};
+        // The cards' pictures: they live and go with the popup, and while
+        // the panel is hidden they are freed and nothing loads.
+        ThemePreviews previews;
     };
     std::optional<ThemesPopup> themes_;
-    ThemePreviews theme_previews_;
+    fs::path theme_previews_dir_; // where the pictures are kept, if anywhere
     std::vector<const Theme*> theme_order() const;
     double themes_limit() const;
     void open_themes();

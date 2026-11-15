@@ -557,11 +557,7 @@ void App::tick_languages(double now) {
     // Stick steps glide, about 70 ms to cover most of one, as the cards do.
     const double additional_was = state.additional.scroll;
     for (auto* list : {&state.layouts, &state.languages, &state.additional}) {
-        if (list->scroll != list->target) {
-            list->scroll =
-                std::abs(list->target - list->scroll) < .5
-                    ? list->target
-                    : list->scroll + (list->target - list->scroll) * (1 - std::exp(-elapsed / .07));
+        if (glide(list->scroll, list->target, elapsed)) {
             dirty = true;
         }
     }

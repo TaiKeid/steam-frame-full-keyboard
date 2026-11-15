@@ -819,10 +819,31 @@ void early_release_drops_direct_hold() {
     require(sink.events == std::vector<std::string>{"125:1", "18:1", "18:0", "125:0"},
             "only the chord's own Super press and release reach the target");
 }
+// release_holds() (every key let up, as for Settings or a summon) drops an
+// undelivered direct hold too, so Super never taps alone ahead of Super+E (R288).
+void release_holds_drops_direct_hold() {
+    struct Stream : Transport {
+        bool stream_focused() const override { return true; }
+    } sink;
+    OutputController output(sink);
+    output.set_enabled(true);
+    output.tick(1);
+    output.native_press(9, {KEY_A}, 0, 1);
+    output.release(9);
+    sink.events.clear();
+    output.send(KEY_LEFTMETA, 1); // Within the stream's gap: still queued.
+    output.native_press(1, {KEY_LEFTMETA, KEY_E}, KEY_E, 1.005);
+    output.release(1);
+    output.release_holds();
+    output.tick(1.05);
+    require(sink.events == std::vector<std::string>{"125:1", "18:1", "18:0", "125:0"},
+            "after release_holds only the chord's own Super press and release reach the target");
+}
 int main() {
     try {
         text_lifts_modifier_holds();
         early_release_drops_direct_hold();
+        release_holds_drops_direct_hold();
         ordering();
         stream_client();
         failure_and_retry();

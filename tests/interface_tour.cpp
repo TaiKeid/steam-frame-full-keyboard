@@ -140,6 +140,7 @@ int main(int argc, char** argv) {
         }
         Options options;
         options.config_dir = config;
+        options.theme_previews_dir = fs::path(config) / "theme-previews"; // not the user's cache
         options.mode = Mode::Render;
         options.debug = true;
         Sink sink;

@@ -272,19 +272,9 @@ void SettingsUi::reset() {
 bool SettingsUi::tick(double now) {
     const double elapsed = last_tick_ < 0 ? 0 : std::clamp(now - last_tick_, 0.0, .1);
     last_tick_ = now;
-    // Exponential easing, about 70 ms to cover most of a step.
-    const double amount = 1 - std::exp(-elapsed / .07);
-    bool moved = false;
-    auto ease = [&](double& shown, double target) {
-        if (shown == target) {
-            return;
-        }
-        shown = std::abs(target - shown) < .5 ? target : shown + (target - shown) * amount;
-        moved = true;
-    };
-    ease(horizontal_, horizontal_target_);
+    bool moved = glide(horizontal_, horizontal_target_, elapsed);
     for (auto& [id, target] : vertical_target_) {
-        ease(vertical_[id], target);
+        moved |= glide(vertical_[id], target, elapsed);
     }
     return moved;
 }

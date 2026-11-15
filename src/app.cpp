@@ -212,17 +212,17 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     }
     // The theme picker's previews; with no cache folder known they are drawn
     // each time instead of saved.
-    auto previews = options.theme_previews_dir;
-    if (previews.empty()) {
+    // A relative XDG_CACHE_HOME is ignored, as the XDG spec asks.
+    theme_previews_dir_ = options.theme_previews_dir;
+    if (theme_previews_dir_.empty()) {
         const char* cache = std::getenv("XDG_CACHE_HOME");
         const char* home = std::getenv("HOME");
-        if (cache && *cache) {
-            previews = fs::path(cache) / "framekeyboard/theme-previews";
+        if (cache && *cache == '/') {
+            theme_previews_dir_ = fs::path(cache) / "framekeyboard/theme-previews";
         } else if (home && *home) {
-            previews = fs::path(home) / ".cache/framekeyboard/theme-previews";
+            theme_previews_dir_ = fs::path(home) / ".cache/framekeyboard/theme-previews";
         }
     }
-    theme_previews_.set_directory(previews);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     // Cangjie's and Quick's character order; before any composer loads a table.
     set_character_ranks(data_resource(options.data_dir, "chinese/char-ranks.txt"));
@@ -1114,6 +1114,12 @@ void App::update_settings_ui() {
         const double limit = languages_limit(LanguagesPopup::Which::Additional);
         languages_->additional.scroll = std::min(languages_->additional.scroll, limit);
         languages_->additional.target = std::min(languages_->additional.target, limit);
+    }
+    if (themes_) {
+        // So does a reload that removes a theme (R289).
+        const double limit = themes_limit();
+        themes_->scroll = std::min(themes_->scroll, limit);
+        themes_->target = std::min(themes_->target, limit);
     }
 }
 // Plays what the keys would, by the choices still pending in Settings. Like a
@@ -2639,6 +2645,9 @@ void App::set_interaction_active(bool active) {
         refresh_typing();
     } else {
         output_.set_enabled(false);
+        if (themes_) {
+            themes_->previews.clear(); // loaded again when shown (tick_themes)
+        }
         if (owns_anthy() && !mozc_server_.empty()) {
             save_mozc(); // Hidden, whatever Mozc learned is saved.
         }
@@ -2703,7 +2712,6 @@ void App::show_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
-    theme_previews_.clear();
     settings_open_ = true;
     // A few small reads: the drop-in and Steam's environment.
     stream_status_ = options_.stream_support ? options_.stream_support() : StreamSupportStatus{};
@@ -2800,7 +2808,6 @@ void App::leave_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
-    theme_previews_.clear();
 }
 void App::summon() {
     dismiss_requested_ = false;
@@ -2812,7 +2819,6 @@ void App::summon() {
     confirm_ = Confirm::None;
     languages_.reset();
     themes_.reset();
-    theme_previews_.clear();
     recenter_ = true;
     status_.clear();
 }
@@ -4981,7 +4987,6 @@ void App::apply_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
-    theme_previews_.clear();
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
@@ -6764,7 +6769,6 @@ void App::close_panel() {
         confirm_ = Confirm::None;
         languages_.reset();
         themes_.reset();
-        theme_previews_.clear();
         dismiss_requested_ = true;
         host_.user_hide = hosted(); // the shell decides whether it shows again
     } else {

@@ -3077,6 +3077,13 @@ void PanelRenderer::settle() {
     layers_idle_since_ = -1;
     // Nothing paints while the panel is hidden; a summon repaints whole.
     forget_key_bodies();
+    // So the theme picker's pictures, which the app frees on hiding, are not
+    // kept alive by the last view either (R285).
+    if (previous_ && previous_->view.themes) {
+        for (auto& card : previous_->view.themes->cards) {
+            card.preview.reset();
+        }
+    }
     // The next paint forgets the trail, damaging where it was; its pixels
     // need nothing kept until then.
     for (auto* layer : {&trail_, &comet_, &comet_passes_}) {
@@ -3278,8 +3285,59 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                      [](const Control& c) { return c.action.kind != ControlKind::SwipeCandidate; });
         return result;
     };
+    // The theme picker's cards changing alone: pictures arriving, or the
+    // well scrolling (R287). Their controls move with them; nothing else may
+    // differ. Empty when the picker did not change or something else did.
+    const std::vector<Rect> theme_cards_damage = [&]() -> std::vector<Rect> {
+        if (!previous_ || !previous_->view.themes || !view.themes ||
+            previous_->view.themes == view.themes) {
+            return {};
+        }
+        const auto& before = *previous_->view.themes;
+        const auto& now = *view.themes;
+        if (before.panel != now.panel || before.well != now.well || before.title != now.title) {
+            return {};
+        }
+        const auto card = [](const Control& control) { return control.id.starts_with("themes-card-"); };
+        auto a = previous_->view.controls.cbegin(), b = view.controls.cbegin();
+        const auto a_end = previous_->view.controls.cend(), b_end = view.controls.cend();
+        for (;; ++a, ++b) {
+            a = std::find_if_not(a, a_end, card);
+            b = std::find_if_not(b, b_end, card);
+            if (a == a_end || b == b_end) {
+                if (a != a_end || b != b_end) {
+                    return {};
+                }
+                break;
+            }
+            if (!(*a == *b)) {
+                return {};
+            }
+        }
+        // Only pictures: those cards, with the room their caps' shading takes.
+        if (before.thumb == now.thumb && before.cards.size() == now.cards.size()) {
+            std::vector<Rect> changed;
+            for (std::size_t i = 0; i < now.cards.size(); ++i) {
+                auto earlier = before.cards[i];
+                earlier.preview = now.cards[i].preview;
+                if (!(earlier == now.cards[i])) {
+                    changed.clear();
+                    break;
+                }
+                if (before.cards[i].preview != now.cards[i].preview) {
+                    changed.push_back(pixel_bounds(now.cards[i].bounds, tone_shadow + 1));
+                }
+            }
+            if (!changed.empty()) {
+                return changed;
+            }
+        }
+        // Scrolled: the well, which clips the cards and holds the thumb.
+        return {pixel_bounds(now.well, 2)};
+    }();
     const bool controls_changed =
-        previous_ && without_candidates(previous_->view.controls) != without_candidates(view.controls);
+        previous_ && theme_cards_damage.empty() &&
+        without_candidates(previous_->view.controls) != without_candidates(view.controls);
     const bool scene_changed =
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
         previous_->language != *view.language || previous_->modifiers != modifiers ||
@@ -3327,16 +3385,16 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     }();
     // Settings repaints whole, except when nothing in it changed but a
     // scrolling choice name, then only that name's box once it moved a pixel,
-    // or that carried row.
+    // or that carried row, or the theme picker's cards.
     const bool settings_still =
         previous_ && view.settings && previous_->view.settings &&
-        previous_->view.controls == view.controls && previous_->view.cards == view.cards &&
-        previous_->view.field_labels == view.field_labels && previous_->view.popup == view.popup &&
-        previous_->view.status == view.status &&
+        (!theme_cards_damage.empty() ||
+         (previous_->view.controls == view.controls && previous_->view.themes == view.themes)) &&
+        previous_->view.cards == view.cards && previous_->view.field_labels == view.field_labels &&
+        previous_->view.popup == view.popup && previous_->view.status == view.status &&
         previous_->view.hovered_controls == view.hovered_controls &&
         previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
-        (only_lifted_moved || previous_->view.languages == view.languages) &&
-        previous_->view.themes == view.themes;
+        (only_lifted_moved || previous_->view.languages == view.languages);
     bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
@@ -3942,6 +4000,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     damage_area(pixel_bounds((*lifted)->bounds, tone_shadow + 1));
                 }
             }
+        }
+    }
+    if (!full) {
+        for (const auto& area : theme_cards_damage) {
+            damage_area(area);
         }
     }
     if (!full && only_lifted_moved) {
@@ -4556,7 +4619,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
                 !control.id.starts_with("address-") && !control.id.starts_with("confirm-") &&
-                !control.id.starts_with("languages-")) {
+                !control.id.starts_with("languages-") && !control.id.starts_with("themes-")) {
                 draw_control(control);
             }
         }

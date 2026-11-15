@@ -44,6 +44,7 @@ double App::themes_limit() const {
 void App::open_themes() {
     settings_ui_.close_popup();
     themes_ = ThemesPopup{};
+    themes_->previews.set_directory(theme_previews_dir_);
     // The chosen theme's card in view: its row at the top if it would be cut off.
     const auto order = theme_order();
     for (std::size_t i = 0; i < order.size(); ++i) {
@@ -60,8 +61,7 @@ void App::open_themes() {
     hovered_.clear();
 }
 void App::close_themes() {
-    themes_.reset();
-    theme_previews_.clear(); // The pictures live only while the picker shows.
+    themes_.reset(); // and the pictures with it
     pressed_controls_.clear();
     hovered_.clear();
 }
@@ -83,21 +83,24 @@ void App::append_themes(PanelView& v) const {
                                      {popup.panel.x + 16, popup.panel.y + 10, 60, 42},
                                      false,
                                      Icon::Back});
+    // The cards rest on whole pixels, so their pictures are copied, not
+    // resampled, and a glide's last fractions of a pixel change no view.
+    const double scroll = std::round(themes_->scroll);
     const auto order = theme_order();
     for (std::size_t i = 0; i < order.size(); ++i) {
         const auto& theme = *order[i];
         auto bounds = card_bounds(i);
-        if (!in_view(bounds, themes_->scroll)) {
+        if (!in_view(bounds, scroll)) {
             continue;
         }
-        bounds.y -= themes_->scroll;
+        bounds.y -= scroll;
         PanelView::ThemesView::Card card;
         card.id = theme.id;
         // A shell's own theme has no name of its own.
         card.name = theme.id == shell_theme_id ? tr("setting.theme.shell") : theme.name;
         card.bounds = bounds;
         card.selected = theme.id == pending_.theme;
-        card.preview = theme_previews_.find(theme);
+        card.preview = themes_->previews.find(theme);
         card.surface = theme.surface;
         // Its button: the card, as far as the well shows it.
         add({ControlKind::ChooseTheme, 0, theme.id},
@@ -108,7 +111,7 @@ void App::append_themes(PanelView& v) const {
         const auto& well = popup.well;
         const Rect track{well.x + well.width - 11, well.y + 8, 6, well.height - 16};
         const double length = track.height * track.height / (track.height + limit);
-        popup.thumb = Rect{track.x, track.y + themes_->scroll / limit * (track.height - length),
+        popup.thumb = Rect{track.x, std::round(track.y + scroll / limit * (track.height - length)),
                            track.width, length};
     }
     v.themes = std::move(popup);
@@ -180,13 +183,13 @@ void App::tick_themes(double now) {
     auto& state = *themes_;
     const double elapsed = state.last_tick < 0 ? 0 : std::clamp(now - state.last_tick, 0.0, .1);
     state.last_tick = now;
-    // Stick steps glide, about 70 ms to cover most of one, as the cards do.
-    if (state.scroll != state.target) {
-        state.scroll =
-            std::abs(state.target - state.scroll) < .5
-                ? state.target
-                : state.scroll + (state.target - state.scroll) * (1 - std::exp(-elapsed / .07));
+    // Stick steps glide, as the cards do.
+    if (glide(state.scroll, state.target, elapsed)) {
         dirty = true;
+    }
+    // Hidden, the pictures are freed (set_interaction_active) and none load.
+    if (!interaction_active_) {
+        return;
     }
     // One preview a frame, loaded from disk or drawn: the cards in view first.
     const auto order = theme_order();
@@ -198,7 +201,7 @@ void App::tick_themes(double now) {
             }
         }
     }
-    if (theme_previews_.fill_one(wanted, profiles_)) {
+    if (state.previews.fill_one(wanted, profiles_)) {
         dirty = true;
     }
 }

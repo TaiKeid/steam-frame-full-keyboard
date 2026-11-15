@@ -1,9 +1,12 @@
 #include "framekeyboard/theme_previews.hpp"
 #include "framekeyboard/panel.hpp"
 
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <glib.h>
 #include <system_error>
+#include <unistd.h>
 
 #ifndef FRAMEKEYBOARD_VERSION
 #define FRAMEKEYBOARD_VERSION "dev"
@@ -25,6 +28,64 @@ std::string file_stem(const std::string& id) {
 }
 std::shared_ptr<cairo_surface_t> own(cairo_surface_t* surface) {
     return {surface, cairo_surface_destroy};
+}
+// A preview file: this header, then the surface's rows as Cairo keeps them
+// (premultiplied ARGB in the machine's byte order; the cache never leaves it).
+struct FileHeader {
+    char magic[4];
+    std::uint32_t width, height, stride;
+};
+constexpr char file_magic[4] = {'F', 'K', 'T', 'P'};
+constexpr const char* file_extension = ".argb";
+std::uint32_t preview_stride() {
+    return static_cast<std::uint32_t>(
+        cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, theme_preview_width));
+}
+// Null unless the file holds exactly one preview of the current size.
+std::shared_ptr<cairo_surface_t> read_preview(const fs::path& file) {
+    std::FILE* in = std::fopen(file.c_str(), "rb");
+    if (!in) {
+        return nullptr;
+    }
+    std::shared_ptr<cairo_surface_t> result;
+    FileHeader header{};
+    if (std::fread(&header, sizeof header, 1, in) == 1 &&
+        std::memcmp(header.magic, file_magic, sizeof file_magic) == 0 &&
+        header.width == static_cast<std::uint32_t>(theme_preview_width) &&
+        header.height == static_cast<std::uint32_t>(theme_preview_height) &&
+        header.stride == preview_stride()) {
+        auto image = own(
+            cairo_image_surface_create(CAIRO_FORMAT_ARGB32, theme_preview_width, theme_preview_height));
+        const auto size = static_cast<std::size_t>(header.stride) * header.height;
+        if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS &&
+            static_cast<std::uint32_t>(cairo_image_surface_get_stride(image.get())) == header.stride) {
+            cairo_surface_flush(image.get());
+            // All of it and nothing more: a cut or overlong file draws again.
+            if (std::fread(cairo_image_surface_get_data(image.get()), 1, size, in) == size &&
+                std::fgetc(in) == EOF) {
+                cairo_surface_mark_dirty(image.get());
+                result = std::move(image);
+            }
+        }
+    }
+    std::fclose(in);
+    return result;
+}
+bool write_preview(const fs::path& file, cairo_surface_t* image) {
+    cairo_surface_flush(image);
+    const FileHeader header{{file_magic[0], file_magic[1], file_magic[2], file_magic[3]},
+                            static_cast<std::uint32_t>(cairo_image_surface_get_width(image)),
+                            static_cast<std::uint32_t>(cairo_image_surface_get_height(image)),
+                            static_cast<std::uint32_t>(cairo_image_surface_get_stride(image))};
+    std::FILE* out = std::fopen(file.c_str(), "wb");
+    if (!out) {
+        return false;
+    }
+    const auto size = static_cast<std::size_t>(header.stride) * header.height;
+    bool written = std::fwrite(&header, sizeof header, 1, out) == 1 &&
+                   std::fwrite(cairo_image_surface_get_data(image), 1, size, out) == size;
+    written = std::fclose(out) == 0 && written;
+    return written;
 }
 } // namespace
 
@@ -66,19 +127,16 @@ std::string theme_preview_key(const Theme& t) {
 
 std::shared_ptr<cairo_surface_t> ThemePreviews::find(const Theme& theme) const {
     const auto found = previews_.find(theme.id);
-    return found != previews_.end() && found->second.key == theme_preview_key(theme)
-               ? found->second.image
-               : nullptr;
+    return found != previews_.end() && found->second.theme == theme ? found->second.image : nullptr;
 }
 
 bool ThemePreviews::fill_one(const std::vector<const Theme*>& themes, const Profiles& profiles) {
     for (const auto* theme : themes) {
-        const auto key = theme_preview_key(*theme);
         if (const auto found = previews_.find(theme->id);
-            found != previews_.end() && found->second.key == key) {
+            found != previews_.end() && found->second.theme == *theme) {
             continue; // Current, or known not to draw.
         }
-        previews_[theme->id] = {key, load_or_draw(*theme, key, profiles)};
+        previews_[theme->id] = {*theme, load_or_draw(*theme, theme_preview_key(*theme), profiles)};
         return true;
     }
     return false;
@@ -92,16 +150,11 @@ void ThemePreviews::clear() {
 std::shared_ptr<cairo_surface_t> ThemePreviews::load_or_draw(const Theme& theme, const std::string& key,
                                                              const Profiles& profiles) {
     const auto stem = file_stem(theme.id);
-    const auto file = directory_ / (stem + "~" + key + ".png");
-    std::error_code error;
-    if (!directory_.empty() && fs::is_regular_file(file, error)) {
-        auto* loaded = cairo_image_surface_create_from_png(file.c_str());
-        if (cairo_surface_status(loaded) == CAIRO_STATUS_SUCCESS &&
-            cairo_image_surface_get_width(loaded) == theme_preview_width &&
-            cairo_image_surface_get_height(loaded) == theme_preview_height) {
-            return own(loaded);
+    const auto file = directory_ / (stem + "~" + key + file_extension);
+    if (!directory_.empty()) {
+        if (auto loaded = read_preview(file)) {
+            return loaded;
         }
-        cairo_surface_destroy(loaded); // Drawn again below, and saved over it.
     }
     const auto layout = profiles.layouts.find("en-us-full");
     const auto language = profiles.languages.find("en-us");
@@ -121,21 +174,33 @@ std::shared_ptr<cairo_surface_t> ThemePreviews::load_or_draw(const Theme& theme,
         return nullptr;
     }
     // Saved for the next picker; a failure only means drawing it again then.
+    // Each process writes its own partial file, so two keyboards (the app
+    // and the simulator, say) saving the same preview never mix their bytes.
     if (!directory_.empty()) {
+        std::error_code error;
         fs::create_directories(directory_, error);
         auto partial = file;
-        partial += ".partial";
-        if (!error && cairo_surface_write_to_png(drawn.get(), partial.c_str()) == CAIRO_STATUS_SUCCESS) {
+        partial += "." + std::to_string(getpid()) + ".partial";
+        bool saved = false;
+        if (!error && write_preview(partial, drawn.get())) {
             fs::rename(partial, file, error);
-            // This theme's older previews, drawn from what it was before.
-            for (const auto& entry : fs::directory_iterator(directory_, error)) {
-                const auto name = entry.path().filename().string();
-                if (name.starts_with(stem + "~") && entry.path() != file) {
-                    fs::remove(entry.path(), error);
+            saved = !error;
+        }
+        if (!saved) {
+            std::error_code ignored;
+            fs::remove(partial, ignored);
+        } else {
+            // This theme's older previews, drawn from what it was before. No
+            // exceptions: a folder that changes while it is read only stops
+            // the clean-up.
+            fs::directory_iterator entry(directory_, error);
+            for (; !error && entry != fs::directory_iterator(); entry.increment(error)) {
+                const auto name = entry->path().filename().string();
+                std::error_code ignored;
+                if (name.starts_with(stem + "~") && entry->path() != file) {
+                    fs::remove(entry->path(), ignored);
                 }
             }
-        } else {
-            fs::remove(partial, error);
         }
     }
     return drawn;

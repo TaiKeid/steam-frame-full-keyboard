@@ -340,11 +340,10 @@ void OutputController::release_holds() {
         attempt([&] { release(pointer); });
         active_.erase(pointer);
     }
+    // A direct hold not delivered yet is dropped, as when its key is let go
+    // (release_direct), so a modifier never taps alone ahead of its chord.
     while (!direct_.empty()) {
-        const auto held = direct_.begin()->second;
-        direct_.erase(direct_.begin());
-        held->held = false;
-        attempt([&] { release_codes(*held); });
+        attempt([&] { release_direct(direct_.begin()); });
     }
     if (error) {
         std::rethrow_exception(error);

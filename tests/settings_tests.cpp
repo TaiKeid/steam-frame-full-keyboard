@@ -2,6 +2,7 @@
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/key_sounds.hpp"
 #include "framekeyboard/startup.hpp"
+#include "framekeyboard/theme_previews.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -3253,7 +3254,7 @@ void theme_picker() {
         std::map<fs::path, fs::file_time_type> files;
         std::error_code error;
         for (const auto& entry : fs::directory_iterator(options.theme_previews_dir, error)) {
-            if (entry.path().extension() == ".png") {
+            if (entry.path().extension() == ".argb") {
                 files[entry.path()] = fs::last_write_time(entry.path());
             }
         }
@@ -3265,6 +3266,14 @@ void theme_picker() {
                            [](const auto& card) { return card.preview != nullptr; });
     };
     const auto themes = load_profiles({}, {}).themes.size();
+    // A picture of Graphite drawn from older values, and one of another theme
+    // whose ID merely starts the same: only the first goes when Graphite's
+    // current picture is saved.
+    fs::create_directories(options.theme_previews_dir);
+    const auto stale = options.theme_previews_dir / "graphite~0123.argb";
+    const auto other = options.theme_previews_dir / "graphite_x~0123.argb";
+    std::ofstream(stale) << "old";
+    std::ofstream(other) << "other";
     std::map<fs::path, fs::file_time_type> first;
     {
         App app(options, sink);
@@ -3285,8 +3294,26 @@ void theme_picker() {
             app.tick(now += .02);
         }
         require(pictured(app.view()), "every card in view gets its picture");
+        require(!fs::exists(stale) && fs::exists(other),
+                "saving a theme's picture removes its older ones, and no other theme's");
+        fs::remove(other);
         first = saved();
         require(first.size() == themes, "every theme's picture is saved, one file each");
+        // Hidden, the pictures are freed and none load; shown, they come back (R285).
+        app.set_interaction_active(false);
+        for (int i = 0; i < 10; ++i) {
+            app.tick(now += .25);
+        }
+        view = app.view();
+        require(view.themes && std::none_of(view.themes->cards.begin(), view.themes->cards.end(),
+                                            [](const auto& card) { return card.preview != nullptr; }),
+                "a hidden picker keeps no pictures and loads none");
+        app.set_interaction_active(true);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .02);
+        }
+        require(pictured(app.view()) && saved() == first,
+                "shown again, the pictures load from disk, none drawn again");
         click(app, "themes-card-lagoon");
         view = app.view();
         require(view.themes && view.theme->id == "lagoon" &&
@@ -3314,8 +3341,63 @@ void theme_picker() {
     }
     auto theme = load_profiles({}, {}).themes.at("graphite");
     const auto key = theme_preview_key(theme);
+    ThemePreviews previews;
+    const auto profiles = load_profiles({}, {});
+    previews.fill_one({&theme}, profiles);
+    require(previews.find(theme) && !previews.fill_one({&theme}, profiles),
+            "a theme with its picture needs nothing more");
     theme.latched.r += .1;
-    require(theme_preview_key(theme) != key, "an edited theme's picture is drawn again");
+    require(theme_preview_key(theme) != key && !previews.find(theme) &&
+                previews.fill_one({&theme}, profiles) && previews.find(theme),
+            "an edited theme's picture is drawn again");
+    // A reload that removes themes keeps the picker's end in place (R289).
+    {
+        const auto themes_dir = options.config_dir / "themes";
+        fs::create_directories(themes_dir);
+        // Enough themes of the user's own for one more row of cards.
+        const auto columns = static_cast<std::size_t>(theme_columns);
+        const auto rows = [&](std::size_t count) { return (count + columns - 1) / columns; };
+        std::size_t extra = 1;
+        while (rows(themes + extra) == rows(themes)) {
+            ++extra;
+        }
+        for (std::size_t i = 0; i < extra; ++i) {
+            const auto id = "zz-user-" + std::to_string(i);
+            std::ofstream(themes_dir / (id + ".json"))
+                << R"({"schema_version":1,"id":")" << id << R"(","name":"User )" << i
+                << R"(","surface":"#101010","surface_radius":20,"key_top":"#303030",)"
+                   R"("key_middle":"#282828","key_bottom":"#202020","key_side_top":"#181818",)"
+                   R"("key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,"key_depth":3.5,)"
+                   R"("key_press_travel":3,"press_duration_ms":80,"hover":"#404040",)"
+                   R"("latched":"#335577","disabled":"#151515"})";
+        }
+        App app(options, sink);
+        app.show_settings();
+        click(app, "theme");
+        const auto& well = themes_well_bounds;
+        app.move(0, well.x + well.width / 2, well.y + well.height / 2);
+        app.scroll(0, 0, 100);
+        double now = 50;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .02);
+        }
+        for (std::size_t i = 0; i < extra; ++i) {
+            fs::remove(themes_dir / ("zz-user-" + std::to_string(i) + ".json"));
+        }
+        app.reload();
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .02);
+        }
+        const auto view = app.view();
+        require(
+            view.themes && view.themes->thumb &&
+                view.themes->thumb->y + view.themes->thumb->height <= well.y + well.height - 8 + .5 &&
+                std::any_of(view.themes->cards.begin(), view.themes->cards.end(),
+                            [&](const auto& card) {
+                                return card.bounds.y + card.bounds.height > well.y + well.height - 20;
+                            }),
+            "after a reload removes a row of themes, the picker still ends at its last row");
+    }
 }
 void fractional_dropdown_scroll() {
     SettingsUi ui;
@@ -3544,6 +3626,10 @@ void scroll_cards() {
 }
 } // namespace
 int main() {
+    // Theme pictures the tests draw go to a folder of their own, never to the
+    // user's cache (R290).
+    TemporaryDirectory cache;
+    setenv("XDG_CACHE_HOME", cache.path.c_str(), 1);
     try {
         theme_picker();
         native_num_restore();

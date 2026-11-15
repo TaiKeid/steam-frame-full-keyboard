@@ -998,6 +998,97 @@ void carried_row() {
     view.languages->lifted.reset();
     compare.frame(view, "row dropped");
 }
+// The theme picker's cards repaint alone (R287): a picture that arrives
+// repaints its card, a scroll the well, never the Settings screen under them;
+// and Settings draws no card controls under the popup.
+void theme_cards() {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at("graphite");
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.settings = true;
+    view.controls.push_back(
+        {"themes-close", "Back", {themes_popup_bounds.x + 16, themes_popup_bounds.y + 10, 60, 42}});
+    PanelView::ThemesView popup;
+    popup.panel = themes_popup_bounds;
+    popup.well = themes_well_bounds;
+    popup.title = "Theme";
+    std::vector<const Theme*> themes;
+    for (const auto& [id, each] : profiles.themes) {
+        themes.push_back(&each);
+    }
+    auto place = [&](double scroll) {
+        popup.cards.clear();
+        std::erase_if(view.controls, [](const Control& c) { return c.id.starts_with("themes-card-"); });
+        for (std::size_t i = 0; i < 12; ++i) {
+            PanelView::ThemesView::Card card;
+            card.id = themes[i]->id;
+            card.name = themes[i]->name;
+            card.surface = themes[i]->surface;
+            card.bounds = {themes_well_bounds.x + theme_card_pad +
+                               static_cast<double>(i % 4) * (theme_card_width + theme_card_gap),
+                           themes_well_bounds.y + theme_card_pad +
+                               static_cast<double>(i / 4) * (theme_card_height + theme_card_gap) -
+                               scroll,
+                           theme_card_width, theme_card_height};
+            view.controls.push_back({"themes-card-" + card.id, card.name, card.bounds});
+            popup.cards.push_back(card);
+        }
+        popup.thumb = Rect{themes_well_bounds.x + themes_well_bounds.width - 11,
+                           themes_well_bounds.y + 8 + scroll / 4, 6, 200};
+    };
+    place(0);
+    view.themes = popup;
+    Comparison compare;
+    compare.frame(view, "picker open");
+    // Drawn under the popup, the cards would show through where it is clipped.
+    const auto area = [&] {
+        double total = 0;
+        for (const auto& r : compare.incremental.damage()) {
+            total += r.width * r.height;
+        }
+        return total;
+    };
+    std::shared_ptr<cairo_surface_t> picture(
+        render_theme_preview(theme, layout, language, keymap, theme_preview_width, theme_preview_height),
+        cairo_surface_destroy);
+    view.themes->cards[5].preview = picture;
+    compare.frame(view, "a picture arrives");
+    // Damage is in texture rows, popup_margin below the panel's; none at all
+    // means a full repaint.
+    const auto card = view.themes->cards[5].bounds;
+    if (area() == 0) {
+        throw std::runtime_error("a picture that arrives repaints its card, not everything");
+    }
+    for (const auto& r : compare.incremental.damage()) {
+        if (r.x < card.x - 20 || r.y < card.y + popup_margin - 20 ||
+            r.x + r.width > card.x + card.width + 20 ||
+            r.y + r.height > card.y + card.height + popup_margin + 20) {
+            throw std::runtime_error("a picture that arrives repaints more than its card");
+        }
+    }
+    place(37);
+    for (auto& each : popup.cards) {
+        each.preview = view.themes->cards[&each - popup.cards.data()].preview;
+    }
+    view.themes = popup;
+    compare.frame(view, "the cards scroll");
+    if (area() == 0 || area() > themes_well_bounds.width * themes_well_bounds.height * 1.2) {
+        throw std::runtime_error("a scroll repaints the well, not Settings");
+    }
+    view.themes.reset();
+    std::erase_if(view.controls, [](const Control& c) { return c.id.starts_with("themes-"); });
+    compare.frame(view, "picker closed");
+}
 // A status the toolbar's gap can't hold scrolls under the laser, whatever the
 // language, and one with no room at all stays out of the way.
 void status_line() {
@@ -1102,6 +1193,7 @@ int main() {
         swipe_trail("contrast");
         swipe_trail("ember"); // a trail in its own colours
         slow_trail();
+        theme_cards();
         status_line();
         carried_row();
         const auto profiles = load_profiles({}, {});
