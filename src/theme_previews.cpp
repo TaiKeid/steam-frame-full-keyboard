@@ -41,9 +41,10 @@ std::string theme_preview_key(const Theme& t) {
         add(c.g);
         add(c.b);
     };
-    for (const auto* c : {&t.surface, &t.top, &t.middle, &t.bottom, &t.side_top, &t.side_bottom,
-                          &t.legend, &t.hover, &t.latched, &t.disabled, &t.warning, &t.error, &t.alert,
-                          &t.latched_top, &t.latched_bottom, &t.latched_legend, &t.pressed_legend}) {
+    for (const auto* c :
+         {&t.surface, &t.top, &t.middle, &t.bottom, &t.side_top, &t.side_bottom, &t.legend, &t.hover,
+          &t.latched, &t.disabled, &t.warning, &t.error, &t.alert, &t.latched_top, &t.latched_bottom,
+          &t.latched_legend, &t.pressed_top, &t.pressed_bottom, &t.pressed_legend}) {
         color(*c);
     }
     for (const auto* c : {&t.edge, &t.edge_hover, &t.pressed}) {

@@ -19,6 +19,17 @@
   "small_font_size": 13,
   "padding": 20,
   "hover": "#55493f",
-  "latched": "#97532c",
-  "disabled": "#241d19"
+  "latched": "#ff7a1a",
+  "disabled": "#241d19",
+  "latched_top": "#ffd25a",
+  "latched_bottom": "#d12f14",
+  "latched_legend": "#2a0e02",
+  "pressed": "#ff8a2a",
+  "pressed_top": "#ffd36b",
+  "pressed_bottom": "#d9421c",
+  "pressed_legend": "#2a0e02",
+  "trail": "#ffb066",
+  "comet_head": "#fff2a8",
+  "comet": "#ff9628",
+  "comet_tail": "#d42a12"
 }

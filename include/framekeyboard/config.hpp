@@ -35,11 +35,17 @@ struct Theme {
     std::string latched_finish{"flat"};
     // Optional, for a high-contrast theme: a bright line inside every keycap
     // and button face, `edge_hover` while the laser is on it or it is
-    // pressed; and a face filled with `pressed`, its legend `pressed_legend`,
-    // while a key is held down. Without them keys have no edge and a pressed
-    // key keeps its face.
+    // pressed. Optional for any theme: a face filled with `pressed`, from
+    // pressed_top through it to pressed_bottom (flat by default), its legend
+    // `pressed_legend`, while a key is held down. Without them keys have no
+    // edge and a pressed key keeps its face.
     std::optional<Color> edge, edge_hover, pressed;
-    Color pressed_legend;
+    Color pressed_top, pressed_bottom, pressed_legend;
+    // Optional swipe trail colours: `trail` for the path, and the comet from
+    // `comet_head` at its newest end through `comet` to `comet_tail` where it
+    // fades out (each end `comet` by default). Without them both are drawn
+    // from the legend and latched colours.
+    std::optional<Color> trail, comet, comet_head, comet_tail;
     double surface_radius{}, radius{}, depth{}, travel{}, duration_ms{};
     double font_size{20}, small_font_size{13}, padding{20};
 };

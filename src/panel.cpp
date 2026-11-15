@@ -111,7 +111,7 @@ constexpr double trail_comet_width = 7, trail_glow_width = 18;
 // A theme with key edges (High Contrast) draws its white path and comet over
 // white edges and legends: a black casing round the path and a black halo in
 // place of the comet's glow keep them apart, and the path shows more.
-constexpr double trail_casing_width = trail_path_width + 5, trail_edge_path_alpha = .55;
+constexpr double trail_casing_width = trail_path_width + 5, trail_edge_path_alpha = .85;
 constexpr double trail_comet_seconds = .42, trail_end_seconds = .22;
 // The laser trembles, so a trail point is the average of the points around
 // it, this many on each side, nearer ones counting more. Toward either end
@@ -1425,8 +1425,7 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
         fill_latched(cr, t, face, t.radius, tube_reach, tube_rest);
     } else if (pressing) {
         rounded(cr, face, t.radius);
-        source(cr, *t.pressed);
-        cairo_fill(cr);
+        gradient(cr, face, t.pressed_top, *t.pressed, t.pressed_bottom);
     } else if (lift > 0) {
         rounded(cr, face, t.radius);
         if (light_theme(t)) {
@@ -3614,16 +3613,28 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             // A tint of the latched colour. A theme with key edges keeps the
             // plain legend colour, its strongest contrast. A neon theme draws
             // the path in its latched colour and the comet as a tube in the
-            // colour its tubes start from.
+            // colour its tubes start from. A theme's own trail colours win.
             const bool neon = t.latched_finish == "neon";
-            const Color path_ink = neon            ? t.latched
-                                   : plain_keys(t) ? t.legend
-                                                   : mix(t.legend, t.latched, .22);
-            const Color ink = neon ? t.latched_top : path_ink;
             const bool cased = plain_keys(t);
-            const Color glow = neon    ? t.latched_top
-                               : cased ? Color{} // the halo: black
-                                       : mix(t.latched, t.legend, .35);
+            const Color path_ink = t.trail ? *t.trail
+                                   : neon  ? t.latched
+                                   : cased ? t.legend
+                                           : mix(t.legend, t.latched, .22);
+            const Color ink = t.comet ? *t.comet : neon ? t.latched_top : path_ink;
+            const Color head = t.comet_head.value_or(ink), tail = t.comet_tail.value_or(ink);
+            // The comet's colour where `left` of its lifetime remains: from
+            // the tail at 0 through `ink` at half to the head at 1.
+            const auto comet_at = [&](double left) {
+                return left < .5 ? mix(tail, ink, 2 * left) : mix(ink, head, 2 * left - 1);
+            };
+            // The glow around it: the comet's own colour on a neon theme or
+            // one with comet colours, a black halo on a theme with key edges.
+            const bool own_comet = t.comet || t.comet_head || t.comet_tail;
+            const auto glow_at = [&](double left) {
+                return cased               ? Color{}
+                       : neon || own_comet ? comet_at(left)
+                                           : mix(t.latched, t.legend, .35);
+            };
             // A smoothed point is settled once its later neighbours have all
             // arrived, or the swipe has ended. Only settled segments join the path.
             const std::size_t settled = trail_released_ >= 0      ? count
@@ -3642,27 +3653,22 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // match a joined path while earlier pixels stay as they were.
                 for (std::size_t i = std::max<std::size_t>(trail_drawn_, 1); i < settled; ++i) {
                     const auto a = trail_point(trail_points_, i - 1), b = trail_point(trail_points_, i);
+                    cairo_move_to(path, a.first, a.second);
+                    cairo_line_to(path, b.first, b.second);
+                    cairo_stroke(path);
                     if (cased) {
-                        // The casing first. Its round cap covers the end of the
-                        // segment before, which is drawn white again over it.
+                        // The casing goes under what the layer already holds,
+                        // so its round caps never cover the path drawn before,
+                        // however short a slow laser makes the segments.
                         cairo_save(path);
+                        cairo_set_operator(path, CAIRO_OPERATOR_DEST_OVER);
                         source(path, Color{});
                         cairo_set_line_width(path, trail_casing_width);
                         cairo_move_to(path, a.first, a.second);
                         cairo_line_to(path, b.first, b.second);
                         cairo_stroke(path);
                         cairo_restore(path);
-                        if (i >= 2) {
-                            const auto before = trail_point(trail_points_, i - 2);
-                            cairo_move_to(path, before.first, before.second);
-                            cairo_line_to(path, a.first, a.second);
-                            cairo_stroke(path);
-                            touched(around(before, a, trail_casing_width / 2 + 2));
-                        }
                     }
-                    cairo_move_to(path, a.first, a.second);
-                    cairo_line_to(path, b.first, b.second);
-                    cairo_stroke(path);
                     const auto piece =
                         around(a, b, (cased ? trail_casing_width : trail_path_width) / 2 + 2);
                     touched(piece);
@@ -3760,7 +3766,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // newer, stronger piece wins where two meet. A pass is drawn on
                 // `comet_passes_`, cleared over `groups` first, as a group
                 // would be, then laid onto the comet within `area`.
-                const auto strokes = [&](double width, double strength, Color colour) {
+                const auto strokes = [&](double width, double strength, auto colour_at) {
                     auto* pass = cairo_create(comet_passes_);
                     cairo_rectangle(pass, groups.x, groups.y, groups.width, groups.height);
                     cairo_clip(pass);
@@ -3779,6 +3785,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         const auto& b = at[i - first + 1];
                         cairo_move_to(pass, a.first, a.second);
                         cairo_line_to(pass, b.first, b.second);
+                        const Color colour = colour_at(left);
                         cairo_set_source_rgba(pass, colour.r, colour.g, colour.b, eased);
                         cairo_set_line_width(pass, width * (.25 + .75 * eased));
                         cairo_stroke(pass);
@@ -3792,10 +3799,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_paint_with_alpha(comet, strength);
                     cairo_restore(comet);
                 };
-                strokes(trail_glow_width, neon ? .26 : cased ? .6 : .16, glow);
-                strokes(trail_comet_width, neon ? .95 : .9, ink);
+                strokes(trail_glow_width, neon ? .26 : cased ? .6 : own_comet ? .22 : .16, glow_at);
+                strokes(trail_comet_width, neon ? .95 : cased ? 1 : .9, comet_at);
                 if (neon) {
-                    strokes(2.4, .7, mix(ink, Color{1, 1, 1}, .75)); // The tube's hot core.
+                    // The tube's hot core.
+                    strokes(2.4, .7,
+                            [&](double left) { return mix(comet_at(left), Color{1, 1, 1}, .75); });
                 }
                 cairo_destroy(comet);
                 cairo_surface_flush(comet_);

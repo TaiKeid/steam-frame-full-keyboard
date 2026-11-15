@@ -459,6 +459,41 @@ void hover_fade() {
     contrast.frame(view, "laser left it");
     require(!contrast.incremental.animating(), "a High Contrast key goes dark at once");
 }
+// A slow laser on High Contrast: points a pixel apart, so each segment is far
+// shorter than its casing's round cap. The casing goes under the path drawn
+// before, which stays yellow instead of turning black.
+void slow_trail() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("en-us"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("en-us-full");
+    view.theme = &profiles.themes.at("contrast");
+    view.language = &profiles.languages.at("en-us");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    Comparison compare;
+    compare.frame(view, "before the swipe");
+    const auto key = panel_rect(view, find_key(*view.layout, "KeyA").bounds);
+    // Below the legend, from left of the key's middle to past its right edge.
+    const double y = std::round(key.y + key.height / 2 + 16), start = key.x + key.width / 2 - 10;
+    for (int i = 0; i < 120; ++i) {
+        view.swipe_trail.emplace_back(start + i, y);
+        compare.frame(view, "a slow swipe");
+    }
+    for (int i = 0; i < 30; ++i) {
+        compare.frame(view, "the comet burns out");
+    }
+    const auto x = static_cast<int>(start + 28);
+    const auto offset =
+        static_cast<std::size_t>((static_cast<int>(y) + popup_margin) * panel_width + x) * 4;
+    const auto pixel = compare.incremental.rgba();
+    if (pixel[offset] < 150 || pixel[offset + 1] < 150) {
+        throw std::runtime_error("a slow High Contrast path stays yellow: " +
+                                 std::to_string(pixel[offset]) + " red on the path");
+    }
+}
 // The swipe trail: a quiet path that only grows, a comet over its last
 // moments, and a fade when the swipe ends. Every frame also paints the same
 // incrementally as in full.
@@ -1065,6 +1100,8 @@ int main() {
         hover_fade();
         swipe_trail("graphite");
         swipe_trail("contrast");
+        swipe_trail("ember"); // a trail in its own colours
+        slow_trail();
         status_line();
         carried_row();
         const auto profiles = load_profiles({}, {});
@@ -1174,9 +1211,20 @@ int main() {
                                R"("pressed_legend":"#000000"})");
         if (!(!dark.edge && !dark.edge_hover && !dark.pressed && dark.pressed_legend == dark.legend &&
               edged.edge == Color{1, 1, 1} && edged.edge_hover == edged.edge &&
-              edged.pressed == Color{1, 1, 0} && edged.pressed_legend == Color{})) {
+              edged.pressed == Color{1, 1, 0} && edged.pressed_top == *edged.pressed &&
+              edged.pressed_bottom == *edged.pressed && edged.pressed_legend == Color{})) {
             throw std::runtime_error(
                 "edge and pressed tokens are optional, and edge_hover follows edge");
+        }
+        // Trail colours, and a pressed gradient, come only from a theme that sets them.
+        const auto trailed =
+            parse_theme(base + R"("legend":"#ffffff","pressed":"#ff8000","pressed_top":"#ffff00",)"
+                               R"("trail":"#0000ff","comet":"#ff0000","comet_tail":"#000000"})");
+        if (!(!dark.trail && !dark.comet && !dark.comet_head && !dark.comet_tail &&
+              trailed.trail == Color{0, 0, 1} && trailed.comet == Color{1, 0, 0} &&
+              !trailed.comet_head && trailed.comet_tail == Color{} &&
+              trailed.pressed_top == Color{1, 1, 0} && trailed.pressed_bottom == *trailed.pressed)) {
+            throw std::runtime_error("trail, comet and pressed gradient tokens are optional");
         }
         // High Contrast's text reaches 7:1 (WCAG AAA) on every face it sits on:
         // idle, hovered, pressed, latched and disabled.

@@ -23,5 +23,8 @@
   "disabled": "#1b1930",
   "latched_top": "#ffb068",
   "latched_bottom": "#cf4f8e",
-  "latched_legend": "#2a0b1c"
+  "latched_legend": "#2a0b1c",
+  "comet_head": "#ffb068",
+  "comet": "#f0667a",
+  "comet_tail": "#cf4f8e"
 }

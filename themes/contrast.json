@@ -13,7 +13,7 @@
   "key_depth": 3.5,
   "key_press_travel": 3,
   "press_duration_ms": 80,
-  "notes": "Accessibility theme: white legends and bright key edges on black, yellow under the laser and while pressed, cyan when latched.",
+  "notes": "Accessibility theme: white legends and bright key edges on black, yellow under the laser, while pressed and for the swipe trail, cyan when latched.",
   "id": "contrast",
   "font_size": 22,
   "small_font_size": 14,
@@ -28,5 +28,7 @@
   "pressed_legend": "#000000",
   "warning": "#ffff00",
   "error": "#ff8080",
-  "alert": "#ff9f1a"
+  "alert": "#ff9f1a",
+  "trail": "#ffff00",
+  "comet": "#ffff00"
 }

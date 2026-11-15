@@ -318,7 +318,20 @@ Theme parse_theme(const std::string& json) {
     if (field(o, "pressed", json_type_string, true)) {
         t.pressed = color(o, "pressed");
     }
+    // The gradient's ends are used only with a pressed colour.
+    t.pressed_top = optional_color("pressed_top", t.pressed.value_or(t.legend));
+    t.pressed_bottom = optional_color("pressed_bottom", t.pressed.value_or(t.legend));
     t.pressed_legend = optional_color("pressed_legend", t.legend);
+    auto maybe_color = [&](const char* name) -> std::optional<Color> {
+        if (field(o, name, json_type_string, true)) {
+            return color(o, name);
+        }
+        return std::nullopt;
+    };
+    t.trail = maybe_color("trail");
+    t.comet = maybe_color("comet");
+    t.comet_head = maybe_color("comet_head");
+    t.comet_tail = maybe_color("comet_tail");
     t.surface_radius = number(o, "surface_radius", 0, 40);
     t.radius = number(o, "key_radius", 0, 25);
     t.depth = number(o, "key_depth", 0, 15);
