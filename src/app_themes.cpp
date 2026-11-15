@@ -191,7 +191,7 @@ void App::tick_themes(double now) {
         dirty = true;
     }
     // Hidden, the pictures are freed (set_interaction_active) and none load.
-    if (!interaction_active_) {
+    if (!interaction_active_ || state.filled) {
         return;
     }
     // One preview a frame, loaded from disk or drawn: the cards in view first.
@@ -206,6 +206,8 @@ void App::tick_themes(double now) {
     }
     if (state.previews.fill_one(wanted, profiles_, theme_store_)) {
         dirty = true;
+    } else {
+        state.filled = true;
     }
 }
 } // namespace framekeyboard

@@ -3327,6 +3327,23 @@ void theme_picker() {
         }
         require(pictured(app.view()) && saved() == first,
                 "shown again, the pictures load from disk, none drawn again");
+        // With every picture in, a shell's theme arriving still gets one (R297).
+        const std::string shell = R"({"schema_version":1,"id":"x","name":"Shell","surface":"#101010",
+            "surface_radius":20,"key_top":"#303030","key_middle":"#282828","key_bottom":"#202020",
+            "key_side_top":"#181818","key_side_bottom":"#101010","legend":"#ffffff","key_radius":8,
+            "key_depth":3.5,"key_press_travel":3,"press_duration_ms":80,"hover":"#404040",
+            "latched":"#335577","disabled":"#151515"})";
+        require(app.host_theme_set(shell).first.empty(), "a shell's theme applies");
+        for (int i = 0; i < 10; ++i) {
+            app.tick(now += .02);
+        }
+        require(fs::exists(options.theme_previews_dir / "shell.argb"),
+                "a theme arriving with every picture in still gets its picture");
+        app.host_theme_reset();
+        for (int i = 0; i < 5; ++i) {
+            app.tick(now += .02);
+        }
+        first = saved();
         click(app, "themes-card-lagoon");
         view = app.view();
         require(view.themes && view.theme->id == "lagoon" &&

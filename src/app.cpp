@@ -1120,6 +1120,7 @@ void App::update_settings_ui() {
         // A Reload may have removed themes: their saved pictures go, and the
         // picker's end stays in place (R289).
         theme_store_.sync(theme_order());
+        themes_->filled = false; // a theme may have changed
         const double limit = themes_limit();
         themes_->scroll = std::min(themes_->scroll, limit);
         themes_->target = std::min(themes_->target, limit);
@@ -2650,6 +2651,7 @@ void App::set_interaction_active(bool active) {
         output_.set_enabled(false);
         if (themes_) {
             themes_->previews.clear(); // loaded again when shown (tick_themes)
+            themes_->filled = false;
         }
         theme_store_.flush();
         if (owns_anthy() && !mozc_server_.empty()) {

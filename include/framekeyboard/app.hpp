@@ -1163,6 +1163,10 @@ class App {
         // The cards' pictures: they live and go with the popup, and while
         // the panel is hidden they are freed and nothing loads.
         ThemePreviews previews;
+        // Every theme has its picture: idle frames look at none of them
+        // (R297). Cleared when the themes may have changed (every
+        // update_settings_ui: a Reload, a shell's theme) and on hiding.
+        bool filled{};
     };
     std::optional<ThemesPopup> themes_;
     ThemePreviewStore theme_store_; // the pictures on disk, for the whole process
