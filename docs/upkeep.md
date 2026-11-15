@@ -96,6 +96,15 @@ After any update above, run these in order and stop at the first failure:
 
 ## Last check
 
+2026-11-14, for 0.19.0:
+- **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the data-control protocols (wayland-protocols 1.50 has the same file; wlroots only marked theirs deprecated), the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, the AppImage runtime 20251108 and every Chinese engine pin.
+- **ExecuTorch v1.6.0:** nothing in it reaches the swipe engine (its thread-pool change doesn't apply with one thread; its XNNPACK fix is for quantized ops, the encoder is fp32); the pin stays on v1.5.1 until the next swipe work.
+- **frame-perf-overlay:** its two texture files only gained a BGRA switch, which ours already has as a format parameter, and start-up cleanups; nothing to take.
+- **Mozc dictionary and kaomoji data:** none of the files the lists are built from changed; the pin stays.
+- **extra-cmake-modules v6.32.0:** used only while configuring the Chinese engines; the pin stays.
+- **Unicode emoji 18.0:** the Frame still has Noto Color Emoji 2.051 (Unicode 17); the list stays at 17.0.
+- **SteamOS libraries:** the Frame moved to SteamOS 0.5.9 (build 20261113.6134720, beta) since 0.18.1; releases still build against stable's libraries. Native replacement started on every development deploy since; the stream and Desktop private-behavior checks were not repeated.
+
 2026-11-13, for 0.18.1: the same as for 0.18.0 below. SteamOS and Steam had not changed since 0.18.0, so the private-behavior checks were not due.
 
 2026-11-12, for 0.18.0:
