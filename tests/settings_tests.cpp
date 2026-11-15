@@ -3388,6 +3388,29 @@ void theme_picker() {
                 "pictures another version drew are all drawn again, and the index takes this one");
         first = again;
     }
+    {
+        // A picture the index vouches for but that was drawn from something
+        // else (here another theme's, as after a crash between saving it and
+        // writing the index) is drawn again, not shown (R295).
+        const auto graphite = options.theme_previews_dir / "graphite.argb";
+        fs::copy_file(options.theme_previews_dir / "midnight.argb", graphite,
+                      fs::copy_options::overwrite_existing);
+        const auto copied = fs::last_write_time(graphite);
+        App app(options, sink);
+        app.show_settings();
+        click(app, "theme");
+        double now = 10;
+        for (int i = 0; i < 100; ++i) {
+            app.tick(now += .02);
+        }
+        std::ifstream a(graphite, std::ios::binary),
+            b(options.theme_previews_dir / "midnight.argb", std::ios::binary);
+        const std::string drawn((std::istreambuf_iterator<char>(a)), {}),
+            midnight((std::istreambuf_iterator<char>(b)), {});
+        require(fs::last_write_time(graphite) != copied && drawn != midnight,
+                "a picture drawn from another theme is drawn again although the index vouches for it");
+        first = saved();
+    }
     const auto themes_dir = options.config_dir / "themes";
     fs::create_directories(themes_dir);
     const auto user_theme = [&](const std::string& id, const std::string& latched) {

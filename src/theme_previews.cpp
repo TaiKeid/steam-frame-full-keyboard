@@ -1,6 +1,7 @@
 #include "framekeyboard/theme_previews.hpp"
 #include "framekeyboard/panel.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -29,20 +30,46 @@ std::string file_stem(const std::string& id) {
 std::shared_ptr<cairo_surface_t> own(cairo_surface_t* surface) {
     return {surface, cairo_surface_destroy};
 }
+constexpr const char* index_name = "index.txt";
+constexpr const char* index_title = "Full Keyboard theme pictures";
+// Raised when the pictures are drawn differently within one version, as
+// between development builds, so the index clears them.
+constexpr int drawing_revision = 4;
+// The index's second line: what drew the pictures. Any difference, such as
+// another release, clears them all.
+std::string drawn_by() {
+    return std::string("drawn by ") + FRAMEKEYBOARD_VERSION + ", " +
+           std::to_string(theme_preview_width) + "x" + std::to_string(theme_preview_height) +
+           ", drawing " + std::to_string(drawing_revision);
+}
+// What a picture was drawn from: its theme's hash under this version's
+// drawing, 16 hex digits. Each picture carries it, so one the index vouches
+// for wrongly (a crash between saving it and writing the index, or another
+// process's index) is drawn again instead of shown (R295).
+std::string picture_stamp(const std::string& theme_hash) {
+    const auto text = drawn_by() + "\n" + theme_hash;
+    auto* hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, text.c_str(), -1);
+    std::string stamp(hash, 16);
+    g_free(hash);
+    return stamp;
+}
 // A preview file: this header, then the surface's rows as Cairo keeps them
 // (premultiplied ARGB in the machine's byte order; the cache never leaves it).
 struct FileHeader {
     char magic[4];
     std::uint32_t width, height, stride;
+    char stamp[16]; // picture_stamp
 };
-constexpr char file_magic[4] = {'F', 'K', 'T', 'P'};
+static_assert(sizeof(FileHeader) == 32, "no padding: the file holds the header as it is");
+constexpr char file_magic[4] = {'F', 'K', 'T', '2'};
 constexpr const char* file_extension = ".argb";
 std::uint32_t preview_stride() {
     return static_cast<std::uint32_t>(
         cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, theme_preview_width));
 }
-// Null unless the file holds exactly one preview of the current size.
-std::shared_ptr<cairo_surface_t> read_preview(const fs::path& file) {
+// Null unless the file holds exactly one preview of the current size,
+// drawn from what `stamp` says.
+std::shared_ptr<cairo_surface_t> read_preview(const fs::path& file, const std::string& stamp) {
     std::FILE* in = std::fopen(file.c_str(), "rb");
     if (!in) {
         return nullptr;
@@ -53,7 +80,8 @@ std::shared_ptr<cairo_surface_t> read_preview(const fs::path& file) {
         std::memcmp(header.magic, file_magic, sizeof file_magic) == 0 &&
         header.width == static_cast<std::uint32_t>(theme_preview_width) &&
         header.height == static_cast<std::uint32_t>(theme_preview_height) &&
-        header.stride == preview_stride()) {
+        header.stride == preview_stride() && stamp.size() == sizeof header.stamp &&
+        std::memcmp(header.stamp, stamp.data(), sizeof header.stamp) == 0) {
         auto image = own(
             cairo_image_surface_create(CAIRO_FORMAT_ARGB32, theme_preview_width, theme_preview_height));
         const auto size = static_cast<std::size_t>(header.stride) * header.height;
@@ -71,12 +99,14 @@ std::shared_ptr<cairo_surface_t> read_preview(const fs::path& file) {
     std::fclose(in);
     return result;
 }
-bool write_preview(const fs::path& file, cairo_surface_t* image) {
+bool write_preview(const fs::path& file, cairo_surface_t* image, const std::string& stamp) {
     cairo_surface_flush(image);
-    const FileHeader header{{file_magic[0], file_magic[1], file_magic[2], file_magic[3]},
-                            static_cast<std::uint32_t>(cairo_image_surface_get_width(image)),
-                            static_cast<std::uint32_t>(cairo_image_surface_get_height(image)),
-                            static_cast<std::uint32_t>(cairo_image_surface_get_stride(image))};
+    FileHeader header{{file_magic[0], file_magic[1], file_magic[2], file_magic[3]},
+                      static_cast<std::uint32_t>(cairo_image_surface_get_width(image)),
+                      static_cast<std::uint32_t>(cairo_image_surface_get_height(image)),
+                      static_cast<std::uint32_t>(cairo_image_surface_get_stride(image)),
+                      {}};
+    std::memcpy(header.stamp, stamp.data(), std::min(stamp.size(), sizeof header.stamp));
     std::FILE* out = std::fopen(file.c_str(), "wb");
     if (!out) {
         return false;
@@ -86,18 +116,6 @@ bool write_preview(const fs::path& file, cairo_surface_t* image) {
                    std::fwrite(cairo_image_surface_get_data(image), 1, size, out) == size;
     written = std::fclose(out) == 0 && written;
     return written;
-}
-constexpr const char* index_name = "index.txt";
-constexpr const char* index_title = "Full Keyboard theme pictures";
-// Raised when the pictures are drawn differently within one version, as
-// between development builds, so the index clears them.
-constexpr int drawing_revision = 4;
-// The index's second line: what drew the pictures. Any difference, such as
-// another release, clears them all.
-std::string drawn_by() {
-    return std::string("drawn by ") + FRAMEKEYBOARD_VERSION + ", " +
-           std::to_string(theme_preview_width) + "x" + std::to_string(theme_preview_height) +
-           ", drawing " + std::to_string(drawing_revision);
 }
 // Each process writes its own partial file and renames it into place, so two
 // keyboards (the app and the simulator, say) never mix their bytes.
@@ -184,7 +202,7 @@ std::shared_ptr<cairo_surface_t> ThemePreviewStore::load(const Theme& theme) {
     if (found == recorded_.end() || found->second != hash(theme)) {
         return nullptr;
     }
-    return read_preview(picture_file(theme.id));
+    return read_preview(picture_file(theme.id), picture_stamp(found->second));
 }
 
 void ThemePreviewStore::save(const Theme& theme, cairo_surface_t* picture) {
@@ -199,7 +217,7 @@ void ThemePreviewStore::save(const Theme& theme, cairo_surface_t* picture) {
     const auto file = picture_file(theme.id);
     const auto partial = partial_of(file);
     bool saved = false;
-    if (!error && write_preview(partial, picture)) {
+    if (!error && write_preview(partial, picture, picture_stamp(hash(theme)))) {
         fs::rename(partial, file, error);
         saved = !error;
     }
