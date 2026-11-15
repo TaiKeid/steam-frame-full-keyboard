@@ -3417,6 +3417,21 @@ void theme_picker() {
                 "a picture drawn from another theme is drawn again although the index vouches for it");
         first = saved();
     }
+    {
+        // A picture no index line lists (its save failed, or a crash came
+        // before the index) and a crash's partial file go at the next run's
+        // first picker; listed pictures and other files stay (R296).
+        const auto orphan = options.theme_previews_dir / "zz-gone.argb";
+        const auto partial = options.theme_previews_dir / "graphite.argb.12345.partial";
+        std::ofstream(orphan) << "orphan";
+        std::ofstream(partial) << "partial";
+        App app(options, sink);
+        app.show_settings();
+        click(app, "theme");
+        require(!fs::exists(orphan) && !fs::exists(partial) && saved() == first &&
+                    fs::exists(options.theme_previews_dir / "notes.txt"),
+                "files of ours no index line lists go, and nothing else");
+    }
     const auto themes_dir = options.config_dir / "themes";
     fs::create_directories(themes_dir);
     const auto user_theme = [&](const std::string& id, const std::string& latched) {

@@ -266,27 +266,36 @@ void ThemePreviewStore::read_index() {
     }
     std::ifstream in(directory_ / index_name);
     std::string title, drawn;
-    if (std::getline(in, title) && std::getline(in, drawn) && title == index_title &&
-        drawn == drawn_by()) {
+    const bool current = std::getline(in, title) && std::getline(in, drawn) && title == index_title &&
+                         drawn == drawn_by();
+    if (current) {
         std::string id, hash;
         while (in >> id >> hash) {
             recorded_[id] = hash;
         }
-        return;
     }
-    // No index, or another version's: other code drew these pictures. Only
-    // files of ours go (older builds saved PNGs); no exceptions, as a folder
-    // that changes while it is read only stops the clean-up.
+    // Files of ours the index does not list go: with no index, or another
+    // version's, all of them, as other code drew them (older builds saved
+    // PNGs); otherwise a picture whose save failed or whose line was never
+    // written, and partial files a crash left (R296). Other files stay. No
+    // exceptions: a folder that changes while it is read only stops this.
+    std::set<fs::path> listed;
+    for (const auto& [id, hash] : recorded_) {
+        listed.insert(picture_file(id).filename());
+    }
     std::error_code error;
     fs::directory_iterator entry(directory_, error);
     for (; !error && entry != fs::directory_iterator(); entry.increment(error)) {
         const auto extension = entry->path().extension();
-        if (extension == file_extension || extension == ".png" || extension == ".partial") {
+        if ((extension == file_extension && !listed.contains(entry->path().filename())) ||
+            extension == ".png" || extension == ".partial") {
             std::error_code ignored;
             fs::remove(entry->path(), ignored);
         }
     }
-    write_index();
+    if (!current) {
+        write_index();
+    }
 }
 
 void ThemePreviewStore::write_index() {
