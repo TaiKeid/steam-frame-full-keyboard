@@ -217,10 +217,10 @@ void state_tests(const fk::Layout& layout) {
     using Events = std::vector<std::pair<int, int>>;
     const auto shift = key(layout, "ShiftLeft");
     state.down(0, shift, 90);
-    state.tick(90.9);
+    state.tick(90.85);
     require(!state.locked(KEY_LEFTSHIFT), "a short hold does not lock");
     state.tick(90.96);
-    require(state.locked(KEY_LEFTSHIFT), "a 0.95 s hold locks while still held");
+    require(state.locked(KEY_LEFTSHIFT), "a 0.9 s hold locks while still held");
     state.up(0);
     require(state.locked(KEY_LEFTSHIFT) && state.modifiers().contains(KEY_LEFTSHIFT),
             "the release keeps it locked");
@@ -263,8 +263,10 @@ void state_tests(const fk::Layout& layout) {
     require(state.locked(KEY_LEFTCTRL) && state.modifiers().contains(KEY_LEFTCTRL),
             "Ctrl locks as Shift does");
     state.cancel_all();
-    // Releasing the Shift that just locked keeps Shift on a key the other
-    // hand holds, through the output queue as the app uses it.
+    // A Shift that locked while held and is then used by the other hand was
+    // a slow chord: it comes up when let go, even under a key still held.
+    // A key already held when Shift locks is not changed by the lock.
+    // Through the output queue as the app uses it.
     for (const auto* name : {"ShiftLeft", "ShiftRight"}) {
         const int code = fk::key_code(name);
         Capture target;
@@ -278,19 +280,19 @@ void state_tests(const fk::Layout& layout) {
             }
             return count;
         };
-        // Shift first: it locks, the arrow takes it, then Shift's hand lets go.
+        // Shift first: it locks, the arrow uses it, then Shift's hand lets go.
         hands.down(0, key(layout, name), 100);
         hands.tick(100.96);
         hands.down(1, key(layout, "ArrowLeft"), 101);
         output.tick(101);
         hands.up(0);
         output.tick(101.1);
-        require(hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 1,
-                "the held arrow keeps the locked Shift");
+        require(!hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 0,
+                "a lock used before let go turns back into a hold, and Shift comes up");
         hands.up(1);
         output.tick(101.2);
-        require(held(KEY_LEFT) == 0 && held(code) == 0 && target.events.back() == std::pair{code, 0},
-                "and releases it after itself");
+        require(held(KEY_LEFT) == 0 && held(code) == 0 && target.events.back() == std::pair{KEY_LEFT, 0},
+                "and the arrow comes up after it");
         // Arrow first: it was pressed without Shift and stays that way.
         hands.cancel_all();
         target.events.clear();
@@ -313,7 +315,7 @@ void state_tests(const fk::Layout& layout) {
             "Enter and cancellation");
 }
 // Held and locked modifiers (issue 15): Ctrl, Alt and Super stay down on the
-// target while held or locked, Shift and AltGr go down with each key. A 0.95 s
+// target while held or locked, Shift and AltGr go down with each key. A 0.9 s
 // hold or a double tap locks; a tap on a locked key unlocks them all.
 void modifier_lock_tests(const fk::Layout& layout) {
     using Events = std::vector<std::pair<int, int>>;
@@ -374,14 +376,14 @@ void modifier_lock_tests(const fk::Layout& layout) {
     }
     Capture sink;
     fk::KeyboardState state(sink);
-    // A 0.95 s hold locks; the ring goes on to 1.1 s even if let go between.
+    // A 0.9 s hold locks; the ring goes on to 1 s even if let go between.
     state.down(0, alt, 10);
     require(state.lock_ring("AltLeft") == 10.0, "a held modifier's ring starts with the press");
-    state.tick(10.94);
-    require(!state.locked(KEY_LEFTALT), "no lock before 0.95 s");
+    state.tick(10.85);
+    require(!state.locked(KEY_LEFTALT), "no lock before 0.9 s");
     state.tick(10.96);
     require(state.locked(KEY_LEFTALT) && state.take_new_locks() == std::vector<unsigned>{0},
-            "locked at 0.95 s, once, for the hand holding it");
+            "locked at 0.9 s, once, for the hand holding it");
     require(state.take_new_locks().empty(), "each lock is reported once");
     state.up(0);
     require(state.locked(KEY_LEFTALT) && state.lock_ring("AltLeft") == 10.0,
@@ -432,7 +434,7 @@ void modifier_lock_tests(const fk::Layout& layout) {
     state.take_new_locks();
     state.down(0, ctrl, 30);
     state.up(0);
-    state.down(0, ctrl, 30.3);
+    state.down(0, ctrl, 30.2);
     state.up(0);
     require(state.locked(KEY_LEFTCTRL) && state.take_new_locks() == std::vector<unsigned>{0} &&
                 !state.lock_ring("ControlLeft"),
@@ -455,6 +457,21 @@ void modifier_lock_tests(const fk::Layout& layout) {
     state.tick(42);
     require(!state.locked(KEY_LEFTALT), "and never locks");
     state.up(0);
+    // A slow chord: held past the lock, then used before it is let go, it was
+    // a hold after all. It comes up on release instead of staying locked and
+    // down, which would keep Alt+Tab's switcher open.
+    state.down(0, alt, 45);
+    state.tick(46.2);
+    require(state.locked(KEY_LEFTALT), "held unused past 0.9 s, it locks");
+    sink.events.clear();
+    state.down(1, tab, 46.3);
+    require(!state.locked(KEY_LEFTALT) && !state.lock_ring("AltLeft"),
+            "a key using it turns the lock back into a hold, and the ring goes");
+    state.up(1);
+    state.up(0);
+    require(!state.locked(KEY_LEFTALT) &&
+                sink.events == Events{{KEY_LEFTALT, 1}, {KEY_TAB, 1}, {KEY_TAB, 0}, {KEY_LEFTALT, 0}},
+            "and it comes up when let go");
     state.down(0, key(layout, "MetaRight"), 50);
     state.tick(52);
     state.up(0);

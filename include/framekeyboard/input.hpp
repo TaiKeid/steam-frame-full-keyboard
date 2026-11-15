@@ -193,10 +193,10 @@ class KeyboardState {
     // would, until a tap on any locked key unlocks them all. Its ring runs a
     // little longer than the lock takes, so a hand that lets go as the ring
     // closes still locks.
-    static constexpr double lock_seconds = .95;
-    static constexpr double lock_ring_seconds = 1.1;
+    static constexpr double lock_seconds = .9;
+    static constexpr double lock_ring_seconds = 1;
     // A second tap within this long of the first locks it, as holding does.
-    static constexpr double double_tap_seconds = .4;
+    static constexpr double double_tap_seconds = .3;
     bool locked(int code) const { return locked_.contains(code); }
     const std::set<int>& locked_modifiers() const { return locked_; }
     // When the lock ring of this key started: while it is held toward a lock,

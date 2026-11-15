@@ -873,6 +873,15 @@ void KeyboardState::use_modifiers() {
     for (auto& [id, held] : presses_) {
         (void)id;
         if (held.modifier) {
+            // A lock that came while the modifier was still held turns back
+            // into a hold once a key uses it: that was a slow chord, such as
+            // Alt held while the other hand aims at Tab, and it must come up
+            // on release rather than stay locked (and down).
+            if (held.locks) {
+                held.locks = false;
+                locked_.erase(held.modifier);
+                rings_.erase(held.id);
+            }
             held.used = true;
         }
     }

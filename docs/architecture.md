@@ -92,8 +92,10 @@ native press snapshots its chord; Unicode presses snapshot the composed text.
 A held or locked Ctrl, Alt or Super also goes down as a direct hold of its own
 ahead of the first chord that uses it and stays down until let go or unlocked,
 so chords between share it; Shift and AltGr, which pick characters, go down only
-with each chord. A sticky modifier locks after 0.95 s held unused or on a
-double tap; a tap on a locked key ends every lock and lets kept-down modifiers up.
+with each chord. A sticky modifier locks after 0.9 s held unused or on a
+double tap; one that a key uses before it is let go was a slow chord, and turns
+back into a hold. A tap on a locked key ends every lock and lets kept-down
+modifiers up.
 Up to 32 output entries can wait for delivery, with at most 32 Unicode characters
 per text entry. A longer composition, up to 1,024 code points, is admitted as a
 whole batch or refused without changing the queue. Once admitted, the output

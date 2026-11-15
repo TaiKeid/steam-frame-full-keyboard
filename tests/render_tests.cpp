@@ -764,7 +764,7 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
         compare.settle(view, "modified release");
     }
     // A held modifier's lock ring, in every theme: hidden for 0.3 s, then going
-    // round until 1.1 s, with the lock at 0.95 s; then the locked key's border,
+    // round until 1 s, with the lock at 0.9 s; then the locked key's border,
     // and a tap that unlocks it. Steps of 0.05 s cover the ring's 30 fps steps.
     if (language.id == "en-us" && !transparent && has_key(layout, "AltLeft")) {
         const auto alt = find_key(layout, "AltLeft");

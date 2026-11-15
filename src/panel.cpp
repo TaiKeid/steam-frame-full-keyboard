@@ -97,7 +97,7 @@ Color disabled_legend(const Theme& theme) {
 constexpr double press_share = .75, release_share = 1.6, hover_fade_seconds = .18;
 // A lock ring stays hidden for this long after the press, so an ordinary tap
 // never flashes it, then fades in over the next lock_ring_fade seconds.
-constexpr double lock_ring_hidden = .3, lock_ring_fade = .3;
+constexpr double lock_ring_hidden = .3, lock_ring_fade = .2;
 // The swipe trail: the whole path as a thin line, drawn faintly, and over it
 // a comet, the pieces of the path newer than `trail_comet_seconds`, each
 // thinner and fainter with age. When the swipe ends the path fades out over
@@ -281,10 +281,37 @@ bool light_theme(const Theme& t) {
 Color recede(const Theme& t, Color c, double amount) {
     return mix(c, light_theme(t) ? Color{1, 1, 1} : Color{}, amount);
 }
+// A rounded rectangle's outline from 12 o'clock clockwise, the way a lock
+// ring goes round, and its length.
+void clockwise_path(cairo_t* cr, const Rect& r, double radius) {
+    constexpr double pi = 3.141592653589793;
+    const double left = r.x, top = r.y, right = r.x + r.width, bottom = r.y + r.height;
+    cairo_new_path(cr);
+    cairo_move_to(cr, (left + right) / 2, top);
+    cairo_arc(cr, right - radius, top + radius, radius, -pi / 2, 0);
+    cairo_arc(cr, right - radius, bottom - radius, radius, 0, pi / 2);
+    cairo_arc(cr, left + radius, bottom - radius, radius, pi / 2, pi);
+    cairo_arc(cr, left + radius, top + radius, radius, pi, 3 * pi / 2);
+    cairo_close_path(cr);
+}
+double clockwise_length(const Rect& r, double radius) {
+    return 2 * (r.width + r.height - 4 * radius) + 2 * 3.141592653589793 * radius;
+}
+// Limits the strokes that follow to the share from `from` to `to` (0 to 1)
+// of a clockwise_path `length` long.
+void dash_share(cairo_t* cr, double length, double from, double to) {
+    const double on = (to - from) * length;
+    const double dash[]{on, length};
+    // The pattern repeats every on + length; this offset starts it `from` along.
+    cairo_set_dash(cr, dash, 2, on + length - from * length);
+}
 // A neon tube along the inside edge of a rounded shape, at `alpha` strength:
 // a soft glow falling inward, the tube in the latched gradient, and its hot
 // core. All of it stays inside the shape, so a key repaints within its bounds.
-void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double alpha = 1) {
+// `reach` below 1: a lock ring is filling the tube from 12 o'clock clockwise.
+// The share it has reached keeps `alpha`, and the rest dims to `alpha * rest`.
+void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double alpha = 1,
+               double reach = 1, double rest = 1) {
     const Rect tube{r.x + 2, r.y + 2, r.width - 4, r.height - 4};
     const double tube_radius = std::max(1.0, radius - 2);
     auto* light = cairo_pattern_create_linear(0, tube.y, 0, tube.y + tube.height);
@@ -292,26 +319,50 @@ void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double
     cairo_pattern_add_color_stop_rgb(light, .5, t.latched.r, t.latched.g, t.latched.b);
     cairo_pattern_add_color_stop_rgb(light, 1, t.latched_bottom.r, t.latched_bottom.g,
                                      t.latched_bottom.b);
-    cairo_save(cr);
-    rounded(cr, r, radius);
-    cairo_clip(cr);
-    cairo_push_group(cr); // The layers blend among themselves, then fade together.
-    for (const auto& [width, strength] :
-         std::initializer_list<std::pair<double, double>>{{14, .1}, {8, .18}, {4.5, .4}, {2.2, 1}}) {
-        rounded(cr, tube, tube_radius);
-        cairo_set_source(cr, light);
-        cairo_set_line_width(cr, width);
-        cairo_push_group(cr);
+    const bool split = reach < 1;
+    const double length = clockwise_length(tube, tube_radius);
+    const auto path = [&] {
+        if (split) {
+            clockwise_path(cr, tube, tube_radius);
+        } else {
+            rounded(cr, tube, tube_radius);
+        }
+    };
+    // The tube from `from` to `to` round it, or all of it unsplit, at `strength`.
+    const auto layers = [&](double from, double to, double strength) {
+        if (strength <= 0 || to <= from) {
+            return;
+        }
+        cairo_save(cr);
+        if (split) {
+            dash_share(cr, length, from, to); // Butt ends: the two shares meet edge to edge.
+        }
+        cairo_push_group(cr); // The layers blend among themselves, then fade together.
+        for (const auto& [width, layer] :
+             std::initializer_list<std::pair<double, double>>{{14, .1}, {8, .18}, {4.5, .4}, {2.2, 1}}) {
+            path();
+            cairo_set_source(cr, light);
+            cairo_set_line_width(cr, width);
+            cairo_push_group(cr);
+            cairo_stroke(cr);
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, layer);
+        }
+        path();
+        cairo_set_source_rgba(cr, 1, 1, 1, .45);
+        cairo_set_line_width(cr, .8);
         cairo_stroke(cr);
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, strength);
+        cairo_restore(cr);
+    };
+    cairo_save(cr);
+    rounded(cr, r, radius);
+    cairo_clip(cr);
+    layers(0, split ? reach : 1, alpha);
+    if (split) {
+        layers(reach, 1, alpha * rest);
     }
-    rounded(cr, tube, tube_radius);
-    cairo_set_source_rgba(cr, 1, 1, 1, .45);
-    cairo_set_line_width(cr, .8);
-    cairo_stroke(cr);
-    cairo_pop_group_to_source(cr);
-    cairo_paint_with_alpha(cr, alpha);
     cairo_restore(cr);
     cairo_pattern_destroy(light);
 }
@@ -321,13 +372,15 @@ bool plain_keys(const Theme& t) {
     return t.edge.has_value();
 }
 // Fills a rounded shape with the latched colour in the theme's finish.
-void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius) {
+// `reach` and `rest`: a neon tube filling with a lock ring (neon_tube).
+void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius, double reach = 1,
+                  double rest = 1) {
     rounded(cr, r, radius);
     if (t.latched_finish == "neon") {
         // A dark face with a faint tint of the light, inside the tube.
         gradient(cr, r, mix(t.top, t.latched_top, .1), mix(t.middle, t.latched, .1),
                  mix(t.bottom, t.latched_bottom, .12));
-        neon_tube(cr, t, r, radius);
+        neon_tube(cr, t, r, radius, 1, reach, rest);
     } else if (t.latched_top == t.latched && t.latched_bottom == t.latched) {
         if (plain_keys(t)) {
             source(cr, t.latched);
@@ -1246,44 +1299,32 @@ void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
 // o'clock clockwise `progress` of the way round (0 to 1, 1 the locked key's
 // border), at `alpha`. It takes the legend colour of the face it is on, so it
 // reads on every fill: white on a dark key, dark on a light one, black on High
-// Contrast's yellow and cyan. It runs inside an edge theme's edge, and on a
-// neon theme along the tube, lighting it white with a glow of its own.
+// Contrast's yellow and cyan. It runs inside an edge theme's edge. On a neon
+// theme it is the tube's white core over the share of the tube it has
+// reached, which stays lit while the rest dims (draw_key_at, neon_tube).
 void draw_lock_ring(cairo_t* cr, const Theme& t, const Rect& face, double progress, double alpha) {
     if (progress <= 0 || alpha <= 0) {
         return;
     }
     const bool neon = t.latched_finish == "neon";
-    const double inset = neon ? 2 : plain_keys(t) ? 5 : 2.5;
+    // Clear of an edge theme's edge, 2 px wide or 3 px under the laser; on
+    // the tube's own line on a neon theme.
+    const double inset = neon ? 2 : plain_keys(t) ? 6 : 2.5;
     const Rect r{face.x + inset, face.y + inset, face.width - 2 * inset, face.height - 2 * inset};
     const double radius = std::min(std::max(1.0, t.radius - inset), std::min(r.width, r.height) / 2);
-    constexpr double pi = 3.141592653589793;
-    const double left = r.x, top = r.y, right = r.x + r.width, bottom = r.y + r.height;
     cairo_save(cr);
     rounded(cr, face, t.radius);
     cairo_clip(cr); // Stays inside the face, as the key repaints within its bounds.
-    cairo_new_path(cr);
-    cairo_move_to(cr, (left + right) / 2, top);
-    cairo_arc(cr, right - radius, top + radius, radius, -pi / 2, 0);
-    cairo_arc(cr, right - radius, bottom - radius, radius, 0, pi / 2);
-    cairo_arc(cr, left + radius, bottom - radius, radius, pi / 2, pi);
-    cairo_arc(cr, left + radius, top + radius, radius, pi, 3 * pi / 2);
-    cairo_close_path(cr);
+    clockwise_path(cr, r, radius);
     const bool whole = progress >= 1;
     if (!whole) {
-        const double perimeter = 2 * (r.width + r.height - 4 * radius) + 2 * pi * radius;
-        const double dash[]{progress * perimeter, perimeter};
-        cairo_set_dash(cr, dash, 2, 0);
+        dash_share(cr, clockwise_length(r, radius), 0, progress);
     }
     cairo_set_line_cap(cr, whole ? CAIRO_LINE_CAP_BUTT : CAIRO_LINE_CAP_ROUND);
     cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
     const auto& c = t.legend;
-    if (neon) {
-        cairo_set_source_rgba(cr, c.r, c.g, c.b, .3 * alpha);
-        cairo_set_line_width(cr, 6);
-        cairo_stroke_preserve(cr);
-    }
     cairo_set_source_rgba(cr, c.r, c.g, c.b, alpha);
-    cairo_set_line_width(cr, neon ? 2.6 : 3);
+    cairo_set_line_width(cr, 3);
     cairo_stroke(cr);
     cairo_restore(cr);
 }
@@ -1328,8 +1369,9 @@ enum class KeyFace { Plain, Latched, Pressed, Disabled };
 // lit `lift` by the laser, each 0 to 1, with the shade of a press, the edge
 // light, a neon tube and a high-contrast edge as the theme has them. `r` is
 // where the face rests. Returns where the face is drawn, for its legend.
+// `tube_reach` and `tube_rest`: a latched neon tube filling with a lock ring.
 Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r, double amount,
-                 double lift, KeyFace fill, bool edge_lit) {
+                 double lift, KeyFace fill, bool edge_lit, double tube_reach = 1, double tube_rest = 1) {
     const bool disabled = fill == KeyFace::Disabled, latched = fill == KeyFace::Latched,
                pressing = fill == KeyFace::Pressed;
     // The side begins below the resting face. A fixed-size face moves down
@@ -1349,7 +1391,7 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
         source(cr, mix(t.bottom, t.surface, .4));
         cairo_fill(cr);
     } else if (latched) {
-        fill_latched(cr, t, face, t.radius);
+        fill_latched(cr, t, face, t.radius, tube_reach, tube_rest);
     } else if (pressing) {
         rounded(cr, face, t.radius);
         source(cr, *t.pressed);
@@ -1477,15 +1519,25 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     // A key at rest copies its body; one moving, lit or in the pressed
     // colour draws it.
     const bool edge_lit = view.hovered_keys.contains(key.id) || amount > 0;
-    const auto face = body_atlas && amount == 0 && lift == 0 && !edge_lit && fill != KeyFace::Pressed
-                          ? atlas_keycap(cr, t, tone, key, fill)
-                          : draw_keycap(cr, t, tone, key.bounds, amount, lift, fill, edge_lit);
+    // A lock ring going round: how far, and how far it has faded in. On a
+    // neon theme the latched tube fills with it: the share it has reached
+    // stays lit and the rest dims to a quarter as the ring fades in.
+    const bool lock_shown = lock >= 0 && !disabled && !listening;
+    const double ring_progress = lock_shown ? std::min(1.0, lock / KeyboardState::lock_ring_seconds) : 0;
+    const double ring_alpha =
+        lock_shown ? std::clamp((lock - lock_ring_hidden) / lock_ring_fade, 0.0, 1.0) : 0;
+    const bool filling = lock_shown && fill == KeyFace::Latched && t.latched_finish == "neon";
+    // A key at rest copies its body unless its tube is filling.
+    const auto face =
+        body_atlas && amount == 0 && lift == 0 && !edge_lit && fill != KeyFace::Pressed && !filling
+            ? atlas_keycap(cr, t, tone, key, fill)
+            : draw_keycap(cr, t, tone, key.bounds, amount, lift, fill, edge_lit,
+                          filling ? ring_progress : 1, filling ? 1 - .75 * ring_alpha : 1);
     // Over the body, never in the shared one: a ring going round, or once
     // it has, a locked modifier's border.
     if (!disabled && !listening) {
-        if (lock >= 0) {
-            draw_lock_ring(cr, t, face, std::min(1.0, lock / KeyboardState::lock_ring_seconds),
-                           std::clamp((lock - lock_ring_hidden) / lock_ring_fade, 0.0, 1.0));
+        if (lock_shown) {
+            draw_lock_ring(cr, t, face, ring_progress, ring_alpha);
         } else if (key.action_kind == ActionKind::Key && view.keyboard->locked(key_code(key.action))) {
             draw_lock_ring(cr, t, face, 1, 1);
         }
