@@ -46,6 +46,7 @@ enum class Icon {
     Recenter,
     Close,
     Quit,
+    PopOut,
     Copy,
     Cut,
     Paste,

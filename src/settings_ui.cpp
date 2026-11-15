@@ -210,11 +210,12 @@ void SettingsUi::append(PanelView& view) const {
                     std::find_if(field.choices.begin(), field.choices.end(),
                                  [&](const SettingChoice& choice) { return choice.id == field.value; });
                 const auto name = selected == field.choices.end() ? field.value : selected->name;
-                view.controls.push_back({field.id, name, bounds, field.checked, Icon::None, field.style,
-                                         clip, field.enabled});
+                view.controls.push_back({field.id, name, bounds, field.checked,
+                                         field.pops ? Icon::PopOut : Icon::None, field.style, clip,
+                                         field.enabled});
                 view.controls.back().busy = field.busy;
                 view.controls.back().action =
-                    field.style == ControlStyle::Dropdown
+                    field.style == ControlStyle::Dropdown && !field.pops
                         ? ControlAction{ControlKind::ToggleDropdown, 0, field.id}
                         : field.action;
             }

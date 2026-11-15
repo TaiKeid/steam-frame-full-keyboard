@@ -157,6 +157,24 @@ Control show_choice(App& app, const std::string& field, const std::string& choic
     return control(app.view(), id);
 }
 void select(App& app, const std::string& field, const std::string& choice) {
+    if (field == "theme") {
+        // Theme opens its picker: scroll its cards to the one, choose it, close.
+        click(app, "theme");
+        const auto id = "themes-card-" + choice;
+        const auto& well = themes_well_bounds;
+        app.move(0, well.x + well.width / 2, well.y + well.height / 2);
+        app.scroll(0, 0, -100);
+        for (int i = 0; i < 40 && !has(app.view(), id); ++i) {
+            app.scroll(0, 0, 1);
+            for (int j = 0; j < 20; ++j) {
+                static double now = 600;
+                app.tick(now += .02);
+            }
+        }
+        click(app, id);
+        app.back();
+        return;
+    }
     click(app, show_choice(app, field, choice).id);
 }
 bool choice_enabled(App& app, const std::string& field, const std::string& choice) {
@@ -3220,6 +3238,85 @@ void streaming_support_setting() {
             "Save then Leave off: the languages are saved, streaming support is not");
     require(sink.events.empty(), "streaming support settings send no desktop input");
 }
+// The theme picker (Settings → Theme): a card per theme, their pictures kept
+// on disk under the theme's hash, a card choosing its theme at once, ← keeping
+// the choice and Back from Settings undoing it.
+void theme_picker() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path / "config";
+    options.theme_previews_dir = directory.path / "previews";
+    options.mode = Mode::Render;
+    options.input = InputBackend::Ei;
+    CaptureSink sink;
+    const auto saved = [&] {
+        std::map<fs::path, fs::file_time_type> files;
+        std::error_code error;
+        for (const auto& entry : fs::directory_iterator(options.theme_previews_dir, error)) {
+            if (entry.path().extension() == ".png") {
+                files[entry.path()] = fs::last_write_time(entry.path());
+            }
+        }
+        return files;
+    };
+    const auto pictured = [](const PanelView& view) {
+        return view.themes && !view.themes->cards.empty() &&
+               std::all_of(view.themes->cards.begin(), view.themes->cards.end(),
+                           [](const auto& card) { return card.preview != nullptr; });
+    };
+    const auto themes = load_profiles({}, {}).themes.size();
+    std::map<fs::path, fs::file_time_type> first;
+    {
+        App app(options, sink);
+        app.show_settings();
+        const auto row = control(app.view(), "theme");
+        require(row.style == ControlStyle::Dropdown && row.icon == Icon::PopOut &&
+                    row.label == "Graphite",
+                "Theme's row looks like a dropdown named as the theme, with a pop-out icon");
+        click(app, "theme");
+        auto view = app.view();
+        require(view.themes && view.modal_prefix() == "themes-" && !view.popup,
+                "it opens the picker, not a menu");
+        require(std::any_of(view.themes->cards.begin(), view.themes->cards.end(),
+                            [](const auto& card) { return card.id == "graphite" && card.selected; }),
+                "the chosen theme's card is in view and marked");
+        double now = 10;
+        for (int i = 0; i < 100; ++i) {
+            app.tick(now += .02);
+        }
+        require(pictured(app.view()), "every card in view gets its picture");
+        first = saved();
+        require(first.size() == themes, "every theme's picture is saved, one file each");
+        click(app, "themes-card-lagoon");
+        view = app.view();
+        require(view.themes && view.theme->id == "lagoon" &&
+                    std::any_of(view.themes->cards.begin(), view.themes->cards.end(),
+                                [](const auto& card) { return card.id == "lagoon" && card.selected; }),
+                "a card chooses its theme at once, and the picker stays");
+        app.back();
+        view = app.view();
+        require(!view.themes && view.settings && control(view, "theme").label == "Lagoon",
+                "← closes the picker and keeps the choice");
+        app.back();
+        require(!app.view().settings && app.selection().theme == "graphite",
+                "leaving Settings without Apply undoes it");
+    }
+    {
+        App app(options, sink);
+        app.show_settings();
+        click(app, "theme");
+        double now = 10;
+        for (int i = 0; i < 100; ++i) {
+            app.tick(now += .02);
+        }
+        require(pictured(app.view()) && saved() == first,
+                "a second picker loads the saved pictures instead of drawing them again");
+    }
+    auto theme = load_profiles({}, {}).themes.at("graphite");
+    const auto key = theme_preview_key(theme);
+    theme.latched.r += .1;
+    require(theme_preview_key(theme) != key, "an edited theme's picture is drawn again");
+}
 void fractional_dropdown_scroll() {
     SettingsUi ui;
     SettingField field{"field", "Field", "c0"};
@@ -3448,6 +3545,7 @@ void scroll_cards() {
 } // namespace
 int main() {
     try {
+        theme_picker();
         native_num_restore();
         compact_toolbar();
         startup_profile_fallback();

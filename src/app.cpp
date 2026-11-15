@@ -210,6 +210,19 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         models_dir_ = (data && *data ? fs::path(data) : fs::path(home ? home : "") / ".local/share") /
                       "framekeyboard/models";
     }
+    // The theme picker's previews; with no cache folder known they are drawn
+    // each time instead of saved.
+    auto previews = options.theme_previews_dir;
+    if (previews.empty()) {
+        const char* cache = std::getenv("XDG_CACHE_HOME");
+        const char* home = std::getenv("HOME");
+        if (cache && *cache) {
+            previews = fs::path(cache) / "framekeyboard/theme-previews";
+        } else if (home && *home) {
+            previews = fs::path(home) / ".cache/framekeyboard/theme-previews";
+        }
+    }
+    theme_previews_.set_directory(previews);
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     // Cangjie's and Quick's character order; before any composer loads a table.
     set_character_ranks(data_resource(options.data_dir, "chinese/char-ranks.txt"));
@@ -745,6 +758,13 @@ void App::update_settings_ui() {
         return SettingField{std::move(id), std::move(label), std::move(value), ControlStyle::Dropdown,
                             false,         std::move(list)};
     };
+    // Theme's row: looks like a dropdown, opens the picker (open_themes).
+    auto picker = [&](std::string id, std::string label, std::string value,
+                      std::vector<SettingChoice> list) {
+        auto result = dropdown(std::move(id), std::move(label), std::move(value), std::move(list));
+        result.pops = true;
+        return result;
+    };
     auto checkbox = [](std::string id, std::string label, bool checked, bool enabled = true,
                        std::string note = {}) {
         return SettingField{
@@ -940,7 +960,7 @@ void App::update_settings_ui() {
         }
     }
     std::vector<SettingField> general_fields{
-        field(ControlKind::ChooseTheme, dropdown("theme", tr("setting.theme"), pending_.theme, themes)),
+        field(ControlKind::OpenThemes, picker("theme", tr("setting.theme"), pending_.theme, themes)),
         background_surface,
         field(ControlKind::HoverFade,
               checkbox("hover-fade", tr("setting.hover-fade"), pending_hover_fade_, true,
@@ -1194,6 +1214,7 @@ PanelView App::build_view(bool picker) const {
     if (settings_open_) {
         settings_ui_.append(v);
         append_languages(v);
+        append_themes(v);
     }
     v.status = !status_.empty()            ? status_
                : capturing_ && game_sound_ ? game_sound_message()
@@ -1592,6 +1613,9 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     if (settings_open_ && languages_) {
         return languages_scroll(pointer, dy); // Only the list under the laser.
     }
+    if (settings_open_ && themes_) {
+        return themes_scroll(pointer, dy);
+    }
     if (candidates_.shown() && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer)) {
         const auto [x, y] = pointer_positions_.at(pointer);
@@ -1671,7 +1695,7 @@ bool App::move(unsigned pointer, double x, double y) {
     if (key_flick_ && key_flick_->pointer == pointer && key_flick_move(x, y)) {
         return true; // Pulled into a flick: VR ticks as for a new key.
     }
-    if (languages_move(pointer, x, y)) {
+    if (languages_move(pointer, x, y) || themes_move(pointer, x, y)) {
         return false;
     }
     if (settings_open_ && settings_ui_.move(pointer, x, y)) {
@@ -1755,7 +1779,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (settings_open_ && languages_ && !address_ && confirm_ == Confirm::None) {
         languages_press(pointer, x, y);
     }
-    if (settings_open_ && !address_ && confirm_ == Confirm::None && !languages_ &&
+    if (settings_open_ && themes_ && !address_ && confirm_ == Confirm::None) {
+        themes_press(pointer, x, y);
+    }
+    if (settings_open_ && !address_ && confirm_ == Confirm::None && !languages_ && !themes_ &&
         settings_ui_.down(pointer, x, y)) {
         pressed_controls_.clear();
         dirty = true;
@@ -2150,7 +2177,7 @@ bool App::up(unsigned pointer, double x, double y) {
         }
         return false;
     }
-    if (languages_release(pointer)) {
+    if (languages_release(pointer) || themes_release(pointer)) {
         return false;
     }
     if (settings_open_ && settings_ui_.up(pointer)) {
@@ -2280,6 +2307,9 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
     if (languages_ && languages_->drag && languages_->drag->pointer == pointer) {
         languages_->drag.reset();
     }
+    if (themes_ && themes_->drag && themes_->drag->pointer == pointer) {
+        themes_->drag.reset();
+    }
     emoji_.cancel_pointer(pointer);
     if (emoji_key_pointer_ == pointer) {
         emoji_key_pointer_.reset();
@@ -2325,6 +2355,9 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     settings_ui_.cancel();
     if (languages_) {
         languages_->drag.reset();
+    }
+    if (themes_) {
+        themes_->drag.reset();
     }
     emoji_.cancel();
     candidates_.cancel();
@@ -2560,6 +2593,9 @@ bool App::tick(double now) {
     if (settings_open_ && languages_) {
         tick_languages(now);
     }
+    if (settings_open_ && themes_) {
+        tick_themes(now);
+    }
     dirty |= tick_send(now);
     forget_failed_swipe();
     update_output_status();
@@ -2666,6 +2702,8 @@ void App::show_settings() {
     confirm_ = Confirm::None;
     leave_saves_languages_.reset();
     languages_.reset();
+    themes_.reset();
+    theme_previews_.clear();
     settings_open_ = true;
     // A few small reads: the drop-in and Steam's environment.
     stream_status_ = options_.stream_support ? options_.stream_support() : StreamSupportStatus{};
@@ -2733,6 +2771,8 @@ void App::back() {
         hovered_.clear();
     } else if (languages_) {
         close_languages();
+    } else if (themes_) {
+        close_themes();
     } else if (settings_ui_.popup_open()) {
         settings_ui_.close_popup();
         pressed_controls_.clear();
@@ -2759,6 +2799,8 @@ void App::leave_settings() {
     confirm_ = Confirm::None;
     leave_saves_languages_.reset();
     languages_.reset();
+    themes_.reset();
+    theme_previews_.clear();
 }
 void App::summon() {
     dismiss_requested_ = false;
@@ -2769,6 +2811,8 @@ void App::summon() {
     address_.reset();
     confirm_ = Confirm::None;
     languages_.reset();
+    themes_.reset();
+    theme_previews_.clear();
     recenter_ = true;
     status_.clear();
 }
@@ -4936,6 +4980,8 @@ void App::apply_settings() {
     confirm_ = Confirm::None;
     leave_saves_languages_.reset();
     languages_.reset();
+    themes_.reset();
+    theme_previews_.clear();
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
@@ -5335,6 +5381,10 @@ void App::action(const ControlAction& command) {
         }
     } else if (kind >= ControlKind::OpenLanguages && kind <= ControlKind::ClearLanguages) {
         languages_action(command);
+    } else if (kind == ControlKind::OpenThemes) {
+        open_themes();
+    } else if (kind == ControlKind::CloseThemes) {
+        close_themes();
     } else if (kind == ControlKind::ConfirmAccept && dictation_question()) {
         const auto question = std::exchange(confirm_, Confirm::None);
         if (question == Confirm::QuitDictation) {
@@ -6713,6 +6763,8 @@ void App::close_panel() {
         address_.reset();
         confirm_ = Confirm::None;
         languages_.reset();
+        themes_.reset();
+        theme_previews_.clear();
         dismiss_requested_ = true;
         host_.user_hide = hosted(); // the shell decides whether it shows again
     } else {
@@ -6863,6 +6915,9 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
     const auto [x, y] = position->second;
     if (settings_open_ && languages_) {
         return address_ || confirm_ != Confirm::None ? std::nullopt : languages_scroll_room(x, y);
+    }
+    if (settings_open_ && themes_) {
+        return address_ || confirm_ != Confirm::None ? std::nullopt : themes_scroll_room(x, y);
     }
     if (settings_open_) {
         // Settings rarely overflows; its ends are not worth tracking.

@@ -23,6 +23,7 @@
 #include "shell_sink.hpp"
 #include "stream_support.hpp"
 #include "swipe.hpp"
+#include "theme_previews.hpp"
 #include "word_suggestions.hpp"
 #include <atomic>
 #include <chrono>
@@ -107,6 +108,9 @@ struct Options {
     fs::path dictation_helper;
     // Where on-device models are kept; empty is ~/.local/share/framekeyboard/models.
     fs::path models_dir;
+    // Where the theme picker keeps its previews; empty is
+    // ~/.cache/framekeyboard/theme-previews ($XDG_CACHE_HOME if set).
+    fs::path theme_previews_dir;
     std::vector<std::string> dictation_arguments;
     // Tests replace the clipboard writer; null writes the session clipboards.
     Clipboard* clipboard{};
@@ -1143,6 +1147,33 @@ class App {
     LanguagesPopup::List* languages_list_under(double x, double y);
     std::optional<ScrollRoom> languages_scroll_room(double x, double y) const;
     void tick_languages(double now);
+    // The theme picker (app_themes.cpp): every theme as a card, in rows that
+    // glide to stick steps; an up or down laser drag scrolls them too, and its
+    // release clicks nothing. A card chooses its theme at once, as the
+    // dropdown did: Settings shows in it, Back from Settings undoes it.
+    struct ThemesPopup {
+        double scroll{}, target{};
+        struct Drag {
+            unsigned pointer{};
+            double press_y{}, scroll{};
+            bool scrolling{};
+        };
+        std::optional<Drag> drag;
+        double last_tick{-1};
+    };
+    std::optional<ThemesPopup> themes_;
+    ThemePreviews theme_previews_;
+    std::vector<const Theme*> theme_order() const;
+    double themes_limit() const;
+    void open_themes();
+    void close_themes();
+    void append_themes(PanelView& v) const;
+    void themes_press(unsigned pointer, double x, double y);
+    bool themes_move(unsigned pointer, double x, double y);
+    bool themes_release(unsigned pointer);
+    bool themes_scroll(unsigned pointer, double dy);
+    std::optional<ScrollRoom> themes_scroll_room(double x, double y) const;
+    void tick_themes(double now);
     void address_key(const std::string& key);
     // The Dictation card's connection line, as its key (setting.dictation-test.*,
     // which the shell protocol also maps): empty until Test runs.

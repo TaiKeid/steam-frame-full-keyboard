@@ -152,8 +152,11 @@ int main(int argc, char** argv) {
         app.move(0, 800, 300);
         app.scroll(0, -5000, 0);
         settle(app);
-        click(app, "theme");
+        click(app, "layout");
         shot(app, "settings-dropdown");
+        app.back();
+        click(app, "theme");
+        shot(app, "themes");
         app.back();
         click(app, "additional-languages");
         shot(app, "languages");

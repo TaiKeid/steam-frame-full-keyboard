@@ -7,6 +7,7 @@
 #include <array>
 #include <cairo.h>
 #include <map>
+#include <memory>
 #include <optional>
 
 namespace framekeyboard {
@@ -99,6 +100,8 @@ enum class ControlKind {
     AddLanguage,     // value: the language, on the layout showing
     ResetMainLanguage,
     ClearLanguages, // asks first
+    OpenThemes,     // the theme picker
+    CloseThemes,
     ConfirmAccept,
     ConfirmCancel,
     ScrollMenu,
@@ -201,6 +204,20 @@ constexpr double languages_list_gap = 8;
 constexpr Rect languages_main_bounds{1130, 116, 424, 56};
 constexpr Rect additional_list_bounds{1130, 226, 424, 330};
 constexpr double languages_row_height = 56, additional_row_height = 62;
+// The theme picker covers Settings as Additional languages does. Its well
+// holds a grid of cards, four across: a preview of the keyboard in that
+// theme over its name. Two rows show and the third peeks in; it scrolls.
+constexpr Rect themes_popup_bounds = languages_popup_bounds;
+constexpr Rect themes_well_bounds = languages_well_bounds;
+constexpr int theme_columns = 4;
+constexpr double theme_card_pad = 16, theme_card_gap = 16;
+constexpr double theme_card_width =
+    (themes_well_bounds.width - 2 * theme_card_pad - (theme_columns - 1) * theme_card_gap) /
+    theme_columns;
+constexpr double theme_preview_inset = 8, theme_name_height = 44;
+constexpr int theme_preview_width = static_cast<int>(theme_card_width - 2 * theme_preview_inset);
+constexpr int theme_preview_height = 160;
+constexpr double theme_card_height = theme_preview_inset + theme_preview_height + theme_name_height;
 // The helper's level interval; the mic key's bars ease to new heights in it.
 constexpr double dictation_level_period = .08;
 // The notice band over the editor's foot, in panel units.
@@ -215,6 +232,12 @@ struct LabelFit {
     bool cut{};
 };
 // While set, the renderer adds every label it draws; nullptr stops it.
+// The theme picker's preview of `theme`: the US keyboard's lower left
+// corner (Shift, Z, X, C over Ctrl held down, Super under the laser, Alt and
+// Space) on the theme's case, drawn by the keys' own code into a new width x height image
+// the caller owns. `layout` is en-us-full, `keymap` its language's.
+cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, const Language& language,
+                                      const LanguageMap& keymap, int width, int height);
 void record_label_fits(std::vector<LabelFit>* into);
 struct PanelView {
     const Layout* layout{};
@@ -402,10 +425,33 @@ struct PanelView {
         std::optional<Rect> layouts_thumb, languages_thumb, additional_thumb;
     };
     std::optional<LanguagesView> languages;
+    // The theme picker: a card per theme, its preview over its name.
+    struct ThemesView {
+        bool operator==(const ThemesView&) const = default;
+        struct Card {
+            bool operator==(const Card&) const = default;
+            std::string id, name;
+            Rect bounds; // in view or partly so; the well clips it
+            bool selected{};
+            // Null until loaded or drawn (ThemePreviews); the card shows its
+            // name over the theme's case colour meanwhile.
+            std::shared_ptr<cairo_surface_t> preview;
+            Color surface;
+        };
+        Rect panel, well;
+        std::string title;
+        std::vector<Card> cards; // only those in view
+        std::optional<Rect> thumb;
+    };
+    std::optional<ThemesView> themes;
     // The prefix of the open modal's controls; nothing else responds. A
     // question asked from the languages popup sits over it.
     std::string modal_prefix() const {
-        return address ? "address-" : confirm ? "confirm-" : languages ? "languages-" : "";
+        return address     ? "address-"
+               : confirm   ? "confirm-"
+               : languages ? "languages-"
+               : themes    ? "themes-"
+                           : "";
     }
 };
 

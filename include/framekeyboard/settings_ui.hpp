@@ -28,6 +28,9 @@ struct SettingField {
     bool plain{};
     // A button whose work is under way: a ring circles its border.
     bool busy{};
+    // A dropdown that opens a popup of its own (its action) instead of a
+    // menu, with a pop-out icon where the chevron is: Theme's picker.
+    bool pops{};
 };
 struct SettingsCard {
     std::string id, title;

@@ -931,6 +931,20 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-7, -7, 7, 7);
         line(7, -7, -7, 7);
         break;
+    case Icon::PopOut:
+        // A box with an arrow leaving its corner: opens a window of its own.
+        cairo_move_to(cr, 1, -9);
+        cairo_line_to(cr, -6, -9);
+        cairo_arc_negative(cr, -6, -6, 3, -.5 * pi, -pi);
+        cairo_line_to(cr, -9, 6);
+        cairo_arc_negative(cr, -6, 6, 3, pi, .5 * pi);
+        cairo_line_to(cr, 6, 9);
+        cairo_arc_negative(cr, 6, 6, 3, .5 * pi, 0);
+        cairo_line_to(cr, 9, -1);
+        line(-1, 1, 9, -9);
+        line(3, -9, 9, -9);
+        line(9, -9, 9, -3);
+        break;
     case Icon::Quit:
         // Leaving: an arrow out of a door frame open to the right.
         cairo_move_to(cr, 1, -9);
@@ -1824,6 +1838,51 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     cairo_restore(cr);
 }
 } // namespace
+cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, const Language& language,
+                                      const LanguageMap& keymap, int width, int height) {
+    // The corner in the layout's own units: Shift, Z, X and C over Ctrl,
+    // Super, Alt and the start of Space, with the edge of V and a little
+    // case round them, as the keyboard shows them. Ctrl is held down and the
+    // laser is on Super, so the card shows the theme's pressed, latched and
+    // hover looks as well as its keys at rest.
+    constexpr Rect corner{108, 273, 336, 152};
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    for (const auto& key : layout.keys) {
+        if (key.id == "ControlLeft") {
+            keyboard.down(0, key, 0);
+        }
+    }
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    view.hovered_keys = {"MetaLeft"};
+    auto* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+    auto* cr = cairo_create(surface);
+    source(cr, theme.surface);
+    cairo_paint(cr);
+    // Filled, cropping what overflows on one side evenly.
+    const double scale = std::max(width / corner.width, height / corner.height);
+    cairo_scale(cr, scale, scale);
+    cairo_translate(cr, -corner.x - (corner.width - width / scale) / 2,
+                    -corner.y - (corner.height - height / scale) / 2);
+    for (const auto& key : layout.keys) {
+        const auto& r = key.bounds;
+        // Only rows that reach well into it: the row above Shift's would
+        // show as a sliver along the top.
+        if (r.x < corner.x + corner.width && r.x + r.width > corner.x &&
+            r.y < corner.y + corner.height && r.y + r.height > corner.y + 8) {
+            // No shared bodies here: body_atlas is null outside paint().
+            draw_key(cr, view, key, key.id == "ControlLeft" ? 1 : 0, key.id == "MetaLeft" ? 1 : 0);
+        }
+    }
+    cairo_destroy(cr);
+    cairo_surface_flush(surface);
+    return surface;
+}
 void record_label_fits(std::vector<LabelFit>* into) {
     label_fits = into;
 }
@@ -3272,7 +3331,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->view.status == view.status &&
         previous_->view.hovered_controls == view.hovered_controls &&
         previous_->view.address == view.address && previous_->view.confirm == view.confirm &&
-        (only_lifted_moved || previous_->view.languages == view.languages);
+        (only_lifted_moved || previous_->view.languages == view.languages) &&
+        previous_->view.themes == view.themes;
     bool full = force_full || scene_changed || (view.settings && !settings_still);
     std::vector<Rect> damage;
     animating_ = false;
@@ -4356,6 +4416,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     draw_cap(cr, t, r, hovered, control.selected, control.enabled);
                     interface_label(cr, control.label, {r.x + 18, r.y, r.width - 62, r.height}, 21,
                                     view.interface_font, legend, false, PANGO_ALIGN_LEFT);
+                    if (control.icon == Icon::PopOut) {
+                        // A popup of its own, not a menu (Theme's picker).
+                        draw_icon(cr, Icon::PopOut, {r.x + r.width - 52, r.y, 52, r.height}, legend, 22);
+                        break;
+                    }
                     const double x = r.x + r.width - 26, y = r.y + r.height / 2;
                     cairo_move_to(cr, x - 6, y - 3);
                     cairo_line_to(cr, x, y + 3);
@@ -4694,6 +4759,52 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
                 text(shown, 24, row.removing ? quiet : t.legend, quiet);
                 swipe_icon(row);
+            }
+        }
+        if (view.themes) {
+            // The theme picker: a card per theme, raised in the well as the
+            // chosen languages are, its preview over its name. The chosen
+            // card takes the latched fill, as a chosen row does.
+            const auto& popup = *view.themes;
+            modal_panel(popup.panel);
+            interface_label(cr, popup.title, {popup.panel.x + 92, popup.panel.y + 10, 500, 42}, 24,
+                            view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+            draw_well(cr, t, popup.well);
+            cairo_save(cr);
+            rounded(cr, popup.well, t.radius + 4);
+            cairo_clip(cr);
+            for (const auto& card : popup.cards) {
+                const auto& r = card.bounds;
+                const bool hovered = view.hovered_controls.contains("themes-card-" + card.id);
+                draw_cap(cr, t, r, hovered, card.selected, true);
+                const Rect picture{r.x + theme_preview_inset, r.y + theme_preview_inset,
+                                   static_cast<double>(theme_preview_width),
+                                   static_cast<double>(theme_preview_height)};
+                cairo_save(cr);
+                rounded(cr, picture, std::max(2.0, t.radius - 2));
+                cairo_clip(cr);
+                if (card.preview) {
+                    cairo_set_source_surface(cr, card.preview.get(), picture.x, picture.y);
+                    cairo_paint(cr);
+                } else {
+                    source(cr, card.surface); // Its case's colour until the picture is ready.
+                    cairo_paint(cr);
+                }
+                cairo_restore(cr);
+                interface_label(cr, card.name,
+                                {r.x + 8, picture.y + picture.height, r.width - 16, theme_name_height},
+                                21, view.interface_font, card.selected ? t.latched_legend : t.legend);
+            }
+            cairo_restore(cr);
+            if (popup.thumb) {
+                rounded(cr, *popup.thumb, 3);
+                source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+                cairo_fill(cr);
+            }
+            for (const auto& control : view.controls) {
+                if (control.id.starts_with("themes-") && !control.id.starts_with("themes-card-")) {
+                    draw_control(control);
+                }
             }
         }
         if (view.confirm) {
