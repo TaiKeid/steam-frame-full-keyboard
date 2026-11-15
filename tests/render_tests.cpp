@@ -462,14 +462,15 @@ void hover_fade() {
 // The swipe trail: a quiet path that only grows, a comet over its last
 // moments, and a fade when the swipe ends. Every frame also paints the same
 // incrementally as in full.
-void swipe_trail() {
+// Also on High Contrast, whose path has a black casing and comet a black halo.
+void swipe_trail(const char* theme) {
     const auto profiles = load_profiles({}, {});
     NullSink sink;
     KeyboardState keyboard(sink);
     LanguageMap keymap(profiles.languages.at("en-us"));
     PanelView view;
     view.layout = &profiles.layouts.at("en-us-full");
-    view.theme = &profiles.themes.at("graphite");
+    view.theme = &profiles.themes.at(theme);
     view.language = &profiles.languages.at("en-us");
     view.keyboard = &keyboard;
     view.keymap = &keymap;
@@ -1062,7 +1063,8 @@ int main() {
         candidate_scrolling();
         handle_states();
         hover_fade();
-        swipe_trail();
+        swipe_trail("graphite");
+        swipe_trail("contrast");
         status_line();
         carried_row();
         const auto profiles = load_profiles({}, {});
