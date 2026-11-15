@@ -131,7 +131,7 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Changer de disposition, de langue ou de thème | Ouvrir l'icône d'engrenage, choisir les profils, puis **Appliquer et enregistrer** (Apply and save) |
 | Recentrer | Utiliser l'icône **Recentrer**, ou relancer Full Keyboard |
 | Fermer | Utiliser × pour masquer le panneau en mode remplacement ; sinon, cela quitte l'appli |
-| Quitter le mode remplacement | Ouvrir Paramètres → **Quitter Full Keyboard** |
+| Quitter le mode remplacement | Ouvrir Paramètres et appuyer sur le bouton de sortie en haut à droite (**Quitter Full Keyboard**) |
 
 **Si le clavier a dérivé hors de portée, relancez l'appli.** S'il tourne déjà, un nouveau lancement recentre le clavier existant sous le tableau de bord actuel au lieu d'en ouvrir un second. Sa taille est conservée. Si le tableau de bord est fermé, le recentrage attend qu'il s'ouvre.
 

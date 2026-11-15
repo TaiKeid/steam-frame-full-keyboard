@@ -131,7 +131,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Cambiar distribución, idioma o tema | Abre el icono del engranaje, elige los perfiles y pulsa **Aplicar y guardar** |
 | Recentrar | Usa el icono de recentrar o vuelve a abrir Full Keyboard |
 | Cerrar | Usa × para ocultar el panel en el modo de reemplazo; si no, cierra la app |
-| Salir del modo de reemplazo | Abre Ajustes → Salir de Full Keyboard |
+| Salir del modo de reemplazo | Abre Ajustes y pulsa el botón de salida arriba a la derecha (Salir de Full Keyboard) |
 
 **Si el teclado se ha alejado fuera de tu alcance, vuelve a abrir la app.** Cuando ya se está ejecutando, abrirla de nuevo recentra el teclado existente bajo el panel actual en lugar de abrir otro. Su tamaño se conserva. Si el panel está cerrado, el recentrado espera a que se abra.
 

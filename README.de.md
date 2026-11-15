@@ -131,7 +131,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Layout, Sprache oder Design ändern | Das Zahnradsymbol öffnen, Profile wählen, dann **Übernehmen und speichern** (Apply and save) |
 | Zentrieren | Das Symbol **Zentrieren** nutzen oder Full Keyboard erneut starten |
 | Schließen | Mit × das Panel im Ersatzmodus ausblenden; sonst beendet es die App |
-| Ersatzmodus beenden | Einstellungen → **Full Keyboard beenden** öffnen |
+| Ersatzmodus beenden | Einstellungen öffnen und rechts oben die Beenden-Schaltfläche drücken (**Full Keyboard beenden**) |
 
 **Wenn die Tastatur außer Reichweite geraten ist, starten Sie die App erneut.** Läuft sie bereits, zentriert ein weiterer Start die vorhandene Tastatur unter dem aktuellen Dashboard, statt eine zweite zu öffnen. Ihre Größe bleibt erhalten. Ist das Dashboard geschlossen, wartet das Zentrieren, bis es sich öffnet.
 

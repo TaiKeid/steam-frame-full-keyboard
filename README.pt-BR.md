@@ -131,7 +131,7 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Mudar layout, idioma ou tema | Abra o ícone de engrenagem, escolha os perfis e depois **Aplicar e salvar** |
 | Recentralizar | Use o ícone de recentralizar ou abra o Full Keyboard de novo |
 | Fechar | Use × para ocultar o painel no modo de substituição; caso contrário, ele fecha o app |
-| Sair do modo de substituição | Abra Configurações → Sair do Full Keyboard |
+| Sair do modo de substituição | Abra Configurações e toque no botão de saída no canto superior direito (Sair do Full Keyboard) |
 
 **Se o teclado se afastou para fora do seu alcance, abra o app de novo.** Quando ele já está em execução, abrir de novo recentraliza o teclado existente abaixo do painel atual, em vez de abrir um segundo. O tamanho é preservado. Se o painel estiver fechado, a recentralização espera até ele abrir.
 

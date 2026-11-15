@@ -45,6 +45,7 @@ enum class Icon {
     PinOff,
     Recenter,
     Close,
+    Quit,
     Copy,
     Cut,
     Paste,

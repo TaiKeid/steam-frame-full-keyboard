@@ -171,8 +171,8 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
 // is on them. Buttons with words, such as the language's, need none.
 bool toolbar_icon_button(const Control& control) {
     static const std::set<std::string, std::less<>> ids{
-        "settings",  "apply",        "reload",        "recenter",          "pin",  "passthrough",
-        "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle", "close"};
+        "settings",  "apply",        "reload",        "recenter",          "pin",   "passthrough",
+        "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle", "close", "quit"};
     return control.icon != Icon::None && ids.contains(control.id);
 }
 // The Debug card and what it switches on: only in debug builds, and there
@@ -439,8 +439,9 @@ std::vector<Control> App::controls() const {
                 {"native-fallback", tr("button.native-fallback"), {250, 12, 245, 42}});
         }
         if (resident_replacement()) {
+            // Where × is on the keyboard; its name shows as a tooltip.
             add({ControlKind::Quit},
-                {"quit", tr("button.quit"), {body.x + body.width - 268, 12, 250, 42}});
+                {"quit", tr("button.quit"), {body.x + body.width - 78, 12, 60, 42}, false, Icon::Quit});
         }
         append_move_handle();
         if (confirm_ != Confirm::None) {

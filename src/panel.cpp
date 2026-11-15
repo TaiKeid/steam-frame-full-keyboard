@@ -931,6 +931,16 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-7, -7, 7, 7);
         line(7, -7, -7, 7);
         break;
+    case Icon::Quit:
+        // Leaving: an arrow out of a door frame open to the right.
+        cairo_move_to(cr, 1, -9);
+        cairo_line_to(cr, -8, -9);
+        cairo_line_to(cr, -8, 9);
+        cairo_line_to(cr, 1, 9);
+        line(-3, 0, 10, 0);
+        line(6, -4, 10, 0);
+        line(6, 4, 10, 0);
+        break;
     case Icon::ClearText:
         cairo_new_sub_path(cr);
         cairo_arc(cr, 0, 0, 10, 0, 2 * pi);

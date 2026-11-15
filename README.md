@@ -131,7 +131,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
 | Close | Use × to hide the panel in replacement mode; otherwise it exits the app |
-| Quit replacement mode | Open Settings → Quit Full Keyboard |
+| Quit replacement mode | Open Settings and press the exit button at the top right (Quit Full Keyboard) |
 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
