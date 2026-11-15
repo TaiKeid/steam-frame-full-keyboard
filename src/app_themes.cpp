@@ -64,6 +64,7 @@ void App::open_themes() {
 }
 void App::close_themes() {
     themes_.reset(); // and the pictures with it
+    theme_store_.flush();
     pressed_controls_.clear();
     hovered_.clear();
 }

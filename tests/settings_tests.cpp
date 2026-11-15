@@ -3374,12 +3374,18 @@ void theme_picker() {
         }
         out.close();
         App app(options, sink);
+        app.show_settings();
+        click(app, "theme");
         double now = 10;
-        picker_at_end(app, now);
-        app.scroll(0, 0, -100);
+        for (int i = 0; i < 5; ++i) {
+            app.tick(now += .02);
+        }
+        require(index_lines().size() == 2,
+                "while the pictures are drawn and saved the index waits (R294)");
         for (int i = 0; i < 100; ++i) {
             app.tick(now += .02);
         }
+        require(index_lines().size() == 2 + themes, "once all are in, the index is written whole");
         const auto again = saved();
         require(again.size() == first.size() &&
                     std::all_of(again.begin(), again.end(),

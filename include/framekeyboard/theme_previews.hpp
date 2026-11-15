@@ -33,16 +33,27 @@ class ThemePreviewStore {
     // This theme's saved picture, if the index says it is current and the
     // file holds one; null otherwise.
     std::shared_ptr<cairo_surface_t> load(const Theme& theme);
-    // Saves a picture just drawn and records its hash in the index.
+    // Saves a picture just drawn and records its hash for the index, which
+    // is written by flush(): once a fill is done, not after every picture.
     void save(const Theme& theme, cairo_surface_t* picture);
+    // Writes the index if pictures were saved since it was last written: as
+    // the picker finishes filling, closes or hides, and at exit.
+    void flush();
+    ~ThemePreviewStore() { flush(); }
+    ThemePreviewStore() = default;
+    ThemePreviewStore(const ThemePreviewStore&) = delete;
+    ThemePreviewStore& operator=(const ThemePreviewStore&) = delete;
 
   private:
     const std::string& hash(const Theme& theme);
     fs::path picture_file(const std::string& id) const;
     void read_index();
     void write_index();
+    bool make_folder();
     fs::path directory_;
     bool read_{};
+    bool unsaved_{};                              // index lines not written yet
+    bool folder_{};                               // made, once per process
     std::map<std::string, std::string> recorded_; // theme ID -> hash, as in the index
     struct Hashed {
         Theme theme; // the values hashed: a different theme with this ID is hashed again
@@ -62,7 +73,8 @@ class ThemePreviews {
     // Loads or draws the first of `themes` without a current picture, saving
     // a drawn one in `store`; true if one was added. The picker calls it once
     // a frame with the cards in view first, so no frame draws more than one.
-    // Once every theme has its picture it only compares them.
+    // Once every theme has its picture it only compares them, and has the
+    // store write its index.
     bool fill_one(const std::vector<const Theme*>& themes, const Profiles& profiles,
                   ThemePreviewStore& store);
     // Frees every picture, and the keymap drawing them needs.

@@ -213,11 +213,10 @@ void ThemePreviewStore::save(const Theme& theme, cairo_surface_t* picture) {
         read_index();
     }
     std::error_code error;
-    fs::create_directories(directory_, error);
     const auto file = picture_file(theme.id);
     const auto partial = partial_of(file);
     bool saved = false;
-    if (!error && write_preview(partial, picture, picture_stamp(hash(theme)))) {
+    if (make_folder() && write_preview(partial, picture, picture_stamp(hash(theme)))) {
         fs::rename(partial, file, error);
         saved = !error;
     }
@@ -229,7 +228,22 @@ void ThemePreviewStore::save(const Theme& theme, cairo_surface_t* picture) {
         fs::remove(partial, ignored);
         recorded_.erase(theme.id);
     }
-    write_index();
+    unsaved_ = true; // A picture saved before its line is only drawn again (R295).
+}
+
+void ThemePreviewStore::flush() {
+    if (unsaved_) {
+        write_index();
+    }
+}
+
+bool ThemePreviewStore::make_folder() {
+    if (!folder_) {
+        std::error_code error;
+        fs::create_directories(directory_, error);
+        folder_ = !error;
+    }
+    return folder_;
 }
 
 const std::string& ThemePreviewStore::hash(const Theme& theme) {
@@ -279,11 +293,11 @@ void ThemePreviewStore::write_index() {
     if (directory_.empty()) {
         return;
     }
-    std::error_code error;
-    fs::create_directories(directory_, error);
-    if (error) {
+    if (!make_folder()) {
         return;
     }
+    unsaved_ = false;
+    std::error_code error;
     const auto file = directory_ / index_name;
     const auto partial = partial_of(file);
     std::ofstream out(partial, std::ios::trunc);
@@ -323,6 +337,7 @@ bool ThemePreviews::fill_one(const std::vector<const Theme*>& themes, const Prof
         previews_[theme->id] = {*theme, std::move(image)};
         return true;
     }
+    store.flush(); // Every picture is in: the index once, not per picture (R294).
     return false;
 }
 

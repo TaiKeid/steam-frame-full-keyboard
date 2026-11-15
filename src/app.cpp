@@ -2651,6 +2651,7 @@ void App::set_interaction_active(bool active) {
         if (themes_) {
             themes_->previews.clear(); // loaded again when shown (tick_themes)
         }
+        theme_store_.flush();
         if (owns_anthy() && !mozc_server_.empty()) {
             save_mozc(); // Hidden, whatever Mozc learned is saved.
         }
