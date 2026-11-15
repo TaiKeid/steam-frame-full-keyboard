@@ -104,7 +104,7 @@ constexpr double lock_ring_hidden = .3, lock_ring_fade = .2;
 // `trail_end_seconds`. SteamVR draws its own dot where the laser lands, so the
 // trail has no head of its own.
 constexpr double trail_path_width = 2.6, trail_path_alpha = .30;
-// A neon theme's path is its latched colour, which is close to its keys'
+// A neon theme's path is its latched color, which is close to its keys'
 // own: it needs more of its opacity to show.
 constexpr double trail_neon_path_alpha = .62;
 constexpr double trail_comet_width = 7, trail_glow_width = 18;
@@ -250,8 +250,8 @@ bool hidden_under(const Rect& r, const Rect& panel, double radius) {
 }
 // The panel is a texture seen at any angle, with no fixed pixel layout, so
 // text is antialiased in grey even where the system's fonts ask for subpixel
-// (coloured) antialiasing, as SteamOS's do: that would fringe every legend
-// and, over a clear case, leave colour above alpha in premultiplied pixels.
+// (colored) antialiasing, as SteamOS's do: that would fringe every legend
+// and, over a clear case, leave color above alpha in premultiplied pixels.
 // Measuring contexts take the same options, so their metrics match drawing.
 void grey_text(cairo_t* cr) {
     static cairo_font_options_t* const options = [] {
@@ -290,7 +290,7 @@ Color mix(Color a, Color b, double amount) {
 bool light_theme(const Theme& t) {
     return .2126 * t.legend.r + .7152 * t.legend.g + .0722 * t.legend.b <= .5;
 }
-// Moves a colour away from the legend: darker under a light legend, lighter
+// Moves a color away from the legend: darker under a light legend, lighter
 // under a dark one, so recessed surfaces keep their text readable in light
 // themes too. With a white legend this is a plain darkening.
 Color recede(const Theme& t, Color c, double amount) {
@@ -386,7 +386,7 @@ void neon_tube(cairo_t* cr, const Theme& t, const Rect& r, double radius, double
 bool plain_keys(const Theme& t) {
     return t.edge.has_value();
 }
-// Fills a rounded shape with the latched colour in the theme's finish.
+// Fills a rounded shape with the latched color in the theme's finish.
 // `reach` and `rest`: a neon tube filling with a lock ring (neon_tube).
 void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius, double reach = 1,
                   double rest = 1) {
@@ -401,7 +401,7 @@ void fill_latched(cairo_t* cr, const Theme& t, const Rect& r, double radius, dou
             source(cr, t.latched);
             cairo_fill(cr);
         } else {
-            // One colour from the theme: shaded as the keys are, lighter at
+            // One color from the theme: shaded as the keys are, lighter at
             // the top and toward the case at the foot.
             gradient(cr, r, mix(t.latched, Color{1, 1, 1}, .13), t.latched,
                      mix(t.latched, t.surface, .22));
@@ -476,7 +476,7 @@ KeyTone key_tone(const Theme& t, const Key& key) {
     return key_tone(t, character_key(key));
 }
 // The Shift character over a key's own legend is quieter than what the key
-// types, on its face's colour.
+// types, on its face's color.
 Color quiet_legend(const Theme& t, const KeyTone& tone, bool latched) {
     return plain_keys(t) ? t.legend : mix(t.legend, latched ? t.latched : tone.middle, .42);
 }
@@ -499,7 +499,7 @@ void draw_edge(cairo_t* cr, const Theme& t, const Rect& face, double radius, boo
     cairo_restore(cr);
 }
 // The rim of a recessed well or a raised card on a theme with edges: the
-// edge colour, dimmed by `dim` toward the case, so a black case still shows
+// edge color, dimmed by `dim` toward the case, so a black case still shows
 // where they are. Other themes keep their own faint rims.
 bool edge_rim(cairo_t* cr, const Theme& t, const Rect& r, double radius, double dim) {
     if (!t.edge) {
@@ -1254,7 +1254,7 @@ double icon_shake(double since, double now) {
     }
     return std::round(6 * std::sin(t * 2 * pi * 6) * (1 - t / icon_shake_duration) * 2) / 2;
 }
-// How much of its alert colour the shaking icon has left: 1 at the start, then
+// How much of its alert color the shaking icon has left: 1 at the start, then
 // down to 0 as the shake ends.
 double icon_shake_fade(double since, double now) {
     const double t = std::floor(now * 30) / 30 - since;
@@ -1349,7 +1349,7 @@ void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
 }
 // A modifier's lock ring: a line around the inside of the face, from 12
 // o'clock clockwise `progress` of the way round (0 to 1, 1 the locked key's
-// border), at `alpha`. It takes the legend colour of the face it is on, so it
+// border), at `alpha`. It takes the legend color of the face it is on, so it
 // reads on every fill: white on a dark key, dark on a light one, black on High
 // Contrast's yellow and cyan. It runs inside an edge theme's edge. On a neon
 // theme it is the tube's white core over the share of the tube it has
@@ -1403,7 +1403,7 @@ void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color
     cairo_stroke(cr);
     cairo_restore(cr);
 }
-// A latched modifier or lock, or the mic key while it listens: drawn in the latched colour.
+// A latched modifier or lock, or the mic key while it listens: drawn in the latched color.
 bool latched_key(const PanelView& view, const Key& key, const std::set<int>& modifiers) {
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
     // A key pulled into a flick fills, as a latched one does: release types its Shift character.
@@ -1415,7 +1415,7 @@ bool latched_key(const PanelView& view, const Key& key, const std::set<int>& mod
            (view.dictation_capturing && key.icon == Icon::Mic);
 }
 // How a key's face is filled: as it rests or the laser lights it, latched,
-// in the theme's pressed colour, or disabled.
+// in the theme's pressed color, or disabled.
 enum class KeyFace { Plain, Latched, Pressed, Disabled };
 // A keycap: its side, and its face `amount` of the way down its travel and
 // lit `lift` by the laser, each 0 to 1, with the shade of a press, the edge
@@ -1451,11 +1451,11 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
         rounded(cr, face, t.radius);
         if (light_theme(t)) {
             // A light key keeps its own shading, lightest at the top, and
-            // takes on the hover colour evenly.
+            // takes on the hover color evenly.
             gradient(cr, face, mix(tone.top, tone.hover, .7 * lift),
                      mix(tone.middle, tone.hover, .7 * lift), mix(tone.bottom, tone.hover, .7 * lift));
         } else {
-            // The whole face lifts toward the hover colour, not only its top.
+            // The whole face lifts toward the hover color, not only its top.
             gradient(cr, face, mix(tone.top, mix(tone.hover, t.legend, .1), lift),
                      mix(tone.middle, tone.hover, .85 * lift), mix(tone.bottom, tone.hover, .5 * lift));
         }
@@ -1463,7 +1463,7 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
         rounded(cr, face, t.radius);
         gradient(cr, face, tone.top, tone.middle, tone.bottom);
     }
-    // Plain faces only: a latched or pressed-colour face shows its own state,
+    // Plain faces only: a latched or pressed-color face shows its own state,
     // and a neon theme lights its tube on a held key instead.
     const bool shaded = !disabled && !plain_keys(t) && t.latched_finish != "neon";
     if (shaded && amount > 0 && !latched && !pressing) {
@@ -1549,9 +1549,9 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
     const bool latched = latched_key(view, key, modifiers) && !listening;
     const bool disabled = view.disabled_keys.contains(key.id);
-    // A theme with a pressed colour fills a key held halfway down or more.
+    // A theme with a pressed color fills a key held halfway down or more.
     const bool pressing = view.theme->pressed && amount >= .5 && !latched && !listening && !disabled;
-    // A latched or pressed face carries its own legend colour; everything
+    // A latched or pressed face carries its own legend color; everything
     // below draws with this theme so every mark on the face follows it.
     std::optional<Theme> inked;
     if ((latched || listening) && view.theme->latched_legend != view.theme->legend) {
@@ -1568,7 +1568,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
                          : pressing             ? KeyFace::Pressed
                                                 : KeyFace::Plain;
     // A key at rest copies its body; one moving, lit or in the pressed
-    // colour draws it.
+    // color draws it.
     const bool edge_lit = view.hovered_keys.contains(key.id) || amount > 0;
     // A lock ring going round: how far, and how far it has faded in. On a
     // neon theme the latched tube fills with it: the share it has reached
@@ -1814,7 +1814,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
             cairo_pop_group_to_source(cr);
             cairo_paint_with_alpha(cr, alpha);
         };
-        const auto& lit = legend; // A latched face's colour, once the pull fills it.
+        const auto& lit = legend; // A latched face's color, once the pull fills it.
         faded(1 - pull, [&] {
             label(cr, text, mix_rect(secondary.empty() ? face : middle, below),
                   size + (t.small_font_size - size) * pull, view.language->font, lit, true,
@@ -1822,7 +1822,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
         });
         const auto& shifted = view.key_flick->legend;
         faded(secondary.empty() ? pull : 1, [&] {
-            // It brightens from its quiet colour as it takes the key over.
+            // It brightens from its quiet color as it takes the key over.
             label(cr, shifted, mix_rect(corner, face),
                   t.small_font_size + (t.font_size - t.small_font_size) * pull, view.language->font,
                   mix(quiet, lit, pull), true, PANGO_ALIGN_CENTER, false, right_to_left(shifted));
@@ -1986,7 +1986,7 @@ cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, 
         // show as a sliver along the top.
         if (r.x < corner.x + corner.width && r.x + r.width > corner.x &&
             r.y < corner.y + corner.height && r.y + r.height > corner.y + 8) {
-            // Ctrl in its held colours but not moved down: the cards stay
+            // Ctrl in its held colors but not moved down: the cards stay
             // level. No shared bodies here: body_atlas is null outside paint().
             draw_key(cr, view, key, 0, key.id == "MetaLeft" ? 1 : 0);
         }
@@ -2344,7 +2344,7 @@ Rect dictation_status_line(const PanelView& view) {
     return {left + 12, 12, std::max(0.0, right - left - 24), 42};
 }
 // Settings surfaces, in the keyboard's language: raised panels and keycaps
-// instead of outlines. Every colour derives from the theme.
+// instead of outlines. Every color derives from the theme.
 // A soft shadow under a raised shape: a few widening, fading rings.
 void soft_shadow(cairo_t* cr, const Rect& r, double radius, double depth) {
     for (int i = 1; i <= 4; ++i) {
@@ -2395,7 +2395,7 @@ std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optiona
                 focus_tooltip_height + focus_tooltip_pointer};
 }
 // A raised card like Settings' cards, with a pointer down to the button and
-// the window's title in the legend colour. It floats over whatever is behind
+// the window's title in the legend color. It floats over whatever is behind
 // the panel, so its fill stays opaque with any Background.
 constexpr double focus_tooltip_size = 21, focus_tooltip_pad = 18;
 // A theme's radius may be large: the corners fit the card's height.
@@ -2526,7 +2526,7 @@ void draw_cap_face(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, boo
         cairo_fill(cr);
     } else {
         if (hovered && light_theme(t)) {
-            // As on the keys: a light cap keeps its shading under the hover colour.
+            // As on the keys: a light cap keeps its shading under the hover color.
             gradient(cr, r, mix(t.top, t.hover, .7), mix(t.middle, t.hover, .7),
                      mix(t.bottom, t.hover, .7));
         } else {
@@ -2543,7 +2543,7 @@ void draw_cap(cairo_t* cr, const Theme& t, const Rect& r, bool hovered, bool sel
     draw_edge(cr, t, r, t.radius, hovered, enabled);
 }
 // A switch in place of a checkbox: a recessed track and a keycap knob that
-// moves right, over the latched colour, when on.
+// moves right, over the latched color, when on.
 void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hovered, bool enabled) {
     constexpr double width = 56, height = 30;
     const Rect track{r.x + r.width - width, r.y + (r.height - height) / 2, width, height};
@@ -2577,7 +2577,7 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
     cairo_set_source_rgba(cr, 0, 0, 0, .3);
     cairo_fill(cr);
     rounded(cr, cap, knob / 2);
-    // Off, the knob is a light keycap; on, it takes the latched legend's colour.
+    // Off, the knob is a light keycap; on, it takes the latched legend's color.
     const Color ink = on ? t.latched_legend : t.legend;
     const Color top = on ? ink : mix(t.top, t.legend, .35);
     gradient(cr, cap, hovered && enabled ? mix(top, ink, .3) : top,
@@ -2588,7 +2588,7 @@ void draw_switch(cairo_t* cr, const Theme& t, const Rect& r, bool on, bool hover
 }
 // A well recessed into the case, the opposite of a keycap: darker than the
 // case, shaded under its top edge, with a faint rim and a light catch on its
-// lower lip. Every colour derives from the theme. Returns the well's colour.
+// lower lip. Every color derives from the theme. Returns the well's color.
 Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     const double radius = t.radius + 2;
     const Color well = recede(t, t.surface, .45);
@@ -2605,7 +2605,7 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_paint(cr);
     cairo_pattern_destroy(shade);
     cairo_restore(cr);
-    // The rim takes most of its colour from the keys, so it reads as an edge
+    // The rim takes most of its color from the keys, so it reads as an edge
     // even on a case too dark for the well itself to show.
     if (!edge_rim(cr, t, r, radius, .3)) {
         rounded(cr, {r.x + .5, r.y + .5, r.width - 1, r.height - 1}, radius);
@@ -2627,7 +2627,7 @@ bool clear_case(const PanelView& view) {
     return view.case_opacity < 1 && !view.settings;
 }
 // Over a clear case, text drawn on the case itself gets a piece of it back:
-// a plate in the case colour, fitted to the text and kept inside `area`, so
+// a plate in the case color, fitted to the text and kept inside `area`, so
 // partial repaints of that area cover it. Text wider than the area (wrapped
 // or ellipsized) takes the whole area. Nothing over an opaque case, where the
 // text is not even measured: this runs in every repaint pass. `extra` widens
@@ -2706,7 +2706,7 @@ void draw_candidates(cairo_t* cr, const PanelView& view, const CandidateStripVie
     }
 }
 // The reading in a small well, underlined as in a text field with the
-// converting segment on the latched colour, and the candidates as caps. A
+// converting segment on the latched color, and the candidates as caps. A
 // hint stands in while nothing is typed. On full layouts the reading takes
 // the status line's place, so a status shows beside it, or for the hint.
 void draw_ime_band(cairo_t* cr, const PanelView& view) {
@@ -2781,7 +2781,7 @@ void draw_ime_band(cairo_t* cr, const PanelView& view) {
     if (const auto menu = candidate_menu(view);
         menu && overlaps(pixel_bounds(*menu, tone_shadow), clip)) {
         // A raised menu, like the dropdowns, over keys drawn whole under it:
-        // a faint rim of the legend's colour keeps its edge apart from theirs.
+        // a faint rim of the legend's color keeps its edge apart from theirs.
         // The rim is the menu filled, then filled again a pixel inside: a
         // stroke would antialias differently under each repaint's clip.
         const double radius = t.radius + 2;
@@ -2956,7 +2956,7 @@ void draw_editor(cairo_t* cr, const PanelView& view) {
 // where each key takes the laser, in layout coordinates. A key whose area is
 // an L, beside a split pocket, gets one outline around the whole L: an edge
 // another of its own areas continues across is left out. A debug view, so
-// its colour is fixed rather than the theme's.
+// its color is fixed rather than the theme's.
 void draw_key_outlines(cairo_t* cr, const PanelView& view, double scale) {
     cairo_save(cr);
     cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
@@ -3060,10 +3060,10 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
             continue; // A direction this key does not use.
         }
         const auto& r = cells[i];
-        // A gutter in the case's colour sets each cap off from the
+        // A gutter in the case's color sets each cap off from the
         // keys beneath, as the gaps between keys do. It stays over a
         // transparent case too: without it, caps over keys of the
-        // same colour run together.
+        // same color run together.
         rounded(cr, {r.x - 2, r.y - 2, r.width + 4, r.height + 4}, t.radius + 2);
         source(cr, t.surface);
         cairo_fill(cr);
@@ -3728,10 +3728,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             trail_released_ = stepped; // The swipe ended; its points are final.
         }
         if (const std::size_t count = trail_points_.size(); count > 1) {
-            // A tint of the latched colour. A theme with key edges keeps the
-            // plain legend colour, its strongest contrast. A neon theme draws
-            // the path in its latched colour and the comet as a tube in the
-            // colour its tubes start from. A theme's own trail colours win.
+            // A tint of the latched color. A theme with key edges keeps the
+            // plain legend color, its strongest contrast. A neon theme draws
+            // the path in its latched color and the comet as a tube in the
+            // color its tubes start from. A theme's own trail colors win.
             const bool neon = t.latched_finish == "neon";
             const bool cased = plain_keys(t);
             const Color path_ink = t.trail ? *t.trail
@@ -3740,13 +3740,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                                            : mix(t.legend, t.latched, .22);
             const Color ink = t.comet ? *t.comet : neon ? t.latched_top : path_ink;
             const Color head = t.comet_head.value_or(ink), tail = t.comet_tail.value_or(ink);
-            // The comet's colour where `left` of its lifetime remains: from
+            // The comet's color where `left` of its lifetime remains: from
             // the tail at 0 through `ink` at half to the head at 1.
             const auto comet_at = [&](double left) {
                 return left < .5 ? mix(tail, ink, 2 * left) : mix(ink, head, 2 * left - 1);
             };
-            // The glow around it: the comet's own colour on a neon theme or
-            // one with comet colours, a black halo on a theme with key edges.
+            // The glow around it: the comet's own color on a neon theme or
+            // one with comet colors, a black halo on a theme with key edges.
             const bool own_comet = t.comet || t.comet_head || t.comet_tail;
             const auto glow_at = [&](double left) {
                 return cased               ? Color{}
@@ -3884,7 +3884,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 // newer, stronger piece wins where two meet. A pass is drawn on
                 // `comet_passes_`, cleared over `groups` first, as a group
                 // would be, then laid onto the comet within `area`.
-                const auto strokes = [&](double width, double strength, auto colour_at) {
+                const auto strokes = [&](double width, double strength, auto color_at) {
                     auto* pass = cairo_create(comet_passes_);
                     cairo_rectangle(pass, groups.x, groups.y, groups.width, groups.height);
                     cairo_clip(pass);
@@ -3903,8 +3903,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         const auto& b = at[i - first + 1];
                         cairo_move_to(pass, a.first, a.second);
                         cairo_line_to(pass, b.first, b.second);
-                        const Color colour = colour_at(left);
-                        cairo_set_source_rgba(pass, colour.r, colour.g, colour.b, eased);
+                        const Color color = color_at(left);
+                        cairo_set_source_rgba(pass, color.r, color.g, color.b, eased);
                         cairo_set_line_width(pass, width * (.25 + .75 * eased));
                         cairo_stroke(pass);
                     }
@@ -4358,7 +4358,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_rectangle(cr, picker.grid.x, picker.grid.y, picker.grid.width, picker.grid.height);
             cairo_clip(cr);
             for (const double x : picker.dividers) {
-                // A hairline in the legend colour, fading out toward the
+                // A hairline in the legend color, fading out toward the
                 // grid's top and bottom, like the line under a Settings title.
                 const auto& g = picker.grid;
                 const double top = g.y + 10, bottom = g.y + g.height - 10, line = std::round(x);
@@ -4505,7 +4505,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 cairo_clip(cr);
             }
             const auto r = control.bounds;
-            // Text on a selected control sits on the latched colour.
+            // Text on a selected control sits on the latched color.
             const auto legend = !control.enabled ? disabled_legend(t)
                                 : control.selected && control.style != ControlStyle::TextField
                                     ? t.latched_legend
@@ -4681,7 +4681,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             if (control.badge) {
                 // Stays inside the button, whose bounds are its repaint damage.
-                // The ring of the button's own colour parts it from the icon.
+                // The ring of the button's own color parts it from the icon.
                 constexpr double pi = 3.141592653589793;
                 const double x = r.x + r.width - 11, y = r.y + 11;
                 cairo_new_path(cr);
@@ -4967,7 +4967,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     cairo_set_source_surface(cr, card.preview.get(), picture.x, picture.y);
                     cairo_paint(cr);
                 } else {
-                    source(cr, card.surface); // Its case's colour until the picture is ready.
+                    source(cr, card.surface); // Its case's color until the picture is ready.
                     cairo_paint(cr);
                 }
                 cairo_restore(cr);

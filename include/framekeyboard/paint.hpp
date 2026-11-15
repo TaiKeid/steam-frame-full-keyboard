@@ -1,7 +1,7 @@
 #pragma once
 // The panel's own drawing of cards, buttons, wells and text, for windows
 // outside the keyboard (the installer) that must look like its Settings.
-// Every colour comes from the theme, as in panel.cpp.
+// Every color comes from the theme, as in panel.cpp.
 #include "config.hpp"
 #include "layout.hpp"
 #include <cairo.h>
@@ -16,7 +16,7 @@ Color mix(Color a, Color b, double amount);
 void settings_card(cairo_t* cr, const Theme& theme, const Rect& r);
 // A button or dropdown face: the keys' gradient, hover and latched fill.
 void cap(cairo_t* cr, const Theme& theme, const Rect& r, bool hovered, bool selected, bool enabled);
-// A well recessed into the case; returns its colour.
+// A well recessed into the case; returns its color.
 Color well(cairo_t* cr, const Theme& theme, const Rect& r);
 // The latched fill, as on a selected segment or a switched-on track.
 void latched(cairo_t* cr, const Theme& theme, const Rect& r, double radius);
@@ -26,7 +26,7 @@ void latched(cairo_t* cr, const Theme& theme, const Rect& r, double radius);
 // that types no character sits a tone back. Returns where the face is drawn.
 Rect key(cairo_t* cr, const Theme& theme, const Rect& face, double amount, double lift, bool latched,
          bool character = true);
-// The colour of the Shift character over a key's own legend.
+// The color of the Shift character over a key's own legend.
 Color shift_legend(const Theme& theme, bool latched, bool character = true);
 // Interface text that shrinks, or wraps to two lines, to fit `r`; with
 // `wrap` it wraps freely and shrinks only when the lines overflow.

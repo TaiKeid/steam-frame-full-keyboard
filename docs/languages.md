@@ -208,7 +208,7 @@ already started and a piece fails, the status asks for Enter to retry only the
 unsent remainder. Hiding or changing the typing context cancels queued output;
 text that was already submitted is never replayed automatically.
 
-Chinese and Korean show the reading centred in a line of its own under the
+Chinese and Korean show the reading centered in a line of its own under the
 toolbar, in the place of a narrow keyboard's second toolbar row, whose buttons
 sit at the line's left, with a hint for Chinese while nothing is typed, and the case fits
 the keys with no empty space at the sides. Other languages on the same layout
@@ -337,7 +337,7 @@ about 50 MB more than Simplified while it is added.
 
 Both engines learn, as on Steam's keyboard. They learn from text once it
 reaches the field, never in a password, PIN or terminal field, a terminal the
-keyboard recognises on the desktop included, and never in a preview. libime
+keyboard recognizes on the desktop included, and never in a preview. libime
 learns the words you choose and the sentences you commit, with the Pinyin
 each was picked with, and writes them once typing pauses for 3 s, the panel
 hides, Settings opens or the keyboard quits. McBopomofo learns the candidates

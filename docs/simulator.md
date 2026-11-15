@@ -228,7 +228,7 @@ It takes the same options as the simulator and keeps its settings in the same fo
 | `FRAMEKEYBOARD_IBUS_TABLE_ROOT` | Optional: an unpacked `ibus-table-chinese` package, with `usr/share/ibus-table/tables/cangjie5.db` and `quick5.db`, to bundle for Cangjie and Quick, which the Steam Frame has of its own. `FRAMEKEYBOARD_TABLE_DIRECTORY` names another folder of tables at run time |
 | `FRAMEKEYBOARD_EXECUTORCH_HOST` | Optional: includes swipe typing, as for a [host build](building.md#dependencies) |
 | `FRAMEKEYBOARD_MOZC_HOST` | Optional: includes Mozc's server, so Japanese converts with Mozc, as for a [host build](building.md#dependencies); without it, Anthy converts alone |
-| `FRAMEKEYBOARD_CHINESE_HOST` | Optional: the Chinese engines' host prefix ([building](building.md#dependencies)). Includes libime, OpenCC and McBopomofo with their libraries, data and licences; without it, Pinyin and Zhuyin profiles are unavailable |
+| `FRAMEKEYBOARD_CHINESE_HOST` | Optional: the Chinese engines' host prefix ([building](building.md#dependencies)). Includes libime, OpenCC and McBopomofo with their libraries, data and licenses; without it, Pinyin and Zhuyin profiles are unavailable |
 
 The optional Anthy, IBus and Chinese-table roots must match the pinned package
 payloads in `scripts/simulator-appimage/{anthy,ibus,ibus-table-chinese}.sha256`.

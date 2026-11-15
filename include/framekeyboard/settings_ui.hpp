@@ -25,7 +25,7 @@ struct SettingField {
     bool narrow{};
     // Or its own width, between narrow and full, when neither fits both.
     double width{};
-    // A Note row that describes rather than warns: the legend colour, not amber.
+    // A Note row that describes rather than warns: the legend color, not amber.
     bool plain{};
     // A button whose work is under way: a ring circles its border.
     bool busy{};

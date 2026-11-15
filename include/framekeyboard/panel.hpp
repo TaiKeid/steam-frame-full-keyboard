@@ -23,7 +23,7 @@ constexpr int settings_height = 588;
 constexpr int popup_margin = 200;
 constexpr int texture_height = panel_height + 2 * popup_margin;
 // With a transparent background, text drawn on the case (status line, reading
-// line, dictation counter) sits on a plate of the case colour this opaque.
+// line, dictation counter) sits on a plate of the case color this opaque.
 constexpr double case_plate_alpha = .88;
 
 // TextField shows a value that opens its own editor, such as a server address.
@@ -141,7 +141,7 @@ struct Control {
     std::optional<Rect> clip{};
     bool enabled{true};
     ControlAction action{};
-    bool warning{}; // a toolbar icon drawn in the theme's alert colour
+    bool warning{}; // a toolbar icon drawn in the theme's alert color
     bool badge{};   // a notification dot on the button's top right corner
     bool dimmed{};  // a toolbar icon drawn quietly, though it still responds
     int segments{}; // a Segment: how many share its track; action.index is its place
@@ -162,7 +162,7 @@ struct FieldLabel {
     bool left{};
     bool enabled{true};
     double size{22};
-    bool wrap{}, warning{}; // a Note row: wrapped, in the warning colour
+    bool wrap{}, warning{}; // a Note row: wrapped, in the warning color
     // Room under the bounds for a second line, the first staying in place.
     double below{};
 };
@@ -332,7 +332,7 @@ struct PanelView {
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};
     // The swipe button was pressed with no language that can swipe: from this
-    // time its icon shakes, fading from the alert colour.
+    // time its icon shakes, fading from the alert color.
     double swipe_shake_since{-1};
     std::set<std::string> hovered_keys, hovered_controls;
     bool status_hovered{}; // A laser is on the dictation status line.
@@ -437,7 +437,7 @@ struct PanelView {
             Rect bounds; // in view or partly so; the well clips it
             bool selected{};
             // Null until loaded or drawn (ThemePreviews); the card shows its
-            // name over the theme's case colour meanwhile.
+            // name over the theme's case color meanwhile.
             std::shared_ptr<cairo_surface_t> preview;
             Color surface;
         };
@@ -661,7 +661,7 @@ class PanelRenderer {
     double mic_phase_{1}; // How far the bars had slid when last drawn.
     double ring_time_{};
     double busy_ring_{};                  // A busy button's ring, stepping like the mic's.
-    double swipe_shake_{}, swipe_fade_{}; // The swipe icon's, and its alert colour left.
+    double swipe_shake_{}, swipe_fade_{}; // The swipe icon's, and its alert color left.
     double focus_shake_{}; // The Focus mode icon's shake offset, when last drawn.  // The recognition
                            // ring's time, sampled at 30 fps, when last drawn.
     double next_change_{};

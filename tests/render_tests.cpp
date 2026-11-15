@@ -63,7 +63,7 @@ class Comparison {
         return painted;
     }
     // The native texture path uploads Cairo's premultiplied pixels as they
-    // are, so over a clear case no colour channel may exceed its alpha.
+    // are, so over a clear case no color channel may exceed its alpha.
     void require_premultiplied(const char* phase) {
         auto* a = incremental.surface();
         const int stride = cairo_image_surface_get_stride(a);
@@ -633,14 +633,14 @@ void straight_alpha() {
             }
             if (alpha == 0 || alpha == 255) {
                 if (alpha == 0 && (out[0] | out[1] | out[2]) != 0) {
-                    throw std::runtime_error("a clear pixel has no colour");
+                    throw std::runtime_error("a clear pixel has no color");
                 }
                 continue;
             }
             ++partial;
             for (int channel = 0; channel < 3; ++channel) {
                 const unsigned premultiplied = (row[x] >> (16 - 8 * channel)) & 255u;
-                // Back to straight colour, within the rounding of 8-bit premultiplication.
+                // Back to straight color, within the rounding of 8-bit premultiplication.
                 if (std::abs(out[channel] * static_cast<double>(alpha) / 255 -
                              static_cast<double>(premultiplied)) > 1) {
                     throw std::runtime_error("straight RGBA does not undo premultiplied alpha");
@@ -753,7 +753,7 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
         view.flick_preview->selected = 2;
         compare.settle(view, "flick direction");
         if (transparent && !slot.left.empty()) {
-            // The case-coloured gutters stay between the preview's caps, so
+            // The case-colored gutters stay between the preview's caps, so
             // they stand apart from the keys beneath on a clear case too.
             // Between the tap cap and the left one (flick_cells: cells a
             // key's height × 1.15 square, 4 px apart), this pixel column lies
@@ -1199,12 +1199,12 @@ void theme_cards() {
     // A card cut off at the well's top: its box reaches the Back button and the dim.
     view.themes->cards[0].preview = picture;
     compare.frame(view, "a picture for a card cut off at the top");
-    // The selection moving, and a card's colour changing.
+    // The selection moving, and a card's color changing.
     view.themes->cards[2].selected = true;
     card_control(view.themes->cards[2].id).selected = true;
     compare.frame(view, "the selected card changes");
     view.themes->cards[3].surface = Color{.5, 0, 0};
-    compare.frame(view, "a card's colour changes");
+    compare.frame(view, "a card's color changes");
     // A question over the picker, a picture arriving under it, and its end.
     PanelView::ConfirmView question;
     question.panel = {420, 180, 760, 300};
@@ -1338,7 +1338,7 @@ int main() {
         hover_fade();
         swipe_trail("graphite");
         swipe_trail("contrast");
-        swipe_trail("ember"); // a trail in its own colours
+        swipe_trail("ember"); // a trail in its own colors
         slow_trail();
         theme_damage_rules();
         theme_cards();
@@ -1385,7 +1385,7 @@ int main() {
             }
         }
         straight_alpha();
-        // Notice colours default by the legend's lightness; a theme may set its own.
+        // Notice colors default by the legend's lightness; a theme may set its own.
         const std::string base =
             R"({"schema_version":1,"id":"t","name":"T","surface":"#101010","surface_radius":20,)"
             R"("key_top":"#303030","key_middle":"#282828","key_bottom":"#202020",)"
@@ -1396,7 +1396,7 @@ int main() {
         const auto custom = parse_theme(base + R"("legend":"#202020","warning":"#ff0000"})");
         if (!(dark.warning == Color{.96, .72, .35} && light.warning.r < .6 && light.error.r < .7 &&
               custom.warning == Color{1, 0, 0})) {
-            throw std::runtime_error("notice colours follow the legend unless the theme sets them");
+            throw std::runtime_error("notice colors follow the legend unless the theme sets them");
         }
         // An alert icon stands apart from the legend and reads on the keycap in
         // every bundled theme: orange, not the legend's grey, at 3:1 or more.
@@ -1427,13 +1427,13 @@ int main() {
         for (const auto& [id, theme] : profiles.themes) {
             if (theme.alert.r - theme.alert.b < .5 || contrast(theme.alert, theme.top) < 3 ||
                 contrast(theme.alert, theme.legend) < 1.5) {
-                throw std::runtime_error("alert icon colour is not distinct in theme " + id);
+                throw std::runtime_error("alert icon color is not distinct in theme " + id);
             }
         }
         const auto alerted = parse_theme(base + R"("legend":"#202020","alert":"#00ff00"})");
         if (!(dark.alert == dark.warning && light.alert != light.warning &&
               alerted.alert == Color{0, 1, 0})) {
-            throw std::runtime_error("the alert colour follows the legend unless the theme sets it");
+            throw std::runtime_error("the alert color follows the legend unless the theme sets it");
         }
         // The latched fill is flat with the legend on it unless the theme says otherwise.
         const auto lit = parse_theme(
@@ -1456,7 +1456,7 @@ int main() {
             throw std::runtime_error(
                 "edge and pressed tokens are optional, and edge_hover follows edge");
         }
-        // Trail colours, and a pressed gradient, come only from a theme that sets them.
+        // Trail colors, and a pressed gradient, come only from a theme that sets them.
         const auto trailed =
             parse_theme(base + R"("legend":"#ffffff","pressed":"#ff8000","pressed_top":"#ffff00",)"
                                R"("trail":"#0000ff","comet":"#ff0000","comet_tail":"#000000"})");

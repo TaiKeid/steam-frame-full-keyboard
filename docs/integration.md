@@ -200,7 +200,7 @@ Movement and resizes by the user are reported, so the shell can follow them. Loc
 
 Hiding chrome hides only those controls. The Settings view is still reachable through `show {"view":"settings"}`.
 
-**Deferred past protocol 1:** `theme.derive`, which would build a full theme in the house style (gradients, sides, hover, latched, disabled and notice colours) from four seed colours: `surface`, `key`, `legend`, `accent`. It is advertised as feature `theme.derive` once available. Until then shells send a full theme.
+**Deferred past protocol 1:** `theme.derive`, which would build a full theme in the house style (gradients, sides, hover, latched, disabled and notice colors) from four seed colors: `surface`, `key`, `legend`, `accent`. It is advertised as feature `theme.derive` once available. Until then shells send a full theme.
 
 ## Settings
 
@@ -310,7 +310,7 @@ A shell that owns the controllers, for example a scene app, forwards its own poi
 ```
 
 - Enabled with `{"op":"pointer_mode","mode":"forwarded"}`. While it is on, every native pointer source is off: dashboard events, the keyboard's own controller pointer and grip grabs. Every switch releases keys and clears pointers, as switching between dashboard and passthrough pointers does today.
-- `u`,`v` are coordinates on the full overlay texture from the top left, in 0–1. Dropdowns and flick previews can extend outside the case, so the keyboard sends `regions` events with the accepted rectangles whenever they change. A position outside every region counts as leaving: the press is cancelled as on focus leave.
+- `u`,`v` are coordinates on the full overlay texture from the top left, in 0–1. Dropdowns and flick previews can extend outside the case, so the keyboard sends `regions` events with the accepted rectangles whenever they change. A position outside every region counts as leaving: the press is canceled as on focus leave.
 - The move line and corner resizers need a world ray and separate overlays, so they are disabled in forwarded mode. The shell moves and resizes the panel with `set_pose` and `set_width`.
 - The curve bars of Curved keyboard are disabled the same way, and the panel shows flat while the mode is on, so the shell's texture coordinates land where it computes them on a flat quad. A saved bend comes back when the mode is turned off.
 - `pointer` messages have no `id` and get no response, to keep latency low. They are applied in order. Moves are never merged across `down`, `up` or `cancel`. Hover moves may be merged to the latest. Moves during a press are kept, up to 8 per hand per frame, so swipe recognition keeps enough samples.

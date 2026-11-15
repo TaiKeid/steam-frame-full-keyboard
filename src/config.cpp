@@ -318,7 +318,7 @@ Theme parse_theme(const std::string& json) {
     if (field(o, "pressed", json_type_string, true)) {
         t.pressed = color(o, "pressed");
     }
-    // The gradient's ends are used only with a pressed colour.
+    // The gradient's ends are used only with a pressed color.
     t.pressed_top = optional_color("pressed_top", t.pressed.value_or(t.legend));
     t.pressed_bottom = optional_color("pressed_bottom", t.pressed.value_or(t.legend));
     t.pressed_legend = optional_color("pressed_legend", t.legend);

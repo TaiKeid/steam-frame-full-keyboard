@@ -21,7 +21,7 @@ struct Theme {
     std::string id, name;
     Color surface, top, middle, bottom, side_top, side_bottom, legend;
     Color hover, latched, disabled;
-    // Notice colours for text on the case and cards; their defaults depend on
+    // Notice colors for text on the case and cards; their defaults depend on
     // whether the legend is light (dark theme) or dark (light theme).
     Color warning, error;
     // A status icon that needs attention, such as Keep open typing out of
@@ -41,10 +41,10 @@ struct Theme {
     // edge and a pressed key keeps its face.
     std::optional<Color> edge, edge_hover, pressed;
     Color pressed_top, pressed_bottom, pressed_legend;
-    // Optional swipe trail colours: `trail` for the path, and the comet from
+    // Optional swipe trail colors: `trail` for the path, and the comet from
     // `comet_head` at its newest end through `comet` to `comet_tail` where it
     // fades out (each end `comet` by default). Without them both are drawn
-    // from the legend and latched colours.
+    // from the legend and latched colors.
     std::optional<Color> trail, comet, comet_head, comet_tail;
     double surface_radius{}, radius{}, depth{}, travel{}, duration_ms{};
     double font_size{20}, small_font_size{13}, padding{20};

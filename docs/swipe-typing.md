@@ -29,7 +29,7 @@ Swipe typing lets a user hold the trigger, trace a word across the letter keys a
 
 The first version uses option A below: immediate commit with guarded replacement. The owner has not chosen yet; option B stays possible.
 
-| Option | Behaviour | Risk |
+| Option | Behavior | Risk |
 | --- | --- | --- |
 | **A. Immediate commit (recommended)** | The top word is committed through the existing text path. Alternatives show in the candidate row. Picking one sends Backspace × length plus the new word. | Picking an alternative after the user moved the cursor would edit the wrong text. Alternatives are invalidated when any key is pressed, any pointer leaves the panel, the target changes or the panel hides. |
 | B. Preedit first | The word stays in the panel preedit, like Chinese/Korean composition, and is committed by the next swipe, Space or tap. | Safe, but the text doesn't appear in the field until the next action, which is unusual for Latin swipe typing. |
@@ -38,14 +38,14 @@ Chinese Pinyin always uses the composer preedit, because the result is a reading
 
 ### Open issue: tap timing with swipe enabled
 
-Sending on release is the interim behaviour while swipe is enabled, but it won't work for normal typing. The owner has further ideas, which are pending. The final design must keep press-time typing for taps while still letting a press start a swipe. Don't build anything in M1 that can only work with release-time text.
+Sending on release is the interim behavior while swipe is enabled, but it won't work for normal typing. The owner has further ideas, which are pending. The final design must keep press-time typing for taps while still letting a press start a swipe. Don't build anything in M1 that can only work with release-time text.
 
 ## Architecture
 
 | Piece | Responsibility | Notes |
 | --- | --- | --- |
 | `SwipeTracker` | Per-pointer path capture, tap/swipe classification and cancellation | Host-testable; no model needed |
-| `SwipeLayout` | Swipe key centres from layout geometry and the keymap's level-1 letters; accent folding | Derived per active layout/language pair |
+| `SwipeLayout` | Swipe key centers from layout geometry and the keymap's level-1 letters; accent folding | Derived per active layout/language pair |
 | `SwipeLexicon` | Word list loading, collapsed key path trie, frequencies | File-based; user overrides by ID |
 | `SwipeDecoder` | Interface: path → ranked words | FUTO implementation behind it; a stub decoder for tests |
 | Swipe engine module | ExecuTorch, XNNPACK and the model, loaded on demand with `dlopen` | Same pattern as the CJK engine adapters. Missing module disables swipe only. |
@@ -79,7 +79,7 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
 
 ## Added languages (2026-10-23)
 
-- Word lists: HeliBoard/Leipzig CC BY lists for English UK, French, Italian, Ukrainian and Russian; Brazilian Portuguese built from Leipzig `por-br_newscrawl_2011_1M` (HeliBoard's Brazilian list has no stated licence); Chinese as toneless Pinyin from jieba (MIT) and pypinyin (MIT).
+- Word lists: HeliBoard/Leipzig CC BY lists for English UK, French, Italian, Ukrainian and Russian; Brazilian Portuguese built from Leipzig `por-br_newscrawl_2011_1M` (HeliBoard's Brazilian list has no stated license); Chinese as toneless Pinyin from jieba (MIT) and pypinyin (MIT).
 - French on real FUTO AZERTY swipes, top-1: accent keys only 72.0%, plain letters only 78.7%, both accepted 77.8%. Number-row accent keys therefore accept both paths; accents inside the letter rows keep their own key.
 - Since 2026-11-06 the number row has no swipe keys at all, as on a phone: its letters (AZERTY é è ç à, Italian ì, German ß, Russian ё) are swiped on the plain letter, the path that scored best above. Accents inside the letter rows keep their own key.
 - The normalization frame now spans every letter key in the three main letter rows, found by physical position. German 84.5% top-1 (83.7% with a–z only), Spanish unchanged at 92.5%; it also keeps keys such as Italian à inside the encoder's range, where they no longer mirror onto inner keys.
@@ -130,7 +130,7 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
 - Right-to-left needs nothing of its own: a swipe follows the letters in typing order, word tracking counts Arabic harakat as part of a word, and Pango draws the toolbar's Arabic and Hebrew. Not yet looked at in the headset.
 - Coverage of film-subtitle text by the most frequent words, to check that clitics and prefixes don't need longer lists: Hebrew 95.5% at 50k (97.7% at 100k), Arabic 92.3% (95.4%), against Polish 93.9% and Finnish 90.7%. Both stay at 50,000 words.
 - Hebrew's 27 letters, finals included, all have letter-row keys. Arabic ذ is alone on the number row and is swiped on د, as đ on d; hamza forms fold to ا by decomposition.
-- Synthetic swipes as above: Hebrew 87.7% top-1 / 97.0% top-3, Arabic 78.3% / 93.0%. Paths shared with a commoner word are no more frequent than in English (Arabic 4.4%, English 3.7%); Arabic loses on the layout, where ا and ل are neighbours, so the article ال and لل ("for the"), or the prefixes ب and ي, are one short hop apart. Phone Arabic layouts share that row.
+- Synthetic swipes as above: Hebrew 87.7% top-1 / 97.0% top-3, Arabic 78.3% / 93.0%. Paths shared with a commoner word are no more frequent than in English (Arabic 4.4%, English 3.7%); Arabic loses on the layout, where ا and ل are neighbors, so the article ال and لل ("for the"), or the prefixes ب and ي, are one short hop apart. Phone Arabic layouts share that row.
 - Arabic lists are Modern Standard Arabic; dialect chat words (عايز, كيفك) are missing.
 
 ## Feasibility results
@@ -139,7 +139,7 @@ All results were measured on 2026-10-23. Unless noted, they come from host x86_6
 
 ### Real swipes on Full Keyboard geometry
 
-Real phone swipes from FUTO's MIT-licensed dataset. English uses the swipe-1 test split; German and Spanish come from swipe-5, recorded after the encoder was exported. Each swipe was warped piecewise-affinely from the phone layout's key centres to Full Keyboard's `en-us`/`international` key centres. Tremor adds a smoothed random offset with 120 ms correlation, scaled in key pitches. Word lists: wordfreq top 100k (test only); target words not in the list were added, as in FUTO's paper. 600 swipes per language.
+Real phone swipes from FUTO's MIT-licensed dataset. English uses the swipe-1 test split; German and Spanish come from swipe-5, recorded after the encoder was exported. Each swipe was warped piecewise-affinely from the phone layout's key centers to Full Keyboard's `en-us`/`international` key centers. Tremor adds a smoothed random offset with 120 ms correlation, scaled in key pitches. Word lists: wordfreq top 100k (test only); target words not in the list were added, as in FUTO's paper. 600 swipes per language.
 
 | Language | Phone layout | Full Keyboard | + tremor 0.08 | + tremor 0.15 | Full Keyboard top-3 / top-5 |
 | --- | --- | --- | --- | --- | --- |

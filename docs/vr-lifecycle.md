@@ -16,7 +16,7 @@ or callbacks.
    already accepted for that target, in order.
 2. A hidden dashboard or panel cannot deliver pointer input, repeats or queued
    text. Hiding cancels movement and pointer captures. Reopening permits fresh
-   input, without replaying the cancelled work, and shows no hover fade, swipe
+   input, without replaying the canceled work, and shows no hover fade, swipe
    trail or key easing left from before.
 3. Closing the panel dismisses the current request while the process remains
    resident. Late status for that request cannot reopen or acknowledge it. A

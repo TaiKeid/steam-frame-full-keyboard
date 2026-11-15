@@ -8,7 +8,7 @@ keyboard-tilted.png (the keyboard alone, transparent, for the README) to
 out/social-card/; working files go to its work/ folder. Copy
 keyboard-tilted.png to docs/images/ for the README; the social card is
 uploaded by hand in the repository's settings. Needs ImageMagick,
-rsvg-convert and the Noto Sans font. Colours are the Graphite theme's.
+rsvg-convert and the Noto Sans font. Colors are the Graphite theme's.
 """
 import pathlib
 import subprocess
@@ -58,7 +58,7 @@ def flat_pictures():
 <rect x="1" y="1" width="{cw - 2}" height="{ch - 2}" rx="23" fill="none" stroke="url(#r)" stroke-width="2"/></svg>""")
     run("rsvg-convert", work / "rim.svg", "-o", work / "rim.png")
     run("magick", picture, "-crop", f"{cw}x{ch}+0+0", "+repage", work / "rim.png", "-composite", work / "case.png")
-    # "lighten" raises the key's face to the hover colour and leaves its white legend alone.
+    # "lighten" raises the key's face to the hover color and leaves its white legend alone.
     run("magick", work / "case.png", "(", "-size", f"{cw}x{ch}", "xc:none", "-fill", "#3d4855", "-draw",
         "roundrectangle {},{} {},{} 8,8".format(*K_KEY), ")", "-compose", "lighten", "-composite",
         work / "case-hover.png")

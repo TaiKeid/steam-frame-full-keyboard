@@ -2650,7 +2650,7 @@ void desktop_unicode_setting() {
             return label.text.find(words) != std::string::npos && !label.warning;
         });
     };
-    require(described("You will see Unicode codes"), "Type is described in the legend colour");
+    require(described("You will see Unicode codes"), "Type is described in the legend color");
     select(app, "desktop-unicode", "paste");
     require(described("replaces what is in the clipboard") && sink.routes.back() == nullptr,
             "Paste is described, and pending until Apply");

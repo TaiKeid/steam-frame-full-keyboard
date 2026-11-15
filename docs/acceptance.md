@@ -5,7 +5,7 @@ Use this checklist for a release candidate. Automated core tests and earlier hea
 ## Visuals
 
 - Full-size US arrangement, left Cut, Copy and Paste, separated navigation and numpad.
-- Flat dark grey surface, white legends, rounded grey gradient keycaps.
+- Flat dark gray surface, white legends, rounded gray gradient keycaps.
 - Shallow sides; fixed-size caps translate down on press without stretching or exposing a top side.
 - Hover, press and modifier state remain distinguishable at actual headset size.
 - Displayed legends and pointer hit regions align across supported scaling.
@@ -61,7 +61,7 @@ Test a form that submits on Enter and a multiline field that inserts a newline. 
 - Ctrl, Alt or Super held with one controller stays down over several keys from the other: Alt+Tab steps through windows in a local app and in a stream from a PC. Shift and AltGr go down with each key.
 - Holding Shift, Ctrl, Alt, AltGr or the left Frame icon: a tap shows no ring; the ring appears after about 0.3 s, fully by 0.5 s, and goes round clockwise from 12 o'clock, the key locks at 0.9 s with a double tick in that hand, and the ring closes into a border at 1 s. A double tap locks at once. A locked Alt with Tab tapped steps through windows with one hand; a tap on any locked key unlocks them all and lets them up. Hiding the keyboard ends every lock and lets the keys up. The ring and border read on Graphite, Porcelain, Neon and High Contrast.
 - Closing the dashboard hides Full Keyboard and stops local typing without claiming streamed-app controls.
-- Cancelled pointer presses, tracking loss, focus loss and close release keys.
+- Canceled pointer presses, tracking loss, focus loss and close release keys.
 - A crash leaves the stock keyboard usable and does not retain a stale instance lock.
 - Input connection loss, runtime restart, sleep/wake, and reboot fail or recover predictably.
 - Install/update/rollback/uninstall follow the documented steps, with `install.sh` and with the [installer](installer.md), and preserve user profiles.

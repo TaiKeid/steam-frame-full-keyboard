@@ -707,7 +707,7 @@ void Installer::split_button(const Rect& main_bounds, const Rect& more_bounds, b
                 cairo_restore(cr_);
             }
         }
-        // A groove between the halves, in the case's colour.
+        // A groove between the halves, in the case's color.
         cairo_rectangle(cr_, more.x - 1, whole.y + 16, 2, whole.height - 32);
         set_rgba(cr_, theme_.surface, .45);
         cairo_fill(cr_);
@@ -851,7 +851,7 @@ void Installer::paint_backdrop() {
     auto* pixels = cairo_image_surface_get_data(backdrop_.get());
     const int stride = cairo_image_surface_get_stride(backdrop_.get());
     // Lighter than the keyboard's case above, so the case stands out, and
-    // darker toward the bottom; a faint glow of the latched colour behind the
+    // darker toward the bottom; a faint glow of the latched color behind the
     // keyboard; and corners that fall off into the case's dark. Closing is
     // the window's own (KDE, Gamescope).
     const auto top = paint::mix(theme_.surface, theme_.middle, .55);
@@ -1205,7 +1205,7 @@ void Installer::paint_confirm() {
         spinner(confirm.x + confirm.width / 2, confirm.y + confirm.height / 2, 13);
     } else {
         // Removing is the one action that undoes the keyboard: the error
-        // colour, deep in the keys' own shading rather than bright.
+        // color, deep in the keys' own shading rather than bright.
         const bool hover = hovered(Action::ConfirmUninstall);
         paint::rounded(cr_, confirm, theme_.radius);
         auto* shade = cairo_pattern_create_linear(0, confirm.y, 0, confirm.y + confirm.height);
@@ -1841,14 +1841,14 @@ void Installer::paint_swipe_demo(const Rect& s, double t) {
                         std::ceil(x1 - x0 + 2 * reach) + 1, std::ceil(y1 - y0 + 2 * reach) + 1);
         cairo_clip(cr_);
         // Each piece replaces what lies under it, so joins don't darken.
-        const auto strokes = [&](double width, double strength, Color colour) {
+        const auto strokes = [&](double width, double strength, Color color) {
             cairo_push_group(cr_);
             cairo_set_operator(cr_, CAIRO_OPERATOR_SOURCE);
             auto previous = tail;
             for (const auto& [end, eased] : pieces) {
                 cairo_move_to(cr_, previous.first, previous.second);
                 cairo_line_to(cr_, end.first, end.second);
-                set_rgba(cr_, colour, eased);
+                set_rgba(cr_, color, eased);
                 cairo_set_line_width(cr_, width * (.25 + .75 * eased));
                 cairo_stroke(cr_);
                 previous = end;
@@ -1992,7 +1992,7 @@ void Installer::paint_pull_demo(const Rect& s, double t) {
     text("2", between_rects(middle(face), below), large * .85 + (small - large * .85) * pull, ink);
     cairo_pop_group_to_source(cr_);
     cairo_paint_with_alpha(cr_, 1 - pull);
-    // It brightens from its quiet colour as it takes the key over.
+    // It brightens from its quiet color as it takes the key over.
     text("@", between_rects(corner(face), {face.x, face.y, face.width, face.height * .94}),
          small + (large - small) * pull, paint::mix(paint::shift_legend(theme_, filled), ink, pull));
 

@@ -55,13 +55,13 @@ The mic key is the tall key at the bottom of the side column, below Cut, Copy an
 - The keyboard's messages show in the toolbar row instead of on the card above the keyboard, wrapping onto a second line when long; one too long for two lines of the space left stays on one and scrolls under the laser. Messages about a stopped Send stay on the card (see [Send](#send)).
 - The toolbar stays. Listening continues under Settings, which waits only while Send runs. Applying a change to the language or recognition settings, Reload, the server test and downloading or deleting a model pause it. Phrases recorded before such a change are still recognized with the server and model they were recorded for, even when listening resumes before they are done. The language and haptic sounds buttons wait until no phrase is being captured, recognized or typed, and the swipe button waits while the editor can't be typed in. X, Pin, Recenter and Esc keep working.
 - Letters swipe as on the keyboard while the editor can be typed in. The emoji key is unavailable in dictation mode.
-- The editor is a well recessed into the case, darker than it on dark themes and lighter on light ones, with every colour taken from the theme.
+- The editor is a well recessed into the case, darker than it on dark themes and lighter on light ones, with every color taken from the theme.
 
 ### Capturing
 
 - The mic key starts and stops capture: start, pause, resume, pause. The mode is left with Send, which commits, or Esc, which discards.
 - **Pause:** the phrase being spoken ends at the pause, and its audio is still recognized and inserted. Resuming starts a new phrase.
-- **Editor while capturing:** the existing text is greyed out and read-only; the insertion point stays visible.
+- **Editor while capturing:** the existing text is grayed out and read-only; the insertion point stays visible.
 - **Phrases:**
   - The Frame splits speech at pauses of about 0.6 s, and at 25 s at the latest.
   - Each phrase is sent to the recognizer while capture continues, and is inserted at the cursor as soon as its text returns.
@@ -137,7 +137,7 @@ Esc in dictation mode is local and never reaches the application.
 - **Delivery:**
   - Text is cut into commits of at most 32 code points through the output queue. Each line break is a native key entry. Each piece goes out once the previous one is delivered, so a failure knows exactly what arrived.
   - Plain text to local applications goes one acknowledged character at a time. Whole commits are unusable there: Gamescope's temporary keymap leaks into the text, and words are lost or reordered even with the Frame idle.
-  - The **Send** setting sets the pace: 20 ms between characters (the default, about 19 s for 900 characters), 10 ms, faster but more likely to swap characters, or 30 or 40 ms, slower but steadier when the Frame is busy. Each character also waits for the previous one to be acknowledged, about one frame. Under heavy load, 20 ms can occasionally swap neighbouring characters. Other typing keeps 20 ms.
+  - The **Send** setting sets the pace: 20 ms between characters (the default, about 19 s for 900 characters), 10 ms, faster but more likely to swap characters, or 30 or 40 ms, slower but steadier when the Frame is busy. Each character also waits for the previous one to be acknowledged, about one frame. Under heavy load, 20 ms can occasionally swap neighboring characters. Other typing keeps 20 ms.
   - **Paste,** the fourth choice of the **Send** setting: Send writes the text to the clipboard, line breaks included, presses Ctrl+V, or a terminal's own paste key such as Ctrl+Shift+V, and waits until the application takes the text. A terminal with no paste key, such as xterm, is typed into instead, and so is a streaming client such as Moonlight, whose PC types a paste itself.
     - The keyboard owns the clipboard on every X display, since Steam uses `:0` and the applications it starts use `:1`, and Gamescope does not copy one to the other. It also sets the clipboard of SteamOS's Desktop, which keeps its own; while the Desktop has the keys, Ctrl+V is pressed only once that clipboard holds the text, and otherwise the text stays in the editor. It answers requests for its own text and never asks for anyone else's. The text stays there until something else is copied or the keyboard exits.
     - Gamescope fetches a new clipboard at once, so Send waits 150 ms before Ctrl+V; it finishes 100 ms after the application's request, so the text is inserted before later keys.
@@ -149,7 +149,7 @@ Esc in dictation mode is local and never reaches the application.
 - **Failure:** if delivery fails or is interrupted (Esc, hiding the panel, losing or changing the target, or no answer for 5 s), the unsent remainder stays in the editor and the mode stays open. Send continues from there. The message saying so shows on the card above the keyboard, not in the toolbar row, so it is seen from the window being typed into.
   - Text the target acknowledged leaves the editor.
   - A commit that timed out may have arrived anyway, so the editor underlines the text that may have arrived in amber: the one character that timed out when text went one character at a time, or the whole commit otherwise. Editing the marked text removes the mark.
-- **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be cancelled with Esc, and ends with a notice when one phrase takes longer than recognition may (35 s on the device, 15 s with a server, 45 s with the fallback); each phrase recognized restarts it.
+- **Send while capturing:** capture stops, Send waits for pending phrases, then sends. The wait can be canceled with Esc, and ends with a notice when one phrase takes longer than recognition may (35 s on the device, 15 s with a server, 45 s with the fallback); each phrase recognized restarts it.
 - **Target:** Send types into the window that has keyboard focus when it is pressed. If another window takes focus before it finishes, by a click or because closing the dashboard moved the focus, Send stops there, and the rest stays in the editor, marked in amber where it may have arrived; Send again types it wherever focus is then. Windows inside SteamOS's Desktop share one window of Gamescope's, so switching between them is not seen.
 
 ## Type as I speak
@@ -234,7 +234,7 @@ Hosted providers and their API keys are configured only in `config.json` and the
 Settings has no text fields of its own, and its cards cover the keys. Selecting the Server field opens an **address popup** over a dimmed Settings, with its own one-line field and a small hardcoded keyboard. The address is set rarely, so this stays deliberately simple.
 
 - **Keys:** lowercase letters, digits, and `.` `-` `:` `[` `]`, the characters a `host:port` address can hold, in a 12-column grid: `Esc 1–0 ⌫`, `q–p - .`, `a–l : [ ]`, `z–m ← → Enter`. There is no Space, Shift, Ctrl, Alt, Super, numpad, swipe or Paste; host names ignore case. Every key acts on press.
-- **Editing keys:** Backspace and the arrows, which repeat while held, like the editor's: after half a second, every 40 ms, and on past the panel's edge until the trigger lets go. A clear key beside the field, a circled cross, empties it; it is greyed out while the field is empty. Enter accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels. While the popup is open, nothing under it responds; it closes with Settings.
+- **Editing keys:** Backspace and the arrows, which repeat while held, like the editor's: after half a second, every 40 ms, and on past the panel's edge until the trigger lets go. A clear key beside the field, a circled cross, empties it; it is grayed out while the field is empty. Enter accepts the value as the pending setting, which Apply saves like any other. Esc or the popup's close button cancels. While the popup is open, nothing under it responds; it closes with Settings.
 - **No Paste:** Full Keyboard never reads the clipboard, here or anywhere else.
 - **Local only:** the popup types only into its field, never into Steam or the focused application, even with Replace native keyboard on.
 - **Size:** smaller than the main keyboard, so it fits inside the panel. The layout is hardcoded and does not follow the active layout or language.
@@ -398,7 +398,7 @@ The repository ships instructions only, no server code; they are in [speech serv
 | Dictation layout (`src/dictation_mode.cpp`) | The mode's keys, derived from the active layout as the emoji picker does | The mic key is a `dictation` action at the free side slot in every bundled layout. |
 | Send (`src/dictation_send.cpp`) | Cuts the editor text into pieces: commits, Shift+Enter breaks or single-line spaces, each with the editor bytes it covers | App sends one piece at a time through the output queue. |
 | App integration | Dictation mode, key routing to the editor, Esc rules, Send, Type as I speak, composer commits into the editor | In dictation mode every key goes to the editor before the composers or the output queue, and a letter can start a swipe while the editor can be typed in; keys still show as pressed and latch through `KeyboardState` as local keys. Typed text reaches the editor through `TextOutput`. Rendering stays free of input delivery. |
-| Panel | Editor drawing, greyed text, overlays, counter, mic bars, ring, Settings text fields, address popup | The bars and ring redraw at 30 fps and only the mic key's region, which a partial texture upload copies to the GPU. |
+| Panel | Editor drawing, grayed text, overlays, counter, mic bars, ring, Settings text fields, address popup | The bars and ring redraw at 30 fps and only the mic key's region, which a partial texture upload copies to the GPU. |
 | VR | Passthrough while capturing, stick scrolling in both modes, the dashboard and Steam keyboard request reported to App each frame | |
 
 `--render-dictation` exports an image of dictation mode for reviewing its look, with a sample reading for composer profiles.
