@@ -265,6 +265,9 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         startup_status_ = tr("status.saved-selection-unavailable");
     }
     keyboard_.set_num(settings_.num_lock);
+    // Asked when a key uses a held or locked right Alt, so it follows the
+    // typing language as it changes: AltGr goes down with each key.
+    keyboard_.set_altgr([this] { return keymap_ && keymap_->altgr(); });
     // Under a shell the shell decides when the panel shows.
     passthrough_ = settings_.passthrough && !hosted();
     pending_ = default_ = settings_.active;
@@ -2542,7 +2545,7 @@ bool App::tick(double now) {
         }
     }
     finish_swipe(false);
-    dirty |= keyboard_.tick(now); // a held Shift locks
+    dirty |= keyboard_.tick(now); // a held modifier locks
     dirty |= output_.tick(now);
     if (table_context_.waiting()) {
         observe_table_context();

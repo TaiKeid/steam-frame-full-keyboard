@@ -539,6 +539,7 @@ class PanelRenderer {
         std::set<int> modifiers;
         bool caps{}, num{};
         bool shift_locked{}; // a locked Shift fills its arrow, with the same modifiers
+        std::set<int> locked; // locked modifiers show a border, with the same modifiers
     };
     std::optional<Snapshot> previous_;
     std::map<std::string, Rect> key_bounds_;
@@ -560,6 +561,9 @@ class PanelRenderer {
     std::map<std::string, Animation> animations_;
     // How far each key is lit by the laser: 1 at once under it, then fading.
     std::map<std::string, Animation> hovers_;
+    // Each key's lock ring as last drawn: how long it had run, at a 30 fps
+    // step, or negative while none shows.
+    std::map<std::string, double> lock_rings_;
     Animation move_handle_;
     // The hovered dropdown choice, since when, and the whole-pixel offset its
     // name was last painted at, for scrolling a long name.

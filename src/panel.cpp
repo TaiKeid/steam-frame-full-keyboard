@@ -95,6 +95,9 @@ Color disabled_legend(const Theme& theme) {
 // this share, so a press lands fast and returns softly. With Hover fade, a key
 // the laser left takes this long to go dark.
 constexpr double press_share = .75, release_share = 1.6, hover_fade_seconds = .18;
+// A lock ring stays hidden for this long after the press, so an ordinary tap
+// never flashes it, then fades in over the next lock_ring_fade seconds.
+constexpr double lock_ring_hidden = .3, lock_ring_fade = .3;
 // The swipe trail: the whole path as a thin line, drawn faintly, and over it
 // a comet, the pieces of the path newer than `trail_comet_seconds`, each
 // thinner and fainter with age. When the swipe ends the path fades out over
@@ -1239,6 +1242,51 @@ void draw_ring(cairo_t* cr, const Theme& t, const Rect& face, double time) {
     cairo_stroke(cr);
     cairo_restore(cr);
 }
+// A modifier's lock ring: a line around the inside of the face, from 12
+// o'clock clockwise `progress` of the way round (0 to 1, 1 the locked key's
+// border), at `alpha`. It takes the legend colour of the face it is on, so it
+// reads on every fill: white on a dark key, dark on a light one, black on High
+// Contrast's yellow and cyan. It runs inside an edge theme's edge, and on a
+// neon theme along the tube, lighting it white with a glow of its own.
+void draw_lock_ring(cairo_t* cr, const Theme& t, const Rect& face, double progress, double alpha) {
+    if (progress <= 0 || alpha <= 0) {
+        return;
+    }
+    const bool neon = t.latched_finish == "neon";
+    const double inset = neon ? 2 : plain_keys(t) ? 5 : 2.5;
+    const Rect r{face.x + inset, face.y + inset, face.width - 2 * inset, face.height - 2 * inset};
+    const double radius = std::min(std::max(1.0, t.radius - inset), std::min(r.width, r.height) / 2);
+    constexpr double pi = 3.141592653589793;
+    const double left = r.x, top = r.y, right = r.x + r.width, bottom = r.y + r.height;
+    cairo_save(cr);
+    rounded(cr, face, t.radius);
+    cairo_clip(cr); // Stays inside the face, as the key repaints within its bounds.
+    cairo_new_path(cr);
+    cairo_move_to(cr, (left + right) / 2, top);
+    cairo_arc(cr, right - radius, top + radius, radius, -pi / 2, 0);
+    cairo_arc(cr, right - radius, bottom - radius, radius, 0, pi / 2);
+    cairo_arc(cr, left + radius, bottom - radius, radius, pi / 2, pi);
+    cairo_arc(cr, left + radius, top + radius, radius, pi, 3 * pi / 2);
+    cairo_close_path(cr);
+    const bool whole = progress >= 1;
+    if (!whole) {
+        const double perimeter = 2 * (r.width + r.height - 4 * radius) + 2 * pi * radius;
+        const double dash[]{progress * perimeter, perimeter};
+        cairo_set_dash(cr, dash, 2, 0);
+    }
+    cairo_set_line_cap(cr, whole ? CAIRO_LINE_CAP_BUTT : CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    const auto& c = t.legend;
+    if (neon) {
+        cairo_set_source_rgba(cr, c.r, c.g, c.b, .3 * alpha);
+        cairo_set_line_width(cr, 6);
+        cairo_stroke_preserve(cr);
+    }
+    cairo_set_source_rgba(cr, c.r, c.g, c.b, alpha);
+    cairo_set_line_width(cr, neon ? 2.6 : 3);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
 // The arrow before a Shift key's legend, `width` wide with its foot at
 // `bottom`: an outline, filled while Shift is locked.
 void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color, bool filled) {
@@ -1394,8 +1442,9 @@ Rect atlas_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Key& k
 }
 // `amount` is how far the key is pressed and `lift` how far it is lit by the
 // laser, each 0 to 1.
+// `lock`: how long the key's lock ring has run, negative while none shows.
 void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
-                 double phase, double ring) {
+                 double phase, double ring, double lock) {
     const auto modifiers = view.keyboard->modifiers();
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
@@ -1431,6 +1480,16 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     const auto face = body_atlas && amount == 0 && lift == 0 && !edge_lit && fill != KeyFace::Pressed
                           ? atlas_keycap(cr, t, tone, key, fill)
                           : draw_keycap(cr, t, tone, key.bounds, amount, lift, fill, edge_lit);
+    // Over the body, never in the shared one: a ring going round, or once
+    // it has, a locked modifier's border.
+    if (!disabled && !listening) {
+        if (lock >= 0) {
+            draw_lock_ring(cr, t, face, std::min(1.0, lock / KeyboardState::lock_ring_seconds),
+                           std::clamp((lock - lock_ring_hidden) / lock_ring_fade, 0.0, 1.0));
+        } else if (key.action_kind == ActionKind::Key && view.keyboard->locked(key_code(key.action))) {
+            draw_lock_ring(cr, t, face, 1, 1);
+        }
+    }
     if (listening) {
         // Five bars that stay in place; each eases from its old height to its
         // new one as a level passes from right to left, fading toward the
@@ -1682,14 +1741,14 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
 // the body it shares with keys of its shape (atlas_keycap) lines up with its
 // legends and looks the same wherever the layout's scale puts it.
 void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
-              double phase = 1, double ring = 0) {
+              double phase = 1, double ring = 0, double lock = -1) {
     double x = key.bounds.x, y = key.bounds.y;
     cairo_user_to_device(cr, &x, &y);
     double dx = std::round(x) - x, dy = std::round(y) - y;
     cairo_device_to_user_distance(cr, &dx, &dy);
     cairo_save(cr);
     cairo_translate(cr, dx, dy);
-    draw_key_at(cr, view, key, amount, lift, phase, ring);
+    draw_key_at(cr, view, key, amount, lift, phase, ring, lock);
     cairo_restore(cr);
 }
 } // namespace
@@ -3090,7 +3149,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
         previous_->language != *view.language || previous_->modifiers != modifiers ||
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
-        previous_->shift_locked != shift_locked || controls_changed ||
+        previous_->shift_locked != shift_locked ||
+        previous_->locked != view.keyboard->locked_modifiers() || controls_changed ||
         previous_->view.status != view.status || previous_->view.settings != view.settings ||
         previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
@@ -3238,9 +3298,23 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             mic_phase_ = phase;
             ring_time_ = ring;
         }
+        // A modifier held toward a lock shows its ring, stepping at 30 fps as
+        // the mic's does. It stays hidden for its first 0.3 s, so a tap never
+        // flashes it, and goes on after the lock until it has gone round.
+        double lock = -1;
+        if (const auto start = view.keyboard->lock_ring(key.id); start && !view.settings) {
+            const double elapsed = stepped - *start;
+            if (elapsed < KeyboardState::lock_ring_seconds) {
+                animating_ = true;
+                lock = elapsed < lock_ring_hidden ? -1 : elapsed;
+            }
+        }
+        const auto shown_lock = lock_rings_.try_emplace(key.id, -1).first;
+        const bool lock_changed = shown_lock->second != lock;
+        shown_lock->second = lock;
         // Settings covers the keys, and key_bounds_ is empty while it shows.
         if (!view.settings && !full &&
-            (changed_target || animation.amount != old_amount || mic_changed ||
+            (changed_target || animation.amount != old_amount || mic_changed || lock_changed ||
              hover.amount != old_lift ||
              previous_->view.hovered_keys.contains(key.id) != view.hovered_keys.contains(key.id) ||
              pull_of(previous_->view) != pull_of(view))) {
@@ -3830,9 +3904,15 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 }
             }
         }
-        previous_ = Snapshot{
-            *view.layout,         t,           *view.language, view, modifiers, view.keyboard->caps(),
-            view.keyboard->num(), shift_locked};
+        previous_ = Snapshot{*view.layout,
+                             t,
+                             *view.language,
+                             view,
+                             modifiers,
+                             view.keyboard->caps(),
+                             view.keyboard->num(),
+                             shift_locked,
+                             view.keyboard->locked_modifiers()};
         // No animation state from a removed key should survive a profile reload.
         const auto gone = [&](const auto& item) {
             return std::none_of(view.layout->keys.begin(), view.layout->keys.end(), [&](const Key& key) {
@@ -3841,6 +3921,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         };
         std::erase_if(animations_, gone);
         std::erase_if(hovers_, gone);
+        std::erase_if(lock_rings_, gone);
     } else {
         previous_->view = view;
     }
@@ -3920,7 +4001,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                     });
                 if (intersects) {
                     draw_key(cr, view, key, animations_.at(key.id).amount, hovers_.at(key.id).amount,
-                             mic_phase_, ring_time_);
+                             mic_phase_, ring_time_, lock_rings_.at(key.id));
                 }
             }
             if (view.key_outlines) {

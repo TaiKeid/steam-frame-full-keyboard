@@ -20,7 +20,7 @@ Pour installer depuis un terminal, voir [Installation manuelle](#installation-ma
 
 ## Ce qu'il fait
 
-- Disposition complète avec F1–F12, touches de navigation, touches fléchées, un pavé numérique que vous pouvez masquer, Ctrl, Alt et un Shift qui se verrouille quand on le maintient.
+- Disposition complète avec F1–F12, touches de navigation, touches fléchées, un pavé numérique que vous pouvez masquer et des touches Shift, Ctrl et Alt qui se verrouillent quand on les maintient.
 - Des touches dédiées Couper, Copier et Coller qui envoient Ctrl+X, Ctrl+C et Ctrl+V, ou les touches propres à un terminal, comme Ctrl+Shift+C et Ctrl+Shift+V.
 - La dictée : parlez au lieu de taper, avec une reconnaissance dans le casque ou par votre propre serveur vocal Whisper. Corrigez le texte dans un éditeur et envoyez-le, ou laissez **Taper en parlant** (Type as I speak) taper chaque phrase directement dans l'appli. Voir [la dictée](#dictation).
 - La saisie gestuelle, désactivée après une installation manuelle et au choix dans l'installateur, pour l'anglais, l'allemand, le français, l'espagnol, l'italien, le portugais, le polonais, le néerlandais, le suédois, l'ukrainien, le russe, le pinyin chinois et [25 autres langues](docs/configuration.md#swipe-typing), du tchèque à l'arabe et à l'hébreu. La saisie gestuelle repose sur la technologie « FUTO Swipe ».
@@ -102,11 +102,11 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Action | Commande |
 | --- | --- |
 | Taper | Pointer une touche et appuyer sur la gâchette de la manette |
-| Utiliser un raccourci | Toucher Ctrl, Alt ou Shift, puis une autre touche ; ou maintenir le modificateur avec une manette et appuyer sur une touche avec l'autre |
+| Utiliser un raccourci | Toucher Ctrl, Alt ou Shift, puis une autre touche ; ou maintenir le modificateur avec une manette et appuyer sur des touches avec l'autre : Ctrl, Alt et Super restent enfoncés jusqu'au relâchement, si bien qu'Alt+Tab parcourt les fenêtres |
 | Raccourcis Super | Toucher l'icône Frame de gauche, puis une touche, ou la maintenir avec l'autre manette |
 | Menu des applications du bureau | Toucher l'icône SteamOS de droite pour un appui/relâchement natif de la touche Super droite ; le bureau décide de son action |
 | Annuler un modificateur touché | Le toucher à nouveau |
-| Verrouiller Shift | Maintenir Shift une demi-seconde ; appuyer à nouveau pour déverrouiller |
+| Verrouiller un modificateur | Maintenir Shift, Ctrl, Alt ou l'icône Frame de gauche une seconde, ou le toucher deux fois rapidement ; une bordure indique qu'il est verrouillé. Plusieurs peuvent l'être à la fois ; toucher une touche verrouillée les déverrouille toutes |
 | Tracer un mot | Activer **Saisie gestuelle** dans la carte de paramètres **Langues et dispositions**, puis maintenir la gâchette et passer sur les lettres. D'autres propositions apparaissent dans la barre d'outils |
 | Compléter un mot | Taper son début ; jusqu'à cinq complétions apparaissent dans la barre d'outils. En choisir une pour taper la suite et une espace |
 | Tirer pour le caractère Maj | Activer **Tirer pour Maj** dans la carte de paramètres **Langues et dispositions**, puis tirer une touche vers le bas avant de la relâcher : 6 donne ^, et avec la saisie gestuelle désactivée k donne K |

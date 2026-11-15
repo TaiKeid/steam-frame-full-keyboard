@@ -308,6 +308,9 @@ class App {
     bool dragging() const { return dragging_; }
     // The microphone is open for dictation or Type as I speak.
     bool listening() const { return capturing_; }
+    // Pointers whose hold or double tap just locked a modifier, for VR's
+    // haptic pulse in that hand (KeyboardState::take_new_locks).
+    std::vector<unsigned> take_new_locks() { return keyboard_.take_new_locks(); }
     // Settings previews use the pending choice, but mute and listening always
     // keep the stream off, just as they do for ordinary keys.
     bool haptic_sounds() const {

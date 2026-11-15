@@ -20,7 +20,7 @@ Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-inst
 
 ## Was sie kann
 
-- Vollständiges Layout mit F1–F12, Navigationstasten, Pfeiltasten, einem ausblendbaren Ziffernblock, Ctrl, Alt und einer Shift-Taste, die beim Halten einrastet.
+- Vollständiges Layout mit F1–F12, Navigationstasten, Pfeiltasten, einem ausblendbaren Ziffernblock und Shift-, Ctrl- und Alt-Tasten, die beim Halten einrasten.
 - Eigene Tasten für Ausschneiden, Kopieren und Einfügen, die Ctrl+X, Ctrl+C und Ctrl+V senden oder die Tasten eines Terminals, etwa Ctrl+Shift+C und Ctrl+Shift+V.
 - Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#dictation).
 - Wischeingabe, nach einer manuellen Installation aus und im Installer frei wählbar, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch, chinesisches Pinyin und [25 weitere Sprachen](docs/configuration.md#swipe-typing), von Tschechisch bis Arabisch und Hebräisch. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
@@ -102,11 +102,11 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Aktion | Bedienung |
 | --- | --- |
 | Tippen | Auf eine Taste zeigen und den Abzug des Controllers drücken |
-| Tastenkürzel verwenden | Ctrl, Alt oder Shift antippen, dann eine andere Taste; oder den Modifikator mit einem Controller halten und mit dem anderen eine Taste drücken |
+| Tastenkürzel verwenden | Ctrl, Alt oder Shift antippen, dann eine andere Taste; oder den Modifikator mit einem Controller halten und mit dem anderen Tasten drücken: Ctrl, Alt und Super bleiben bis zum Loslassen gedrückt, sodass Alt+Tab durch die Fenster schaltet |
 | Super-Kürzel | Das linke Frame-Symbol antippen, dann eine Taste, oder es mit dem anderen Controller halten |
 | Anwendungsmenü des Desktops | Das rechte SteamOS-Symbol antippen für ein natives Drücken/Loslassen der rechten Super-Taste; der Desktop bestimmt, was es tut |
 | Angetippten Modifikator lösen | Ihn erneut antippen |
-| Shift feststellen | Shift eine halbe Sekunde halten; erneut drücken zum Lösen |
+| Modifikator feststellen | Shift, Ctrl, Alt oder das linke Frame-Symbol eine Sekunde halten oder zweimal schnell antippen; ein Rahmen zeigt, dass er festgestellt ist. Mehrere lassen sich zugleich feststellen; eine festgestellte Taste antippen löst alle |
 | Ein Wort wischen | **Wischeingabe** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann den Abzug halten und über die Buchstaben ziehen. Weitere Vorschläge erscheinen in der Werkzeugleiste |
 | Ein Wort ergänzen | Den Anfang tippen; bis zu fünf Ergänzungen erscheinen in der Werkzeugleiste. Eine wählen, um den Rest und ein Leerzeichen zu tippen |
 | Umschalt-Zeichen per Ziehen | **Umschalt durch Ziehen** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann eine Taste vor dem Loslassen nach unten ziehen: 6 ergibt ^, und bei ausgeschalteter Wischeingabe ergibt k ein K |

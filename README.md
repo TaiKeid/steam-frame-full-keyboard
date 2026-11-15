@@ -20,7 +20,7 @@ To install from a terminal instead, see [Install manually](#install-manually).
 
 ## What it does
 
-- Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, Ctrl, Alt, and a Shift that locks when held.
+- Full-size layout with F1–F12, navigation keys, arrow keys, a numpad you can hide, and Shift, Ctrl and Alt keys that lock when held.
 - Dedicated Cut, Copy and Paste keys that send Ctrl+X, Ctrl+C and Ctrl+V, or a terminal's own keys, such as Ctrl+Shift+C and Ctrl+Shift+V.
 - Dictation: speak instead of typing, recognized on the headset or by your own Whisper speech server. Correct the text in an editor and send it, or let **Type as I speak** type each phrase straight into the app. See [dictation](#dictation).
 - Swipe typing, off after a manual install and your choice in the installer, for English, German, French, Spanish, Italian, Portuguese, Polish, Dutch, Swedish, Ukrainian, Russian, Chinese Pinyin and [25 more languages](docs/configuration.md#swipe-typing), from Czech to Arabic and Hebrew. Swipe typing is powered by "FUTO Swipe" technology.
@@ -102,11 +102,11 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Action | Control |
 | --- | --- |
 | Type | Point at a key and press the controller trigger |
-| Use a shortcut | Tap Ctrl, Alt, or Shift, then another key; or hold the modifier with one controller and press a key with the other |
+| Use a shortcut | Tap Ctrl, Alt, or Shift, then another key; or hold the modifier with one controller and press keys with the other: Ctrl, Alt and Super stay down until you let go, so Alt+Tab steps through windows |
 | Super shortcuts | Tap the left Frame icon, then a key, or hold it with the other controller |
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
-| Lock Shift | Hold Shift for half a second; press it again to unlock |
+| Lock a modifier | Hold Shift, Ctrl, Alt or the left Frame icon for a second, or tap it twice quickly; a border shows it is locked. Lock several at once; tap any locked key to unlock them all |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Complete a word | Type its start; up to five completions appear in the toolbar. Choose one to type the rest and a space |
 | Pull for Shift characters | Turn on **Pull for Shift** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |

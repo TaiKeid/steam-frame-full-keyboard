@@ -669,12 +669,12 @@ void app_flow(bool ordered_replace) {
     settle(app, [&] { return sink.text.back() == " Hello"; });
     require(sink.text.back() == " Hello", "a Shift tap between swiped words keeps the space");
     app.down(0, shx, shy, 6.7);
-    app.tick(7.3); // held: Shift locks
+    app.tick(7.7); // held: Shift locks
     app.up(0, shx, shy);
-    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7.4);
+    swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7.8);
     settle(app, [&] { return sink.text.back() == " HELLO"; });
     require(sink.text.back() == " HELLO", "a locked Shift types the swiped word in capitals");
-    app.down(0, shx, shy, 7.5);
+    app.down(0, shx, shy, 7.9);
     app.up(0, shx, shy);
     const auto count = sink.text.size();
     swipe(app, {"KeyH", "KeyE", "KeyL", "KeyO"}, 7);

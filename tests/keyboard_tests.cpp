@@ -217,10 +217,10 @@ void state_tests(const fk::Layout& layout) {
     using Events = std::vector<std::pair<int, int>>;
     const auto shift = key(layout, "ShiftLeft");
     state.down(0, shift, 90);
-    state.tick(90.4);
+    state.tick(90.9);
     require(!state.locked(KEY_LEFTSHIFT), "a short hold does not lock");
-    state.tick(90.5);
-    require(state.locked(KEY_LEFTSHIFT), "a half-second hold locks while still held");
+    state.tick(90.96);
+    require(state.locked(KEY_LEFTSHIFT), "a 0.95 s hold locks while still held");
     state.up(0);
     require(state.locked(KEY_LEFTSHIFT) && state.modifiers().contains(KEY_LEFTSHIFT),
             "the release keeps it locked");
@@ -260,8 +260,8 @@ void state_tests(const fk::Layout& layout) {
     state.down(0, key(layout, "ControlLeft"), 98);
     state.tick(99);
     state.up(0);
-    require(!state.locked(KEY_LEFTCTRL) && state.modifiers().contains(KEY_LEFTCTRL),
-            "only Shift locks; other modifiers still latch");
+    require(state.locked(KEY_LEFTCTRL) && state.modifiers().contains(KEY_LEFTCTRL),
+            "Ctrl locks as Shift does");
     state.cancel_all();
     // Releasing the Shift that just locked keeps Shift on a key the other
     // hand holds, through the output queue as the app uses it.
@@ -280,30 +280,30 @@ void state_tests(const fk::Layout& layout) {
         };
         // Shift first: it locks, the arrow takes it, then Shift's hand lets go.
         hands.down(0, key(layout, name), 100);
-        hands.tick(100.6);
-        hands.down(1, key(layout, "ArrowLeft"), 100.7);
-        output.tick(100.7);
+        hands.tick(100.96);
+        hands.down(1, key(layout, "ArrowLeft"), 101);
+        output.tick(101);
         hands.up(0);
-        output.tick(100.8);
+        output.tick(101.1);
         require(hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 1,
                 "the held arrow keeps the locked Shift");
         hands.up(1);
-        output.tick(100.9);
+        output.tick(101.2);
         require(held(KEY_LEFT) == 0 && held(code) == 0 && target.events.back() == std::pair{code, 0},
                 "and releases it after itself");
         // Arrow first: it was pressed without Shift and stays that way.
         hands.cancel_all();
         target.events.clear();
-        hands.down(1, key(layout, "ArrowLeft"), 101);
-        hands.down(0, key(layout, name), 101.1);
-        hands.tick(101.7);
-        output.tick(101.7);
+        hands.down(1, key(layout, "ArrowLeft"), 102);
+        hands.down(0, key(layout, name), 102.1);
+        hands.tick(103.1);
+        output.tick(103.1);
         hands.up(0);
-        output.tick(101.8);
+        output.tick(103.2);
         require(hands.locked(code) && held(KEY_LEFT) == 1 && held(code) == 0,
                 "an arrow already held is not changed by the lock");
         hands.up(1);
-        output.tick(101.9);
+        output.tick(103.3);
         require(held(KEY_LEFT) == 0 && held(code) == 0, "and nothing is left held");
     }
     sink.events.clear();
@@ -311,6 +311,200 @@ void state_tests(const fk::Layout& layout) {
     state.cancel_all();
     require(sink.events == std::vector<std::pair<int, int>>{{KEY_ENTER, 1}, {KEY_ENTER, 0}},
             "Enter and cancellation");
+}
+// Held and locked modifiers (issue 15): Ctrl, Alt and Super stay down on the
+// target while held or locked, Shift and AltGr go down with each key. A 0.95 s
+// hold or a double tap locks; a tap on a locked key unlocks them all.
+void modifier_lock_tests(const fk::Layout& layout) {
+    using Events = std::vector<std::pair<int, int>>;
+    const auto alt = key(layout, "AltLeft"), right_alt = key(layout, "AltRight"),
+               ctrl = key(layout, "ControlLeft"), shift = key(layout, "ShiftLeft"),
+               tab = key(layout, "Tab"), letter = key(layout, "KeyA"), arrow = key(layout, "ArrowLeft");
+    {
+        bool altgr = true;
+        Capture sink;
+        fk::KeyboardState state(sink);
+        state.set_altgr([&] { return altgr; });
+        state.down(0, alt, 1);
+        for (const double at : {1.1, 1.3}) {
+            state.down(1, tab, at);
+            state.up(1);
+        }
+        require(sink.events ==
+                    Events{{KEY_LEFTALT, 1}, {KEY_TAB, 1}, {KEY_TAB, 0}, {KEY_TAB, 1}, {KEY_TAB, 0}},
+                "a held Alt stays down over several Tabs");
+        state.up(0);
+        require(sink.events.back() == std::pair{KEY_LEFTALT, 0} && state.modifiers().empty(),
+                "and comes up when let go, without latching");
+        sink.events.clear();
+        state.down(0, shift, 2);
+        for (const double at : {2.1, 2.2}) {
+            state.down(1, arrow, at);
+            state.up(1);
+        }
+        state.up(0);
+        require(sink.events == Events{{KEY_LEFTSHIFT, 1},
+                                      {KEY_LEFT, 1},
+                                      {KEY_LEFT, 0},
+                                      {KEY_LEFTSHIFT, 0},
+                                      {KEY_LEFTSHIFT, 1},
+                                      {KEY_LEFT, 1},
+                                      {KEY_LEFT, 0},
+                                      {KEY_LEFTSHIFT, 0}},
+                "a held Shift goes down with each key, as it picks characters");
+        sink.events.clear();
+        state.down(0, right_alt, 3);
+        state.down(1, letter, 3.1);
+        state.up(1);
+        state.up(0);
+        require(sink.events == Events{{KEY_RIGHTALT, 1}, {KEY_A, 1}, {KEY_A, 0}, {KEY_RIGHTALT, 0}},
+                "AltGr goes down with each key too");
+        sink.events.clear();
+        altgr = false;
+        state.down(0, right_alt, 4);
+        for (const double at : {4.1, 4.2}) {
+            state.down(1, letter, at);
+            state.up(1);
+        }
+        state.up(0);
+        require(std::count(sink.events.begin(), sink.events.end(), std::pair{KEY_RIGHTALT, 1}) == 1 &&
+                    sink.events.back() == std::pair{KEY_RIGHTALT, 0},
+                "a right Alt that is a plain Alt stays down");
+        state.set_altgr({});
+    }
+    Capture sink;
+    fk::KeyboardState state(sink);
+    // A 0.95 s hold locks; the ring goes on to 1.1 s even if let go between.
+    state.down(0, alt, 10);
+    require(state.lock_ring("AltLeft") == 10.0, "a held modifier's ring starts with the press");
+    state.tick(10.94);
+    require(!state.locked(KEY_LEFTALT), "no lock before 0.95 s");
+    state.tick(10.96);
+    require(state.locked(KEY_LEFTALT) && state.take_new_locks() == std::vector<unsigned>{0},
+            "locked at 0.95 s, once, for the hand holding it");
+    require(state.take_new_locks().empty(), "each lock is reported once");
+    state.up(0);
+    require(state.locked(KEY_LEFTALT) && state.lock_ring("AltLeft") == 10.0,
+            "let go before the ring closes, it stays locked and the ring goes on");
+    state.tick(11.11);
+    require(state.locked(KEY_LEFTALT) && !state.lock_ring("AltLeft"),
+            "the ring ends once it has gone round");
+    require(sink.events.empty(), "a lock alone sends nothing");
+    // Locked, Alt goes down with the first key and stays down: Alt+Tab with one hand.
+    for (const double at : {12.0, 12.2}) {
+        state.down(1, tab, at);
+        state.up(1);
+    }
+    require(sink.events ==
+                Events{{KEY_LEFTALT, 1}, {KEY_TAB, 1}, {KEY_TAB, 0}, {KEY_TAB, 1}, {KEY_TAB, 0}},
+            "a locked Alt stays down between keys");
+    state.down(0, alt, 13);
+    state.up(0);
+    require(!state.locked(KEY_LEFTALT) && sink.events.back() == std::pair{KEY_LEFTALT, 0} &&
+                state.modifiers().empty(),
+            "a tap on it unlocks it and lets it up, without latching");
+    // A latched Ctrl joins a locked Alt for one key.
+    sink.events.clear();
+    state.down(0, alt, 20);
+    state.tick(21);
+    state.up(0);
+    state.down(0, ctrl, 21.5);
+    state.up(0);
+    state.down(0, letter, 22);
+    state.up(0);
+    require(sink.events ==
+                Events{{KEY_LEFTALT, 1}, {KEY_LEFTCTRL, 1}, {KEY_A, 1}, {KEY_A, 0}, {KEY_LEFTCTRL, 0}},
+            "lock Alt, tap Ctrl, tap A: Alt+Ctrl+A, and Alt stays down");
+    require(state.locked(KEY_LEFTALT) && !state.modifiers().contains(KEY_LEFTCTRL),
+            "the lock stays and the latch is used up");
+    // A tap on any locked key unlocks them all.
+    state.down(0, ctrl, 23);
+    state.tick(24);
+    state.up(0);
+    require(state.locked(KEY_LEFTCTRL) && state.locked(KEY_LEFTALT), "two locks at once");
+    sink.events.clear();
+    state.down(0, ctrl, 25);
+    state.up(0);
+    require(!state.locked(KEY_LEFTCTRL) && !state.locked(KEY_LEFTALT) &&
+                sink.events == Events{{KEY_LEFTALT, 0}},
+            "a tap on either unlocks both, and the Alt kept down comes up");
+    // A double tap locks at once; a slower second tap clears the latch.
+    state.take_new_locks();
+    state.down(0, ctrl, 30);
+    state.up(0);
+    state.down(0, ctrl, 30.3);
+    state.up(0);
+    require(state.locked(KEY_LEFTCTRL) && state.take_new_locks() == std::vector<unsigned>{0} &&
+                !state.lock_ring("ControlLeft"),
+            "a double tap locks at once, without a ring");
+    state.down(0, ctrl, 31);
+    state.up(0);
+    require(!state.locked(KEY_LEFTCTRL) && state.modifiers().empty(), "and a tap unlocks it");
+    state.down(0, ctrl, 32);
+    state.up(0);
+    state.tick(32.6);
+    state.down(0, ctrl, 32.6);
+    state.up(0);
+    require(!state.locked(KEY_LEFTCTRL) && state.modifiers().empty(),
+            "a slower second tap clears the latch");
+    // A hold another key used never locks, and its ring goes at once.
+    state.down(0, alt, 40);
+    state.down(1, tab, 40.2);
+    state.up(1);
+    require(!state.lock_ring("AltLeft"), "a used hold shows no ring");
+    state.tick(42);
+    require(!state.locked(KEY_LEFTALT), "and never locks");
+    state.up(0);
+    state.down(0, key(layout, "MetaRight"), 50);
+    state.tick(52);
+    state.up(0);
+    require(!state.locked(KEY_RIGHTMETA), "the momentary right Super never locks");
+    // Ending everything ends the locks and lets a kept-down Alt up.
+    state.down(0, alt, 60);
+    state.tick(61);
+    state.up(0);
+    state.down(0, tab, 61.5);
+    state.up(0);
+    sink.events.clear();
+    state.cancel_all();
+    require(!state.locked(KEY_LEFTALT) && sink.events == Events{{KEY_LEFTALT, 0}},
+            "hiding ends the lock and lets Alt up");
+    // Ending only the presses keeps the lock; the next key presses Alt again.
+    state.down(0, alt, 70);
+    state.tick(71);
+    state.up(0);
+    state.down(0, tab, 71.5);
+    state.up(0);
+    sink.events.clear();
+    state.release_presses();
+    require(state.locked(KEY_LEFTALT) && sink.events == Events{{KEY_LEFTALT, 0}},
+            "ending the presses keeps the lock and lets Alt up");
+    state.down(0, tab, 72);
+    state.up(0);
+    require(sink.events == Events{{KEY_LEFTALT, 0}, {KEY_LEFTALT, 1}, {KEY_TAB, 1}, {KEY_TAB, 0}},
+            "and the next key presses it again");
+    state.cancel_all();
+    // The same through the output queue, as the app sends keys.
+    Capture target;
+    fk::OutputController output(target);
+    output.set_enabled(true);
+    fk::KeyboardState hands(output);
+    hands.down(0, alt, 80);
+    for (const double at : {80.1, 80.3}) {
+        hands.down(1, tab, at);
+        output.tick(at);
+        hands.up(1);
+        output.tick(at + .05);
+    }
+    hands.up(0);
+    output.tick(80.5);
+    require(target.events == Events{{KEY_LEFTALT, 1},
+                                    {KEY_TAB, 1},
+                                    {KEY_TAB, 0},
+                                    {KEY_TAB, 1},
+                                    {KEY_TAB, 0},
+                                    {KEY_LEFTALT, 0}},
+            "a held Alt stays down over Tabs through the output queue");
 }
 void profile_tests(const fk::Profiles& defaults) {
     TemporaryDirectory directory;
@@ -572,6 +766,7 @@ int main() {
                     "Backspace uses the |<- icon, distinct from the left arrow");
         }
         state_tests(defaults.layouts.at("en-us-full"));
+        modifier_lock_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         key_area_tests(defaults);
         app_key_area_tests();

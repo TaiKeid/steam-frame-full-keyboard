@@ -20,7 +20,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 
 ## Qué hace
 
-- Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar, Ctrl, Alt y un Shift que se bloquea al mantenerlo pulsado.
+- Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar y teclas Shift, Ctrl y Alt que se bloquean al mantenerlas pulsadas.
 - Teclas dedicadas de Cortar, Copiar y Pegar que envían Ctrl+X, Ctrl+C y Ctrl+V, o las teclas propias de un terminal, como Ctrl+Shift+C y Ctrl+Shift+V.
 - Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictation).
 - Escritura deslizante, desactivada tras una instalación manual y a tu elección en el instalador, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso, chino pinyin y [25 idiomas más](docs/configuration.md#swipe-typing), del checo al árabe y el hebreo. La escritura deslizante funciona con la tecnología "FUTO Swipe".
@@ -102,11 +102,11 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Acción | Control |
 | --- | --- |
 | Escribir | Apunta a una tecla y pulsa el gatillo del mando |
-| Usar un atajo | Toca Ctrl, Alt o Shift y después otra tecla; o mantén el modificador con un mando y pulsa una tecla con el otro |
+| Usar un atajo | Toca Ctrl, Alt o Shift y después otra tecla; o mantén el modificador con un mando y pulsa teclas con el otro: Ctrl, Alt y Super siguen pulsados hasta que lo sueltes, así Alt+Tab recorre las ventanas |
 | Atajos con Super | Toca el icono de Frame de la izquierda y después una tecla, o mantenlo con el otro mando |
 | Menú de aplicaciones del escritorio | Toca el icono de SteamOS de la derecha para una pulsación nativa de Super derecho; el escritorio decide qué hace |
 | Anular un modificador tocado | Vuelve a tocarlo |
-| Bloquear Shift | Mantén Shift medio segundo; púlsalo de nuevo para desbloquearlo |
+| Bloquear un modificador | Mantén Shift, Ctrl, Alt o el icono de Frame de la izquierda un segundo, o tócalo dos veces seguidas; un borde indica que está bloqueado. Puedes bloquear varios a la vez; toca cualquier tecla bloqueada para desbloquearlas todas |
 | Deslizar una palabra | Activa **Escritura deslizante** en la tarjeta de ajustes Idiomas y distribuciones, mantén el gatillo y traza sobre las letras. Otras propuestas aparecen en la barra de herramientas |
 | Completar una palabra | Escribe su comienzo; aparecen hasta cinco opciones en la barra de herramientas. Elige una para escribir el resto y un espacio |
 | Tirar para caracteres con Mayús | Activa **Tirar para Mayús** en la tarjeta de ajustes Idiomas y distribuciones y tira de una tecla hacia abajo antes de soltarla: 6 da ^, y con la escritura deslizante desactivada k da K |

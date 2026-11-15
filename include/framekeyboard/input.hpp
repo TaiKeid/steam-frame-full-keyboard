@@ -3,10 +3,13 @@
 #include "config.hpp"
 #include "terminal_keys.hpp"
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
+#include <string>
+#include <utility>
 #include <vector>
 #include <xkbcommon/xkbcommon-compose.h>
 #include <xkbcommon/xkbcommon.h>
@@ -133,6 +136,8 @@ class LanguageMap {
     // Whether the letter keys type a right-to-left script, so their legends
     // are laid out as in that script's text.
     bool right_to_left() const { return right_to_left_; }
+    // Whether right Alt selects the third level (AltGr) in this keymap.
+    bool altgr() const { return altgr_; }
     std::string compose(xkb_keysym_t symbol);
     bool composing() const;
     void cancel_compose();
@@ -142,7 +147,7 @@ class LanguageMap {
     xkb_context* context_{};
     xkb_keymap* keymap_{};
     xkb_compose_state* compose_{};
-    bool right_to_left_{};
+    bool right_to_left_{}, altgr_{};
 };
 
 class KeyboardState {
@@ -183,10 +188,26 @@ class KeyboardState {
     void use_modifiers();
     bool caps() const { return caps_; }
     bool num() const { return num_; }
-    // A Shift held this long without another key locks: it applies to every
-    // key, as a held Shift would, until the next Shift press unlocks it.
-    static constexpr double shift_lock_seconds = .5;
+    // A sticky modifier (Shift, Ctrl, Alt, AltGr or the left Super) held this
+    // long without another key locks: it applies to every key, as a held one
+    // would, until a tap on any locked key unlocks them all. Its ring runs a
+    // little longer than the lock takes, so a hand that lets go as the ring
+    // closes still locks.
+    static constexpr double lock_seconds = .95;
+    static constexpr double lock_ring_seconds = 1.1;
+    // A second tap within this long of the first locks it, as holding does.
+    static constexpr double double_tap_seconds = .4;
     bool locked(int code) const { return locked_.contains(code); }
+    const std::set<int>& locked_modifiers() const { return locked_; }
+    // When the lock ring of this key started: while it is held toward a lock,
+    // and after it locked until its ring has gone round. None otherwise.
+    std::optional<double> lock_ring(const std::string& id) const;
+    // Pointers whose hold or double tap locked a modifier since the last
+    // call, for a haptic pulse in the hand that did it.
+    std::vector<unsigned> take_new_locks() { return std::exchange(new_locks_, {}); }
+    // Whether right Alt picks characters (AltGr) in the typing language: it
+    // then goes down with each key, as Shift does, rather than staying down.
+    void set_altgr(std::function<bool()> altgr) { altgr_ = std::move(altgr); }
     // Restore the local lock state without sending a lock key to the target.
     void set_num(bool enabled) { num_ = enabled; }
     bool active() const { return !presses_.empty(); }
@@ -197,8 +218,9 @@ class KeyboardState {
         int modifier{}, local_lock{};
         bool used{};
         double at{};
-        // A Shift tap may lock if held; one pressed while locked unlocks on release.
-        bool lockable{}, locks{}, unlocks{};
+        // A sticky modifier's tap may lock if held, or if it is the second of
+        // a double tap; one pressed while any is locked unlocks all on release.
+        bool lockable{}, locks{}, unlocks{}, double_tap{};
         std::vector<int> codes;
         int repeat_code{};
         double repeat_at{};
@@ -206,11 +228,32 @@ class KeyboardState {
     void acquire(int code);
     void release(int code);
     void end_all(bool cancel_delivery);
+    // Ctrl, Alt and Super pick no characters: held or locked, they go down
+    // with the first key that uses them and stay down until let go or
+    // unlocked, as on a physical keyboard, so Alt held over several Tabs
+    // keeps the window switcher open. Shift and AltGr go down with each key.
+    bool stays_down(int code) const;
+    // A modifier held by a sticky press, or locked: kept down once used.
+    bool wanted_down(int code) const;
+    void hold_down(int code);
+    // Lets up every modifier kept down that is no longer held or locked.
+    void settle_held_down();
     KeySink& sink_;
     OutputController* output_{};
     std::map<unsigned, Press> presses_;
     std::map<int, unsigned> references_;
     std::set<int> latched_, locked_;
+    // Modifiers kept down on the target (stays_down), each with one reference
+    // of its own in references_ and, with an output queue, a direct hold there.
+    std::set<int> held_down_;
+    // Locks whose ring still runs after their key was let go, by key ID: when it started.
+    std::map<std::string, double> rings_;
+    std::vector<unsigned> new_locks_;
+    // The last tap that latched a modifier, for a double tap, and the latest
+    // time down() or tick() saw, for up(), which takes none.
+    int last_tap_{};
+    double last_tap_at_{}, now_{};
+    std::function<bool()> altgr_;
     bool caps_{false}, num_{false};
 };
 } // namespace framekeyboard

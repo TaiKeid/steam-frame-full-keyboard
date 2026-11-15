@@ -20,7 +20,7 @@ Para instalar pelo terminal, veja [Instalação manual](#instalação-manual).
 
 ## O que ele faz
 
-- Layout em tamanho completo com F1–F12, teclas de navegação, setas, um teclado numérico que pode ser ocultado, Ctrl, Alt e um Shift que trava quando mantido pressionado.
+- Layout em tamanho completo com F1–F12, teclas de navegação, setas, um teclado numérico que pode ser ocultado e teclas Shift, Ctrl e Alt que travam quando mantidas pressionadas.
 - Teclas próprias de Recortar, Copiar e Colar que enviam Ctrl+X, Ctrl+C e Ctrl+V, ou as teclas próprias de um terminal, como Ctrl+Shift+C e Ctrl+Shift+V.
 - Ditado: fale em vez de digitar, com reconhecimento no headset ou no seu próprio servidor de voz Whisper. Corrija o texto em um editor e envie, ou deixe **Digitar enquanto falo** (Type as I speak) digitar cada frase direto no app. Veja [ditado](#dictation).
 - Digitação por deslize, desativada após uma instalação manual e à sua escolha no instalador, para inglês, alemão, francês, espanhol, italiano, português, polonês, holandês, sueco, ucraniano, russo, chinês pinyin e [mais 25 idiomas](docs/configuration.md#swipe-typing), do tcheco ao árabe e ao hebraico. A digitação por deslize usa a tecnologia "FUTO Swipe".
@@ -102,11 +102,11 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Ação | Controle |
 | --- | --- |
 | Digitar | Aponte para uma tecla e pressione o gatilho do controle |
-| Usar um atalho | Toque em Ctrl, Alt ou Shift e depois em outra tecla; ou segure o modificador com um controle e pressione uma tecla com o outro |
+| Usar um atalho | Toque em Ctrl, Alt ou Shift e depois em outra tecla; ou segure o modificador com um controle e pressione teclas com o outro: Ctrl, Alt e Super ficam pressionados até você soltar, então Alt+Tab percorre as janelas |
 | Atalhos com Super | Toque no ícone do Frame à esquerda e depois em uma tecla, ou segure-o com o outro controle |
 | Menu de aplicativos do desktop | Toque no ícone do SteamOS à direita para um pressionar e soltar nativo do Super direito; o desktop decide a ação |
 | Cancelar um modificador tocado | Toque nele de novo |
-| Travar o Shift | Segure o Shift por meio segundo; pressione-o de novo para destravar |
+| Travar um modificador | Segure Shift, Ctrl, Alt ou o ícone do Frame à esquerda por um segundo, ou toque nele duas vezes rápido; uma borda mostra que está travado. Dá para travar vários ao mesmo tempo; toque em qualquer tecla travada para destravar todas |
 | Deslizar uma palavra | Ative **Digitação por deslize** no cartão de configurações Idiomas e layouts, depois segure o gatilho e desenhe sobre as letras. Outras sugestões aparecem na barra de ferramentas |
 | Completar uma palavra | Digite o começo; até cinco opções aparecem na barra de ferramentas. Escolha uma para digitar o resto e um espaço |
 | Puxar para caracteres com Shift | Ative **Puxar para Shift** no cartão de configurações Idiomas e layouts, depois puxe uma tecla para baixo antes de soltar: 6 dá ^, e com a digitação por deslize desativada k dá K |

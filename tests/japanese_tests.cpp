@@ -379,7 +379,7 @@ void flick_input() {
         // A Shift locked on the English page stays behind when the page goes.
         const auto [x, y] = key_centre(app, "ShiftLeft");
         app.down(0, x, y, 53);
-        app.tick(53.7);
+        app.tick(54);
         app.up(0, x, y);
     }
     flick(app, "mode", 54.2);

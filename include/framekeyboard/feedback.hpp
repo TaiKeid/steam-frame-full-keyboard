@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <map>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -32,6 +33,11 @@ constexpr std::array<HapticPulse, 2> listening_pulses(bool started) {
     }
     return {{{.035f, 110.f, .45f, 0}, {}}};
 }
+// A modifier locking: two even, firm ticks, like a latch catching, felt in
+// the hand that held or double-tapped it.
+constexpr std::array<HapticPulse, 2> lock_pulses() {
+    return {{{.015f, 200.f, .8f, 0}, {.015f, 200.f, .8f, .06f}}};
+}
 class KeyHaptics {
   public:
     void hover(unsigned device) { pending_.try_emplace(device, KeyFeedback::Hover); }
@@ -45,6 +51,11 @@ class KeyHaptics {
             pending_[owner->second] = KeyFeedback::Release;
             owners_.erase(owner);
         }
+    }
+    // The controller that pressed this pointer's key, while it is held.
+    std::optional<unsigned> device(unsigned pointer) const {
+        const auto owner = owners_.find(pointer);
+        return owner == owners_.end() ? std::nullopt : std::optional(owner->second);
     }
     void cancel_pointer(unsigned pointer) {
         if (const auto owner = owners_.find(pointer); owner != owners_.end()) {

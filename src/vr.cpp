@@ -4620,6 +4620,19 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 haptics.send(device, kind);
             }
         }
+        // A modifier that just locked, felt in the hand that held it or, for a
+        // double tap, the hand that let go of it a moment ago.
+        for (const auto pointer : app.take_new_locks()) {
+            auto device = feedback.device(pointer);
+            if (const auto owner = pointer_devices.find(pointer);
+                !device && owner != pointer_devices.end()) {
+                device = owner->second;
+            }
+            if (device && app.vibration() && !drag.active() && lifecycle.visible()) {
+                RuntimeWait runtime_wait;
+                haptics.play(*device, lock_pulses());
+            }
+        }
         // Felt in the hand that last pressed, which started listening.
         if (const bool listening = app.listening(); listening != was_listening) {
             was_listening = listening;

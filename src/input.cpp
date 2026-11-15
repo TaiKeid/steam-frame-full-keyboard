@@ -311,6 +311,9 @@ LanguageMap::LanguageMap(const Language& language) : language_(language) {
         }
     }
     if (state) {
+        // XKB keycodes are evdev codes plus 8.
+        altgr_ = xkb_state_key_get_one_sym(state, static_cast<xkb_keycode_t>(KEY_RIGHTALT + 8)) ==
+                 XKB_KEY_ISO_Level3_Shift;
         xkb_state_unref(state);
     }
     right_to_left_ = rtl * 2 > letters;
@@ -534,6 +537,7 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     if (key.action_kind == ActionKind::Shortcut && !references_.empty()) {
         return false;
     }
+    now_ = now;
     Press press;
     press.id = key.id;
     const int code =
@@ -543,8 +547,11 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         press.used = !key.sticky || references_.contains(code);
         press.at = now;
         press.unlocks = locked_.contains(code);
-        press.lockable =
-            key.sticky && !press.unlocks && (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT);
+        // Every sticky modifier locks: Shift, Ctrl, Alt, AltGr and the left
+        // Super. The right Super is momentary (not sticky) and never does.
+        press.lockable = key.sticky && !press.unlocks;
+        press.double_tap = press.lockable && !press.used && last_tap_ == code &&
+                           now - last_tap_at_ <= double_tap_seconds && latched_.contains(code);
         if (!key.sticky) {
             // A momentary Super key must reach the OS even without a chord.
             // Keep its own reference so overlapping hands share one down/up.
@@ -562,10 +569,11 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     // A modifier tap latches visually but emits nothing until used. This avoids
     // leaving Ctrl physically held while the user navigates another application.
     // A shortcut holds its own chord's modifiers, in order, never latched ones.
+    std::set<int> modifiers_used;
     if (key.action_kind == ActionKind::Shortcut) {
         press.codes = shortcut_modifiers.value_or(std::vector<int>{KEY_LEFTCTRL});
     } else {
-        const auto modifiers_used = modifiers();
+        modifiers_used = modifiers();
         press.codes.assign(modifiers_used.begin(), modifiers_used.end());
     }
     const int action_code = key.action_kind == ActionKind::Shortcut
@@ -595,6 +603,16 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
     }
     if (uses_modifiers) {
         use_modifiers();
+    }
+    // A held or locked Ctrl, Alt or Super goes down ahead of the first key
+    // that uses it and stays down after the key (stays_down). The key still
+    // takes it in its own chord, so its release order is unchanged.
+    if (!press.codes.empty()) {
+        for (const int modifier : modifiers_used) {
+            if (stays_down(modifier) && wanted_down(modifier) && !held_down_.contains(modifier)) {
+                hold_down(modifier);
+            }
+        }
     }
     // Store the release sequence first so an exception cannot strand an earlier down.
     presses_.emplace(pointer, press);
@@ -629,7 +647,7 @@ bool KeyboardState::up(unsigned pointer) {
         return false;
     }
     auto& press = found->second;
-    // A locked Shift outlives the press that locked it: keys held now keep it.
+    // A locked modifier outlives the press that locked it: keys held now keep it.
     const bool stays_locked = press.modifier && locked_.contains(press.modifier) && !press.unlocks;
     if (press.modifier && press.used && !stays_locked) {
         const bool another_hold = std::any_of(presses_.begin(), presses_.end(), [&](const auto& item) {
@@ -652,10 +670,23 @@ bool KeyboardState::up(unsigned pointer) {
         }
     }
     if (press.unlocks) {
-        locked_.erase(press.modifier);
+        // A tap on any locked key unlocks them all.
+        locked_.clear();
+        rings_.clear();
+        last_tap_ = 0;
     } else if (press.modifier && !press.used && !press.locks) {
-        if (!latched_.erase(press.modifier)) {
-            latched_.insert(press.modifier);
+        if (press.double_tap) {
+            // The second tap of a double tap locks, as holding does.
+            latched_.erase(press.modifier);
+            locked_.insert(press.modifier);
+            new_locks_.push_back(pointer);
+            last_tap_ = 0;
+        } else {
+            if (!latched_.erase(press.modifier)) {
+                latched_.insert(press.modifier);
+            }
+            last_tap_ = press.modifier;
+            last_tap_at_ = now_;
         }
     }
     // Release the ordinary key before its modifiers, including shared chords.
@@ -666,7 +697,60 @@ bool KeyboardState::up(unsigned pointer) {
         output_->release(pointer);
     }
     presses_.erase(found);
+    // Last: a modifier this press held, or one it unlocked, now comes up
+    // unless another hand holds it or it is still locked.
+    settle_held_down();
     return true;
+}
+bool KeyboardState::stays_down(int code) const {
+    if (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT) {
+        return false;
+    }
+    if (code == KEY_RIGHTALT) {
+        return !(altgr_ && altgr_());
+    }
+    return is_modifier(code);
+}
+bool KeyboardState::wanted_down(int code) const {
+    // A sticky press holds no code of its own; a momentary Super's does.
+    return locked_.contains(code) ||
+           std::any_of(presses_.begin(), presses_.end(), [code](const auto& item) {
+               return item.second.modifier == code && item.second.codes.empty();
+           });
+}
+void KeyboardState::hold_down(int code) {
+    // Recorded before the backend call, so a failing send is still released.
+    held_down_.insert(code);
+    acquire(code); // Sends it without an output queue.
+    if (output_) {
+        output_->send(code, 1); // A direct hold, queued ahead of the key's own chord.
+    }
+}
+void KeyboardState::settle_held_down() {
+    for (auto it = held_down_.begin(); it != held_down_.end();) {
+        const int code = *it;
+        if (wanted_down(code)) {
+            ++it;
+            continue;
+        }
+        it = held_down_.erase(it);
+        release(code);
+        if (output_) {
+            output_->send(code, 0);
+        }
+    }
+}
+std::optional<double> KeyboardState::lock_ring(const std::string& id) const {
+    for (const auto& [pointer, press] : presses_) {
+        (void)pointer;
+        if (press.id == id && press.lockable && !press.used) {
+            return press.at;
+        }
+    }
+    if (const auto ring = rings_.find(id); ring != rings_.end()) {
+        return ring->second;
+    }
+    return {};
 }
 
 void KeyboardState::cancel_pointer(unsigned pointer) {
@@ -683,9 +767,14 @@ void KeyboardState::release_presses() {
         pointers.push_back(pointer);
     }
     for (const auto pointer : pointers) {
-        // A Shift pressed to unlock was interrupted too, so the lock stays.
+        // A modifier pressed to unlock was interrupted too, so the locks stay.
         presses_.at(pointer).unlocks = false;
         cancel_pointer(pointer);
+    }
+    // A locked modifier kept down comes up too; it goes down again with the
+    // next key that uses it.
+    for (const int code : std::exchange(held_down_, {})) {
+        release(code); // Sends it without an output queue; release_holds() lets it up there.
     }
     if (output_) {
         output_->release_holds();
@@ -730,20 +819,34 @@ void KeyboardState::end_all(bool cancel_delivery) {
     presses_.clear();
     latched_.clear();
     locked_.clear();
+    held_down_.clear(); // Their references and holds went with the rest above.
+    rings_.clear();
+    last_tap_ = 0;
     if (failure) {
         std::rethrow_exception(failure);
     }
 }
 bool KeyboardState::tick(double now) {
+    now_ = now;
     bool changed = false;
     for (auto& [pointer, press] : presses_) {
-        (void)pointer;
-        if (press.lockable && !press.used && !press.locks && now - press.at >= shift_lock_seconds) {
+        if (press.lockable && !press.used && !press.locks && now - press.at >= lock_seconds) {
             // Locks while still held, so the key shows it before release.
             press.locks = true;
             latched_.erase(press.modifier);
             locked_.insert(press.modifier);
+            rings_[press.id] = press.at; // Its ring goes round even if let go now.
+            new_locks_.push_back(pointer);
             changed = true;
+        }
+    }
+    // A ring that has gone round leaves the locked key's border, drawn from locked().
+    for (auto ring = rings_.begin(); ring != rings_.end();) {
+        if (now - ring->second >= lock_ring_seconds) {
+            ring = rings_.erase(ring);
+            changed = true;
+        } else {
+            ++ring;
         }
     }
     if (output_) {
