@@ -1085,6 +1085,47 @@ void theme_cards() {
     if (area() == 0 || area() > themes_well_bounds.width * themes_well_bounds.height * 1.2) {
         throw std::runtime_error("a scroll repaints the well, not Settings");
     }
+    // Every frame below is compared with a full repaint (R299).
+    const auto card_control = [&](const std::string& id) -> Control& {
+        return *std::find_if(view.controls.begin(), view.controls.end(),
+                             [&](const Control& c) { return c.id == "themes-card-" + id; });
+    };
+    // A card cut off at the well's top: its box reaches the Back button and the dim.
+    view.themes->cards[0].preview = picture;
+    compare.frame(view, "a picture for a card cut off at the top");
+    // The selection moving, and a card's colour changing.
+    view.themes->cards[2].selected = true;
+    card_control(view.themes->cards[2].id).selected = true;
+    compare.frame(view, "the selected card changes");
+    view.themes->cards[3].surface = Color{.5, 0, 0};
+    compare.frame(view, "a card's colour changes");
+    // A question over the picker, a picture arriving under it, and its end.
+    PanelView::ConfirmView question;
+    question.panel = {420, 180, 760, 300};
+    question.title = "Leave Settings?";
+    question.body = "Changes are not saved.";
+    view.confirm = question;
+    view.controls.push_back({"confirm-ok", "Leave", {960, 400, 180, 52}});
+    compare.frame(view, "a question over the picker");
+    view.themes->cards[7].preview = picture;
+    compare.frame(view, "a picture arrives under the question");
+    view.confirm.reset();
+    std::erase_if(view.controls, [](const Control& c) { return c.id.starts_with("confirm-"); });
+    compare.frame(view, "the question goes");
+    // Hover and scroll at once.
+    const auto previews = view.themes->cards;
+    place(60);
+    for (std::size_t i = 0; i < popup.cards.size(); ++i) {
+        popup.cards[i].preview = previews[i].preview;
+        popup.cards[i].selected = previews[i].selected;
+        popup.cards[i].surface = previews[i].surface;
+        card_control(popup.cards[i].id).selected = previews[i].selected;
+    }
+    view.themes = popup;
+    view.hovered_controls = {"themes-card-" + popup.cards[1].id};
+    compare.frame(view, "hover and scroll at once");
+    view.hovered_controls.clear();
+    compare.frame(view, "the hover ends");
     view.themes.reset();
     std::erase_if(view.controls, [](const Control& c) { return c.id.starts_with("themes-"); });
     compare.frame(view, "picker closed");
