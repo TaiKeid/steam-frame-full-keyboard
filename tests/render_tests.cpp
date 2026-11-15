@@ -1005,8 +1005,59 @@ void status_line() {
         throw std::runtime_error("a candidate is not a toolbar button");
     }
 }
+// No key's drawing reaches into another's: a legend's text leaves Cairo's
+// current point behind, and the flick layout's emoji icon, drawn next with a
+// bare arc, used to join it with a line across the lower left of ← above it.
+void no_stray_lines() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("ja-flick"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("ja-flick-12");
+    view.theme = &profiles.themes.at("graphite");
+    view.language = &profiles.languages.at("ja-flick");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    PanelRenderer renderer;
+    renderer.paint(view, 1, true);
+    // The ← key's extent in the case's pixels, as hit_key takes them.
+    int left = panel_width, top = panel_height, right = 0, bottom = 0;
+    for (int y = 0; y < panel_height; y += 2) {
+        for (int x = 0; x < panel_width; x += 2) {
+            if (const auto* key = renderer.hit_key(view, x, y); key && key->id == "ArrowLeft") {
+                left = std::min(left, x), top = std::min(top, y);
+                right = std::max(right, x), bottom = std::max(bottom, y);
+            }
+        }
+    }
+    if (right <= left || bottom <= top) {
+        throw std::runtime_error("no stray lines: the flick layout has no ← key");
+    }
+    // Its lower left quarter holds nothing but the dark face: no legend ink.
+    // The texture has room for popups above the case.
+    auto* surface = renderer.surface();
+    cairo_surface_flush(surface);
+    const int stride = cairo_image_surface_get_stride(surface);
+    const auto* data = cairo_image_surface_get_data(surface);
+    int bright = 0;
+    for (int y = top + (bottom - top) * 6 / 10; y < bottom - 6; ++y) {
+        for (int x = left + 8; x < left + (right - left) * 4 / 10; ++x) {
+            const auto pixel =
+                *reinterpret_cast<const std::uint32_t*>(data + (y + popup_margin) * stride + x * 4);
+            const int r = (pixel >> 16) & 255, g = (pixel >> 8) & 255, b = pixel & 255;
+            bright += r + g + b > 3 * 150;
+        }
+    }
+    if (bright) {
+        renderer.write_png("/tmp/framekeyboard-render-stray.png");
+        throw std::runtime_error("no stray lines: " + std::to_string(bright) +
+                                 " bright pixels in the flick ← key's lower left");
+    }
+}
 int main() {
     try {
+        no_stray_lines();
         candidate_menu_resize();
         candidate_scrolling();
         handle_states();

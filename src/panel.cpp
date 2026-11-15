@@ -647,6 +647,9 @@ void interface_label(cairo_t* cr, const std::string& text, Rect r, double size,
 void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 24) {
     constexpr double pi = 3.141592653589793;
     cairo_save(cr);
+    // Icons begin with a bare arc or line: a current point left by what was
+    // drawn before would join them with a stray line.
+    cairo_new_path(cr);
     cairo_translate(cr, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
     const double scale = std::min({size, bounds.width - 8, bounds.height - 8}) / 24;
     cairo_scale(cr, scale, scale);
@@ -1800,7 +1803,14 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     cairo_device_to_user_distance(cr, &dx, &dy);
     cairo_save(cr);
     cairo_translate(cr, dx, dy);
+    // A key starts with no path: a legend's text leaves its current point
+    // behind (Pango draws from it), and a key whose body is copied from the
+    // shared image (atlas_keycap) draws no path of its own to clear it, so
+    // the next key's icon would start with a line from there (a stray line
+    // into the flick layout's emoji key from ← above it).
+    cairo_new_path(cr);
     draw_key_at(cr, view, key, amount, lift, phase, ring, lock);
+    cairo_new_path(cr);
     cairo_restore(cr);
 }
 } // namespace
