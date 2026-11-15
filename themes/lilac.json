@@ -18,7 +18,7 @@
   "font_size": 20,
   "small_font_size": 13,
   "padding": 20,
-  "hover": "#dfdaf6",
+  "hover": "#babace",
   "latched": "#b8a8f0",
   "disabled": "#c8c8d8"
 }

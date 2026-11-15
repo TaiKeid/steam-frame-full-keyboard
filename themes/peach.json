@@ -18,7 +18,11 @@
   "font_size": 20,
   "small_font_size": 13,
   "padding": 20,
-  "hover": "#f5d2bd",
+  "hover": "#d6b29c",
   "latched": "#f39a6b",
-  "disabled": "#dcc3b3"
+  "disabled": "#dcc3b3",
+  "trail": "#9a3345",
+  "comet_head": "#c8324a",
+  "comet": "#e2566a",
+  "comet_tail": "#f0939a"
 }
