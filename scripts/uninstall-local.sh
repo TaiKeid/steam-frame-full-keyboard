@@ -40,6 +40,17 @@ fi
 if [[ $models == "$install_root/models" || -L $models || -L $(dirname -- "$models") ]]; then
     models= # Removed with install_root, or a link left for manual removal.
 fi
+# The theme picker's pictures, which the app draws again whenever they are
+# missing: always removed. The app follows an absolute XDG_CACHE_HOME.
+if [[ -z ${FRAMEKEYBOARD_INSTALL_HOME:-} && ${XDG_CACHE_HOME:-} == /* ]]; then
+    cache="$XDG_CACHE_HOME/framekeyboard"
+else
+    cache="$install_home/.cache/framekeyboard"
+fi
+pictures="$cache/theme-previews"
+if [[ -L $pictures || -L $cache ]]; then
+    pictures= # A link left for manual removal.
+fi
 launcher="$install_home/.local/bin/framekeyboard"
 desktop="$install_home/.local/share/applications/framekeyboard.desktop"
 settings="$config_home/framekeyboard"
@@ -102,6 +113,7 @@ fi
 echo 'This removes Full Keyboard from this user account:'
 [[ -e $install_root ]] && echo "  $install_root (the app, its helpers and every installed release)"
 [[ -n $models && -e $models ]] && echo "  $models (downloaded speech models)"
+[[ -n $pictures && -e $pictures ]] && echo "  $pictures (theme pictures, drawn again when needed)"
 $ours_launcher && echo "  $launcher"
 $ours_desktop && echo "  $desktop"
 $ours_unit && echo "  $unit (Start with SteamOS) and its links"
@@ -112,7 +124,8 @@ else
     [[ -e $settings ]] && echo "Settings stay in $settings; add --purge to delete them too."
 fi
 if [[ ! -e $install_root ]] && ! $ours_launcher && ! $ours_desktop && ! $ours_unit && ! $ours_stream &&
-    ! ($purge && [[ -e $settings ]]) && ! [[ -n $models && -e $models ]]; then
+    ! ($purge && [[ -e $settings ]]) && ! [[ -n $models && -e $models ]] &&
+    ! [[ -n $pictures && -e $pictures ]]; then
     echo 'Nothing to remove: Full Keyboard is not installed for this user.'
     exit 0
 fi
@@ -217,6 +230,10 @@ fi
 if [[ -n $models && -d $models ]]; then
     rm -rf -- "$models"
     rmdir -- "$(dirname -- "$models")" 2> /dev/null || true
+fi
+if [[ -n $pictures && -d $pictures ]]; then
+    rm -rf -- "$pictures"
+    rmdir -- "$cache" 2> /dev/null || true
 fi
 if [[ -n $runtime_dir && -d $runtime_dir && ! -L $runtime_dir ]]; then
     # The instance lock, and the script a keyboard that ran in a Desktop wrote

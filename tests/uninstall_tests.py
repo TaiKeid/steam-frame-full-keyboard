@@ -42,6 +42,12 @@ def install(home, runtime):
     (runtime / "vr.lock").touch()
     # Left by a keyboard that ran in a Desktop and was stopped (R254).
     (runtime / "kwin-desktop-focus.js").write_text("// script\n")
+    # The theme picker's pictures, and another program's cache beside them.
+    pictures = home / ".cache/framekeyboard/theme-previews"
+    pictures.mkdir(parents=True)
+    (pictures / "index.txt").write_text("Full Keyboard theme pictures\n")
+    (pictures / "graphite.argb").write_bytes(b"picture")
+    (home / ".cache/other-app").mkdir(exist_ok=True)
     return root, release
 
 
@@ -78,6 +84,8 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
         require(not path.exists() and not path.is_symlink(), f"{path} must be removed")
     require((home / ".config/framekeyboard/config.json").exists(), "settings stay without --purge")
     require("--purge" in result.stdout, "the user is told how to delete settings")
+    require(not (home / ".cache/framekeyboard").exists() and (home / ".cache/other-app").exists(),
+            "the theme pictures go, other programs' cache stays")
 
     # Running again finds nothing; --purge then removes the settings.
     result = run(home, runtime, "--yes")
@@ -124,7 +132,11 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     (models / "ggml-small.bin").write_bytes(b"model")
     (data / "other-app").mkdir()
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "FRAMEKEYBOARD_"))}
+    cache = Path(directory) / "cache"
+    (cache / "framekeyboard/theme-previews").mkdir(parents=True)
+    (cache / "framekeyboard/theme-previews/graphite.argb").write_bytes(b"picture")
     environment.update(HOME=str(home), XDG_DATA_HOME=str(data), XDG_CONFIG_HOME=str(home / ".config"),
+                       XDG_CACHE_HOME=str(cache),
                        FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime), FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL="0")
     result = subprocess.run(["bash", str(script), "--yes"], env=environment, stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=60)
@@ -132,6 +144,7 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     require(str(models) in result.stdout, "the models are listed with what is removed")
     require(not (data / "framekeyboard").exists(), "models under XDG_DATA_HOME are removed too")
     require((data / "other-app").exists(), "other programs' data stays")
+    require(not (cache / "framekeyboard").exists(), "theme pictures under XDG_CACHE_HOME are removed too")
     require(not (home / ".local/share/framekeyboard").exists(), "the installation is removed")
 
 with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:

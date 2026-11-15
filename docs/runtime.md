@@ -99,7 +99,7 @@ To uninstall, use **Uninstall** in the [installer](installer.md), or run the uni
 bash ~/.local/share/framekeyboard/current/uninstall.sh
 ```
 
-It lists what it will remove and asks first; `--yes` skips the question. It stops the Start with SteamOS service and any running Full Keyboard. A normal stop gives keyboard requests back to Steam's keyboard and removes the bridge's hooks from Steam's UI. It waits on the instance lock until nothing runs, and waits for any install or update in progress. It then turns Streaming support off for a Steam that already loads its library, whose link then leads to Steam's own library, and removes its drop-in for Steam's service, the startup unit and its links, every installed release, the launcher, the menu entry and the runtime lock directory. It only removes files it recognizes as Full Keyboard's: a launcher, menu entry, unit or drop-in of the same name written by another program stays. Settings, keyboard placement and custom profiles in `~/.config/framekeyboard` stay unless you add `--purge`. Running it again when nothing is installed is harmless. Releases before the uninstaller was added do not contain it; use the one from a newer extracted package.
+It lists what it will remove and asks first; `--yes` skips the question. It stops the Start with SteamOS service and any running Full Keyboard. A normal stop gives keyboard requests back to Steam's keyboard and removes the bridge's hooks from Steam's UI. It waits on the instance lock until nothing runs, and waits for any install or update in progress. It then turns Streaming support off for a Steam that already loads its library, whose link then leads to Steam's own library, and removes its drop-in for Steam's service, the startup unit and its links, every installed release, the launcher, the menu entry, the runtime lock directory and the theme picker's pictures in `~/.cache/framekeyboard/theme-previews` (under `$XDG_CACHE_HOME` when it is set), which the app draws again whenever they are missing. It only removes files it recognizes as Full Keyboard's: a launcher, menu entry, unit or drop-in of the same name written by another program stays. Settings, keyboard placement and custom profiles in `~/.config/framekeyboard` stay unless you add `--purge`. Running it again when nothing is installed is harmless. Releases before the uninstaller was added do not contain it; use the one from a newer extracted package.
 
 To remove it by hand instead, turn Streaming support off in Settings → Integration if it is on, quit Full Keyboard (Settings → Quit Full Keyboard with native replacement enabled), then run:
 
@@ -112,7 +112,7 @@ rm -f ~/.config/systemd/user/framekeyboard-autostart.service \
 systemctl --user daemon-reload
 rm ~/.local/bin/framekeyboard
 rm ~/.local/share/applications/framekeyboard.desktop
-rm -r ~/.local/share/framekeyboard
+rm -r ~/.local/share/framekeyboard ~/.cache/framekeyboard
 ```
 
 If you added a Steam Library shortcut manually, remove it through Steam too. No OS, Steam or stock keyboard files need restoring.
