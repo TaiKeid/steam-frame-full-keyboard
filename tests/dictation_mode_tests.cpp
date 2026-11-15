@@ -657,6 +657,27 @@ template <class Done> void wait_until(App& app, Done done) {
     require(done(), "the fake helper answered");
 }
 void click(App& app, const std::string& id) {
+    // A Settings row wholly below its card's fold is left out of the view
+    // until the card scrolls, as Auto leveling is since Curved keyboard came
+    // above it: scroll each card down in turn until the row is there.
+    for (std::size_t card = 0; app.view().settings && card < app.view().cards.size(); ++card) {
+        const auto view = app.view();
+        if (std::any_of(view.controls.begin(), view.controls.end(),
+                        [&](const Control& c) { return c.id == id; })) {
+            break;
+        }
+        // Over the card's rows, within the part of it on screen: the row of
+        // cards may have scrolled sideways.
+        const auto bounds = view.cards[card].bounds;
+        const double left = std::max(bounds.x, 0.0),
+                     right = std::min(bounds.x + bounds.width, double(panel_width));
+        if (right - left < 20) {
+            continue;
+        }
+        app.move(0, (left + right) / 2, 300);
+        app.scroll(0, 0, 20);
+        settle(app);
+    }
     // A Settings row below or above its card's view scrolls into it first.
     for (int step = 0; step < 40; ++step) {
         const auto view = app.view();
