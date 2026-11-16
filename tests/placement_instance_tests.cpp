@@ -546,6 +546,16 @@ void settle_tests() {
     require(!settle.due(moved_again, 804.9), "the failed placement waits for its retry");
     require(settle.due(moved_again, 805),
             "five seconds again after a save that worked, then it is saved");
+    // R311: a save that worked drops a retry an older failure armed.
+    settle.retry(900);
+    settle.worked();
+    require(!settle.due(moved_again, 920), "no second write of a placement whose save worked");
+    // R312: a change already settling isn't held by a failure reported after it began.
+    auto other = moved_again;
+    other.curvature = .02;
+    require(!settle.due(other, 1001), "a change starts settling");
+    settle.retry(1001.5);
+    require(settle.due(other, 1003), "and is saved once settled, not at the retry's 1006.5");
 }
 // The writer saves on its own thread; the newest placement wins and flush()
 // waits until it is on disk.

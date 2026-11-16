@@ -40,8 +40,13 @@ class PlacementSettle {
     // written to every frame (R303). Only that placement waits; any other is
     // saved once it settles, as always (R307).
     void retry(double time);
-    // A save worked: the next failure's retry waits 5 s again (R308).
-    void worked() { retry_delay_ = 0; }
+    // A save worked: the next failure's retry waits 5 s again (R308), and a
+    // retry an older failure armed is dropped, as the worked write came after
+    // it (R311).
+    void worked() {
+        retry_delay_ = 0;
+        retrying_ = false;
+    }
 
   private:
     double quiet_;
