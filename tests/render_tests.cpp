@@ -459,6 +459,54 @@ void hover_fade() {
     contrast.frame(view, "laser left it");
     require(!contrast.incremental.animating(), "a High Contrast key goes dark at once");
 }
+// Typing suggestions and swipe alternatives are caps, as a composing
+// language's candidates are: the keys' gradient rather than a flat fill, and
+// partial repaints that match whole ones as they come, light up and go.
+void suggestion_caps() {
+    const auto profiles = load_profiles({}, {});
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(profiles.languages.at("en-us"));
+    PanelView view;
+    view.layout = &profiles.layouts.at("en-us-full");
+    view.language = &profiles.languages.at("en-us");
+    view.keyboard = &keyboard;
+    view.keymap = &keymap;
+    Control typed{"typing-suggestion-0", "type", {520, 12, 140, 42}};
+    typed.action.kind = ControlKind::TypingSuggestion;
+    Control swiped{"swipe-candidate-0", "swipe", {680, 12, 140, 42}};
+    swiped.action.kind = ControlKind::SwipeCandidate;
+    for (const char* theme : {"graphite", "porcelain", "neon", "contrast"}) {
+        view.theme = &profiles.themes.at(theme);
+        view.controls = {typed};
+        view.hovered_controls.clear();
+        Comparison compare;
+        compare.frame(view, "a typing suggestion");
+        if (std::string_view(theme) == "graphite") {
+            // Left of the centered word, near the cap's top and near its bottom.
+            const auto shade = [&](double y) {
+                const auto pixels = compare.incremental.rgba();
+                const auto offset = static_cast<std::size_t>(
+                                        (static_cast<int>(y) + popup_margin) * panel_width +
+                                        static_cast<int>(typed.bounds.x) + 12) *
+                                    4;
+                return pixels[offset] + pixels[offset + 1] + pixels[offset + 2];
+            };
+            if (shade(typed.bounds.y + 8) == shade(typed.bounds.y + typed.bounds.height - 8)) {
+                throw std::runtime_error("a typing suggestion is flat instead of a cap");
+            }
+        }
+        swiped.selected = true;
+        view.controls = {typed, swiped};
+        compare.frame(view, "swipe alternatives shown");
+        view.hovered_controls = {typed.id};
+        compare.frame(view, "laser on a suggestion");
+        view.controls = {typed};
+        view.hovered_controls.clear();
+        compare.frame(view, "swipe alternatives gone");
+        swiped.selected = false;
+    }
+}
 // A slow laser on High Contrast: points a pixel apart, so each segment is far
 // shorter than its casing's round cap. The casing goes under the path drawn
 // before, which stays yellow instead of turning black.
@@ -1336,6 +1384,7 @@ int main() {
         candidate_scrolling();
         handle_states();
         hover_fade();
+        suggestion_caps();
         swipe_trail("graphite");
         swipe_trail("contrast");
         swipe_trail("ember"); // a trail in its own colors

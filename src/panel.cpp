@@ -1869,6 +1869,11 @@ bool popup_control(const std::string& id) {
     }
     return false;
 }
+// Typing suggestions and swipe alternatives in the toolbar.
+bool suggestion_control(const Control& control) {
+    return control.action.kind == ControlKind::TypingSuggestion ||
+           control.action.kind == ControlKind::SwipeCandidate;
+}
 } // namespace
 std::vector<Rect> theme_cards_damage(const PanelView& before, const PanelView& now) {
     if (!before.themes || !now.themes || before.themes == now.themes) {
@@ -4623,24 +4628,30 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 return;
             }
             const double radius = control.style == ControlStyle::Checkbox ? 3 : t.radius;
-            if (control.enabled && control.selected) {
-                fill_latched(cr, t, r, radius);
-                rounded(cr, r, radius);
+            if (suggestion_control(control)) {
+                // Typing and swipe suggestions are caps, as a composing
+                // language's candidates are: the keys' gradient, light and edge.
+                draw_cap(cr, t, r, hovered, control.selected, control.enabled);
             } else {
-                rounded(cr, r, radius);
-                source(cr, control.enabled && view.hovered_controls.contains(control.id) ? t.hover
-                                                                                         : t.bottom);
-                cairo_fill_preserve(cr);
-            }
-            if (view.settings && control.style != ControlStyle::Scrollbar &&
-                control.style != ControlStyle::MenuItem) {
-                source(cr, legend);
-                cairo_set_line_width(cr, 1.5);
-                cairo_stroke(cr);
-            } else {
-                cairo_new_path(cr);
-                if (control.style != ControlStyle::MenuItem) {
-                    draw_edge(cr, t, r, radius, hovered, control.enabled); // A toolbar button's.
+                if (control.enabled && control.selected) {
+                    fill_latched(cr, t, r, radius);
+                    rounded(cr, r, radius);
+                } else {
+                    rounded(cr, r, radius);
+                    source(cr, control.enabled && view.hovered_controls.contains(control.id) ? t.hover
+                                                                                             : t.bottom);
+                    cairo_fill_preserve(cr);
+                }
+                if (view.settings && control.style != ControlStyle::Scrollbar &&
+                    control.style != ControlStyle::MenuItem) {
+                    source(cr, legend);
+                    cairo_set_line_width(cr, 1.5);
+                    cairo_stroke(cr);
+                } else {
+                    cairo_new_path(cr);
+                    if (control.style != ControlStyle::MenuItem) {
+                        draw_edge(cr, t, r, radius, hovered, control.enabled); // A toolbar button's.
+                    }
                 }
             }
             if (control.style == ControlStyle::Scrollbar) {
