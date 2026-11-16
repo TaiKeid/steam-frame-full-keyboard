@@ -2590,6 +2590,20 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     if (saved && (!saved->universe || !panel.universe() || saved->universe == panel.universe())) {
         dashboard_anchor.restore(saved->dashboard, saved->dashboard_bar, saved->dashboard_full_rotation);
     }
+    // The placement as placement.json keeps it: the pose shown, with the saved
+    // bend also while Curved keyboard is off and the panel shows flat. It is
+    // saved at exit, and in the background once it settles after a change, so
+    // a crash or a kill, which skip the exit, lose nothing that ended (R301).
+    auto placement_to_save = [&] {
+        SavedPlacement now{displayed.transform(), displayed.width(), placement_universe};
+        now.dashboard = previous_dashboard;
+        now.dashboard_bar = dashboard_anchor.bar();
+        now.dashboard_full_rotation = true;
+        now.curvature = placement.curvature();
+        return now;
+    };
+    PlacementWriter placement_writer(placement_path);
+    PlacementSettle placement_settle;
     LaserDrag drag;
     // The room's leveling reference: facing the viewer's head, horizontally, as
     // seen from where the keyboard was released, recentered or restored. It is
@@ -5151,6 +5165,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (shell) {
             shell->frame_completed(completed); // pings are answered only here
         }
+        // Every placement that settles after a change, on the writer's thread.
+        if (displayed.ready() && placement_settle.due(placement_to_save(), monotonic_seconds())) {
+            placement_writer.save(placement_to_save());
+        }
         // Follow the dashboard every visible frame, even without a laser over
         // the keys. Budget work inside the 60 Hz period instead of adding a full
         // sleep after it. Hidden panels still idle at 4 Hz; paints are event-driven.
@@ -5191,15 +5209,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     }
     app.cancel();
     if (displayed.ready()) {
-        try {
-            // The saved bend, also while Curved keyboard is off and the panel shows flat.
-            save_placement(placement_path,
-                           {displayed.transform(), displayed.width(), placement_universe,
-                            previous_dashboard, dashboard_anchor.bar(), true, placement.curvature()});
-        } catch (const std::exception& error) {
-            std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
-        }
+        placement_writer.save(placement_to_save());
     }
+    // On disk before the exit continues: an update handoff snapshots it next.
+    placement_writer.flush();
     if (!placement.ready()) {
         std::cout << "No valid headset pose; panel was not shown.\n";
     }

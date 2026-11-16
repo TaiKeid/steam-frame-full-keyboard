@@ -491,6 +491,63 @@ void stick_depth_tests() {
     near(drag.update(head())[2][3], original[2][3], "sideways laser does not move along controller Z");
     near(drag.update(head())[1][1], original[1][1], "stick leaves orientation unchanged");
 }
+// R301: the placement is saved while the keyboard runs once it has settled
+// after a change, never mid-gesture, so a crash loses no move that ended.
+void settle_tests() {
+    const fk::Transform pose{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    const fk::SavedPlacement start{pose, 1, 7};
+    fk::PlacementSettle settle;
+    require(!settle.due(start, 10), "the placement first seen is the one on disk");
+    require(!settle.due(start, 30), "an unchanged placement is never saved again");
+    auto moved = start;
+    moved.transform[0][3] = .2;
+    require(!settle.due(moved, 31), "a change is not saved at once");
+    require(!settle.due(moved, 32.9), "nor before it has stayed for two seconds");
+    require(settle.due(moved, 33), "two seconds after the change it is saved");
+    require(!settle.due(moved, 40), "and only once");
+    // A drag changes it every frame: nothing until it rests.
+    for (int frame = 1; frame <= 120; ++frame) {
+        moved.transform[0][3] = .2 + frame * .001;
+        require(!settle.due(moved, 50 + frame / 60.0), "nothing is saved mid-gesture");
+    }
+    require(!settle.due(moved, 53.9), "a gesture's end waits its two seconds too");
+    require(settle.due(moved, 54.1), "then the end of the gesture is saved");
+    auto bent = moved;
+    bent.curvature = .1;
+    require(!settle.due(bent, 60) && settle.due(bent, 62), "a bend that ended is saved");
+    require(!settle.due(moved, 63) && !settle.due(bent, 63.5) && !settle.due(bent, 70),
+            "a change undone before it settled saves nothing");
+}
+// The writer saves on its own thread; the newest placement wins and flush()
+// waits until it is on disk.
+void writer_tests() {
+    TemporaryDirectory temp;
+    const auto path = temp.path / "placement.json";
+    const fk::Transform pose{{{1, 0, 0, 0}, {0, 1, 0, 1}, {0, 0, 1, -1}}};
+    fk::SavedPlacement first{pose, 1, 7}, second = first;
+    second.width = 1.25; // Values JSON keeps exactly.
+    second.curvature = .0625;
+    {
+        fk::PlacementWriter writer(path);
+        writer.save(first);
+        writer.flush();
+        require(fk::load_placement(path) == first, "a saved placement is on disk after flush");
+        writer.save(first);
+        writer.save(second);
+        writer.flush();
+        require(fk::load_placement(path) == second, "the newest placement wins");
+        writer.save(first);
+    }
+    require(fk::load_placement(path) == first,
+            "a placement still pending is written before the writer stops");
+    // A path that can't be written: the error is logged and flush still returns.
+    std::ofstream(temp.path / "blocker") << "a file, not a folder";
+    fk::PlacementWriter blocked(temp.path / "blocker" / "placement.json");
+    blocked.save(first);
+    blocked.flush();
+    require(!std::filesystem::exists(temp.path / "blocker" / "placement.json"),
+            "a failed save leaves nothing behind and doesn't hang");
+}
 void persistence_tests() {
     TemporaryDirectory temp;
     const auto path = temp.path / "placement.json";
@@ -1624,6 +1681,8 @@ int main() {
         grip_tests();
         trigger_release_tests();
         persistence_tests();
+        settle_tests();
+        writer_tests();
         key_feedback_tests();
         haptic_routing_tests();
         instance_tests();

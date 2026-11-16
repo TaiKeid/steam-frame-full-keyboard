@@ -1,11 +1,13 @@
 #include "framekeyboard/placement_store.hpp"
 #include <cerrno>
 #include <cmath>
+#include <iostream>
 #include <json-c/json.h>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
+#include <utility>
 
 namespace framekeyboard {
 namespace {
@@ -173,6 +175,71 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
         close(fd);
         unlink(temporary.c_str());
         throw;
+    }
+}
+
+bool PlacementSettle::due(const SavedPlacement& now, double time) {
+    if (!saved_) {
+        saved_ = seen_ = now;
+        seen_since_ = time;
+        return false;
+    }
+    if (now != *seen_) {
+        seen_ = now;
+        seen_since_ = time;
+        return false;
+    }
+    if (now == *saved_ || time - seen_since_ < quiet_) {
+        return false;
+    }
+    saved_ = now;
+    return true;
+}
+
+PlacementWriter::PlacementWriter(std::filesystem::path path)
+    : path_(std::move(path)), worker_([this] { run(); }) {
+}
+
+PlacementWriter::~PlacementWriter() {
+    {
+        std::lock_guard lock(mutex_);
+        stopping_ = true;
+    }
+    changed_.notify_all();
+    worker_.join();
+}
+
+void PlacementWriter::save(const SavedPlacement& placement) {
+    {
+        std::lock_guard lock(mutex_);
+        pending_ = placement;
+    }
+    changed_.notify_all();
+}
+
+void PlacementWriter::flush() {
+    std::unique_lock lock(mutex_);
+    changed_.wait(lock, [this] { return !pending_ && !writing_; });
+}
+
+void PlacementWriter::run() {
+    std::unique_lock lock(mutex_);
+    for (;;) {
+        changed_.wait(lock, [this] { return pending_ || stopping_; });
+        if (!pending_) {
+            return; // Stopping with nothing left to write.
+        }
+        const auto placement = *std::exchange(pending_, std::nullopt);
+        writing_ = true;
+        lock.unlock();
+        try {
+            save_placement(path_, placement);
+        } catch (const std::exception& error) {
+            std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
+        }
+        lock.lock();
+        writing_ = false;
+        changed_.notify_all();
     }
 }
 } // namespace framekeyboard
