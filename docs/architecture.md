@@ -92,9 +92,9 @@ native press snapshots its chord; Unicode presses snapshot the composed text.
 A held or locked Ctrl, Alt or Super also goes down as a direct hold of its own
 ahead of the first chord that uses it and stays down until let go or unlocked,
 so chords between share it; Shift and AltGr, which pick characters, go down only
-with each chord. A sticky modifier locks after 0.9 s held unused or on a
-double tap; one that a key uses before it is let go was a slow chord, and turns
-back into a hold. A tap on a locked key ends every lock and lets kept-down
+with each chord. A sticky modifier locks after 0.5 s held unused
+(`lock_timing`) or on a double tap within 0.3 s; one that a key uses before
+it is let go was a slow chord, and turns back into a hold. A tap on a locked key ends every lock and lets kept-down
 modifiers up.
 Text never goes out while a key is down, so the output queue lets such a
 kept-down modifier up ahead of a text commit (a key a hand holds still makes

@@ -150,6 +150,16 @@ class LanguageMap {
     bool right_to_left_{}, altgr_{};
 };
 
+// Hold-to-lock, in seconds from a sticky modifier's press: its ring stays
+// hidden until `fade_start`, so an ordinary tap never flashes it, and fades
+// in until `fade_end`; the key locks at `lock` and the ring closes at
+// `ring_end`. The lock comes a little before the ring closes, so a hand that
+// lets go as the ring closes still locks.
+struct LockTiming {
+    double fade_start{}, fade_end{}, lock{}, ring_end{};
+};
+inline constexpr LockTiming lock_timing{.15, .25, .5, .6};
+
 class KeyboardState {
   public:
     explicit KeyboardState(KeySink& sink) : sink_(sink) {}
@@ -188,13 +198,9 @@ class KeyboardState {
     void use_modifiers();
     bool caps() const { return caps_; }
     bool num() const { return num_; }
-    // A sticky modifier (Shift, Ctrl, Alt, AltGr or the left Super) held this
-    // long without another key locks: it applies to every key, as a held one
-    // would, until a tap on any locked key unlocks them all. Its ring runs a
-    // little longer than the lock takes, so a hand that lets go as the ring
-    // closes still locks.
-    static constexpr double lock_seconds = .9;
-    static constexpr double lock_ring_seconds = 1;
+    // A sticky modifier (Shift, Ctrl, Alt, AltGr or the left Super) held
+    // until lock_timing.lock without another key locks: it applies to every
+    // key, as a held one would, until a tap on any locked key unlocks them all.
     // A second tap within this long of the first locks it, as holding does.
     static constexpr double double_tap_seconds = .3;
     bool locked(int code) const { return locked_.contains(code); }

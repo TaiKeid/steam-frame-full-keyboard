@@ -106,7 +106,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Atajos con Super | Toca el icono de Frame de la izquierda y después una tecla, o mantenlo con el otro mando |
 | Menú de aplicaciones del escritorio | Toca el icono de SteamOS de la derecha para una pulsación nativa de Super derecho; el escritorio decide qué hace |
 | Anular un modificador tocado | Vuelve a tocarlo |
-| Bloquear un modificador | Mantén Shift, Ctrl, Alt o el icono de Frame de la izquierda un segundo, o tócalo dos veces seguidas; un borde indica que está bloqueado. Puedes bloquear varios a la vez; toca cualquier tecla bloqueada para desbloquearlas todas |
+| Bloquear un modificador | Mantén Shift, Ctrl, Alt o el icono de Frame de la izquierda medio segundo, o tócalo dos veces seguidas; un borde indica que está bloqueado. Puedes bloquear varios a la vez; toca cualquier tecla bloqueada para desbloquearlas todas |
 | Deslizar una palabra | Activa **Escritura deslizante** en la tarjeta de ajustes Idiomas y distribuciones, mantén el gatillo y traza sobre las letras. Otras propuestas aparecen en la barra de herramientas |
 | Completar una palabra | Escribe su comienzo; aparecen hasta cinco opciones en la barra de herramientas. Elige una para escribir el resto y un espacio |
 | Tirar para caracteres con Mayús | Activa **Tirar para Mayús** en la tarjeta de ajustes Idiomas y distribuciones y tira de una tecla hacia abajo antes de soltarla: 6 da ^, y con la escritura deslizante desactivada k da K |

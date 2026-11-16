@@ -106,7 +106,7 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Atalhos com Super | Toque no ícone do Frame à esquerda e depois em uma tecla, ou segure-o com o outro controle |
 | Menu de aplicativos do desktop | Toque no ícone do SteamOS à direita para um pressionar e soltar nativo do Super direito; o desktop decide a ação |
 | Cancelar um modificador tocado | Toque nele de novo |
-| Travar um modificador | Segure Shift, Ctrl, Alt ou o ícone do Frame à esquerda por um segundo, ou toque nele duas vezes rápido; uma borda mostra que está travado. Dá para travar vários ao mesmo tempo; toque em qualquer tecla travada para destravar todas |
+| Travar um modificador | Segure Shift, Ctrl, Alt ou o ícone do Frame à esquerda por meio segundo, ou toque nele duas vezes rápido; uma borda mostra que está travado. Dá para travar vários ao mesmo tempo; toque em qualquer tecla travada para destravar todas |
 | Deslizar uma palavra | Ative **Digitação por deslize** no cartão de configurações Idiomas e layouts, depois segure o gatilho e desenhe sobre as letras. Outras sugestões aparecem na barra de ferramentas |
 | Completar uma palavra | Digite o começo; até cinco opções aparecem na barra de ferramentas. Escolha uma para digitar o resto e um espaço |
 | Puxar para caracteres com Shift | Ative **Puxar para Shift** no cartão de configurações Idiomas e layouts, depois puxe uma tecla para baixo antes de soltar: 6 dá ^, e com a digitação por deslize desativada k dá K |

@@ -106,7 +106,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Super-Kürzel | Das linke Frame-Symbol antippen, dann eine Taste, oder es mit dem anderen Controller halten |
 | Anwendungsmenü des Desktops | Das rechte SteamOS-Symbol antippen für ein natives Drücken/Loslassen der rechten Super-Taste; der Desktop bestimmt, was es tut |
 | Angetippten Modifikator lösen | Ihn erneut antippen |
-| Modifikator feststellen | Shift, Ctrl, Alt oder das linke Frame-Symbol eine Sekunde halten oder zweimal schnell antippen; ein Rahmen zeigt, dass er festgestellt ist. Mehrere lassen sich zugleich feststellen; eine festgestellte Taste antippen löst alle |
+| Modifikator feststellen | Shift, Ctrl, Alt oder das linke Frame-Symbol eine halbe Sekunde halten oder zweimal schnell antippen; ein Rahmen zeigt, dass er festgestellt ist. Mehrere lassen sich zugleich feststellen; eine festgestellte Taste antippen löst alle |
 | Ein Wort wischen | **Wischeingabe** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann den Abzug halten und über die Buchstaben ziehen. Weitere Vorschläge erscheinen in der Werkzeugleiste |
 | Ein Wort ergänzen | Den Anfang tippen; bis zu fünf Ergänzungen erscheinen in der Werkzeugleiste. Eine wählen, um den Rest und ein Leerzeichen zu tippen |
 | Umschalt-Zeichen per Ziehen | **Umschalt durch Ziehen** in der Einstellungskarte **Sprachen und Layouts** einschalten, dann eine Taste vor dem Loslassen nach unten ziehen: 6 ergibt ^, und bei ausgeschalteter Wischeingabe ergibt k ein K |

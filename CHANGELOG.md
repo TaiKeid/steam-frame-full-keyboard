@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shift, Ctrl, Alt, AltGr and the left Frame icon now lock after half a second held instead of a second: the ring shows from 0.15 s, is fully in by 0.25 s and closes at 0.6 s. A double tap still locks within 0.3 s.
+
 ## 0.19.0: Curved keyboard, modifier lock and a theme picker
 
 - Added **Curved keyboard** to Settings → General, under Hover fade, off by default: the keyboard can bend around you. With it on, a short handle fades in beside the keyboard's left or right edge when your laser comes near; point at it, hold the trigger or grip and pull it up, toward you, or turn your hand so its laser sweeps up, to curve the keyboard; push it back or turn the other way to flatten it, and let go to keep the curve; let go within 5 mm of flat and it snaps flat. It goes up to a quarter circle, works with Grab to move on or off, and pinning hides the bars. The curve is saved with the keyboard's position, and the corner resizers and the laser outside the dashboard follow it.

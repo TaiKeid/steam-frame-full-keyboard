@@ -106,7 +106,7 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Raccourcis Super | Toucher l'icône Frame de gauche, puis une touche, ou la maintenir avec l'autre manette |
 | Menu des applications du bureau | Toucher l'icône SteamOS de droite pour un appui/relâchement natif de la touche Super droite ; le bureau décide de son action |
 | Annuler un modificateur touché | Le toucher à nouveau |
-| Verrouiller un modificateur | Maintenir Shift, Ctrl, Alt ou l'icône Frame de gauche une seconde, ou le toucher deux fois rapidement ; une bordure indique qu'il est verrouillé. Plusieurs peuvent l'être à la fois ; toucher une touche verrouillée les déverrouille toutes |
+| Verrouiller un modificateur | Maintenir Shift, Ctrl, Alt ou l'icône Frame de gauche une demi-seconde, ou le toucher deux fois rapidement ; une bordure indique qu'il est verrouillé. Plusieurs peuvent l'être à la fois ; toucher une touche verrouillée les déverrouille toutes |
 | Tracer un mot | Activer **Saisie gestuelle** dans la carte de paramètres **Langues et dispositions**, puis maintenir la gâchette et passer sur les lettres. D'autres propositions apparaissent dans la barre d'outils |
 | Compléter un mot | Taper son début ; jusqu'à cinq complétions apparaissent dans la barre d'outils. En choisir une pour taper la suite et une espace |
 | Tirer pour le caractère Maj | Activer **Tirer pour Maj** dans la carte de paramètres **Langues et dispositions**, puis tirer une touche vers le bas avant de la relâcher : 6 donne ^, et avec la saisie gestuelle désactivée k donne K |

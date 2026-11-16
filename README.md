@@ -106,7 +106,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Super shortcuts | Tap the left Frame icon, then a key, or hold it with the other controller |
 | Desktop application menu | Tap the right SteamOS icon for a native right Super press/release; the desktop controls its action |
 | Clear a tapped modifier | Tap it again |
-| Lock a modifier | Hold Shift, Ctrl, Alt or the left Frame icon for a second, or tap it twice quickly; a border shows it is locked. Lock several at once; tap any locked key to unlock them all |
+| Lock a modifier | Hold Shift, Ctrl, Alt or the left Frame icon for half a second, or tap it twice quickly; a border shows it is locked. Lock several at once; tap any locked key to unlock them all |
 | Swipe a word | Turn on **Swipe typing** in the Languages and Layouts settings card, then hold the trigger and draw across the letters. Other guesses appear in the toolbar |
 | Complete a word | Type its start; up to five completions appear in the toolbar. Choose one to type the rest and a space |
 | Pull for Shift characters | Turn on **Pull for Shift** in the Languages and Layouts settings card, then pull a key down before letting go: 6 gives ^, and with swipe typing off k gives K |

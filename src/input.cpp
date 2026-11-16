@@ -882,7 +882,7 @@ bool KeyboardState::tick(double now) {
     now_ = now;
     bool changed = false;
     for (auto& [pointer, press] : presses_) {
-        if (press.lockable && !press.used && !press.locks && now - press.at >= lock_seconds) {
+        if (press.lockable && !press.used && !press.locks && now - press.at >= lock_timing.lock) {
             // Locks while still held, so the key shows it before release.
             press.locks = true;
             latched_.erase(press.modifier);
@@ -894,7 +894,7 @@ bool KeyboardState::tick(double now) {
     }
     // A ring that has gone round leaves the locked key's border, drawn from locked().
     for (auto ring = rings_.begin(); ring != rings_.end();) {
-        if (now - ring->second >= lock_ring_seconds) {
+        if (now - ring->second >= lock_timing.ring_end) {
             ring = rings_.erase(ring);
             changed = true;
         } else {

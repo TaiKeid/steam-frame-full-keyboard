@@ -100,7 +100,7 @@ Short conversational sentences are used rather than descriptions such as 以下�
 - The editor holds plain text with line breaks. Tab characters are not supported.
 - **Cursor:** a laser click places it, using Pango's position lookup. The arrows, Home and End move it; Up and Down keep their column, and Home and End follow the wrapped line. Held keys repeat after 0.5 s, every 40 ms.
 - **Selection:** Shift with the arrows, Home or End selects from the cursor, and Shift with a laser click selects to that spot. Dragging on the text still scrolls.
-  - A tapped Shift covers one step; holding it for a second, or tapping it twice quickly, locks it for several, and the next Shift press unlocks it.
+  - A tapped Shift covers one step; holding it for half a second, or tapping it twice quickly, locks it for several, and the next Shift press unlocks it.
   - Typing, Backspace, Delete, Enter, Paste and a recognized phrase replace the selection. Left and Right without Shift end it at that side; any other move or a click ends it where the cursor lands.
   - Send always sends the whole text, whatever is selected.
 - **Cut, Copy and Paste:** these keys use a buffer of the editor's own, kept in memory and never logged. They never touch the system clipboard, so Paste only inserts what was copied or cut in the editor, and that text does not reach other applications. Copy and Cut need a selection, Paste needs something copied, and all three wait while the editor is locked. The buffer lasts until the keyboard exits.

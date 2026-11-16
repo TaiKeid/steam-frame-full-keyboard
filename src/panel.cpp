@@ -95,9 +95,6 @@ Color disabled_legend(const Theme& theme) {
 // this share, so a press lands fast and returns softly. With Hover fade, a key
 // the laser left takes this long to go dark.
 constexpr double press_share = .75, release_share = 1.6, hover_fade_seconds = .18;
-// A lock ring stays hidden for this long after the press, so an ordinary tap
-// never flashes it, then fades in over the next lock_ring_fade seconds.
-constexpr double lock_ring_hidden = .3, lock_ring_fade = .2;
 // The swipe trail: the whole path as a thin line, drawn faintly, and over it
 // a comet, the pieces of the path newer than `trail_comet_seconds`, each
 // thinner and fainter with age. When the swipe ends the path fades out over
@@ -1574,9 +1571,10 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     // neon theme the latched tube fills with it: the share it has reached
     // stays lit and the rest dims to a quarter as the ring fades in.
     const bool lock_shown = lock >= 0 && !disabled && !listening;
-    const double ring_progress = lock_shown ? std::min(1.0, lock / KeyboardState::lock_ring_seconds) : 0;
+    const double ring_progress = lock_shown ? std::min(1.0, lock / lock_timing.ring_end) : 0;
+    constexpr double fade = lock_timing.fade_end - lock_timing.fade_start;
     const double ring_alpha =
-        lock_shown ? std::clamp((lock - lock_ring_hidden) / lock_ring_fade, 0.0, 1.0) : 0;
+        lock_shown ? std::clamp((lock - lock_timing.fade_start) / fade, 0.0, 1.0) : 0;
     const bool filling = lock_shown && fill == KeyFace::Latched && t.latched_finish == "neon";
     // A key at rest copies its body unless its tube is filling.
     const auto face =
@@ -3553,14 +3551,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             ring_time_ = ring;
         }
         // A modifier held toward a lock shows its ring, stepping at 30 fps as
-        // the mic's does. It stays hidden for its first 0.3 s, so a tap never
-        // flashes it, and goes on after the lock until it has gone round.
+        // the mic's does. It stays hidden until its fade starts, so a tap
+        // never flashes it, and goes on after the lock until it has gone round.
         double lock = -1;
         if (const auto start = view.keyboard->lock_ring(key.id); start && !view.settings) {
             const double elapsed = stepped - *start;
-            if (elapsed < KeyboardState::lock_ring_seconds) {
+            if (elapsed < lock_timing.ring_end) {
                 animating_ = true;
-                lock = elapsed < lock_ring_hidden ? -1 : elapsed;
+                lock = elapsed < lock_timing.fade_start ? -1 : elapsed;
             }
         }
         const auto shown_lock = lock_rings_.try_emplace(key.id, -1).first;

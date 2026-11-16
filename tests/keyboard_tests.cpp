@@ -217,10 +217,10 @@ void state_tests(const fk::Layout& layout) {
     using Events = std::vector<std::pair<int, int>>;
     const auto shift = key(layout, "ShiftLeft");
     state.down(0, shift, 90);
-    state.tick(90.85);
+    state.tick(90.45);
     require(!state.locked(KEY_LEFTSHIFT), "a short hold does not lock");
-    state.tick(90.96);
-    require(state.locked(KEY_LEFTSHIFT), "a 0.9 s hold locks while still held");
+    state.tick(90.51);
+    require(state.locked(KEY_LEFTSHIFT), "a 0.5 s hold locks while still held");
     state.up(0);
     require(state.locked(KEY_LEFTSHIFT) && state.modifiers().contains(KEY_LEFTSHIFT),
             "the release keeps it locked");
@@ -315,7 +315,7 @@ void state_tests(const fk::Layout& layout) {
             "Enter and cancellation");
 }
 // Held and locked modifiers (issue 15): Ctrl, Alt and Super stay down on the
-// target while held or locked, Shift and AltGr go down with each key. A 0.9 s
+// target while held or locked, Shift and AltGr go down with each key. A 0.5 s
 // hold or a double tap locks; a tap on a locked key unlocks them all.
 void modifier_lock_tests(const fk::Layout& layout) {
     using Events = std::vector<std::pair<int, int>>;
@@ -376,19 +376,19 @@ void modifier_lock_tests(const fk::Layout& layout) {
     }
     Capture sink;
     fk::KeyboardState state(sink);
-    // A 0.9 s hold locks; the ring goes on to 1 s even if let go between.
+    // A 0.5 s hold locks; the ring goes on to 0.6 s even if let go between.
     state.down(0, alt, 10);
     require(state.lock_ring("AltLeft") == 10.0, "a held modifier's ring starts with the press");
-    state.tick(10.85);
-    require(!state.locked(KEY_LEFTALT), "no lock before 0.9 s");
-    state.tick(10.96);
+    state.tick(10.45);
+    require(!state.locked(KEY_LEFTALT), "no lock before 0.5 s");
+    state.tick(10.51);
     require(state.locked(KEY_LEFTALT) && state.take_new_locks() == std::vector<unsigned>{0},
-            "locked at 0.9 s, once, for the hand holding it");
+            "locked at 0.5 s, once, for the hand holding it");
     require(state.take_new_locks().empty(), "each lock is reported once");
     state.up(0);
     require(state.locked(KEY_LEFTALT) && state.lock_ring("AltLeft") == 10.0,
             "let go before the ring closes, it stays locked and the ring goes on");
-    state.tick(11.11);
+    state.tick(10.61);
     require(state.locked(KEY_LEFTALT) && !state.lock_ring("AltLeft"),
             "the ring ends once it has gone round");
     require(sink.events.empty(), "a lock alone sends nothing");
@@ -487,7 +487,7 @@ void modifier_lock_tests(const fk::Layout& layout) {
     // down, which would keep Alt+Tab's switcher open.
     state.down(0, alt, 45);
     state.tick(46.2);
-    require(state.locked(KEY_LEFTALT), "held unused past 0.9 s, it locks");
+    require(state.locked(KEY_LEFTALT), "held unused past 0.5 s, it locks");
     sink.events.clear();
     state.down(1, tab, 46.3);
     require(!state.locked(KEY_LEFTALT) && !state.lock_ring("AltLeft"),
