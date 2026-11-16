@@ -5165,8 +5165,14 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         if (shell) {
             shell->frame_completed(completed); // pings are answered only here
         }
-        // Every placement that settles after a change, on the writer's thread.
-        if (displayed.ready() && placement_settle.due(placement_to_save(), monotonic_seconds())) {
+        // Every placement that settles after a change, on the writer's thread,
+        // and later again when a save failed (R303). Not while a move, resize
+        // or bend holds the keyboard, even one held still (R304).
+        if (placement_writer.take_failure()) {
+            placement_settle.retry(monotonic_seconds());
+        }
+        if (displayed.ready() && !drag.active() &&
+            placement_settle.due(placement_to_save(), monotonic_seconds())) {
             placement_writer.save(placement_to_save());
         }
         // Follow the dashboard every visible frame, even without a laser over

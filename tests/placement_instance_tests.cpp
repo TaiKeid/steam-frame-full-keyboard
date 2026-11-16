@@ -517,6 +517,24 @@ void settle_tests() {
     require(!settle.due(bent, 60) && settle.due(bent, 62), "a bend that ended is saved");
     require(!settle.due(moved, 63) && !settle.due(bent, 63.5) && !settle.due(bent, 70),
             "a change undone before it settled saves nothing");
+    // R303: a failed save is asked for again, the same placement too, after a
+    // delay that doubles from 5 s so a failing disk isn't written every frame.
+    settle.retry(100);
+    require(!settle.due(bent, 100.5) && !settle.due(bent, 104.9), "a retry waits five seconds");
+    require(settle.due(bent, 105), "then saves the placement again, though it didn't change");
+    require(!settle.due(bent, 200), "and only once");
+    settle.retry(200);
+    require(!settle.due(bent, 209.9) && settle.due(bent, 210), "a second failure waits ten seconds");
+    for (int failure = 0; failure < 8; ++failure) {
+        settle.retry(300);
+    }
+    require(!settle.due(bent, 599.9) && settle.due(bent, 600), "the delay stops at five minutes");
+    settle.retry(700);
+    auto moved_again = bent;
+    moved_again.width = 1.1;
+    require(!settle.due(moved_again, 701) && !settle.due(moved_again, 702.9),
+            "a change after a failure waits only to settle");
+    require(settle.due(moved_again, 703), "and is saved without the retry's delay");
 }
 // The writer saves on its own thread; the newest placement wins and flush()
 // waits until it is on disk.
@@ -547,6 +565,11 @@ void writer_tests() {
     blocked.flush();
     require(!std::filesystem::exists(temp.path / "blocker" / "placement.json"),
             "a failed save leaves nothing behind and doesn't hang");
+    require(blocked.take_failure() && !blocked.take_failure(), "a failed save is reported once (R303)");
+    fk::PlacementWriter fine(temp.path / "again.json");
+    fine.save(first);
+    fine.flush();
+    require(!fine.take_failure(), "a save that worked reports no failure");
 }
 void persistence_tests() {
     TemporaryDirectory temp;

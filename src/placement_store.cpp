@@ -1,6 +1,9 @@
 #include "framekeyboard/placement_store.hpp"
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
+#include <cstdlib>
+#include <fcntl.h>
 #include <iostream>
 #include <json-c/json.h>
 #include <memory>
@@ -148,9 +151,11 @@ void save_placement(const std::filesystem::path& path, const SavedPlacement& sav
     const std::string data =
         std::string(json_object_to_json_string_ext(document.get(), JSON_C_TO_STRING_PRETTY)) + '\n';
     std::filesystem::create_directories(path.parent_path());
-    // A partial write must never replace the last usable position.
+    // A partial write must never replace the last usable position. Close-on-exec:
+    // this runs on the writer thread while the app runs, and a process started
+    // meanwhile, such as the Mozc server, must not inherit the file (R302).
     std::string temporary = (path.parent_path() / ".placement-XXXXXX").string();
-    const int fd = mkstemp(temporary.data());
+    const int fd = mkostemp(temporary.data(), O_CLOEXEC);
     if (fd < 0) {
         throw std::runtime_error("Cannot create placement temporary file");
     }
@@ -185,15 +190,33 @@ bool PlacementSettle::due(const SavedPlacement& now, double time) {
         return false;
     }
     if (now != *seen_) {
+        // A change is saved once it settles, as always; only the placement
+        // whose save failed waits for its retry.
         seen_ = now;
         seen_since_ = time;
+        retrying_ = false;
         return false;
     }
-    if (now == *saved_ || time - seen_since_ < quiet_) {
+    if (time - seen_since_ < quiet_) {
+        return false;
+    }
+    if (retrying_) {
+        // The placement on disk is unknown: save even one equal to the last asked.
+        if (time < retry_at_) {
+            return false;
+        }
+        retrying_ = false;
+    } else if (now == *saved_) {
         return false;
     }
     saved_ = now;
     return true;
+}
+
+void PlacementSettle::retry(double time) {
+    retry_delay_ = retry_delay_ > 0 ? std::min(retry_delay_ * 2, 300.0) : 5;
+    retry_at_ = time + retry_delay_;
+    retrying_ = true;
 }
 
 PlacementWriter::PlacementWriter(std::filesystem::path path)
@@ -235,6 +258,7 @@ void PlacementWriter::run() {
         try {
             save_placement(path_, placement);
         } catch (const std::exception& error) {
+            failed_ = true;
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }
         lock.lock();
