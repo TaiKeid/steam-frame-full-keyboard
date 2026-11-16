@@ -542,6 +542,11 @@ int spawn_child(void* data) {
     dup2(null, 0);
     dup2(null, 1);
     dup2(null, 2);
+    // Nothing else of ours goes to the server: a file another thread holds
+    // open without close-on-exec, such as a temporary one, nor `null` itself,
+    // as the other launchers' closefrom does (R309). The table is the child's
+    // own copy (no CLONE_FILES), so ours stays open.
+    close_range(3, ~0U, 0);
     sigprocmask(SIG_SETMASK, &spawn.mask, nullptr);
     execve(spawn.argv[0], spawn.argv, spawn.envp);
     _exit(127);
