@@ -45,7 +45,7 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 - [x] Optional Start with SteamOS, dependent on replacement, with hidden background startup.
 - [x] Isolated request, timeout, target-switch, Unicode and cleanup regressions.
 - [x] In-headset automatic Steam-field, dashboard summon and zero-flash acceptance.
-- [ ] Crash, hang, backend loss and sleep/wake acceptance with usable native recovery.
+- [x] Crash, hang, backend loss and sleep/wake acceptance with usable native recovery.
 - [ ] Buffered requests and broader native target coverage.
 
 ## Further work
