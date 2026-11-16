@@ -96,6 +96,8 @@ After any update above, run these in order and stop at the first failure:
 
 ## Last check
 
+2026-11-15, for 0.19.1: the same as for 0.19.0 below. SteamOS (0.5.9, build 20261113.6134720) and Steam (client of 2026-11-13) had not changed since, so the private-behavior checks were not due.
+
 2026-11-14, for 0.19.0:
 - **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the data-control protocols (wayland-protocols 1.50 has the same file; wlroots only marked theirs deprecated), the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, the AppImage runtime 20251108 and every Chinese engine pin.
 - **ExecuTorch v1.6.0:** nothing in it reaches the swipe engine (its thread-pool change doesn't apply with one thread; its XNNPACK fix is for quantized ops, the encoder is fp32); the pin stays on v1.5.1 until the next swipe work.
