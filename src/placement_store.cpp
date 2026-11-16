@@ -190,25 +190,20 @@ bool PlacementSettle::due(const SavedPlacement& now, double time) {
         return false;
     }
     if (now != *seen_) {
-        // A change is saved once it settles, as always; only the placement
-        // whose save failed waits for its retry.
         seen_ = now;
         seen_since_ = time;
-        retrying_ = false;
         return false;
     }
     if (time - seen_since_ < quiet_) {
         return false;
     }
-    if (retrying_) {
-        // The placement on disk is unknown: save even one equal to the last asked.
-        if (time < retry_at_) {
-            return false;
-        }
-        retrying_ = false;
-    } else if (now == *saved_) {
+    // The placement last asked for is on disk unless its save failed: then it
+    // waits for the retry, also after a brief change and back. Any other
+    // placement is saved once it settles (R307).
+    if (now == *saved_ && (!retrying_ || time < retry_at_)) {
         return false;
     }
+    retrying_ = false;
     saved_ = now;
     return true;
 }
@@ -257,8 +252,9 @@ void PlacementWriter::run() {
         lock.unlock();
         try {
             save_placement(path_, placement);
+            result_ = Result::Worked;
         } catch (const std::exception& error) {
-            failed_ = true;
+            result_ = Result::Failed;
             std::cerr << "Could not save keyboard placement: " << error.what() << '\n';
         }
         lock.lock();

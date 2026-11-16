@@ -5168,8 +5168,15 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // Every placement that settles after a change, on the writer's thread,
         // and later again when a save failed (R303). Not while a move, resize
         // or bend holds the keyboard, even one held still (R304).
-        if (placement_writer.take_failure()) {
+        switch (placement_writer.take_result()) {
+        case PlacementWriter::Result::Failed:
             placement_settle.retry(monotonic_seconds());
+            break;
+        case PlacementWriter::Result::Worked:
+            placement_settle.worked();
+            break;
+        case PlacementWriter::Result::None:
+            break;
         }
         if (displayed.ready() && !drag.active() &&
             placement_settle.due(placement_to_save(), monotonic_seconds())) {

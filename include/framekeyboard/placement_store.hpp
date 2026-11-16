@@ -35,11 +35,13 @@ class PlacementSettle {
     // Called every frame with the placement as it would be saved; true when
     // it should be saved now.
     bool due(const SavedPlacement& now, double time);
-    // The last save failed: ask again for the placement then shown once a
-    // delay has passed that doubles from 5 s up to five minutes, so a failing
-    // disk isn't written to every frame (R303). A change in the meantime is
-    // saved once it settles, as any change is.
+    // The last save failed: ask again for that placement once a delay has
+    // passed that doubles from 5 s up to five minutes, so a failing disk isn't
+    // written to every frame (R303). Only that placement waits; any other is
+    // saved once it settles, as always (R307).
     void retry(double time);
+    // A save worked: the next failure's retry waits 5 s again (R308).
+    void worked() { retry_delay_ = 0; }
 
   private:
     double quiet_;
@@ -64,8 +66,10 @@ class PlacementWriter {
     // Returns once every placement given so far is on disk (or failed), for
     // exit and update handoff.
     void flush();
-    // Whether a write failed since the last call, for PlacementSettle::retry.
-    bool take_failure() { return failed_.exchange(false); }
+    // How the latest write since the last call went, for PlacementSettle's
+    // retry() and worked(); None when nothing was written.
+    enum class Result { None, Worked, Failed };
+    Result take_result() { return result_.exchange(Result::None); }
 
   private:
     void run();
@@ -74,7 +78,7 @@ class PlacementWriter {
     std::condition_variable changed_;
     std::optional<SavedPlacement> pending_;
     bool writing_{}, stopping_{};
-    std::atomic<bool> failed_{}; // Set by the worker, taken by the VR loop.
-    std::thread worker_;         // Last, so it starts after every member it uses.
+    std::atomic<Result> result_{Result::None}; // Set by the worker, taken by the VR loop.
+    std::thread worker_;                       // Last, so it starts after every member it uses.
 };
 } // namespace framekeyboard

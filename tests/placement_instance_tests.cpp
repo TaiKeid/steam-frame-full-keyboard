@@ -535,6 +535,17 @@ void settle_tests() {
     require(!settle.due(moved_again, 701) && !settle.due(moved_again, 702.9),
             "a change after a failure waits only to settle");
     require(settle.due(moved_again, 703), "and is saved without the retry's delay");
+    // R308: a save that works resets the delay; R307: the failed placement
+    // still waits for its retry after a brief change and back.
+    settle.worked();
+    settle.retry(800);
+    auto flicker = moved_again;
+    flicker.dashboard_bar = pose; // As when the bar's pose comes and goes.
+    require(!settle.due(flicker, 801) && !settle.due(moved_again, 801.5),
+            "a brief change and back to the failed placement");
+    require(!settle.due(moved_again, 804.9), "the failed placement waits for its retry");
+    require(settle.due(moved_again, 805),
+            "five seconds again after a save that worked, then it is saved");
 }
 // The writer saves on its own thread; the newest placement wins and flush()
 // waits until it is on disk.
@@ -565,11 +576,14 @@ void writer_tests() {
     blocked.flush();
     require(!std::filesystem::exists(temp.path / "blocker" / "placement.json"),
             "a failed save leaves nothing behind and doesn't hang");
-    require(blocked.take_failure() && !blocked.take_failure(), "a failed save is reported once (R303)");
+    require(blocked.take_result() == fk::PlacementWriter::Result::Failed &&
+                blocked.take_result() == fk::PlacementWriter::Result::None,
+            "a failed save is reported once (R303)");
     fk::PlacementWriter fine(temp.path / "again.json");
     fine.save(first);
     fine.flush();
-    require(!fine.take_failure(), "a save that worked reports no failure");
+    require(fine.take_result() == fk::PlacementWriter::Result::Worked,
+            "a save that worked is reported too (R308)");
 }
 void persistence_tests() {
     TemporaryDirectory temp;
