@@ -213,8 +213,8 @@ class App {
         dirty |= text != debug_status_;
         debug_status_ = std::move(text);
     }
-    // Experimental, not saved: the panel stays open while the dashboard is
-    // closed, and VR reads the controllers itself so the focused app keeps its input.
+    // Stay open over apps: the panel stays open while the dashboard is closed,
+    // and VR reads the controllers itself so the focused app keeps its input.
     // Either the user's toggle or dictation's own, which keeps the panel open
     // while it listens with the dashboard closed.
     bool passthrough() const { return passthrough_ || dictation_passthrough_; }

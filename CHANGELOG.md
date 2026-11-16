@@ -4,6 +4,7 @@
 
 - Shift, Ctrl, Alt, AltGr and the left Frame icon now lock after half a second held instead of a second: the ring shows from 0.15 s, is fully in by 0.25 s and closes at 0.6 s. A double tap still locks within 0.3 s.
 - Typing and swipe suggestions now look like keys, with the keys' shading and edge, as Japanese, Chinese and Korean candidates already did, instead of flat buttons.
+- Swipe typing and Stay open over apps are no longer marked experimental.
 
 ## 0.19.0: Curved keyboard, modifier lock and a theme picker
 

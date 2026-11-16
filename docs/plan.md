@@ -13,7 +13,7 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 - Dashboard position/rotation following and dashboard-only visibility/input by default.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
 - Per-controller haptics, cancellation paths, host tests, and ARM64 release packaging.
-- Experimental swipe typing, powered by FUTO Swipe (0.9.0), with Polish, Dutch and Swedish added in 0.11.0. See [swipe typing](swipe-typing.md).
+- Swipe typing, powered by FUTO Swipe (0.9.0), with Polish, Dutch and Swedish added in 0.11.0. See [swipe typing](swipe-typing.md).
 - Japanese 12-key flick input and typing over pinned windows in passthrough (0.9.0).
 - Emoji picker with recent emoji, categories and skin tones, and resizing from the corners (0.10.0). See [emoji picker](emoji.md).
 - Dictation on device or with a self-hosted Whisper server, in an editor or typed straight into the focused app (0.11.0). See [dictation](dictation.md).
