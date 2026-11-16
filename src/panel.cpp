@@ -3556,8 +3556,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             ring_time_ = ring;
         }
         // A modifier held toward a lock shows its ring, stepping at 30 fps as
-        // the mic's does. It stays hidden until its fade starts, so a tap
-        // never flashes it, and goes on after the lock until it has gone round.
+        // the mic's does. It stays hidden until its fade starts, so a quick tap
+        // doesn't flash it, and goes on after the lock until it has gone round.
         double lock = -1;
         if (const auto start = view.keyboard->lock_ring(key.id); start && !view.settings) {
             const double elapsed = stepped - *start;

@@ -151,10 +151,10 @@ class LanguageMap {
 };
 
 // Hold-to-lock, in seconds from a sticky modifier's press: its ring stays
-// hidden until `fade_start`, so an ordinary tap never flashes it, and fades
-// in until `fade_end`; the key locks at `lock` and the ring closes at
-// `ring_end`. The lock comes a little before the ring closes, so a hand that
-// lets go as the ring closes still locks.
+// hidden until `fade_start`, so a quick tap doesn't flash it (a slow one held
+// past it shows part of the ring), and fades in until `fade_end`; the key
+// locks at `lock` and the ring closes at `ring_end`. The lock comes a little
+// before the ring closes, so a hand that lets go as the ring closes still locks.
 struct LockTiming {
     double fade_start{}, fade_end{}, lock{}, ring_end{};
 };
