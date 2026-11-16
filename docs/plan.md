@@ -8,7 +8,7 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 - Full-size US, international, and Japanese layouts with editable JSON profiles.
 - European/Cyrillic XKB profiles, Brazilian ABNT2 geometry, integrated Japanese, Simplified/Traditional Pinyin and Korean two-set composition, plus external JIS mode.
 - In-VR settings, theme selection, favorites, reload, and persistent configuration.
-- Stable-release checks, from Settings and every few hours, and verified, staged update/restart with rollback. See [updates](updates.md); future-release headset acceptance remains pending.
+- Stable-release checks, from Settings and every few hours, and verified, staged update/restart with rollback, checked in the headset on recent releases. See [updates](updates.md).
 - Laser-trigger movement from a line below the keyboard, optional grip movement, same-hand stick depth in either controller mode, laser corner resizers, and optional release-only horizon alignment, enabled by default.
 - Dashboard position/rotation following and dashboard-only visibility/input by default.
 - Saved placement, single-instance launches, and relaunch-to-recenter.
