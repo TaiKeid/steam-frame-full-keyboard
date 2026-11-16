@@ -486,10 +486,10 @@ void suggestion_caps() {
             // Left of the centered word, near the cap's top and near its bottom.
             const auto shade = [&](double y) {
                 const auto pixels = compare.incremental.rgba();
-                const auto offset = static_cast<std::size_t>(
-                                        (static_cast<int>(y) + popup_margin) * panel_width +
-                                        static_cast<int>(typed.bounds.x) + 12) *
-                                    4;
+                const auto offset =
+                    static_cast<std::size_t>((static_cast<int>(y) + popup_margin) * panel_width +
+                                             static_cast<int>(typed.bounds.x) + 12) *
+                    4;
                 return pixels[offset] + pixels[offset + 1] + pixels[offset + 2];
             };
             if (shade(typed.bounds.y + 8) == shade(typed.bounds.y + typed.bounds.height - 8)) {
@@ -849,7 +849,7 @@ void exercise(Layout layout, Theme theme, Language language, double opacity = 1)
     }
     // A held modifier's lock ring, in every theme: hidden for 0.15 s, then going
     // round until 0.6 s, with the lock at 0.5 s; then the locked key's border,
-    // and a tap that unlocks it. Steps of 0.05 s cover the ring's 30 fps steps.
+    // and a tap that unlocks it. Steps of 1/30 s follow the ring's 30 fps steps.
     if (language.id == "en-us" && !transparent && has_key(layout, "AltLeft")) {
         const auto alt = find_key(layout, "AltLeft");
         keyboard.down(0, alt, compare.now);
