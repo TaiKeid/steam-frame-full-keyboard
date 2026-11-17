@@ -326,6 +326,11 @@ int main(int argc, char** argv) {
             }
             fk::SettingsWriter::Write preferences;
             fk::SettingsWriter::Write reconcile_preferences;
+            if (options.mode == fk::Mode::Vr) {
+                // The shortcut bar's app names, from Steam's and the
+                // Desktop's files (app_names.hpp); read off the VR thread.
+                options.app_names = fk::system_app_names();
+            }
             // A hosted keyboard never touches the SteamOS boot unit; the saved
             // standalone flags stay as they are for the next standalone launch.
             if (options.mode == fk::Mode::Vr && !hosted) {

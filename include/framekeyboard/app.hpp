@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_names.hpp"
 #include "cjk.hpp"
 #include "clipboard.hpp"
 #include "delivered_context.hpp"
@@ -117,6 +118,11 @@ struct Options {
     std::vector<std::string> dictation_arguments;
     // Tests replace the clipboard writer; null writes the session clipboards.
     Clipboard* clipboard{};
+    // Where the shortcut bar's app names come from (app_names.hpp): main
+    // gives the headset's folders, the simulator its own names. Left empty,
+    // as in tests and previews, no file is read and the names are those the
+    // identities give.
+    AppNameSource app_names;
 };
 
 // What a Haptic effect or Haptic volume click plays, by the pending choices.

@@ -1,10 +1,13 @@
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/app_names.hpp"
 #include "framekeyboard/shortcut_editor.hpp"
 #include "framekeyboard/shortcuts.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <functional>
+#include <glib.h>
 #include <iostream>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -786,6 +789,97 @@ void model_changes() {
     choice.model_changed(model);
     require(choice.empty_bar(), "the empty bar stays");
 }
+// App names, from a temporary folder only: never the computer's own files.
+void app_names() {
+    TemporaryDirectory folder;
+    const auto steam = folder.path / "Steam", second = folder.path / "card";
+    fs::create_directories(steam / "steamapps");
+    fs::create_directories(second / "steamapps");
+    write(steam / "steamapps" / "libraryfolders.vdf",
+          "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + steam.string() +
+              "\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"4000010\"\t\t\"1\"\n\t\t}\n\t}\n"
+              "\t\"1\"\n\t{\n\t\t\"path\"\t\t\"" +
+              second.string() + "\"\n\t}\n}\n");
+    write(second / "steamapps" / "appmanifest_4000020.acf",
+          "\"AppState\"\n{\n\t\"appid\"\t\t\"4000020\"\n\t\"name\"\t\t\"Second \\\"Library\\\" Game\"\n"
+          "\t\"UserConfig\"\n\t{\n\t\t\"name\"\t\t\"wrong\"\n\t}\n}\n");
+    // A manifest whose name lies past the cutoff, and one with bad UTF-8.
+    write(steam / "steamapps" / "appmanifest_4000030.acf", "\"AppState\"\n{\n\t\"padding\"\t\t\"" +
+                                                               std::string(app_name_file_bytes, 'x') +
+                                                               "\"\n\t\"name\"\t\t\"Too Far\"\n}\n");
+    write(steam / "steamapps" / "appmanifest_4000040.acf",
+          "\"AppState\"\n{\n\t\"name\"\t\t\"Bad \xff Name\"\n}\n");
+    write(steam / "steamapps" / "appmanifest_4000050.acf",
+          "\"AppState\"\n{\n\t\"name\"\t\t\"  Long\x01 " + std::string(200, 'n') + "\"\n}\n");
+    const auto applications = folder.path / "applications", system = folder.path / "system";
+    fs::create_directories(applications);
+    fs::create_directories(system);
+    write(system / "org.example.Notes.desktop",
+          "[Desktop Action new]\nName=Wrong\n[Desktop Entry]\nType=Application\nName[de]=Notizen\n"
+          "Name=Example\\sNotes\nExec=notes\n");
+    write(applications / "org.example.Empty.desktop", "[Desktop Entry]\nType=Application\n");
+    AppNameFolders folders{{steam}, {applications, system}};
+    const auto steam_app = [](std::string id) {
+        return AppIdentity{AppIdentity::Kind::Steam, std::move(id)};
+    };
+    const auto desktop = [](std::string id) {
+        return AppIdentity{AppIdentity::Kind::Desktop, std::move(id)};
+    };
+    require(look_up_app_name(steam_app("4000020"), folders) == "Second \"Library\" Game",
+            "a manifest found in the second library libraryfolders.vdf lists, by AppState's own name");
+    require(look_up_app_name(steam_app("4000010"), folders).empty(), "a manifest that is missing: none");
+    require(look_up_app_name(steam_app("4000030"), folders).empty(), "a name past the cutoff: none");
+    require(look_up_app_name(steam_app("4000040"), folders).empty(), "a name that isn't UTF-8: none");
+    const auto long_name = look_up_app_name(steam_app("4000050"), folders);
+    require(long_name.starts_with("Long n") &&
+                g_utf8_strlen(long_name.c_str(), -1) ==
+                    static_cast<glong>(shortcut_limits::app_name_characters),
+            "a name without its control characters and spaces, cut to 128 characters");
+    require(look_up_app_name(desktop("org.example.Notes"), folders) == "Example Notes",
+            "Name= of the desktop file's own group, from the second folder");
+    require(look_up_app_name(desktop("org.example.Empty"), folders).empty() &&
+                look_up_app_name(desktop("org.example.Missing"), folders).empty(),
+            "a desktop file without Name=, or missing: none");
+    require(look_up_app_name(desktop("../system/org.example.Notes"), folders).empty(),
+            "a Desktop app ID is a file name, never a path");
+    require(look_up_app_name(program("notes"), folders).empty(), "a program's name is its file name");
+    require(
+        fallback_app_name(program("moonlight")) == "moonlight" &&
+            fallback_app_name(desktop("org.example.Notes")) == "Notes" &&
+            fallback_app_name(desktop("notes")) == "notes" &&
+            fallback_app_name(steam_app("4000010"), "game.x86_64") == "game.x86_64" &&
+            fallback_app_name(steam_app("4000010")) == "App 4000010",
+        "until a name is found: the file name, the ID's last part, the program, else App and the ID");
+    const auto standard = system_app_name_folders("/home/someone");
+    require(standard.steam.front() == "/home/someone/.local/share/Steam" &&
+                std::find(standard.applications.begin(), standard.applications.end(),
+                          "/var/lib/flatpak/exports/share/applications") !=
+                    standard.applications.end() &&
+                std::find(standard.applications.begin(), standard.applications.end(),
+                          "/home/someone/.local/share/flatpak/exports/share/applications") !=
+                    standard.applications.end(),
+            "the standard folders, Flatpak's exports included");
+    // The lookup's own thread: a result taken later, never a repeat.
+    std::atomic<int> calls{};
+    AppNameLookup lookup([&](const AppIdentity& app) {
+        ++calls;
+        return look_up_app_name(app, folders);
+    });
+    lookup.request(desktop("org.example.Notes"));
+    std::optional<AppNameLookup::Result> result;
+    for (int i = 0; i < 500 && !result; ++i) {
+        result = lookup.take();
+        if (!result) {
+            usleep(2000);
+        }
+    }
+    require(result && result->app == desktop("org.example.Notes") && result->name == "Example Notes",
+            "a lookup's result is taken later");
+    AppNameLookup none{AppNameSource{}};
+    none.request(program("notes"));
+    const auto answered = none.take();
+    require(answered && answered->name.empty(), "without a source, an answer at once, with no name");
+}
 } // namespace
 
 int main() {
@@ -802,6 +896,7 @@ int main() {
         toolbar_button();
         picker();
         model_changes();
+        app_names();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
