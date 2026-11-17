@@ -364,13 +364,13 @@ void App::bar_action(const std::string& target) {
     }
     dirty = true;
 }
-bool App::bar_scroll(unsigned pointer, double dx, double dy) {
+std::optional<bool> App::bar_scroll(unsigned pointer, double dx, double dy) {
     if (!bar_shown() || !interaction_active_ || dragging_) {
-        return false;
+        return {};
     }
     const auto position = pointer_positions_.find(pointer);
     if (position == pointer_positions_.end()) {
-        return false;
+        return {};
     }
     const auto [x, y] = position->second;
     const auto* bar = shown_bar();
@@ -378,6 +378,14 @@ bool App::bar_scroll(unsigned pointer, double dx, double dy) {
     // A step moves a button, or a row, at a time: whole steps from the
     // dashboard, and the passthrough pointer's stick in fractions that add up.
     const double delta = std::isfinite(dx) && std::abs(dx) > std::abs(dy) ? dx : dy;
+    const bool on_menu =
+        bar_menu_ && shortcut_menu_geometry(g, shortcuts_.bars.size()).bounds.contains(x, y);
+    // The menu and the plates take every scroll over them, at an end too:
+    // the candidates, the dictation editor or the emoji grid under the menu
+    // never move (R325).
+    if (!on_menu && !g.plate.contains(x, y) && !g.picker.contains(x, y)) {
+        return {};
+    }
     if (!std::isfinite(delta)) {
         return false;
     }
@@ -399,11 +407,9 @@ bool App::bar_scroll(unsigned pointer, double dx, double dy) {
         dirty |= scroll.target != old;
         return scroll.target != old;
     };
-    if (bar_menu_) {
+    if (on_menu) {
         const auto m = shortcut_menu_geometry(g, shortcuts_.bars.size());
-        if (m.bounds.contains(x, y)) {
-            return step(menu_scroll_, m.row_height, m.scroll_limit);
-        }
+        return step(menu_scroll_, m.row_height, m.scroll_limit);
     }
     if (bar && g.plate.contains(x, y)) {
         return step(bar_scroll_[bar->id], g.pitch, g.scroll_limit);

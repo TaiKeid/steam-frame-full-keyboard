@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
+#include "framekeyboard/config.hpp"
 #include "framekeyboard/grip.hpp"
 
 #include <algorithm>
@@ -1535,6 +1536,61 @@ void unavailable_tests() {
 }
 } // namespace
 
+// R325: the shortcut bar's open menu takes the scrolling over it, at its
+// end too; the emoji grid under it never moves.
+void shortcut_menu_over_grid() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.bars = {{"a", "A", {}}, {"b", "B", {}}};
+    model.free_bar = "a";
+    std::ofstream(shortcuts_path(directory.path)) << serialize_shortcuts(model);
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    const auto [px, py] = key_center(app, "picker");
+    app.down(0, px, py, 1);
+    app.up(0, px, py);
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        std::cout << "No color emoji font here; skipping the menu over the grid.\n";
+        return;
+    }
+    auto tap = [&](const Rect& r) {
+        const auto [x, y] = center(r);
+        app.move(1, x, y);
+        app.down(1, x, y, monotonic_seconds());
+        app.up(1, x, y);
+    };
+    tap(app.view().shortcut_bar->picker_button);
+    const auto menu = app.view().shortcut_bar->menu->bounds;
+    const auto grid = app.view().emoji->grid;
+    require(overlaps(menu, grid), "the menu lies over the grid");
+    const double x = std::max(menu.x, grid.x) + 10, y = std::max(menu.y, grid.y) + 10;
+    auto first = [&] {
+        wait_for_emoji(app);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(monotonic_seconds() + i * .05);
+        }
+        return app.view().emoji->cells.front().bounds.x;
+    };
+    const double before = first();
+    app.move(0, x, y);
+    app.scroll(0, 3, 0);
+    require(first() == before && app.view().shortcut_bar->menu,
+            "scrolling past the menu's end leaves the grid in place");
+    tap(app.view().shortcut_bar->picker_button);
+    require(!app.view().shortcut_bar->menu, "the picker closes the menu");
+    app.move(0, x, y);
+    app.scroll(0, 3, 0);
+    require(first() != before, "with the menu closed the same scroll moves the grid");
+}
 int main() {
     try {
         table_tests();
@@ -1554,6 +1610,7 @@ int main() {
         closed_picker_cache_tests();
         shutdown_tests();
         unavailable_tests();
+        shortcut_menu_over_grid();
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

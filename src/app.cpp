@@ -1686,8 +1686,10 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     if (settings_open_ && themes_) {
         return themes_scroll(pointer, dy);
     }
-    if (!settings_open_ && bar_scroll(pointer, dx, dy)) {
-        return true;
+    if (!settings_open_) {
+        if (const auto moved = bar_scroll(pointer, dx, dy)) {
+            return *moved; // Over the bar or its menu, moved or not.
+        }
     }
     if (candidates_.shown() && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer)) {

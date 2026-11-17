@@ -1840,7 +1840,9 @@ class App {
     bool bar_move(unsigned pointer, double x);
     bool bar_up(unsigned pointer);
     void bar_action(const std::string& target);
-    bool bar_scroll(unsigned pointer, double dx, double dy);
+    // Whether the bar or its open menu moved; none when the pointer isn't
+    // over them, so what lies under it may scroll.
+    std::optional<bool> bar_scroll(unsigned pointer, double dx, double dy);
     std::optional<ScrollRoom> bar_scroll_room(double x, double y) const;
     void tick_shortcut_bar(double now);
     void press_shortcut_button(std::size_t index, double now);
