@@ -170,7 +170,9 @@ Settings has one row for the feature, in the General card after Hide numpad. Und
 - Turning it on while there are no bars shows the empty bar once, so its picker, and through it the editor, can be reached.
 - When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (bar 2, button 5), never quoting the user's text.
 
-The editor is a screen of its own, opened from the picker's **Edit shortcuts**. It covers the keyboard as Settings does (prefix `shortcuts-`), with ← and ✓ at its top left.
+The editor is a screen of its own, opened from the picker's **Edit shortcuts** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad.
+
+Its layout fits both widths. With the numpad hidden the bars column is 236 wide instead of 286, the label field 250 instead of 300, the strip shows 12 buttons instead of 15, the steps list is narrower, and the strip's hint is left out.
 
 | Area | Content |
 | --- | --- |
