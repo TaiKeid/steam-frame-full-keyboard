@@ -4685,6 +4685,44 @@ void first_bar_shows() {
                 saved.bars.size() == 1 && saved.free_bar == saved.bars[0].id,
             "✓ shows the bar selected in the editor, saved as the free bar");
 }
+// R335: while one laser's press on a strip button is pending, before it
+// lifts, another laser's press does nothing in the editor, so the drag
+// still acts on its own bar's button: dropped outside, that one goes.
+void pending_drag_two_lasers() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    const auto button = middle(control(app.view(), "shortcuts-button-0").bounds);
+    app.move(0, button.x, button.y);
+    app.down(0, button.x, button.y, 1100);
+    // Another laser taps the other bar's row meanwhile.
+    const auto row = middle(control(app.view(), "shortcuts-row-1").bounds);
+    app.move(1, row.x, row.y);
+    app.down(1, row.x, row.y, 1100.1);
+    app.up(1, row.x, row.y);
+    require(control(app.view(), "shortcuts-row-0").selected,
+            "the other laser's press waits for the drag");
+    // The first laser drags its button off the strip.
+    for (int step = 1; step <= 6; ++step) {
+        app.move(0, button.x + 10 * step, button.y + 40 * step);
+    }
+    app.up(0, button.x + 60, button.y + 240);
+    const auto& bars = app.view();
+    require(strip_labels(bars) == std::vector<std::string>{"B", "C"} &&
+                control(bars, "shortcuts-row-0").selected,
+            "the drag deletes its own bar's button, no other");
+    tap_control(app, "shortcuts-row-1");
+    require(strip_labels(app.view()).empty(), "the other bar keeps what it had");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -5086,6 +5124,7 @@ int main() {
         shortcut_macro_view();
         macro_buttons();
         first_bar_shows();
+        pending_drag_two_lasers();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

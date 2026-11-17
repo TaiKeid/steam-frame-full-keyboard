@@ -1860,9 +1860,11 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     active_at_ = mozc_clock_;
     move(pointer, x, y);
-    // While one hand carries a row or a button, the editor waits for it.
-    if (editor_screen() && shortcut_drag_ && shortcut_drag_->pointer != pointer &&
-        shortcut_drag_->lifted) {
+    // While one hand presses a row, a button, a step or recorded chips, as
+    // soon as the press, before it lifts, the editor waits for it: another
+    // hand's press could change the selection the drag acts on (R335).
+    if (editor_screen() && ((shortcut_drag_ && shortcut_drag_->pointer != pointer) ||
+                            (chips_drag_ && chips_drag_->pointer != pointer))) {
         return false;
     }
     const auto v = input_view();
