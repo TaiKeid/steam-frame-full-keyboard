@@ -180,7 +180,7 @@ Its layout fits both widths. With the numpad hidden the bars column is 236 wide 
 | Left column | The bars: press to select, drag to reorder. The selected row has rename and delete. **New bar** under the list. Below it, **Used for**: the selected bar's apps as chips, each with ✕ to remove the tie |
 | Strip | The selected bar's buttons as they look on the bar, then **+**. Press selects; a sideways drag lifts a button to reorder it; dropped outside the strip it is deleted. It scrolls as the bar does |
 | Label and Action | The selected button's label field, and Shortcut, Macro or Run |
-| Shortcut | The recorded combinations as chips, **Record**, and clear |
+| Shortcut | The recorded combinations as chips in a strip of fixed width, then **Record** and clear, which stay in place whatever is recorded. A strip too short for its chips scrolls sideways, as the bar does, and fades at a clipped side |
 | Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete, press to edit. **+ Keys**, which opens the recorder, and **+ Wait**. Repeat: Once, Times with a count, While held |
 | Run | Script or Command; a list of the script files, or the command field |
 
@@ -195,7 +195,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 | Row | Content |
 | --- | --- |
 | 1 | What is edited (Label, Bar name, Recording), then **F13–F24** and **Remove last** while recording, **Cancel** and **Done** |
-| 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. It scrolls sideways when long |
+| 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. When they don't fit it scrolls sideways, with the stick or a drag, and follows the newest chip while recording |
 | Keys | The mini keyboard |
 
 **The mini keyboard** is a fixed US keyboard, whatever layout and typing language are active, flick layouts included, and with the numpad whether or not Hide numpad is on.
@@ -211,6 +211,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 | Label, bar name, later a command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
 | Recording | Records the key with the modifiers latched then, as one combination. A press on the pending modifiers' chip, or Done, records them alone | Done; Cancel keeps what was there |
 
+- A chip is as wide as its text plus 12 px on each side. The line that says what a button sends ends in an ellipsis when it is too long.
 - Recording starts from nothing: Done replaces the button's combinations. A shortcut stops at four combinations, a macro's Keys step at 32.
 - Recorded keys are key strokes, stored by the key's name. Nothing is recorded as a character.
 - Labels in other languages are typed by renaming a button in place on the bar, which uses the real keyboard.
