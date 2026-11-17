@@ -4350,6 +4350,85 @@ void shortcut_popup_flick() {
     require(sink.events.empty() && sink.texts.empty(),
             "nothing reaches the app while the popup is open");
 }
+// R331: four combinations of four keys each at the no-numpad width. Record
+// and clear stay where a one-key shortcut has them, inside the case; the
+// chips scroll in their strip, and the popup's row shows the newest chip.
+void long_combinations() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = true;
+    save_settings(directory.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutModel model;
+    model.bars.push_back(
+        {"b",
+         "Bar",
+         {shortcut_button("One", {{{}, "KeyA"}}),
+          shortcut_button("Long", {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}})}});
+    model.free_bar = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    auto view = app.view();
+    const auto body = panel_case_bounds(view);
+    const auto record = control(view, "shortcuts-record").bounds,
+               clear = control(view, "shortcuts-clear").bounds;
+    tap_control(app, "shortcuts-button-1");
+    view = app.view();
+    require(control(view, "shortcuts-record").bounds == record &&
+                control(view, "shortcuts-clear").bounds == clear &&
+                clear.x + clear.width <= body.x + body.width,
+            "Record and clear stay in place, inside the case, whatever is recorded");
+    const auto& e = *view.shortcut_editor;
+    require(e.chords.size() == 4 && e.chords_after && !e.chords_before &&
+                e.chords.back().bounds.x + e.chords.back().bounds.width >
+                    e.chords_strip.x + e.chords_strip.width &&
+                e.chords_strip.x + e.chords_strip.width <= record.x,
+            "the chips overflow their strip, which ends before Record, and fade at its end");
+    require(std::abs(e.chords[0].bounds.width -
+                     (interface_text_width(e.chords[0].text, 20, view.interface_font) + 24)) < .5,
+            "a chip is its text and 12 px on each side");
+    // The stick over the strip scrolls it to its last chip.
+    const auto strip = e.chords_strip;
+    app.move(0, strip.x + strip.width / 2, strip.y + strip.height / 2);
+    require(app.scroll_room(0) == ScrollRoom{false, true}, "the strip can scroll forward");
+    for (int i = 0; i < 20; ++i) {
+        app.scroll(0, 1, 0);
+    }
+    for (double now = 980; now < 982; now += .05) {
+        app.tick(now);
+    }
+    view = app.view();
+    const auto last = view.shortcut_editor->chords.back().bounds;
+    require(std::abs(last.x + last.width - (strip.x + strip.width)) < .5 &&
+                view.shortcut_editor->chords_before && !view.shortcut_editor->chords_after,
+            "the strip scrolls to its last chip");
+    // A drag takes it back.
+    app.move(0, strip.x + 100, strip.y + 20);
+    app.down(0, strip.x + 100, strip.y + 20, 983);
+    app.move(0, strip.x + 900, strip.y + 20);
+    app.up(0, strip.x + 900, strip.y + 20);
+    require(!app.view().shortcut_editor->chords_before, "a drag scrolls it back to its start");
+    // Recording the same: the popup's row follows the newest chip.
+    tap_control(app, "shortcuts-record");
+    for (const char* key : {"KeyZ", "KeyX", "KeyC", "KeyV"}) {
+        tap_mini(app, "ControlLeft");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "AltLeft");
+        tap_mini(app, key);
+    }
+    view = app.view();
+    const auto& p = *view.shortcut_editor->popup;
+    const auto newest = p.chords.back().bounds;
+    require(p.chords.size() == 4 && p.chords.back().text == "Ctrl + Shift + Alt + V" &&
+                newest.x >= p.well.x && newest.x + newest.width <= p.well.x + p.well.width,
+            "the popup's row shows the newest chip");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -4729,6 +4808,7 @@ int main() {
         shortcut_invalid_note();
         shortcut_editor_settings();
         shortcut_popup_flick();
+        long_combinations();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

@@ -1918,11 +1918,67 @@ void shortcut_popup(bool narrow) {
     tap_control("shortcuts-popup-cancel");
     compare.frame(app.view(), phase("canceled").c_str());
 }
+// R331: four combinations of four keys each at the no-numpad width draw
+// nothing outside the case, in the editor or in its popup.
+void long_combinations_drawn() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = true;
+    save_settings(folder.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutModel model;
+    ShortcutButton button;
+    button.label = "Long";
+    button.action.chords = {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}};
+    model.bars.push_back({"b", "Bar", {button}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        app.move(0, 800, 590);
+    };
+    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->menu->edit);
+    const auto outside = [&](const char* what) {
+        PanelRenderer renderer;
+        const auto view = app.view();
+        renderer.paint(view, 1, true);
+        const auto body = panel_case_bounds(view);
+        for (int y = 0; y < static_cast<int>(body.height); ++y) {
+            for (const int x :
+                 {static_cast<int>(body.x) - 3, static_cast<int>(body.x + body.width) + 2}) {
+                if (alpha_at(renderer, x, y) != 0) {
+                    throw std::runtime_error(std::string(what) + ": drawn outside the case at " +
+                                             std::to_string(x) + "," + std::to_string(y));
+                }
+            }
+        }
+    };
+    outside("the editor with long combinations");
+    tap(control_named(app.view(), "shortcuts-record").bounds);
+    for (const char* key : {"KeyZ", "KeyX", "KeyC", "KeyV"}) {
+        for (const char* modifier : {"ControlLeft", "ShiftLeft", "AltLeft"}) {
+            tap(control_named(app.view(), std::string("shortcuts-popup-key-") + modifier).bounds);
+        }
+        tap(control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds);
+    }
+    outside("the popup recording long combinations");
+}
 int main() {
     try {
         app_controls_drawn();
         shortcut_popup(false);
         shortcut_popup(true);
+        long_combinations_drawn();
         shortcut_editor("graphite", true);
         shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);

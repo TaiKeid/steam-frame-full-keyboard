@@ -27,11 +27,13 @@ constexpr double dead_zone = 12;
 constexpr double row_height = 52;
 // The full and the no-numpad editor (design: 286 or 236, 300 or 250).
 constexpr double narrow_width = 1326;
-// A chip's width for its text, at the size it is drawn; text that doesn't
-// quite fit shrinks (interface_label).
-double chip_width(const std::string& text, double size) {
-    return 28 + size * .56 * static_cast<double>(g_utf8_strlen(text.c_str(), -1));
+// A chip: its text, measured at the size it is drawn, and 12 px on each
+// side (R331).
+double chip_width(const std::string& text, double size, const std::string& family) {
+    return interface_text_width(text, size, family) + 24;
 }
+// The gap between chips, where a chevron goes, and one stick step's scroll.
+constexpr double chip_gap = 28, chip_step = 80;
 // Where the editor's parts go on a case of `body`.
 struct EditorLayout {
     bool wide{};
@@ -40,6 +42,9 @@ struct EditorLayout {
     double list_top{}, divider{}, right{}, left{};
     std::size_t visible_rows{};
     Rect strip_well, strip, label, explanation;
+    // The Keys row: the chips' strip of fixed width, then Record and clear,
+    // which stay in place whatever is recorded (R331).
+    Rect chips, record, clear;
     double keys_y{}, segments_x{};
     double button_width{}, button_height{}, button_top{}, pitch{}, gap{};
 };
@@ -71,6 +76,9 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     l.label = {l.left + 100, 196, l.wide ? 300.0 : 250.0, 56};
     l.segments_x = l.label.x + l.label.width + 40 + 120;
     l.keys_y = 280;
+    l.clear = {l.right - 60, l.keys_y, 60, 52};
+    l.record = {l.clear.x - 12 - 160, l.keys_y, 160, 52};
+    l.chips = {l.left + 100, l.keys_y, l.record.x - 16 - (l.left + 100), 52};
     l.explanation = {l.left, 372, l.right - l.left, 60};
     return l;
 }
@@ -112,39 +120,46 @@ PopupLayout popup_layout(const Rect& body, const Rect& strip_well, const Layout&
     l.keys = {l.panel.x + margin, l.panel.y + keys_top, mini.width * l.scale, mini.height * l.scale};
     return l;
 }
-// The chips of the combinations recorded so far, and where the pending
-// modifiers' chip goes after them; scrolled so the newest shows.
+// The chips of the combinations in `strip`, `height` tall, scrolled by
+// `scroll`, and where the pending modifiers' chip goes after them.
 struct ChipRow {
     std::vector<ShortcutChip> chips;
     Rect pending;
-    double end{};
+    double end{};   // where the last chip ends, scrolled
+    double limit{}; // how far the row can scroll
 };
-ChipRow chip_row(const Rect& well, const std::vector<ShortcutChord>& chords,
-                 const std::string& pending) {
-    constexpr double gap = 28, height = 34;
+ChipRow chip_row(const Rect& strip, double height, const std::vector<ShortcutChord>& chords,
+                 const std::string& pending, double scroll, const std::string& family) {
     ChipRow row;
-    double x = well.x + 10;
+    double x = strip.x;
+    const double y = strip.y + (strip.height - height) / 2;
     for (const auto& chord : chords) {
         const auto text = chord_text(chord);
-        row.chips.push_back(
-            {text, {x, well.y + (well.height - height) / 2, chip_width(text, 20), height}});
-        x += chip_width(text, 20) + gap;
+        const double width = chip_width(text, 20, family);
+        row.chips.push_back({text, {x, y, width, height}});
+        x += width + chip_gap;
     }
     if (!pending.empty()) {
-        row.pending = {x, well.y + (well.height - height) / 2, chip_width(pending, 20), height};
-        x += row.pending.width + gap;
+        row.pending = {x, y, chip_width(pending, 20, family), height};
+        x += row.pending.width + chip_gap;
     }
-    row.end = x - gap;
-    // The newest in view: everything moves left by what overflows.
-    const double over = row.end - (well.x + well.width - 10);
-    if (over > 0) {
-        for (auto& chip : row.chips) {
-            chip.bounds.x -= over;
-        }
-        row.pending.x -= over;
-        row.end -= over;
+    const double content = std::max(0.0, x - chip_gap - strip.x);
+    row.limit = std::max(0.0, content - strip.width);
+    scroll = std::clamp(scroll, 0.0, row.limit);
+    for (auto& chip : row.chips) {
+        chip.bounds.x -= scroll;
     }
+    row.pending.x -= scroll;
+    row.end = strip.x + content - scroll;
     return row;
+}
+// The popup's row 2 inside its well: where its chips go.
+Rect popup_chips_strip(const Rect& well) {
+    return {well.x + 10, well.y, well.width - 20, well.height};
+}
+// The pending modifiers' chip, while recording has room for it.
+std::string pending_text(const std::vector<std::string>& latched, bool room) {
+    return latched.empty() || !room ? std::string() : chord_text({latched, {}}) + " + …";
 }
 } // namespace
 
@@ -245,7 +260,8 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
     // Used for: each tie's ✕.
     double x = l.used.x, y = l.used.y + 34;
     for (const auto index : shortcut_editor_->ties()) {
-        const double width = std::min(l.used.width, chip_width(model.apps[index].name, 19) + 32);
+        const double width =
+            std::min(l.used.width, chip_width(model.apps[index].name, 19, localization_.fonts()) + 32);
         if (x + width > l.used.x + l.used.width && x > l.used.x) {
             x = l.used.x;
             y += 48;
@@ -305,16 +321,8 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
             add("shortcuts-kind-" + std::to_string(i), "kind", segment, static_cast<int>(i));
         }
         if (kind == ShortcutAction::Kind::Keys) {
-            double after = l.left + 100;
-            for (const auto& chord : button->action.chords) {
-                after += chip_width(chord_text(chord), 20) + 28;
-            }
-            if (!button->action.chords.empty()) {
-                after -= 12; // the last chip's gap holds no chevron
-            }
-            add("shortcuts-record", "record",
-                {{}, tr("shortcuts.editor.record"), {after, l.keys_y, 160, 52}});
-            Control clear{{}, {}, {after + 172, l.keys_y, 60, 52}, false, Icon::Clear};
+            add("shortcuts-record", "record", {{}, tr("shortcuts.editor.record"), l.record});
+            Control clear{{}, {}, l.clear, false, Icon::Clear};
             clear.enabled = !button->action.chords.empty();
             add("shortcuts-clear", "clear", clear);
         }
@@ -368,7 +376,8 @@ void App::append_shortcut_editor(PanelView& v) const {
         double x = l.used.x, y = l.used.y + 34;
         for (const auto index : shortcut_editor_->ties()) {
             const auto& name = model.apps[index].name;
-            const double width = std::min(l.used.width, chip_width(name, 19) + 32);
+            const double width =
+                std::min(l.used.width, chip_width(name, 19, localization_.fonts()) + 32);
             if (x + width > l.used.x + l.used.width && x > l.used.x) {
                 x = l.used.x;
                 y += 48;
@@ -401,13 +410,15 @@ void App::append_shortcut_editor(PanelView& v) const {
         switch (button->action.kind) {
         case ShortcutAction::Kind::Keys: {
             e.keys_caption = tr("shortcuts.editor.keys");
-            double x = l.left + 100;
+            const auto row = chip_row(l.chips, 52, button->action.chords, {}, editor_chips_scroll_.shown,
+                                      localization_.fonts());
+            e.chords = row.chips;
+            e.chords_strip = l.chips;
+            e.chords_before = editor_chips_scroll_.shown > .5;
+            e.chords_after = editor_chips_scroll_.shown < row.limit - .5;
             std::string sent;
             for (const auto& chord : button->action.chords) {
-                const auto text = chord_text(chord);
-                e.chords.push_back({text, {x, l.keys_y, chip_width(text, 20), 52}});
-                x += chip_width(text, 20) + 28;
-                sent += (sent.empty() ? "" : tr("shortcuts.editor.then")) + text;
+                sent += (sent.empty() ? "" : tr("shortcuts.editor.then")) + chord_text(chord);
             }
             e.explanation.push_back(sent.empty() ? tr("shortcuts.editor.no-keys")
                                                  : tr("shortcuts.editor.sends", {{"keys", sent}}));
@@ -483,6 +494,7 @@ void App::editor_action(const ControlAction& command) {
     } else if (value == "row") {
         shortcut_editor_->select_bar(index);
         editor_strip_scroll_ = {};
+        editor_chips_scroll_ = {};
     } else if (value == "rename") {
         open_popup(PopupKind::Name);
     } else if (value == "delete") {
@@ -508,8 +520,10 @@ void App::editor_action(const ControlAction& command) {
         shortcut_editor_->remove_tie(index);
     } else if (value == "button") {
         shortcut_editor_->select_button(index);
+        editor_chips_scroll_ = {};
     } else if (value == "add") {
         shortcut_editor_->add_button();
+        editor_chips_scroll_ = {};
         // The new button in view, at the strip's end.
         const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                      shortcut_editor_->model().bars.size());
@@ -523,6 +537,7 @@ void App::editor_action(const ControlAction& command) {
         open_popup(PopupKind::Recording);
     } else if (value == "clear") {
         shortcut_editor_->set_chords({});
+        editor_chips_scroll_ = {};
     }
     dirty = true;
 }
@@ -603,15 +618,24 @@ bool App::editor_drag_up(unsigned pointer) {
 bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     const auto position = pointer_positions_.find(pointer);
     if (!editor_screen() || position == pointer_positions_.end() ||
-        editor_question_ != EditorQuestion::None || popup_) {
+        editor_question_ != EditorQuestion::None) {
         return false;
     }
     const auto [x, y] = position->second;
-    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+    const auto body = panel_case_bounds(geometry());
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
     const double delta = std::isfinite(dx) && std::abs(dx) > std::abs(dy) ? dx : dy;
     bool moved = false;
-    if (l.bars_list.contains(x, y)) {
+    if (popup_) {
+        // Under the popup only its own recorded combinations scroll.
+        if (popup_->kind == PopupKind::Recording &&
+            popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
+            moved = step_scroll(popup_chips_scroll_, delta, chip_step, popup_chips_limit());
+        }
+    } else if (l.chips.contains(x, y)) {
+        moved = step_scroll(editor_chips_scroll_, delta, chip_step, editor_chips_limit());
+    } else if (l.bars_list.contains(x, y)) {
         const double limit =
             std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
                               l.bars_list.height);
@@ -626,11 +650,26 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     return moved;
 }
 std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
-    if (!editor_screen() || editor_question_ != EditorQuestion::None || popup_) {
+    if (!editor_screen() || editor_question_ != EditorQuestion::None) {
         return {};
     }
-    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+    const auto body = panel_case_bounds(geometry());
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto room = [](const BarScroll& scroll, double limit) {
+        return limit > 0 ? std::optional{ScrollRoom{scroll.target > 0, scroll.target < limit}}
+                         : std::nullopt;
+    };
+    if (popup_) {
+        if (popup_->kind == PopupKind::Recording &&
+            popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
+            return room(popup_chips_scroll_, popup_chips_limit());
+        }
+        return {};
+    }
+    if (l.chips.contains(x, y)) {
+        return room(editor_chips_scroll_, editor_chips_limit());
+    }
     if (l.bars_list.contains(x, y)) {
         const double limit =
             std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
@@ -664,9 +703,11 @@ void App::tick_shortcut_editor(double now) {
     const auto count =
         shortcut_editor_->selected_bar() ? shortcut_editor_->selected_bar()->buttons.size() : 0;
     const double strip = std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
-    // Rows or buttons gone shorten the lists: their ends stay in place.
+    // Rows, buttons or chips gone shorten the lists: their ends stay in place.
     for (auto [scroll, limit] :
-         {std::pair{&editor_rows_scroll_, rows}, std::pair{&editor_strip_scroll_, strip}}) {
+         {std::pair{&editor_rows_scroll_, rows}, std::pair{&editor_strip_scroll_, strip},
+          std::pair{&editor_chips_scroll_, editor_chips_limit()},
+          std::pair{&popup_chips_scroll_, popup_chips_limit()}}) {
         scroll->target = std::min(scroll->target, limit);
         dirty |= ease_scroll(scroll->shown, scroll->target, elapsed);
     }
@@ -706,6 +747,8 @@ void App::open_popup(PopupKind kind) {
     }
     popup_ = std::move(popup);
     popup_repeat_.reset();
+    popup_chips_scroll_ = {};
+    chips_drag_.reset();
     shortcut_drag_.reset();
     hovered_.clear();
     pressed_controls_.clear();
@@ -726,10 +769,12 @@ void App::end_popup(bool save) {
             break;
         case PopupKind::Recording:
             shortcut_editor_->set_chords(popup.chords); // Done replaces
+            editor_chips_scroll_ = {};
             break;
         }
     }
     popup_repeat_.reset();
+    chips_drag_.reset();
     hovered_.clear();
     pressed_controls_.clear();
     dirty = true;
@@ -757,6 +802,9 @@ void App::popup_key(const std::string& id, unsigned pointer, double now) {
             p.latched.erase(latched);
         } else {
             p.latched.push_back(key.action);
+        }
+        if (p.kind == PopupKind::Recording) {
+            follow_popup_chips(); // the pending chip in view
         }
         return;
     }
@@ -893,6 +941,7 @@ void App::popup_record(const std::string& key) {
         return;
     }
     p.chords.push_back({modifiers, key});
+    follow_popup_chips();
     dirty = true;
 }
 void App::popup_action(const std::string& value, int index) {
@@ -916,6 +965,7 @@ void App::popup_action(const std::string& value, int index) {
             p.chords.pop_back();
         }
         p.fkeys = false;
+        follow_popup_chips();
     } else if (value == "popup-fkeys") {
         p.fkeys = !p.fkeys;
     } else if (value == "popup-fkey") {
@@ -977,11 +1027,13 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
         fkeys.enabled = room;
         const auto menu_at = fkeys.bounds;
         add("fkeys", "popup-fkeys", fkeys);
-        if (const auto row = chip_row(pl.well, p.chords,
-                                      p.latched.empty() || !room ? std::string()
-                                                                 : chord_text({p.latched, {}}) + " + …");
-            !p.latched.empty() && room) {
-            add("pending", "popup-pending", {{}, chord_text({p.latched, {}}) + " + …", row.pending});
+        if (const auto pending = pending_text(p.latched, room); !pending.empty()) {
+            const auto strip = popup_chips_strip(pl.well);
+            const auto row =
+                chip_row(strip, 34, p.chords, pending, popup_chips_scroll_.shown, localization_.fonts());
+            Control chip{{}, pending, row.pending};
+            chip.clip = strip; // scrolled out of the well, it takes no press
+            add("pending", "popup-pending", chip);
         }
         if (p.fkeys && room) {
             // Six across, two down, under their button, right-aligned with it.
@@ -1042,14 +1094,17 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     view.cursor = p.cursor;
     if (p.kind == PopupKind::Recording) {
         const bool room = p.chords.size() < shortcut_limits::chords;
-        const auto row =
-            chip_row(pl.well, p.chords,
-                     p.latched.empty() || !room ? std::string() : chord_text({p.latched, {}}) + " + …");
+        const auto strip = popup_chips_strip(pl.well);
+        const auto row = chip_row(strip, 34, p.chords, pending_text(p.latched, room),
+                                  popup_chips_scroll_.shown, localization_.fonts());
         view.chords = row.chips;
-        if (!room) {
+        view.chords_before = popup_chips_scroll_.shown > .5;
+        view.chords_after = popup_chips_scroll_.shown < row.limit - .5;
+        const double after = row.end + 20, room_left = strip.x + strip.width - after;
+        if (!room && room_left >= 160) {
+            // Where the chips leave room for it.
             view.full = tr("shortcuts.popup.full");
-            view.full_bounds = {row.end + 20, pl.well.y, pl.well.x + pl.well.width - row.end - 30,
-                                pl.well.height};
+            view.full_bounds = {after, pl.well.y, room_left, pl.well.height};
         } else if (p.chords.empty() && p.latched.empty()) {
             view.full = tr("shortcuts.popup.recording-hint");
             view.full_bounds = {pl.well.x + 16, pl.well.y, pl.well.width - 32, pl.well.height};
@@ -1085,6 +1140,69 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
         }
     }
     e.popup = std::move(view);
+}
+
+double App::editor_chips_limit() const {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    if (!button || button->action.kind != ShortcutAction::Kind::Keys) {
+        return 0;
+    }
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().bars.size());
+    return chip_row(l.chips, 52, button->action.chords, {}, 0, localization_.fonts()).limit;
+}
+double App::popup_chips_limit() const {
+    if (!popup_ || popup_->kind != PopupKind::Recording || !shortcut_editor_) {
+        return 0;
+    }
+    const auto body = panel_case_bounds(geometry());
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto pl = popup_layout(body, l.strip_well, mini_layout_);
+    const auto& p = *popup_;
+    const bool room = p.chords.size() < shortcut_limits::chords;
+    return chip_row(popup_chips_strip(pl.well), 34, p.chords, pending_text(p.latched, room), 0,
+                    localization_.fonts())
+        .limit;
+}
+void App::follow_popup_chips() {
+    popup_chips_scroll_.shown = popup_chips_scroll_.target = popup_chips_limit();
+    popup_chips_scroll_.remainder = 0;
+}
+bool App::chips_press(unsigned pointer, double x, double y) {
+    if (!editor_screen() || chips_drag_ || editor_question_ != EditorQuestion::None) {
+        return false;
+    }
+    const auto body = panel_case_bounds(geometry());
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    if (popup_) {
+        if (popup_->kind != PopupKind::Recording || popup_->fkeys ||
+            !popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
+            return false;
+        }
+        chips_drag_ = ChipsDrag{pointer, true, x, popup_chips_scroll_.shown};
+        return true;
+    }
+    if (!l.chips.contains(x, y) || editor_chips_limit() <= 0) {
+        return false;
+    }
+    chips_drag_ = ChipsDrag{pointer, false, x, editor_chips_scroll_.shown};
+    return true;
+}
+bool App::chips_drag_move(unsigned pointer, double x) {
+    if (!chips_drag_ || chips_drag_->pointer != pointer) {
+        return false;
+    }
+    auto& scroll = chips_drag_->popup ? popup_chips_scroll_ : editor_chips_scroll_;
+    const double limit = chips_drag_->popup ? popup_chips_limit() : editor_chips_limit();
+    const double to = std::clamp(chips_drag_->scroll - (x - chips_drag_->x), 0.0, limit);
+    if (to != scroll.shown || to != scroll.target) {
+        scroll.shown = scroll.target = to;
+        scroll.remainder = 0;
+        dirty = true;
+    }
+    return true;
 }
 
 void App::open_field() {

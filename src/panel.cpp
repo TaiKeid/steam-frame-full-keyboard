@@ -2440,6 +2440,9 @@ Rect candidate_list_area(const PanelView& view) {
     return {band.band.x, top, band.band.width, std::max(0.0, bottom - top)};
 }
 double candidate_text_width(const std::string& text, const std::string& family) {
+    return interface_text_width(text, candidate_font_size, family);
+}
+double interface_text_width(const std::string& text, double size, const std::string& family) {
     // Measuring needs a context but no pixels: one tiny surface per thread.
     thread_local struct Measuring {
         cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
@@ -2456,14 +2459,14 @@ double candidate_text_width(const std::string& text, const std::string& family) 
         // (a kaomoji under many readings): each is laid out once.
         std::unordered_map<std::string, double> widths;
     } measuring;
-    auto key = family + '\n' + text;
+    auto key = std::to_string(size) + '\n' + family + '\n' + text;
     if (const auto known = measuring.widths.find(key); known != measuring.widths.end()) {
         return known->second;
     }
     if (measuring.widths.size() >= 4096) {
         measuring.widths.clear();
     }
-    const double width = text_width(measuring.context, text, candidate_font_size, family);
+    const double width = text_width(measuring.context, text, size, family);
     measuring.widths.emplace(std::move(key), width);
     return width;
 }
@@ -3624,6 +3627,52 @@ void draw_chord_chips(cairo_t* cr, const PanelView& view, const std::vector<Shor
         }
     }
 }
+// Chips drawn by `draw` clipped to `strip`; a side with more beyond it fades
+// out, as the bar's buttons do (R331).
+template <class Draw>
+void faded_strip(cairo_t* cr, const Rect& strip, bool before, bool after, const Draw& draw) {
+    cairo_save(cr);
+    cairo_rectangle(cr, strip.x, strip.y, strip.width, strip.height);
+    cairo_clip(cr);
+    const bool fades = before || after;
+    if (fades) {
+        cairo_push_group(cr);
+    }
+    draw();
+    if (fades) {
+        cairo_pop_group_to_source(cr);
+        constexpr double fade = 36;
+        auto* mask = cairo_pattern_create_linear(strip.x, 0, strip.x + strip.width, 0);
+        const double edge = std::min(.45, fade / strip.width);
+        cairo_pattern_add_color_stop_rgba(mask, 0, 0, 0, 0, before ? 0 : 1);
+        cairo_pattern_add_color_stop_rgba(mask, edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1 - edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1, 0, 0, 0, after ? 0 : 1);
+        cairo_mask(cr, mask);
+        cairo_pattern_destroy(mask);
+    }
+    cairo_restore(cr);
+}
+// One line of text that ends in an ellipsis when it is too long for `r`.
+void ellipsized_label(cairo_t* cr, const std::string& text, const Rect& r, double size,
+                      const std::string& family, Color color) {
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, family.c_str());
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 8) * PANGO_SCALE));
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    source(cr, color);
+    cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
+    pango_cairo_show_layout(cr, layout);
+    g_object_unref(layout);
+}
 // The keyboard's strip while a label is renamed in place (ShortcutFieldView);
 // its buttons are drawn as controls after it.
 void draw_shortcut_field(cairo_t* cr, const PanelView& view) {
@@ -3717,23 +3766,27 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
     cairo_rectangle(cr, p.well.x + 2, p.well.y, p.well.width - 4, p.well.height);
     cairo_clip(cr);
     if (p.kind == ShortcutPopupView::Kind::Recording) {
-        draw_chord_chips(cr, view, p.chords);
-        for (const auto& c : view.controls) {
-            if (c.id == "shortcuts-popup-pending") {
-                // The modifiers latched so far, after the chips' chevron: a
-                // press records them alone.
-                if (!p.chords.empty()) {
-                    const auto& last = p.chords.back().bounds;
-                    draw_icon(cr, Icon::ChevronRight,
-                              {last.x + last.width, c.bounds.y, c.bounds.x - last.x - last.width,
-                               c.bounds.height},
-                              quiet, 14);
-                }
-                const bool lit = view.hovered_controls.contains(c.id);
-                draw_cap(cr, t, c.bounds, lit, false, true);
-                interface_label(cr, c.label, c.bounds, 20, view.interface_font, t.legend);
-            }
-        }
+        faded_strip(cr, {p.well.x + 4, p.well.y, p.well.width - 8, p.well.height}, p.chords_before,
+                    p.chords_after, [&] {
+                        draw_chord_chips(cr, view, p.chords);
+                        for (const auto& c : view.controls) {
+                            if (c.id != "shortcuts-popup-pending") {
+                                continue;
+                            }
+                            // The modifiers latched so far, after the chips'
+                            // chevron: a press records them alone.
+                            if (!p.chords.empty()) {
+                                const auto& last = p.chords.back().bounds;
+                                draw_icon(cr, Icon::ChevronRight,
+                                          {last.x + last.width, c.bounds.y,
+                                           c.bounds.x - last.x - last.width, c.bounds.height},
+                                          quiet, 14);
+                            }
+                            const bool lit = view.hovered_controls.contains(c.id);
+                            draw_cap(cr, t, c.bounds, lit, false, true);
+                            interface_label(cr, c.label, c.bounds, 20, view.interface_font, t.legend);
+                        }
+                    });
         if (!p.full.empty()) {
             interface_label(cr, p.full, p.full_bounds, 16, view.interface_font, quiet, false,
                             PANGO_ALIGN_LEFT);
@@ -4039,11 +4092,18 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             }
         }
     }
-    draw_chord_chips(cr, view, e.chords);
+    faded_strip(cr, e.chords_strip, e.chords_before, e.chords_after,
+                [&] { draw_chord_chips(cr, view, e.chords); });
     for (std::size_t i = 0; i < e.explanation.size(); ++i) {
         const auto& r = e.explanation_bounds;
-        interface_label(cr, e.explanation[i], {r.x, r.y + 26 * static_cast<double>(i), r.width, 26}, 17,
-                        view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+        const Rect line{r.x, r.y + 26 * static_cast<double>(i), r.width, 26};
+        // What a button sends ends in an ellipsis when too long (R331).
+        if (i == 0) {
+            ellipsized_label(cr, e.explanation[i], line, 17, view.interface_font, quiet);
+        } else {
+            interface_label(cr, e.explanation[i], line, 17, view.interface_font, quiet, false,
+                            PANGO_ALIGN_LEFT);
+        }
     }
     if (e.lifted_button) {
         ShortcutBarView::Button button;

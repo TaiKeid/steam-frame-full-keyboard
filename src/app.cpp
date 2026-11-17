@@ -1746,6 +1746,9 @@ bool App::move(unsigned pointer, double x, double y) {
     }
     note_aiming(pointer, x, y);
     pointer_positions_[pointer] = {x, y};
+    if (chips_drag_move(pointer, x)) {
+        return false; // Scrolling recorded combinations: nothing under the laser counts.
+    }
     if (editor_drag_move(pointer, x, y)) {
         return false; // a lifted row or button follows the laser
     }
@@ -1941,6 +1944,10 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         })) {
         follow_up_.reset();
         sync_candidates();
+    }
+    // A press on recorded combinations may drag them sideways.
+    if (hovered_[pointer].kind != HoverTarget::Kind::Control && chips_press(pointer, x, y)) {
+        return false;
     }
     if (hovered_[pointer].kind == HoverTarget::Kind::Control) {
         const auto control =
@@ -2313,6 +2320,11 @@ bool App::up(unsigned pointer, double x, double y) {
         move(pointer, x, y); // Where it was let go: over the same part, it acts.
         return bar_up(pointer);
     }
+    if (chips_drag_ && chips_drag_->pointer == pointer) {
+        chips_drag_.reset();
+        move(pointer, x, y);
+        return false;
+    }
     if (editor_drag_up(pointer)) {
         pressed_controls_.erase(pointer); // a drag's release clicks nothing
         move(pointer, x, y);
@@ -2436,6 +2448,9 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
     }
     if (bar_press_ && bar_press_->pointer == pointer) {
         bar_press_.reset(); // A press that left the panel does nothing.
+    }
+    if (chips_drag_ && chips_drag_->pointer == pointer) {
+        chips_drag_.reset();
     }
     if (shortcut_drag_ && shortcut_drag_->pointer == pointer) {
         shortcut_drag_.reset(); // A row or button carried off the panel stays where it was put.
@@ -2578,6 +2593,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     bar_press_.reset();
     bar_menu_ = false;
     shortcut_drag_.reset();
+    chips_drag_.reset();
     if (cancel_delivery) {
         stop_shortcut_run(); // Hiding, sleep, a target that went: sends nothing more.
     }

@@ -1912,6 +1912,23 @@ class App {
         double next{};
     };
     std::optional<PopupRepeat> popup_repeat_;
+    // Recorded combinations scroll in a strip of fixed width, in the editor
+    // and in the popup, with the stick or a drag (R331); the popup's follows
+    // the newest chip.
+    BarScroll editor_chips_scroll_, popup_chips_scroll_;
+    struct ChipsDrag {
+        unsigned pointer{};
+        bool popup{};
+        double x{}, scroll{}; // where the press began
+    };
+    std::optional<ChipsDrag> chips_drag_;
+    bool chips_press(unsigned pointer, double x, double y);
+    bool chips_drag_move(unsigned pointer, double x);
+    // How far each strip can scroll: its chips' width past its own.
+    double editor_chips_limit() const;
+    double popup_chips_limit() const;
+    // The popup's strip to its newest chip.
+    void follow_popup_chips();
     // Made from en-us-full as the popup opens, whatever layout and language
     // are in use; the keymap gives its keys their US characters and legends.
     Layout mini_layout_;

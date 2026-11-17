@@ -341,7 +341,8 @@ struct ShortcutPopupView {
     Rect title_bounds, hint_bounds;
     std::string text; // Label, Name: never logged
     std::size_t cursor{};
-    std::vector<ShortcutChip> chords; // Recording, scrolled so the newest shows
+    std::vector<ShortcutChip> chords;     // Recording, scrolled; the newest followed
+    bool chords_before{}, chords_after{}; // more beyond a side: it fades (R331)
     // Recording: a quiet note in the strip, what to press while it is
     // empty, or after the chips why no more go.
     std::string full;
@@ -378,7 +379,11 @@ struct ShortcutEditorView {
     std::optional<ShortcutChip> lifted_row, lifted_button;
     bool lifted_removing{};
     std::string label_caption, action_caption, keys_caption;
+    // The combinations, scrolled, in a strip of fixed width between the
+    // Keys caption and Record; a side with more beyond it fades (R331).
     std::vector<ShortcutChip> chords;
+    Rect chords_strip;
+    bool chords_before{}, chords_after{};
     std::vector<std::string> explanation;
     Rect explanation_bounds;
     // Typing or recording; under it the editor is dimmed but the strip.
@@ -735,6 +740,9 @@ Rect candidate_list_area(const PanelView& view);
 double unbanded_layout_height(const PanelView& view);
 // A candidate's label width, as the band draws it.
 double candidate_text_width(const std::string& text, const std::string& family);
+// A label's text width at `size`, as interface labels draw it; for laying
+// out chips that fit their text (R331).
+double interface_text_width(const std::string& text, double size, const std::string& family);
 // Panel area of the flick preview, which may extend past the case.
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
 // Where dictation mode's status line sits in the toolbar row.
