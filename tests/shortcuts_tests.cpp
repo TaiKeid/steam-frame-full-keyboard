@@ -264,6 +264,12 @@ void invalid_files() {
     rejects_json(
         button(R"({"kind":"keys","chords":[{"modifiers":["ShiftLeft","ShiftLeft"],"key":"KeyA"}]})"),
         "a repeated modifier");
+    // R330: the locks are the keyboard's own switches, never sent.
+    rejects_json(button(R"({"kind":"keys","chords":[{"key":"NumLock"}]})"), "Num Lock as a key");
+    rejects_json(button(R"({"kind":"keys","chords":[{"modifiers":["ShiftLeft"],"key":"CapsLock"}]})"),
+                 "Caps Lock as a key");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":[{"key":"KeyA"},{"key":"CapsLock"}]}]})"),
+                 "Caps Lock in a macro's keys");
     rejects_json(button(R"({"kind":"macro"})"), "a macro without steps");
     rejects_json(button(R"({"kind":"macro","steps":[{}]})"), "a step of no kind");
     rejects_json(button(R"({"kind":"macro","steps":[{"keys":[{"key":"KeyA"}],"wait_ms":100}]})"),

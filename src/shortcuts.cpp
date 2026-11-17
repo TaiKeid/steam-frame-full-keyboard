@@ -74,6 +74,11 @@ std::optional<std::string> check_chord(const ShortcutChord& chord) {
         if (shortcut_modifier(chord.key)) {
             return "a key combination has a modifier as its key";
         }
+        // Num Lock and Caps Lock are the keyboard's own switches, never sent
+        // to an app: one recorded would flip the app's lock (R330).
+        if (chord.key == "NumLock" || chord.key == "CapsLock") {
+            return "a key combination has a lock as its key";
+        }
     }
     return {};
 }

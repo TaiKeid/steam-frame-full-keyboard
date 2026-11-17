@@ -16,6 +16,12 @@ namespace framekeyboard {
 namespace {
 using PopupKind = ShortcutPopupView::Kind;
 constexpr std::string_view key_prefix = "shortcuts-popup-key-";
+// The keyboard's own switches, never sent to an app (R330): Num Lock does
+// nothing in the popup, where the numpad always types or records itself,
+// and Caps Lock switches capitals for text but is never recorded.
+bool popup_disabled(const Key& key, PopupKind kind) {
+    return key.action == "NumLock" || (key.action == "CapsLock" && kind == PopupKind::Recording);
+}
 // A drag past this many pixels lifts a row or a button.
 constexpr double dead_zone = 12;
 constexpr double row_height = 52;
@@ -739,6 +745,9 @@ void App::popup_key(const std::string& id, unsigned pointer, double now) {
     }
     const Key& key = *found;
     auto& p = *popup_;
+    if (popup_disabled(key, p.kind)) {
+        return;
+    }
     p.fkeys = false;
     dirty = true;
     // A modifier latches on a tap and shows lit; a second tap lets it go.
@@ -998,6 +1007,7 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
                         key.label,
                         {pl.keys.x + r.x * pl.scale, pl.keys.y + r.y * pl.scale, r.width * pl.scale,
                          (r.height + depth + 1) * pl.scale}};
+        control.enabled = !popup_disabled(key, p.kind);
         add("key-" + key.id, "key", control);
     }
 }
@@ -1062,7 +1072,12 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
         view.marks.modifiers.insert(key_code(name));
     }
     view.marks.caps = p.caps;
-    view.marks.num = true; // the numpad types its digits
+    view.marks.num = true; // the numpad types its digits and signs; Num is drawn disabled
+    for (const auto& key : mini_layout_.keys) {
+        if (popup_disabled(key, p.kind)) {
+            view.disabled.insert(key.id);
+        }
+    }
     for (const auto& [pointer, pressed] : pressed_controls_) {
         (void)pointer;
         if (pressed.id.starts_with(key_prefix)) {

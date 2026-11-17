@@ -352,8 +352,9 @@ struct ShortcutPopupView {
     const LanguageMap* keymap{}; // US legends, whatever language types
     Rect keys;                   // where its (0, 0) and its size land
     double scale{1};
-    KeyMarks marks;                // the popup's own latches and Caps Lock
-    std::set<std::string> pressed; // key IDs held down
+    KeyMarks marks;                 // the popup's own latches and Caps Lock
+    std::set<std::string> pressed;  // key IDs held down
+    std::set<std::string> disabled; // key IDs that do nothing here: the locks
 };
 // The shortcut editor's screen, over the case in place of the keys. Its
 // pressable parts are controls named shortcuts-…, which it draws; this holds

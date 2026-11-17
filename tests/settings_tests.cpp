@@ -4333,15 +4333,20 @@ void shortcut_popup_flick() {
     popup_fits(view, true);
     tap_mini(app, "KeyH");
     tap_mini(app, "KeyI");
+    tap_mini(app, "Numpad7");
+    tap_mini(app, "NumpadAdd");
     tap_mini(app, "Enter");
-    require(control(app.view(), "shortcuts-label").label == "Ahi", "US letters, whatever the language");
+    require(control(app.view(), "shortcuts-label").label == "Ahi7+",
+            "US letters, whatever the language; the numpad types its digits and signs");
     tap_control(app, "shortcuts-record");
     tap_mini(app, "ControlLeft");
     tap_mini(app, "KeyS");
+    tap_mini(app, "Numpad7");
     tap_control(app, "shortcuts-popup-done");
-    require(app.view().shortcut_editor->chords.size() == 1 &&
-                app.view().shortcut_editor->chords[0].text == "Ctrl + S",
-            "recorded by the key's name");
+    require(app.view().shortcut_editor->chords.size() == 2 &&
+                app.view().shortcut_editor->chords[0].text == "Ctrl + S" &&
+                app.view().shortcut_editor->chords[1].text == "Num 7",
+            "recorded by the key's name; a numpad key as itself, never as Home");
     require(sink.events.empty() && sink.texts.empty(),
             "nothing reaches the app while the popup is open");
 }
@@ -4442,6 +4447,9 @@ void shortcut_editor_settings() {
                     !view.shortcut_field && !view.shortcut_bar,
                 "Label opens the popup over the editor; the real keyboard stays away");
         popup_fits(view, narrow);
+        require(!control(view, "shortcuts-popup-key-NumLock").enabled &&
+                    control(view, "shortcuts-popup-key-CapsLock").enabled,
+                "R330: for text Num Lock stays disabled and Caps Lock is a switch");
         require(view.modal_prefix() == "shortcuts-popup-" && has(view, "shortcuts-popup-done") &&
                     has(view, "shortcuts-popup-cancel") && !has(view, "shortcuts-popup-fkeys"),
                 "row 1: Cancel and Done; the popup is modal");
@@ -4517,6 +4525,15 @@ void shortcut_editor_settings() {
                     !has(view, "shortcuts-popup-pending"),
                 "Record: F13–F24, Remove last, Cancel and Done");
         popup_fits(view, narrow);
+        // R330: the locks are the keyboard's own switches, never recorded.
+        require(!control(view, "shortcuts-popup-key-NumLock").enabled &&
+                    !control(view, "shortcuts-popup-key-CapsLock").enabled &&
+                    view.shortcut_editor->popup->disabled.contains("NumLock") &&
+                    view.shortcut_editor->popup->disabled.contains("CapsLock"),
+                "Num Lock and Caps Lock are disabled while recording");
+        tap_mini(app, "NumLock");
+        tap_mini(app, "CapsLock");
+        require(popup_chips(app.view()).empty(), "a press on Num or Caps records nothing");
         tap_mini(app, "ControlLeft");
         tap_mini(app, "ShiftLeft");
         require(has(app.view(), "shortcuts-popup-pending") &&

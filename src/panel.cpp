@@ -3763,6 +3763,7 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
         mini.keymap = p.keymap;
         mini.keyboard = view.keyboard;
         mini.key_marks = p.marks;
+        mini.disabled_keys = p.disabled;
         mini.interface_font = view.interface_font;
         constexpr std::string_view prefix = "shortcuts-popup-key-";
         for (const auto& id : view.hovered_controls) {

@@ -1724,6 +1724,24 @@ bool flat(const PanelRenderer& renderer, Rect r) {
     }
     return true;
 }
+// Whether two renderers painted a rectangle alike.
+bool same_pixels(const PanelRenderer& a, const PanelRenderer& b, Rect r) {
+    auto* sa = a.surface();
+    auto* sb = b.surface();
+    const int stride = cairo_image_surface_get_stride(sa);
+    for (int y = static_cast<int>(r.y); y < static_cast<int>(r.y + r.height); ++y) {
+        const auto* ra = reinterpret_cast<const std::uint32_t*>(cairo_image_surface_get_data(sa) +
+                                                                (y + popup_margin) * stride);
+        const auto* rb = reinterpret_cast<const std::uint32_t*>(cairo_image_surface_get_data(sb) +
+                                                                (y + popup_margin) * stride);
+        for (int x = static_cast<int>(r.x); x < static_cast<int>(r.x + r.width); ++x) {
+            if (ra[x] != rb[x]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 void outside_editor(const PanelView& view, const std::string& what) {
     if (view.shortcut_editor) {
         return;
@@ -1874,6 +1892,20 @@ void shortcut_popup(bool narrow) {
     compare.frame(app.view(), phase("saved").c_str());
     tap_control("shortcuts-record");
     compare.frame(app.view(), phase("Recording").c_str());
+    // R330: Num Lock and Caps Lock drawn disabled while recording, not lit.
+    {
+        auto view = app.view();
+        PanelRenderer enabled;
+        view.shortcut_editor->popup->disabled.clear();
+        enabled.paint(view, now, true);
+        for (const char* key : {"NumLock", "CapsLock"}) {
+            const auto r = control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds;
+            if (!app.view().shortcut_editor->popup->disabled.contains(key) ||
+                same_pixels(compare.full, enabled, r)) {
+                throw std::runtime_error(phase("") + key + " is not drawn disabled while recording");
+            }
+        }
+    }
     tap_control("shortcuts-popup-key-ControlLeft");
     compare.frame(app.view(), phase("a pending modifier").c_str());
     tap_control("shortcuts-popup-key-KeyK");
