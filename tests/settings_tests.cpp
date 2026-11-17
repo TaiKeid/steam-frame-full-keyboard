@@ -2119,16 +2119,19 @@ void behavior_settings() {
     app.show_settings();
     const auto settings_view = app.view();
     require(settings_view.cards.size() == 4 && settings_view.cards[1].title == "General" &&
-                !control(settings_view, "use-drag-to-move").selected,
+                !shown_control(app, "use-drag-to-move").selected,
             "General card has an unchecked movement preference");
     // Auto leveling, the General card's last row, lies below its fold until the card scrolls.
     reveal(app, "auto-leveling");
     const auto scrolled_view = app.view();
     const auto numpad_bounds = control(scrolled_view, "hide-numpad").bounds;
+    const auto shortcuts_bounds = control(scrolled_view, "shortcuts").bounds;
     const auto movement_bounds = control(scrolled_view, "use-drag-to-move").bounds;
     const auto leveling_bounds = control(scrolled_view, "auto-leveling").bounds;
     require(numpad_bounds.x == movement_bounds.x && movement_bounds.x == leveling_bounds.x &&
-                movement_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y,
+                shortcuts_bounds.x == numpad_bounds.x &&
+                shortcuts_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y &&
+                movement_bounds.y - shortcuts_bounds.y == leveling_bounds.y - movement_bounds.y,
             "General checkboxes form one evenly spaced vertical column");
     const auto theme_bounds = control(settings_view, "theme").bounds;
     require(movement_bounds.x + movement_bounds.width == theme_bounds.x + theme_bounds.width,
@@ -2136,7 +2139,7 @@ void behavior_settings() {
     const std::array<std::pair<const char*, const PanelView*>, 4> labels{
         {{"Theme", &settings_view},
          {"Hide numpad", &settings_view},
-         {"Grab to move", &settings_view},
+         {"Grab to move", &scrolled_view},
          {"Auto leveling", &scrolled_view}}};
     for (const auto& [text, view] : labels) {
         require(std::any_of(view->field_labels.begin(), view->field_labels.end(),
@@ -2150,11 +2153,11 @@ void behavior_settings() {
     app.paint(2);
     app.renderer.write_png("/tmp/framekeyboard-behavior-settings.png");
     click(app, "use-drag-to-move");
-    require(control(app.view(), "use-drag-to-move").selected && !app.use_drag_to_move(),
+    require(shown_control(app, "use-drag-to-move").selected && !app.use_drag_to_move(),
             "movement preference remains staged until Apply");
     app.back();
     app.show_settings();
-    require(!control(app.view(), "use-drag-to-move").selected, "Back discards a staged movement change");
+    require(!shown_control(app, "use-drag-to-move").selected, "Back discards a staged movement change");
     click(app, "use-drag-to-move");
     click(app, "apply");
     require(app.use_drag_to_move() && saved(app).use_drag_to_move &&
@@ -3822,16 +3825,11 @@ void shortcut_bar_settings() {
                 "Shortcuts and macros starts off: no button and no bar");
         app.show_settings();
         click(app, "shortcuts");
-        const auto cards = app.view().cards;
-        const auto at = [&](const std::string& title) {
-            const auto found = std::find_if(cards.begin(), cards.end(),
-                                            [&](const CardView& card) { return card.title == title; });
-            return found == cards.end() ? -1 : static_cast<int>(found - cards.begin());
-        };
-        require(at("Shortcuts and macros") >= 0 && at("Shortcuts and macros") < at("Integration"),
-                "its card comes before Integration");
-        require(control(app.view(), "shortcuts").selected && !saved(app).shortcuts,
-                "the switch is pending until Apply");
+        const auto row = control(app.view(), "shortcuts"), numpad = control(app.view(), "hide-numpad");
+        require(row.bounds.x == numpad.bounds.x && row.bounds.y > numpad.bounds.y &&
+                    app.view().cards[1].title == "General",
+                "its switch is a General row after Hide numpad");
+        require(row.selected && !saved(app).shortcuts, "the switch is pending until Apply");
         click(app, "apply");
         require(saved(app).shortcuts && saved(app).shortcuts_switch,
                 "Apply saves it; the toolbar's own switch is on");
@@ -3840,15 +3838,10 @@ void shortcut_bar_settings() {
         const auto toggle = control(view, "shortcuts-toggle");
         require(toggle.bounds.y == 12 && toggle.bounds.x == control(view, "passthrough").bounds.x + 70,
                 "the button follows the toolbar's switches on a full case");
-        require(toggle.icon == Icon::ShortcutBarOff && !view.shortcut_bar,
-                "with no bars nothing shows, and the button is crossed");
-        // Nothing shows and no bar is due: the empty bar with two slots.
-        click(app, "shortcuts-toggle");
-        view = app.view();
+        // Turned on with no bars, the empty bar shows once.
         require(view.shortcut_bar && view.shortcut_bar->slots && view.shortcut_bar->buttons.empty() &&
-                    control(view, "shortcuts-toggle").icon == Icon::ShortcutBar &&
-                    control(view, "shortcuts-toggle").label == "Hide shortcut bar",
-                "pressed with no bar due, the empty bar shows");
+                    toggle.icon == Icon::ShortcutBar && toggle.label == "Hide shortcut bar",
+                "turned on with no bars, the empty bar shows, so the picker can be reached");
         const auto plate = view.shortcut_bar->plate;
         const auto body = panel_case_bounds(view);
         require(plate.y + plate.height == body.y - 10 && plate.height == 90,
@@ -3856,10 +3849,14 @@ void shortcut_bar_settings() {
         // A bar shows: it hides, and the switch is saved off.
         click(app, "shortcuts-toggle");
         require(!app.view().shortcut_bar && !saved(app).shortcuts_switch &&
+                    control(app.view(), "shortcuts-toggle").icon == Icon::ShortcutBarOff &&
                     control(app.view(), "shortcuts-toggle").label == "Show shortcut bar",
-                "pressed while a bar shows, it hides and stays off");
+                "pressed while a bar shows, it hides, crossed, and stays off");
+        // Nothing shows and no bar is due: the empty bar with two slots.
         click(app, "shortcuts-toggle");
-        require(app.view().shortcut_bar && saved(app).shortcuts_switch, "pressed again, it shows");
+        view = app.view();
+        require(view.shortcut_bar && view.shortcut_bar->slots && saved(app).shortcuts_switch,
+                "pressed with no bar due, the empty bar shows");
         app.show_settings();
         require(!app.view().shortcut_bar, "the bar hides in Settings");
 #ifdef FRAMEKEYBOARD_DEBUG_MODE

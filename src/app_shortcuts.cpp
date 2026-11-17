@@ -338,10 +338,10 @@ void App::bar_action(const std::string& target) {
         const auto changes = bar_choice_.pick(shortcuts_, shortcuts_.bars[*row].id);
         apply_bar_changes(changes);
     } else if (target == "edit") {
-        // The editor comes later; for now its card in Settings.
+        // The editor comes later; for now the switch's card in Settings.
         bar_menu_ = false;
         show_settings();
-        settings_ui_.show_card("shortcuts");
+        settings_ui_.show_card("general");
     }
     dirty = true;
 }

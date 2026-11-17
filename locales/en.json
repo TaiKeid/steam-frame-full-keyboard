@@ -40,7 +40,6 @@
     "card.general": "General",
     "card.integration": "Integration",
     "card.languages": "Languages and Layouts",
-    "card.shortcuts": "Shortcuts and macros",
     "card.typing": "Typing",
     "dictation.could-not-start": "Dictation could not start.",
     "dictation.counter-sending": "Sending {done}/{total}",

@@ -991,6 +991,22 @@ void App::update_settings_ui() {
                        true, tr("setting.use-drag-to-move.note"))),
         field(ControlKind::AutoLeveling,
               checkbox("auto-leveling", tr("setting.auto-leveling"), pending_auto_leveling_))};
+    if (!hosted()) {
+        // The shortcut bar's switch after Hide numpad; not under a shell,
+        // where the feature is off. An unreadable shortcuts.json is noted
+        // under it, by position; it stays until a save keeps it aside.
+        auto at = std::find_if(general_fields.begin(), general_fields.end(),
+                               [](const SettingField& row) { return row.id == "hide-numpad"; });
+        std::vector<SettingField> rows{field(
+            ControlKind::Shortcuts, checkbox("shortcuts", tr("setting.shortcuts"), pending_shortcuts_,
+                                             true, tr("setting.shortcuts.note")))};
+        if (!shortcuts_invalid_.empty()) {
+            rows.push_back(SettingField{
+                "shortcuts-invalid", tr("setting.shortcuts.invalid", {{"reason", shortcuts_invalid_}}),
+                "", ControlStyle::Note});
+        }
+        general_fields.insert(at == general_fields.end() ? at : at + 1, rows.begin(), rows.end());
+    }
     std::vector<SettingField> typing_fields{haptic_sounds};
     if (pending_haptic_sounds_ != "off") {
         typing_fields.push_back(haptic_effect);
@@ -1099,19 +1115,6 @@ void App::update_settings_ui() {
         // Replacement and boot start belong to the SteamOS dashboard; under a
         // shell they are unavailable, and their saved values stay as they are.
         cards.pop_back();
-    } else {
-        // Shortcuts and macros, after Dictation; Integration stays last. Not
-        // under a shell, where the feature is off.
-        std::vector<SettingField> shortcut_fields{field(
-            ControlKind::Shortcuts, checkbox("shortcuts", tr("setting.shortcuts"), pending_shortcuts_,
-                                             true, tr("setting.shortcuts.note")))};
-        if (!shortcuts_invalid_.empty()) {
-            // The file stays as it is until a save keeps it as shortcuts.json.bad.
-            shortcut_fields.push_back(SettingField{
-                "shortcuts-invalid", tr("setting.shortcuts.invalid", {{"reason", shortcuts_invalid_}}),
-                "", ControlStyle::Note});
-        }
-        cards.insert(cards.end() - 1, SettingsCard{"shortcuts", tr("card.shortcuts"), shortcut_fields});
     }
 #ifdef FRAMEKEYBOARD_DEBUG_MODE
     // Last, after everything a release shows. Not saved (App::debug_mark_anthy_).
@@ -5081,7 +5084,13 @@ void App::apply_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
-    configure_bar(); // Shortcuts and macros on or off, and Settings closed.
+    configure_bar(); // The shortcut bar on or off, and Settings closed.
+    if (settings_.shortcuts && !before.shortcuts && shortcuts_.bars.empty() &&
+        !bar_choice_.button_on()) {
+        // Turned on with no bars: the empty bar shows once, so its picker,
+        // and through it the editor, can be reached.
+        apply_bar_changes(bar_choice_.toolbar(shortcuts_));
+    }
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
