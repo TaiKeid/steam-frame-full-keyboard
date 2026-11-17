@@ -391,6 +391,9 @@ struct ShortcutEditorView {
     // carried off the strip would be deleted.
     std::optional<ShortcutChip> lifted_row, lifted_button;
     bool lifted_removing{};
+    // A profile's row a carried button would go to, lit; and, once dropped
+    // there, the popover with Move and Copy (controls shortcuts-carry-…).
+    std::optional<Rect> drop_row, carry_panel;
     std::string label_caption, action_caption, keys_caption;
     // The combinations, scrolled, in a strip of fixed width between the
     // Keys caption and Record; a side with more beyond it fades (R331).

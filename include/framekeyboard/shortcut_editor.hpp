@@ -46,6 +46,12 @@ class ShortcutEditor {
     void delete_button(std::size_t index);
     void move_button(std::size_t from, std::size_t to);
     void set_label(std::string label);
+    // Carrying a button to another profile (design, Settings and the
+    // editor): whether `profile` can take one more, and the selected
+    // profile's button `index` moved or copied to its end. The selection
+    // stays on the selected profile.
+    bool can_take(std::size_t profile) const;
+    void carry_button(std::size_t index, std::size_t profile, bool copy);
     // The selected button's shortcut, at most four combinations; a button
     // whose action is a macro or Run is left as it is.
     void set_chords(std::vector<ShortcutChord> chords);

@@ -1860,6 +1860,17 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     }
     active_at_ = mozc_clock_;
     move(pointer, x, y);
+    // A button dropped on another profile waits for Move or Copy: a press
+    // anywhere else closes the popover, the button back in its place, and
+    // does nothing more.
+    if (carry_ && editor_screen() &&
+        !(hovered_[pointer].kind == HoverTarget::Kind::Control &&
+          hovered_[pointer].id.starts_with("shortcuts-carry-"))) {
+        carry_.reset();
+        pressed_controls_.erase(pointer);
+        dirty = true;
+        return false;
+    }
     // While one hand presses a row, a button, a step or recorded chips, as
     // soon as the press, before it lifts, or holds a wait's or Repeat's − or
     // +, the editor waits for it: another hand's press could change the
@@ -2617,6 +2628,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
 void App::suspend_input(bool asleep) {
     end_field(false); // asleep or taken off: a shortcut editor field ends as Cancel
     end_popup(false); // and so does the editor's popup
+    carry_.reset();
     const char* reason = asleep ? "dictation.stopped-asleep" : "dictation.stopped-taken-off";
     // stop_send needs the existing retry suffix before cancel clears it. An
     // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
@@ -2835,6 +2847,7 @@ void App::set_interaction_active(bool active) {
     // A field typed or keys recorded for the shortcut editor end as Cancel.
     end_field(false);
     end_popup(false); // hiding ends the editor's popup as Cancel
+    carry_.reset();   // and a carried button goes back to its place
     if (!hosted()) {
         close_emoji();
         // Reopened, it likely types into another field: quotes open again (R144).

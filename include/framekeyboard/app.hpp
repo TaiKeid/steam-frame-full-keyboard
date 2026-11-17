@@ -1879,7 +1879,17 @@ class App {
         double px{}, py{};   // the laser now
         bool lifted{}, outside{};
         bool step{}; // a macro step's row, moved up or down its list
+        // A button over the profiles' rows: the row it is over, and whether
+        // that profile takes it (another one, not full); it lights up.
+        std::optional<std::size_t> over_row;
+        bool takes{};
     };
+    // A button dropped on another profile's row: Move or Copy, in a popover
+    // beside that row, until either or a press anywhere else.
+    struct Carry {
+        std::size_t button{}, profile{};
+    };
+    std::optional<Carry> carry_;
     std::optional<ShortcutDrag> shortcut_drag_;
     // The editor's screen shows: open, with no field over it, outside Settings.
     bool editor_screen() const { return shortcut_editor_ && !field_ && !settings_open_; }

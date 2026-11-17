@@ -2064,6 +2064,61 @@ void macro_view(bool narrow) {
     compare.frame(app.view(), phase("While held").c_str());
     inside("While held");
 }
+// Carrying a button to another profile: the lit row while carried, and
+// the popover after the drop, each against a full repaint.
+void carry_view(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    ShortcutButton button;
+    button.label = "Save";
+    button.action.chords = {{{"ControlLeft"}, "KeyS"}};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Editor", {button, button}});
+    model.profiles.push_back({"b", "Browser", {}});
+    model.free_profile = "a";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+    };
+    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->menu->edit);
+    const std::string name = narrow ? "carrying without the numpad" : "carrying";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("the editor").c_str());
+    const auto from = control_named(app.view(), "shortcuts-button-0").bounds;
+    const auto to = control_named(app.view(), "shortcuts-row-1").bounds;
+    const double x0 = from.x + from.width / 2, y0 = from.y + from.height / 2;
+    const double x1 = to.x + to.width / 2, y1 = to.y + to.height / 2;
+    app.move(0, x0, y0);
+    app.down(0, x0, y0, now += .1);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, x0 + (x1 - x0) * step / 8, y0 + (y1 - y0) * step / 8);
+        compare.frame(app.view(), phase("carried").c_str());
+    }
+    if (!app.view().shortcut_editor->drop_row) {
+        throw std::runtime_error(phase("the row under the button is not lit"));
+    }
+    app.up(0, x1, y1);
+    compare.frame(app.view(), phase("the popover").c_str());
+    const auto move = control_named(app.view(), "shortcuts-carry-move").bounds;
+    app.move(0, move.x + move.width / 2, move.y + move.height / 2);
+    compare.frame(app.view(), phase("Move under the laser").c_str());
+    tap(control_named(app.view(), "shortcuts-carry-copy").bounds);
+    compare.frame(app.view(), phase("copied").c_str());
+}
 int main() {
     try {
         app_controls_drawn();
@@ -2072,6 +2127,8 @@ int main() {
         long_combinations_drawn();
         macro_view(false);
         macro_view(true);
+        carry_view(false);
+        carry_view(true);
         shortcut_editor("graphite", true);
         shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);

@@ -3989,6 +3989,14 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
     clipped(e.profiles_list, [&] {
+        // The row a carried button would go to, lit as under the laser, a
+        // little stronger.
+        if (e.drop_row) {
+            const auto& r = *e.drop_row;
+            rounded(cr, {r.x, r.y + 2, r.width, r.height - 4}, t.radius);
+            source(cr, mix(t.hover, t.legend, .12));
+            cairo_fill(cr);
+        }
         for (const auto& c : view.controls) {
             if (!c.id.starts_with("shortcuts-row-")) {
                 continue;
@@ -4233,6 +4241,15 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
         draw_bar_button(cr, view, button, e.scale);
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, e.lifted_removing ? .4 : 1);
+    }
+    // Move and Copy beside the row a button was dropped on.
+    if (e.carry_panel) {
+        raised_panel(cr, t, *e.carry_panel);
+        for (const auto& c : view.controls) {
+            if (c.id.starts_with("shortcuts-carry-")) {
+                editor_button(cr, view, c, 21);
+            }
+        }
     }
     if (e.popup) {
         draw_shortcut_popup(cr, view);

@@ -4774,6 +4774,111 @@ void unsynced_save() {
     require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
+// Carrying a button to another profile (design, Settings and the editor):
+// the row under it lights up; dropped there, Move or Copy put it at that
+// profile's end, a press elsewhere puts it back; a full profile and its own
+// take no drop; the selected profile stays selected.
+void carry_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"one",
+         "One",
+         {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+          shortcut_button("C", {{{}, "KeyC"}})}});
+    model.profiles.push_back({"two", "Two", {shortcut_button("Z", {{{}, "KeyZ"}})}});
+    model.profiles.push_back(
+        {"full", "Full", std::vector<ShortcutButton>(64, shortcut_button("F", {{{}, "KeyF"}}))});
+    model.free_profile = "one";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    require(control(app.view(), "shortcuts-row-0").selected, "the editor opens on One");
+    const auto row = [&](int i) {
+        return middle(control(app.view(), "shortcuts-row-" + std::to_string(i)).bounds);
+    };
+    double now = 1300;
+    // Lifts the strip's button `index` and carries it to (x, y), still held.
+    const auto carry_to = [&](std::size_t index, double x, double y, unsigned pointer = 0) {
+        const auto start =
+            middle(control(app.view(), "shortcuts-button-" + std::to_string(index)).bounds);
+        app.move(pointer, start.x, start.y);
+        app.down(pointer, start.x, start.y, now += .1);
+        for (int step = 1; step <= 8; ++step) {
+            app.move(pointer, start.x + (x - start.x) * step / 8, start.y + (y - start.y) * step / 8);
+        }
+    };
+    const auto lit = [&] { return app.view().shortcut_editor->drop_row.has_value(); };
+    const auto popover = [&] {
+        return has(app.view(), "shortcuts-carry-move") && has(app.view(), "shortcuts-carry-copy");
+    };
+    const auto labels = [&](int profile) {
+        tap_control(app, "shortcuts-row-" + std::to_string(profile));
+        return strip_labels(app.view());
+    };
+    // Over Two the row lights; over Full, and over its own One, it doesn't.
+    carry_to(0, row(1).x, row(1).y);
+    require(lit(), "another profile's row lights up under a carried button");
+    app.move(0, row(2).x, row(2).y);
+    require(!lit(), "a full profile does not light up");
+    app.move(0, row(0).x, row(0).y);
+    require(!lit(), "nor its own profile");
+    // Let go on its own row: nothing happens.
+    app.up(0, row(0).x, row(0).y);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"},
+            "dropped on its own profile's row, the button stays");
+    // Let go on Full: no drop, nothing deleted.
+    carry_to(0, row(2).x, row(2).y);
+    app.up(0, row(2).x, row(2).y);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"},
+            "a full profile takes no drop");
+    // Let go on Two: the popover, the button waiting at the row's end.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    require(popover() && lit() && control(app.view(), "shortcuts-row-0").selected &&
+                strip_labels(app.view()) == std::vector<std::string>{"B", "C"},
+            "dropped on Two: Move and Copy beside it, One still selected");
+    // A press anywhere else puts it back.
+    tap_at(app, row(0).x, row(0).y + 300);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"} &&
+                control(app.view(), "shortcuts-row-0").selected,
+            "a press elsewhere closes the popover, the button back in its place");
+    // Move: at Two's end, gone from One; One stays selected.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    tap_control(app, "shortcuts-carry-move");
+    require(!popover() && control(app.view(), "shortcuts-row-0").selected &&
+                strip_labels(app.view()) == std::vector<std::string>{"B", "C"},
+            "Move takes it from One, which stays selected");
+    // Copy, with the other laser pressing Copy.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    {
+        const auto copy = middle(control(app.view(), "shortcuts-carry-copy").bounds);
+        app.move(1, copy.x, copy.y);
+        app.down(1, copy.x, copy.y, now += .1);
+        app.up(1, copy.x, copy.y);
+    }
+    require(strip_labels(app.view()) == std::vector<std::string>{"B", "C"}, "Copy leaves it in One");
+    require(labels(1) == std::vector<std::string>{"Z", "A", "B"}, "Move and Copy put it at Two's end");
+    // The other laser's press elsewhere closes a popover too.
+    tap_control(app, "shortcuts-row-0");
+    carry_to(1, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    require(popover(), "dropped again");
+    app.move(1, row(0).x, row(0).y + 300);
+    app.down(1, row(0).x, row(0).y + 300, now += .1);
+    app.up(1, row(0).x, row(0).y + 300);
+    require(!popover() && labels(1).size() == 3,
+            "another laser's press elsewhere closes it, nothing carried");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -5177,6 +5282,7 @@ int main() {
         macro_buttons();
         first_bar_shows();
         pending_drag_two_lasers();
+        carry_buttons();
         unsynced_save();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";

@@ -331,6 +331,21 @@ void ShortcutEditor::move_button(std::size_t from, std::size_t to) {
         ++*button_;
     }
 }
+bool ShortcutEditor::can_take(std::size_t profile) const {
+    return profile < model_.profiles.size() && model_.profiles[profile].buttons.size() < limits::buttons;
+}
+void ShortcutEditor::carry_button(std::size_t index, std::size_t profile, bool copy) {
+    const auto* selected = selected_profile();
+    if (!selected || index >= selected->buttons.size() || profile == *profile_ || !can_take(profile)) {
+        return;
+    }
+    // Copied first: the target's vector may grow over the source's storage.
+    auto button = selected->buttons[index];
+    model_.profiles[profile].buttons.push_back(std::move(button));
+    if (!copy) {
+        delete_button(index);
+    }
+}
 void ShortcutEditor::set_label(std::string label) {
     if (selected_button() && fits_label(label)) {
         model_.profiles[*profile_].buttons[*button_].label = std::move(label);

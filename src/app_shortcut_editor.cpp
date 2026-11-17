@@ -122,6 +122,27 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     l.explanation = {l.left, 372, l.right - l.left, 60};
     return l;
 }
+// A profile's row in the editor's column, scrolled.
+Rect profile_row(const EditorLayout& l, std::size_t index, double scroll) {
+    return {l.column.x, l.list_top + static_cast<double>(index) * row_height - scroll, l.column_width,
+            row_height};
+}
+// The popover beside a profile's row that a button was dropped on: Move
+// and Copy, and where the carried button waits at the row's end.
+struct CarryGeometry {
+    Rect panel, move, copy, button;
+};
+CarryGeometry carry_geometry(const EditorLayout& l, std::size_t row, double scroll) {
+    const auto r = profile_row(l, row, scroll);
+    CarryGeometry g;
+    const double middle = r.y + r.height / 2;
+    g.panel = {r.x + r.width + 14, middle - 31, 248, 62};
+    g.move = {g.panel.x + 9, g.panel.y + 9, 110, 44};
+    g.copy = {g.panel.x + 129, g.panel.y + 9, 110, 44};
+    g.button = {r.x + r.width - l.button_width + 12, middle - l.button_height / 2, l.button_width,
+                l.button_height};
+    return g;
+}
 // One stick step at a time, as the bar scrolls; fractions add up.
 template <class Scroll> bool step_scroll(Scroll& scroll, double delta, double size, double limit) {
     if (limit <= 0 || !std::isfinite(delta)) {
@@ -229,6 +250,7 @@ void App::open_shortcut_editor() {
     editor_question_ = EditorQuestion::None;
     editor_rows_scroll_ = editor_strip_scroll_ = {};
     shortcut_drag_.reset();
+    carry_.reset();
     hovered_.clear();
     pressed_controls_.clear();
     dirty = true;
@@ -271,6 +293,7 @@ void App::close_shortcut_editor(bool save) {
     shortcut_editor_.reset();
     editor_question_ = EditorQuestion::None;
     shortcut_drag_.reset();
+    carry_.reset();
     hovered_.clear();
     pressed_controls_.clear();
     sync_candidates();    // a waiting reading's candidates come back (R333)
@@ -337,8 +360,9 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
                          l.button_top, l.button_width, l.button_height};
             if (r.x + r.width <= l.strip.x || r.x >= l.strip.x + l.strip.width ||
                 (i < count && lifted && !shortcut_drag_->row && !shortcut_drag_->step &&
-                 shortcut_drag_->index == i)) {
-                continue;
+                 shortcut_drag_->index == i) ||
+                (i < count && carry_ && carry_->button == i)) {
+                continue; // carried: drawn where the laser or the drop holds it
             }
             if (i == count) {
                 Control plus{{}, {}, r};
@@ -389,6 +413,12 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
         if (kind == ShortcutAction::Kind::Macro) {
             append_macro_controls(result, l.steps_well, *button);
         }
+    }
+    if (carry_) {
+        // Move and Copy beside the row the button was dropped on.
+        const auto g = carry_geometry(l, carry_->profile, editor_rows_scroll_.shown);
+        add("shortcuts-carry-move", "carry-move", {{}, tr("shortcuts.editor.move"), g.move});
+        add("shortcuts-carry-copy", "carry-copy", {{}, tr("shortcuts.editor.copy"), g.copy});
     }
     if (popup_) {
         append_popup_controls(result, body);
@@ -691,8 +721,22 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.lifted_button = ShortcutChip{selected->buttons[d.index].label,
                                            {d.px - l.button_width / 2, d.py - l.button_height / 2,
                                             l.button_width, l.button_height}};
-            e.lifted_removing = d.outside;
+            // Over a profile that takes it, its row lights up; over a row
+            // that doesn't, nothing is deleted either.
+            e.lifted_removing = d.outside && !d.over_row;
+            if (d.over_row && d.takes) {
+                e.drop_row = profile_row(l, *d.over_row, editor_rows_scroll_.shown);
+            }
         }
+    }
+    if (const auto* selected = shortcut_editor_->selected_profile();
+        carry_ && selected && carry_->button < selected->buttons.size()) {
+        // Dropped on another profile: its row lit, the button at its end,
+        // and Move and Copy beside it.
+        const auto g = carry_geometry(l, carry_->profile, editor_rows_scroll_.shown);
+        e.drop_row = profile_row(l, carry_->profile, editor_rows_scroll_.shown);
+        e.lifted_button = ShortcutChip{selected->buttons[carry_->button].label, g.button};
+        e.carry_panel = g.panel;
     }
     if (popup_) {
         append_popup_view(e, body);
@@ -715,6 +759,15 @@ void App::editor_action(const ControlAction& command) {
     const auto index = static_cast<std::size_t>(std::max(0, command.index));
     if (value.starts_with("popup-")) {
         popup_action(value, command.index);
+        return;
+    }
+    if (value == "carry-move" || value == "carry-copy") {
+        // Either puts the button at the end of that profile; the selected
+        // profile stays selected, so more buttons can follow.
+        if (const auto carry = std::exchange(carry_, std::nullopt)) {
+            shortcut_editor_->carry_button(carry->button, carry->profile, value == "carry-copy");
+        }
+        dirty = true;
         return;
     }
     if (value == "question-cancel" || value == "question-accept") {
@@ -844,7 +897,7 @@ void App::editor_press(unsigned pointer, const std::string& id, double x, double
         return;
     }
     const auto index = static_cast<std::size_t>(std::stoul(id.substr(row ? 14 : step ? 15 : 17)));
-    shortcut_drag_ = ShortcutDrag{pointer, row, index, x, y, x, y, false, false, step};
+    shortcut_drag_ = ShortcutDrag{pointer, row, index, x, y, x, y, false, false, step, {}, false};
 }
 bool App::editor_drag_move(unsigned pointer, double x, double y) {
     if (!editor_screen() || !shortcut_drag_ || shortcut_drag_->pointer != pointer) {
@@ -887,10 +940,22 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
             d.index = to;
         }
     } else if (const auto* bar = shortcut_editor_->selected_profile()) {
-        // Off the strip, a button would be deleted when let go.
+        // Off the strip, a button would be deleted when let go, unless it is
+        // over a profile's row: another one that has room lights up and
+        // takes it; its own, or a full one, takes nothing.
         const auto& well = l.strip_well;
         d.outside = x < well.x - 20 || x > well.x + well.width + 20 || y < well.y - 20 ||
                     y > well.y + well.height + 20;
+        d.over_row.reset();
+        d.takes = false;
+        if (l.profiles_list.contains(x, y)) {
+            const double at = std::floor((y - l.list_top + editor_rows_scroll_.shown) / row_height);
+            if (at >= 0 && at < static_cast<double>(shortcut_editor_->model().profiles.size())) {
+                const auto row = static_cast<std::size_t>(at);
+                d.over_row = row;
+                d.takes = row != shortcut_editor_->profile() && shortcut_editor_->can_take(row);
+            }
+        }
         if (!d.outside) {
             const double at = std::floor((x - l.strip.x + editor_strip_scroll_.shown) / l.pitch);
             const auto last = static_cast<double>(bar->buttons.size() - 1);
@@ -912,8 +977,16 @@ bool App::editor_drag_up(unsigned pointer) {
     if (!d.lifted) {
         return false; // a click: the control acts
     }
-    if (shortcut_editor_ && !d.row && !d.step && d.outside) {
-        shortcut_editor_->delete_button(d.index);
+    if (shortcut_editor_ && !d.row && !d.step) {
+        if (d.over_row) {
+            // On another profile that takes it: Move or Copy. On its own
+            // profile's row, or a full one's, it goes back to its place.
+            if (d.takes) {
+                carry_ = Carry{d.index, *d.over_row};
+            }
+        } else if (d.outside) {
+            shortcut_editor_->delete_button(d.index);
+        }
     }
     dirty = true;
     return true;

@@ -400,6 +400,7 @@
         "shortcuts.editor.action": "Action",
         "shortcuts.editor.add-keys": "+ Keys",
         "shortcuts.editor.add-wait": "+ Wait",
+        "shortcuts.editor.copy": "Copy",
         "shortcuts.editor.invalid":
             "shortcuts.json can't be read ({reason}). Saving keeps it as shortcuts.json.bad.",
         "shortcuts.editor.keys": "Keys",
@@ -409,6 +410,7 @@
         "shortcuts.editor.macro-held": "Sends {keys}, again and again while held.",
         "shortcuts.editor.macro-once": "Sends {keys}, once per press.",
         "shortcuts.editor.macro-times": "Sends {keys}, {count} times per press.",
+        "shortcuts.editor.move": "Move",
         "shortcuts.editor.new-profile": "New profile",
         "shortcuts.editor.no-buttons": "No buttons yet. Add one with +.",
         "shortcuts.editor.no-keys": "No keys yet.",
