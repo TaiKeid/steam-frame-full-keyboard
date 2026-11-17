@@ -298,23 +298,31 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         if (!bar || *index >= bar->buttons.size()) {
             return false;
         }
-        // Another button stops the run under way; its own button pressed
-        // again only stops it (design, Macro).
-        bool stopped = false;
-        if (shortcut_run_ && shortcut_runner_.running()) {
-            stopped = shortcut_run_->profile == bar->id && shortcut_run_->button == *index;
-            stop_shortcut_run();
-        }
         const auto scrolled = bar_scroll_.find(bar->id);
         const double scroll = scrolled == bar_scroll_.end() ? 0 : scrolled->second.target;
         const auto& button = bar->buttons[*index];
         const bool enabled = shortcut_button_enabled(button);
+        const bool while_held = enabled && button.action.kind == ShortcutAction::Kind::Macro &&
+                                button.action.repeat.mode == MacroRepeat::Mode::WhileHeld;
+        // Another button stops the run under way; its own button pressed
+        // again only stops it (design, Macro). A While held button's run,
+        // only finishing its pass once let go, takes this press as its hold
+        // again, so quick taps each act and nothing is sent twice (R342).
+        bool stopped = false, rehold = false;
+        if (shortcut_run_ && shortcut_runner_.running()) {
+            const bool own = shortcut_run_->profile == bar->id && shortcut_run_->button == *index;
+            if (own && while_held && shortcut_runner_.hold()) {
+                rehold = true;
+            } else {
+                stopped = own;
+                stop_shortcut_run();
+            }
+        }
         // A While held macro starts on press and runs while this press holds;
         // its release only lets it go.
-        const bool held = enabled && !stopped && button.action.kind == ShortcutAction::Kind::Macro &&
-                          button.action.repeat.mode == MacroRepeat::Mode::WhileHeld;
+        const bool held = while_held && !stopped;
         bar_press_ = BarPress{pointer, target, x, scroll, now, false, stopped || held, bar->id, held};
-        if (held) {
+        if (held && !rehold) {
             press_shortcut_button(*index, std::max(now, mozc_clock_));
         }
         dirty = true;

@@ -4663,7 +4663,8 @@ void macro_buttons() {
     require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
             "a cancel lets it go");
 }
-// R340: any press on the bar that acts stops a run.
+// R340: any press on the bar that acts stops a run. R342: a While held
+// button pressed again while its run finishes a pass takes the hold again.
 void bar_presses_and_holds() {
     TemporaryDirectory directory;
     Settings settings;
@@ -4729,6 +4730,31 @@ void bar_presses_and_holds() {
     release(picker); // closes the menu
     run_to(2002.1);
 
+    // R342: hold, let go mid-pass, press again before the pass ends.
+    press(held_button);
+    run_to(2002.2);
+    require(count(KEY_B) == 1, "a held macro starts on press");
+    release(held_button);
+    run_to(2002.3);
+    press(held_button);
+    require(count(KEY_B) == 1 && app.view().shortcut_bar->buttons[1].running,
+            "pressed again while the pass finishes: nothing sent twice, still lit");
+    run_to(2003.1);
+    const auto while_held = count(KEY_B);
+    require(while_held >= 3, "the hold taken again: passes go on while held");
+    release(held_button);
+    run_to(2004);
+    require(count(KEY_B) == while_held && !app.view().shortcut_bar->buttons[1].running,
+            "let go: the pass finishes and no other starts");
+    // Once and Times keep the rule: their own button pressed again stops them.
+    press(thrice_button);
+    release(thrice_button);
+    run_to(now + .15);
+    press(thrice_button);
+    release(thrice_button);
+    run_to(now + 2);
+    require(count(KEY_A) == 2 && !app.view().shortcut_bar->buttons[0].running,
+            "a Times button pressed again only stops its run");
 }
 // R337: a lifted Wait row carries its time, − and + and ✕ with it.
 void lifted_step_moves_whole() {

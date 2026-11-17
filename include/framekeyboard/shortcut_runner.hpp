@@ -94,6 +94,10 @@ class ShortcutRunner {
     // The trigger of a While held macro let go: the pass under way
     // finishes, and no other starts. Nothing for other runs.
     void release();
+    // Its trigger pressed again while that pass finishes: passes go on
+    // again until the next release (R342). False, changing nothing, unless
+    // a While held macro is running.
+    bool hold();
     // Advances the run. True when it ended in this call, for a redraw.
     bool tick(double now);
     bool running() const { return active_; }
@@ -122,6 +126,7 @@ class ShortcutRunner {
     // Passes run so far, and how many to run; while `held_` passes go on.
     std::size_t pass_{}, passes_{1};
     bool held_{};
+    bool holds_{}; // a While held macro: its trigger can take it again
     bool active_{}, in_flight_{};
     bool sent_{};    // a combination went: later ones check the window
     bool waiting_{}; // the wait at next_ has begun

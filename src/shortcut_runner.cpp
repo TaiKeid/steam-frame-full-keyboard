@@ -128,6 +128,7 @@ bool ShortcutRunner::start(const ShortcutAction& action, double now) {
     pass_ = 0;
     passes_ = passes;
     held_ = held;
+    holds_ = held;
     in_flight_ = false;
     sent_ = false;
     waiting_ = false;
@@ -146,6 +147,7 @@ bool ShortcutRunner::finish(End end) {
     in_flight_ = false;
     waiting_ = false;
     held_ = false;
+    holds_ = false;
     steps_.clear();
     next_ = 0;
     end_ = end;
@@ -158,6 +160,13 @@ void ShortcutRunner::stop() {
 }
 void ShortcutRunner::release() {
     held_ = false;
+}
+bool ShortcutRunner::hold() {
+    if (!active_ || !holds_) {
+        return false;
+    }
+    held_ = true;
+    return true;
 }
 bool ShortcutRunner::delivered() const {
     return output_.completed() >= delivered_at_ || output_.pending_entries() == 0;
