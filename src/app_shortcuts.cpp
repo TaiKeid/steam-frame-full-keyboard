@@ -327,6 +327,9 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
             return false;
         }
     }
+    // The picker, a menu row, an assign button or Edit shortcuts: any press
+    // on the bar that acts stops a run, as a key does (R340).
+    stop_shortcut_run();
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}, false};
     dirty = true;
     return false;

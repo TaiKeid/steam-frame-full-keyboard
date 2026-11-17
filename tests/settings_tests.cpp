@@ -4663,6 +4663,73 @@ void macro_buttons() {
     require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
             "a cancel lets it go");
 }
+// R340: any press on the bar that acts stops a run.
+void bar_presses_and_holds() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton thrice;
+    thrice.label = "Thrice";
+    thrice.action.kind = ShortcutAction::Kind::Macro;
+    thrice.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyA"}}, 0}, {MacroStep::Kind::Wait, {}, 300}};
+    thrice.action.repeat = {MacroRepeat::Mode::Times, 3};
+    ShortcutButton held = thrice;
+    held.label = "Held";
+    held.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyB"}}, 0}, {MacroStep::Kind::Wait, {}, 300}};
+    held.action.repeat = {MacroRepeat::Mode::WhileHeld, 0};
+    model.profiles.push_back({"b", "Bar", {thrice, held}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{}, "KeyO"}})}});
+    model.free_profile = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 2000;
+    app.tick(now);
+    const auto count = [&](int code) {
+        return std::count(sink.events.begin(), sink.events.end(), std::pair{code, 1});
+    };
+    const auto run_to = [&](double until) {
+        for (; now < until; now += .01) {
+            app.tick(now);
+        }
+    };
+    const auto press = [&](const Rect& r) {
+        const auto at = middle(r);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now);
+    };
+    const auto release = [&](const Rect& r) {
+        const auto at = middle(r);
+        app.up(0, at.x, at.y);
+    };
+    auto view = app.view();
+    const auto thrice_button = view.shortcut_bar->buttons[0].bounds;
+    const auto held_button = view.shortcut_bar->buttons[1].bounds;
+    const auto picker = view.shortcut_bar->picker_button;
+    // R340: the picker pressed during a Times macro's wait.
+    press(thrice_button);
+    release(thrice_button);
+    run_to(2000.15);
+    require(count(KEY_A) == 1 && app.view().shortcut_bar->buttons[0].running, "the first pass, waiting");
+    press(picker);
+    release(picker);
+    run_to(2002);
+    require(count(KEY_A) == 1 && !app.view().shortcut_bar->buttons[0].running &&
+                app.view().shortcut_bar->menu,
+            "the picker's press stopped it: nothing more, no button lit");
+    press(picker);
+    release(picker); // closes the menu
+    run_to(2002.1);
+
+}
 // R337: a lifted Wait row carries its time, − and + and ✕ with it.
 void lifted_step_moves_whole() {
     TemporaryDirectory directory;
@@ -5608,6 +5675,7 @@ int main() {
         shortcut_apps();
         stick_scrolls_bar();
         macro_first_row_scrolls();
+        bar_presses_and_holds();
         pending_drag_two_lasers();
         carry_buttons();
         lifted_step_moves_whole();
