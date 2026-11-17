@@ -4061,6 +4061,27 @@ void shortcut_buttons() {
     app.up(0, empty.x, empty.y);
     app.tick(902.2);
     require(sink.events.empty(), "and sends nothing");
+    // R324: a toolbar button pressed before the gap ends stops the run; the
+    // first combination, already queued, finishes.
+    const auto passthrough = middle(control(app.view(), "passthrough").bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 902.5);
+    app.up(0, press.x, press.y);
+    app.move(1, passthrough.x, passthrough.y);
+    app.down(1, passthrough.x, passthrough.y, 902.51);
+    app.up(1, passthrough.x, passthrough.y);
+    for (double now = 902.52; now < 902.9; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events ==
+                    std::vector<std::pair<int, int>>{
+                        {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}} &&
+                !app.view().shortcut_bar->buttons[0].running,
+            "a toolbar button stops a run: one combination sent");
+    app.move(1, passthrough.x, passthrough.y);
+    app.down(1, passthrough.x, passthrough.y, 902.95);
+    app.up(1, passthrough.x, passthrough.y);
+    sink.events.clear();
     // Hiding stops a run: the second combination never goes.
     app.move(0, press.x, press.y);
     app.down(0, press.x, press.y, 903);

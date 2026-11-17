@@ -4658,6 +4658,7 @@ void App::place_candidates(std::vector<std::string> texts, int selected) {
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {
+    stop_shortcut_run();  // A commit stops a button's run, as a key does (R324).
     after_digit_ = false; // A candidate's text follows the digit (R137).
     try {
         if (cjk_) {
@@ -5168,6 +5169,9 @@ void App::apply_settings() {
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
+    // Any button acted on stops a shortcut button's run, as a key does
+    // (design, Macro; R324).
+    stop_shortcut_run();
     if (japanese_holding() && !replaying_input_) {
         // A button pressed while Japanese input waits goes in its turn:
         // the language button or Settings after a 変換 and Enter still
@@ -7359,6 +7363,7 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
     }
 }
 bool App::type_emoji(const std::string& text) {
+    stop_shortcut_run(); // An emoji stops a button's run, as a key does (R324).
     if (preview_input()) {
         return true; // The preview cannot type; it still remembers the emoji.
     }
