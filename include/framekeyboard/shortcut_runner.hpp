@@ -63,12 +63,12 @@ class QueuedShortcutOutput final : public ShortcutOutput {
 };
 
 // Sends a button's action over time: the only code that sends a button's
-// keys. A run is a list of steps, each queued only after the one before it
-// was delivered, so a stop sends nothing more; tick() advances it. Only
-// shortcuts run so far. Macros press keys only: their Keys steps become
-// chords of the same run, and waits, repeats and while held become further
-// step kinds; Run actions start programs elsewhere. Nothing a run sends is
-// ever logged.
+// keys. A run is a pass of steps, each queued only after the one before it
+// was delivered, so a stop sends nothing more; tick() advances it. A
+// shortcut is one pass of chords. A macro presses keys only: its Keys steps
+// are chords, its waits steps of their own, and it runs its passes once, a
+// number of times or while its trigger is held (design, Macro). Run
+// actions start programs elsewhere. Nothing a run sends is ever logged.
 class ShortcutRunner {
   public:
     // The least time between one combination's delivery and the next one's
@@ -85,11 +85,15 @@ class ShortcutRunner {
     explicit ShortcutRunner(ShortcutOutput& output) : output_(output) {}
     // Starts `action` at `now`, ending a run under way as Stopped, and sends
     // what can go at once. False, with nothing sent, when it cannot go out
-    // whole now: the output refuses it as it would a key press, or is too
-    // full, the action can't be sent, or its kind isn't run here yet.
+    // now: the output refuses it as it would a key press, or is too full
+    // for a whole shortcut or a macro's next combination, the action can't
+    // be sent, holds nothing, or is a Run action.
     bool start(const ShortcutAction& action, double now);
     // Sends nothing more; what was already queued finishes.
     void stop();
+    // The trigger of a While held macro let go: the pass under way
+    // finishes, and no other starts. Nothing for other runs.
+    void release();
     // Advances the run. True when it ended in this call, for a redraw.
     bool tick(double now);
     bool running() const { return active_; }
@@ -97,11 +101,10 @@ class ShortcutRunner {
 
   private:
     struct Step {
-        // Wait and pass boundaries join with macros; a macro's Keys step is
-        // chords, as a shortcut's.
-        enum class Kind { Chord };
+        enum class Kind { Chord, Wait };
         Kind kind{Kind::Chord};
         ShortcutChord chord;
+        double wait{}; // Wait: seconds
     };
     // Sends every step that may go now. True when the run ended.
     bool advance(double now);
@@ -110,11 +113,18 @@ class ShortcutRunner {
     // keymap, as recorded; other keys by position. Empty when unknown.
     std::vector<int> codes(const ShortcutChord& chord);
     bool delivered() const;
+    // The window with the keys, or the Desktop's active app, changed since start().
+    bool focus_moved() const;
 
     ShortcutOutput& output_;
-    std::vector<Step> steps_;
+    std::vector<Step> steps_; // one pass
     std::size_t next_{};
+    // Passes run so far, and how many to run; while `held_` passes go on.
+    std::size_t pass_{}, passes_{1};
+    bool held_{};
     bool active_{}, in_flight_{};
+    bool sent_{};    // a combination went: later ones check the window
+    bool waiting_{}; // the wait at next_ has begun
     // The step in flight was delivered once completed() reaches this: it
     // went in behind every entry already queued, and entries complete in
     // order. An entry dropped ahead of it (a released repeat) completes
@@ -132,6 +142,7 @@ class ShortcutRunner {
     std::uint32_t window_{};
     std::uint64_t focus_serial_{};
     double ready_at_{}; // when the next step may be pressed
+    double done_at_{};  // when the step before the next ended: a wait counts from here
     End end_{End::None};
 };
 } // namespace framekeyboard

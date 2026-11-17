@@ -1,6 +1,7 @@
 #include "framekeyboard/output.hpp"
 #include "framekeyboard/shortcut_runner.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <map>
@@ -245,7 +246,8 @@ void whole_or_refused() {
         ShortcutAction macro;
         macro.kind = ShortcutAction::Kind::Macro;
         macro.steps.push_back({MacroStep::Kind::Wait, {}, 100});
-        require(!rig.runner.start(macro, 0), "macros are not run yet");
+        require(rig.runner.start(macro, 0), "a macro runs, a wait alone too");
+        rig.runner.stop();
         ShortcutAction run;
         run.kind = ShortcutAction::Kind::Run;
         run.command = "true";
@@ -425,9 +427,177 @@ void stops() {
 }
 } // namespace
 
+ShortcutAction macro(std::vector<MacroStep> steps, MacroRepeat repeat = {}) {
+    ShortcutAction action;
+    action.kind = ShortcutAction::Kind::Macro;
+    action.steps = std::move(steps);
+    action.repeat = repeat;
+    return action;
+}
+MacroStep keys_of(std::vector<ShortcutChord> chords) {
+    MacroStep step;
+    step.kind = MacroStep::Kind::Keys;
+    step.keys = std::move(chords);
+    return step;
+}
+MacroStep wait_of(int ms) {
+    MacroStep step;
+    step.kind = MacroStep::Kind::Wait;
+    step.wait_ms = ms;
+    return step;
+}
+const Events a{{KEY_A, 1}, {KEY_A, 0}}, b{{KEY_B, 1}, {KEY_B, 0}};
+// The tick time at which `code` went down for the `nth` time (0 first).
+double down_at(const Recorder& sink, int code, int nth = 0) {
+    for (std::size_t i = 0; i < sink.events.size(); ++i) {
+        if (sink.events[i] == std::pair{code, 1} && nth-- == 0) {
+            return sink.times[i];
+        }
+    }
+    throw std::runtime_error("no such key down");
+}
+std::size_t downs(const Recorder& sink, int code) {
+    return static_cast<std::size_t>(
+        std::count(sink.events.begin(), sink.events.end(), std::pair{code, 1}));
+}
+// Macros (design, Macro): steps in order, waits, repeats, while held and
+// every stop rule, mid-step and mid-wait.
+void macros() {
+    {
+        // A Keys step's combinations in turn, then a wait, then the next step.
+        Rig rig;
+        require(rig.runner.start(macro({keys_of({{{}, "KeyA"}, {{}, "KeyB"}}), wait_of(200),
+                                        keys_of({{{}, "KeyS"}})}),
+                                 0),
+                "a macro starts");
+        run_out(rig, 0, .2);
+        require(rig.sink.events == joined(a, b), "a Keys step's combinations in order, then the wait");
+        run_out(rig, .2, .5);
+        require(rig.sink.events == joined(joined(a, b), s) &&
+                    rig.runner.end() == ShortcutRunner::End::Finished,
+                "the step after the wait, and the run finishes");
+        const double waited = down_at(rig.sink, KEY_S) - down_at(rig.sink, KEY_B);
+        require(waited >= .2 && waited < .2 + .02, "a wait lasts its time from the step before it");
+    }
+    {
+        // Times: as many passes, each a gap after the one before.
+        Rig rig;
+        rig.runner.start(macro({keys_of({{{}, "KeyA"}})}, {MacroRepeat::Mode::Times, 3}), 0);
+        run_out(rig, 0, .5);
+        require(downs(rig.sink, KEY_A) == 3 && rig.runner.end() == ShortcutRunner::End::Finished,
+                "Times runs its count of passes");
+        require(down_at(rig.sink, KEY_A, 1) - down_at(rig.sink, KEY_A, 0) >=
+                    ShortcutRunner::shortcut_key_gap,
+                "passes are spaced as combinations are");
+    }
+    {
+        // Once: one pass; an empty macro and Run do nothing.
+        Rig rig;
+        rig.runner.start(macro({keys_of({{{}, "KeyA"}})}), 0);
+        run_out(rig, 0, .5);
+        require(downs(rig.sink, KEY_A) == 1, "Once runs one pass");
+        require(!rig.runner.start(macro({}), 1), "a macro without steps does nothing");
+        ShortcutAction run;
+        run.kind = ShortcutAction::Kind::Run;
+        run.command = "true";
+        require(!rig.runner.start(run, 1), "Run is not sent as keys");
+        require(!rig.runner.start(macro({keys_of({{{}, "Nope"}})}), 1),
+                "an unknown key refuses the macro");
+    }
+    {
+        // While held: passes go on until the trigger lets go; the pass under
+        // way finishes, and no other starts.
+        Rig rig;
+        rig.runner.start(macro({keys_of({{{}, "KeyA"}}), wait_of(100), keys_of({{{}, "KeyB"}})},
+                               {MacroRepeat::Mode::WhileHeld, 0}),
+                         0);
+        run_out(rig, 0, .5);
+        require(downs(rig.sink, KEY_A) >= 3 && rig.runner.running(), "passes go on while held");
+        // Let go mid-pass: after an A, during its wait.
+        const auto passes = downs(rig.sink, KEY_A);
+        while (downs(rig.sink, KEY_A) == downs(rig.sink, KEY_B) + 0 && rig.runner.running()) {
+            rig.tick(rig.sink.now + .005);
+        }
+        rig.runner.release();
+        run_out(rig, rig.sink.now, rig.sink.now + .5);
+        require(!rig.runner.running() && rig.runner.end() == ShortcutRunner::End::Finished &&
+                    downs(rig.sink, KEY_A) == downs(rig.sink, KEY_B) &&
+                    downs(rig.sink, KEY_A) <= passes + 1,
+                "the pass under way finishes after the release, and no other starts");
+    }
+    const auto waiting = macro({keys_of({{{}, "KeyA"}}), wait_of(500), keys_of({{{}, "KeyB"}})});
+    {
+        // stop() mid-wait: nothing more.
+        Rig rig;
+        rig.runner.start(waiting, 0);
+        run_out(rig, 0, .2);
+        rig.runner.stop();
+        run_out(rig, .2, 1);
+        require(rig.sink.events == a && rig.runner.end() == ShortcutRunner::End::Stopped,
+                "a stop mid-wait sends nothing more");
+    }
+    {
+        // stop() mid-step: the combination under way finishes, balanced.
+        Rig rig;
+        rig.sink.slow = true;
+        rig.runner.start(waiting, 0);
+        rig.runner.stop();
+        rig.acknowledge(.1);
+        run_out(rig, .1, 1);
+        require(rig.sink.events == a, "a stop mid-step finishes the combination, nothing follows");
+    }
+    {
+        // A failed step ends the run as Failed; nothing is retried.
+        Rig rig;
+        rig.sink.slow = true;
+        rig.sink.succeed = false;
+        rig.runner.start(waiting, 0);
+        rig.acknowledge(.1);
+        rig.sink.succeed = true;
+        run_out(rig, .1, 1);
+        require(rig.runner.end() == ShortcutRunner::End::Failed && downs(rig.sink, KEY_B) == 0,
+                "a step that fails ends the run");
+    }
+    {
+        // The output drops what was queued (the target went away) mid-wait.
+        Rig rig;
+        rig.runner.start(waiting, 0);
+        run_out(rig, 0, .2);
+        rig.output.cancel();
+        run_out(rig, .2, 1);
+        require(rig.runner.end() == ShortcutRunner::End::Canceled && downs(rig.sink, KEY_B) == 0,
+                "a cancel mid-wait ends the run");
+    }
+    {
+        // Another window takes the keys during a wait: the run ends then.
+        Rig rig;
+        rig.sink.window = 5;
+        rig.runner.start(waiting, 0);
+        run_out(rig, 0, .2);
+        rig.sink.window = 6;
+        rig.tick(.21);
+        require(!rig.runner.running() && rig.runner.end() == ShortcutRunner::End::Canceled,
+                "a focus change during a wait ends the run at once");
+        run_out(rig, .21, 1);
+        require(downs(rig.sink, KEY_B) == 0, "and nothing reaches the new window");
+    }
+    {
+        // SteamOS's Desktop: the window stays, its active app changes mid-wait.
+        Rig rig;
+        rig.sink.window = 5;
+        rig.sink.serial = 1;
+        rig.runner.start(waiting, 0);
+        run_out(rig, 0, .2);
+        rig.sink.serial = 2;
+        run_out(rig, .2, 1);
+        require(rig.runner.end() == ShortcutRunner::End::Canceled && downs(rig.sink, KEY_B) == 0,
+                "an activation in the Desktop during a wait ends the run");
+    }
+}
 int main() {
     try {
         order_and_spacing();
+        macros();
         waits_for_delivery();
         whole_or_refused();
         letters();
