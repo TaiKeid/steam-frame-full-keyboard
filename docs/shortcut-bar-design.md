@@ -26,9 +26,9 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 | Button | The size of left Ctrl: 69.5 × 62 layout units at the layout's scale (73.3 × 65.4), drawn as a key in Ctrl's tone |
 | Gap between buttons | 6 layout units (6.3) |
 | Plate | The case's color and opacity, 12 px around the buttons, 90 tall, corners 18; its foot 10 px above the case |
-| Picker | A plate of its own, 84 × 90, 8 px right of the bar's plate, holding one flat 60 × 66 button |
-| Position | Plate, gap and picker together are centered on the case |
-| Width | Grows with its buttons from two slots up to the case's width with the numpad hidden (1326), picker included: 15 buttons. A narrower case, such as the flick layout's, limits it to its own width |
+| Picker | A tab on the plate's right side, part of the plate: 44 × 56, centered on the plate's height, the plate's color and opacity, its two outer corners rounded. The whole tab is the button, with a three-line menu icon |
+| Position | Plate and tab together are centered on the case |
+| Width | Grows with its buttons from two slots up to the case's width with the numpad hidden (1326), the tab included: 15 buttons. A narrower case, such as the flick layout's, limits it to its own width |
 
 - A profile with no buttons shows as two empty slots. One button sits centered in two slots.
 - A profile with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each profile keeps its scroll position while the keyboard runs.
@@ -39,8 +39,8 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 
 ### Drawing and laser areas
 
-- App builds a `ShortcutBarView` in `PanelView`: plate bounds, picker bounds, the visible buttons with labels and states, the scroll offset, and the open menu. The renderer only draws it; no input leaves drawing code.
-- `shortcut_bar_bounds(view)` in `panel.hpp` gives the rectangles the laser may hit: both plates and the open menu. `PanelOverlay::mask()` and the `pointer_areas` lambda in `vr.cpp` both add them, so the dashboard laser, the passthrough pointer and a shell's forwarded pointer agree.
+- App builds a `ShortcutBarView` in `PanelView`: plate bounds, the picker tab's bounds, the visible buttons with labels and states, the scroll offset, and the open menu. The renderer only draws it; no input leaves drawing code.
+- `shortcut_bar_bounds(view)` in `panel.hpp` gives the rectangles the laser may hit: the plate, its tab and the open menu. `PanelOverlay::mask()` and the `pointer_areas` lambda in `vr.cpp` both add them, so the dashboard laser, the passthrough pointer and a shell's forwarded pointer agree.
 - Bar buttons are kept out of the "any control changed" and "any hover changed" full repaints. `shortcut_bar_damage(before, now)` returns the changed rectangles, as `theme_hover_damage` does. The bar overlaps no key, so a hover repaints one button.
 - Image export includes the top margin whenever the bar shows.
 
@@ -72,20 +72,19 @@ Choosing a profile in the picker shows it until the focus changes. If it is a fr
 
 ## Picker menu
 
-The picker's button opens a menu that drops over the case from the picker, right-aligned with it. It closes on a choice, on a click outside (which is consumed), and when the bar hides.
+The picker's tab opens a menu that drops over the case from under the bar, its right edge on the tab's. The tab stays lit while the menu is open. It closes on a choice, on a click outside (which is consumed), and when the bar hides.
 
 | Row | Content |
 | --- | --- |
-| Header | "Profiles" at the left; the focused app's name and a window icon at the right |
+| Header | "Profiles" at the left; **Manage** at the right, a button that opens the editor on the profile showing |
 | One per profile, in the profiles' order | The name, filled while it is the profile showing, and an assign button at its right |
-| Last | **Edit shortcuts**, which opens the editor on the profile showing |
 
 - A press on a name switches to that profile and does nothing else.
 - A press on an assign button ties the focused app to that profile, lights the button, and clears any other profile's tie to that app. A press on a lit button removes the tie. Both are saved at once, and the menu stays open.
 - A profile just tied to the focused app shows at once. Removing a tie leaves the bar as it is until the focus changes.
 - Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported. They are also disabled, for an app without a tie, once 128 apps have one.
 - Six profiles show; more scroll. A tooltip on an assign button says what it will do, naming the profile and the app; on a disabled one it says why.
-- The header shows no app while the focused one can't be assigned.
+- The menu itself does not name the focused app: the lit assign button shows which profile it has, and the tooltips name it.
 
 ## Apps
 
@@ -111,7 +110,7 @@ Which identity the focus has, by the first row that fits:
 - `DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, read without blocking: the focused window with its app's kind and ID, published together, so the bar never sees a new window with the last one's app.
 - An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set.
 - The uinput backend can't tell which app has the keys: there is no identity there, only free profiles.
-- A name is looked up when the picker's menu opens and when an app is assigned, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives the menu shows what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie and not looked up again.
+- A name is looked up when the picker's menu opens and when an app is assigned, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie and not looked up again.
 - Desktop files are looked for by the app ID as a file name, in the user's and the system's application folders, Flatpak's included.
 
 ## Actions
@@ -192,7 +191,7 @@ Settings has one row for the feature, in the General card after Hide numpad. Und
 - Turning it on while there are no profiles shows the empty bar once, so its picker, and through it the editor, can be reached.
 - When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (profile 2, button 5), never quoting the user's text.
 
-The editor is a screen of its own, opened from the picker's **Edit shortcuts** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad. While it is open a composing language's reading and candidates are out of sight and take no press, as in Settings, and come back when it closes.
+The editor is a screen of its own, opened from the picker's **Manage** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad. While it is open a composing language's reading and candidates are out of sight and take no press, as in Settings, and come back when it closes.
 
 Its layout fits both widths. With the numpad hidden the profiles column is 236 wide instead of 286, the label field 250 instead of 300, the strip shows 12 buttons instead of 15, the steps list is narrower, and the strip's hint is left out.
 
