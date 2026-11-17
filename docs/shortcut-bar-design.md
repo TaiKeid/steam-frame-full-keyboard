@@ -111,12 +111,11 @@ One to four key combinations sent in order, once per press: Ctrl+K, then S. A co
 
 ### Macro
 
-Up to 32 steps, run in order.
+Up to 32 steps, run in order. A macro presses keys; it does not type text.
 
 | Step | Sends |
 | --- | --- |
-| Keys | One key combination, as in a shortcut |
-| Text | Up to 256 characters on one line, typed as the keyboard types text, in any language. Tab and Enter are Keys steps |
+| Keys | One to 32 key combinations recorded in a row, each as in a shortcut. Typing a word in a macro is recording its keys |
 | Wait | 0.1 to 10 s |
 
 | Repeat | Behavior |
@@ -125,12 +124,14 @@ Up to 32 steps, run in order.
 | Times | 2 to 99 passes |
 | While held | Starts on press and runs passes until the trigger lets go; the pass under way finishes |
 
-`ShortcutRunner` feeds the output queue one step at a time, each after the one before it was delivered, and is the only code that sends a button's keys or text. A running button stays lit. A run stops, sending nothing more and retrying nothing, when:
+`ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run stops, sending nothing more and retrying nothing, when:
 
 - its button is pressed again, or any key or other button is pressed;
 - another window takes the keys, or the target goes away;
 - the keyboard hides, Settings or dictation opens, or the headset sleeps;
 - a step fails to deliver.
+
+Keys are what streams take best: with Streaming support every key goes to the PC as a press and release with its modifiers, and through Moonlight as a key. The PC reads positions with its own layout.
 
 ### Run
 
@@ -147,15 +148,15 @@ Starts a program on the Frame. Nothing is typed, so it works without a typing ta
 
 ## Where actions can go
 
-| Target | Shortcut and macro keys | Macro text | Run |
-| --- | --- | --- | --- |
-| A local app through Gamescope | Yes | Yes | Yes |
-| An app in SteamOS's Desktop | Yes | As that route types text | Yes |
-| Moonlight | Yes | As that route types text | Yes |
-| A game or app streamed from a PC with Streaming support | Yes | Yes | Yes, on the Frame |
-| One of Steam's own text fields | No: Steam takes only Backspace, Enter, Tab, the arrows and Esc there | — | Yes |
-| Steam's dashboard has the keys, or there is no target | No, as for typing | No | Yes |
-| The uinput backend and external JIS | Yes | No | Yes |
+| Target | Shortcut and macro keys | Run |
+| --- | --- | --- |
+| A local app through Gamescope | Yes | Yes |
+| An app in SteamOS's Desktop | Yes | Yes |
+| Moonlight | Yes; Moonlight keeps its own Ctrl+Alt+Shift shortcuts | Yes |
+| A game or app streamed from a PC with Streaming support | Yes, read by the PC with its own layout | Yes, on the Frame |
+| One of Steam's own text fields | No: Steam takes only Backspace, Enter, Tab, the arrows and Esc there | Yes |
+| Steam's dashboard has the keys, or there is no target | No, as for typing | Yes |
+| The uinput backend and external JIS | Yes | Yes |
 
 Buttons that can't be sent are drawn disabled; a press on one shakes or reports as a key press does there.
 
@@ -180,28 +181,45 @@ Its layout fits both widths. With the numpad hidden the bars column is 236 wide 
 | Strip | The selected bar's buttons as they look on the bar, then **+**. Press selects; a sideways drag lifts a button to reorder it; dropped outside the strip it is deleted. It scrolls as the bar does |
 | Label and Action | The selected button's label field, and Shortcut, Macro or Run |
 | Shortcut | The recorded combinations as chips, **Record**, and clear |
-| Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete, press to edit. **+ Keys**, **+ Text**, **+ Wait**. Repeat: Once, Times with a count, While held |
+| Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete, press to edit. **+ Keys**, which opens the recorder, and **+ Wait**. Repeat: Once, Times with a count, While held |
 | Run | Script or Command; a list of the script files, or the command field |
 
 Everything in the editor is pending. ✓ saves it and returns to the keyboard. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
 ### Typing and recording
 
-The editor has no keys of its own. Fields are typed on the real keyboard, in the current typing language: the keyboard comes back with its toolbar row replaced by a strip, and nothing reaches the app.
+Labels are typed and keys are recorded without leaving the editor, on a mini keyboard in a popup. An earlier build switched to the real keyboard for this, and going back and forth lost the editor's context.
 
-| Field | On the keyboard | Ends with |
+**The popup** sits under the strip, centered, 1051 × 396, the same at the full and the no-numpad width, so the strip stays in view and the selected button shows a label as it is typed. What lies under it is dimmed and takes no press.
+
+| Row | Content |
+| --- | --- |
+| 1 | What is edited (Label, Bar name, Recording), then **F13–F24** and **Remove last** while recording, **Cancel** and **Done** |
+| 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. It scrolls sideways when long |
+| Keys | The mini keyboard |
+
+**The mini keyboard** is a fixed US keyboard, whatever layout and typing language are active, flick layouts included, and with the numpad whether or not Hide numpad is on.
+
+- Its geometry is the full US layout's without the side column (emoji, Cut, Copy, Paste and the mic, which can't be recorded), with the gaps between its blocks closed to 12 layout units, 4 under the function row and none between the other rows. At a scale of 0.771 a letter key is 42 × 48.
+- Its keys are the editor's own controls, drawn as keys, not the keyboard's keys: nothing goes through the key state, the output queue or a typing language, so nothing can reach the app, and there is no composition, no candidates, no swipe and no suggestions.
+- Modifiers latch on a tap and show lit; a second tap lets one go.
+
+| Editing | A key press | Ends with |
 | --- | --- | --- |
-| Label | The bar shows above with the button's label as a field | Enter saves; Shift+Enter starts a second line, once; Esc cancels |
-| Bar name, macro text, command | A one-line field in the strip | Enter or Done saves; Esc or Cancel cancels |
-| Keys | The strip shows the combinations recorded so far, with **F13–F24**, **Remove last**, **Cancel** and **Done** | Done |
+| Label, bar name, later a command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
+| Recording | Records the key with the modifiers latched then, as one combination. A press on the pending modifiers' chip, or Done, records them alone | Done; Cancel keeps what was there |
 
-- Typing goes to the field through the same `TextOutput` substitution dictation's editor uses, so composition, swipe typing and Pull for Shift work in it. Typing suggestions and the mic are off.
-- Recording: a modifier tap latches as usual and shows as a pending chip; the next key completes the combination. A press on the pending chip, or Done, records the modifiers alone. Recording a shortcut stops at four combinations; a macro's Keys step takes one.
-- Hiding the keyboard or sleep ends a field as Cancel.
+- Recording starts from nothing: Done replaces the button's combinations. A shortcut stops at four combinations, a macro's Keys step at 32.
+- Recorded keys are key strokes, stored by the key's name. Nothing is recorded as a character.
+- Labels in other languages are typed by renaming a button in place on the bar, which uses the real keyboard.
+- Hiding the keyboard or sleep ends the popup as Cancel.
 
 ## Renaming in place
 
-Outside Settings, pointing at a bar button and pressing the stick of the pointing hand turns its label into the same Label field. Enter saves at once, Esc cancels, Shift+Enter starts a second line once. It is not offered while a macro runs.
+Outside the editor, pointing at a bar button and pressing the stick of the pointing hand turns its label into a field, typed on the real keyboard in the current typing language. This is how a label gets text the mini keyboard has no keys for. Enter saves at once, Esc cancels, Shift+Enter starts a second line once. It is not offered while a macro runs.
+
+- The toolbar row shows a hint with **Cancel** and **Done** meanwhile, and nothing reaches the app. Typing goes to the field through the `TextOutput` substitution dictation's editor uses, so composition, swipe typing and Pull for Shift work in it; typing suggestions and the mic are off.
+- A composing language's candidates take the hint's place, with Cancel and Done staying at the right.
 
 Nothing reads a stick press today. A new reader measures the thumbstick's render component as the grip and bumper readers do, for the dashboard pointer and the passthrough pointer alike.
 
@@ -234,10 +252,9 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
           "action": {
             "kind": "macro",
             "steps": [
-              {"keys": {"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}},
+              {"keys": [{"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}]},
               {"wait_ms": 500},
-              {"text": "npm run dev"},
-              {"keys": {"key": "Enter"}}
+              {"keys": [{"key": "KeyL"}, {"key": "KeyS"}, {"key": "Enter"}]}
             ],
             "repeat": {"mode": "times", "count": 3}
           }
@@ -261,7 +278,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 | Bar name | 32 characters |
 | Combinations in a shortcut | 4 |
 | Steps in a macro | 32 |
-| Text step | 256 characters |
+| Combinations in a macro's Keys step | 32 |
 | Wait | 100 to 10,000 ms |
 | Repeat count | 2 to 99 |
 | Command | 512 bytes, one line |
@@ -271,7 +288,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 
 - Key names are the logical names of `key_codes`; a chord without `key` is modifiers alone. An unknown name, kind or field value makes the file invalid as a whole.
 - An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
-- Labels, names, text and commands are valid UTF-8 without control characters; a label's one line break is the exception.
+- Labels, names and commands are valid UTF-8 without control characters; a label's one line break is the exception.
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
 - What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and the free bar are written at once.
 - Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. The file is synced to disk before it replaces the old one.
@@ -282,9 +299,9 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 
 ## Security and privacy
 
-- A button can run a command and type any text, so `shortcuts.json` is the only place such actions come from. Layout, language and theme profiles stay data and cannot run commands, and nothing in a shell's protocol or the instance socket can add, change or press a button.
+- A button can run a command and press any keys, so `shortcuts.json` is the only place such actions come from. Layout, language and theme profiles stay data and cannot run commands, and nothing in a shell's protocol or the instance socket can add, change or press a button.
 - There is no import or sharing of bars in this version.
-- Labels, macro text, commands and script names are never logged.
+- Labels, names, recorded keys, commands and script names are never logged.
 - App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) is updated to say so when this lands.
 
 ## Code map
@@ -305,8 +322,8 @@ The model knows nothing of drawing or output. The runner and the launcher are th
 ## Tests
 
 - `shortcuts`: the file's parsing, limits, invalid files and the `.bad` rule; which bar shows for each focus change; the toolbar button's three cases.
-- `shortcut-runner`: order and spacing against a recording sink, whole-or-refused sequences, every stop rule, a focus change mid-run, text on a route without text.
-- `settings`: the General row, the editor's flows (bars, strip drags, steps), ✓ and ← with the question, fields and recording.
+- `shortcut-runner`: order and spacing against a recording sink, whole-or-refused sequences, every stop rule, a focus change mid-run.
+- `settings`: the General row, the editor's flows (bars, strip drags, steps), ✓ and ← with the question, the popup's typing and recording at both widths.
 - `rendering`: bar hover, press and scroll repaints compared with a full repaint; the bar with the tooltip and the status card.
 - `locales` and the interface tour: new strings in every language, labels fit, pictures of the bar, the menu and the editor.
 - The uinput smoke test's receiver takes a recorded shortcut and a macro, never the focused app.
@@ -327,7 +344,7 @@ Facts to measure on the Frame before the parts that depend on them:
 
 - Icons and images on buttons.
 - Holding a shortcut down, or keeping it down until pressed again.
-- Macro steps that hold and release a key, and endless repeats.
+- Macro steps that hold and release a key, macro steps that type text, and endless repeats.
 - Starting installed apps or Steam games from a list.
 - Volume and media keys.
 - Sharing or importing bars; the feature under a shell.
