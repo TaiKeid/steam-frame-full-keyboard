@@ -480,8 +480,8 @@ void shortcut_bar() {
     ShortcutButton home;
     home.label = "Home";
     home.action.chords = {{{}, "Home"}};
-    model.bars.push_back({"b", "Bar", {home}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", {home}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
     Simulator simulator(setup(profile, "en-us-full", "en-us", false));
     wait(simulator);
@@ -526,15 +526,15 @@ void shortcut_editor() {
     settings.shortcuts = true;
     save_settings(profile.path, settings);
     ShortcutModel model;
-    model.bars.push_back({"b", "Bar", {}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", {}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
     Simulator simulator(setup(profile, "en-us-full", "en-us", false));
     wait(simulator);
     click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->edit);
     require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
-    click_rect(simulator, control_bounds(simulator, "shortcuts-new-bar"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-new-profile"));
     require(simulator.app().view().shortcut_editor->popup.has_value() &&
                 !simulator.app().view().shortcut_field,
             "New bar opens its name in the editor's popup");
@@ -543,7 +543,7 @@ void shortcut_editor() {
     const auto view = simulator.app().view();
     bool named = false;
     for (const auto& control : view.controls) {
-        named |= control.id.starts_with("shortcuts-row-") && control.label == "Bar 2q";
+        named |= control.id.starts_with("shortcuts-row-") && control.label == "Profile 2q";
     }
     require(named && simulator.field().text().empty() && !view.shortcut_editor->popup,
             "the popup takes clicks: its name is typed into the editor, not the field");

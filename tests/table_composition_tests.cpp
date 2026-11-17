@@ -204,8 +204,8 @@ struct Fixture {
             << (shortcuts ? R"(,"shortcuts":true})" : "}");
         if (shortcuts) {
             std::ofstream(directory.path / "shortcuts.json")
-                << R"({"schema_version":1,"bars":[{"id":"b","name":"Bar","buttons":[)"
-                << R"({"label":"K","action":{"kind":"keys","chords":[{"key":"KeyK"}]}}]}],"free_bar":"b"})";
+                << R"({"schema_version":1,"profiles":[{"id":"b","name":"Bar","buttons":[)"
+                << R"({"label":"K","action":{"kind":"keys","chords":[{"key":"KeyK"}]}}]}],"free_profile":"b"})";
         }
         Options options;
         options.mode = Mode::Vr; // App only; no VR runtime or actual backend is constructed.

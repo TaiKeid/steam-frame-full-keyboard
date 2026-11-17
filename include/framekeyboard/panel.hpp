@@ -379,13 +379,13 @@ struct ShortcutEditorView {
     bool wide{};    // full width: the strip shows its hint
     std::string title;
     std::string notice; // shortcuts.json can't be read: why, and what saving does
-    std::string bars_caption, used_caption, used_hint, strip_hint, empty_hint;
-    Rect column, bars_list, strip_well, strip;
+    std::string profiles_caption, used_caption, used_hint, strip_hint, empty_hint;
+    Rect column, profiles_list, strip_well, strip;
     Rect used;        // Used for: its caption at the top, its hint at the foot
     double divider{}; // x of the line right of the column
     double scale{1};  // the strip's buttons are keys at the layout's scale
     bool more_before{}, more_after{};
-    std::optional<Rect> bars_thumb;
+    std::optional<Rect> profiles_thumb;
     std::vector<ShortcutChip> ties; // Used for; their ✕ are controls
     // A row or button a drag carries, where the laser holds it; a button
     // carried off the strip would be deleted.

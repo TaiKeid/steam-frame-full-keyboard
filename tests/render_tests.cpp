@@ -1455,7 +1455,7 @@ void shortcut_bar(const char* theme_id, double opacity) {
             menu.header = m.header;
             menu.list = m.list;
             menu.edit = m.edit;
-            menu.title = "Bars";
+            menu.title = "Profiles";
             menu.edit_label = "Edit shortcuts";
             for (std::size_t i = 0; i < m.visible; ++i) {
                 const auto row = m.row(i, 0);
@@ -1518,7 +1518,7 @@ void shortcut_bar(const char* theme_id, double opacity) {
     view.shortcut_bar = bar({});
     compare.frame(view, phase("the menu closes").c_str());
     // The picker's tooltip and a message stand above the bar.
-    view.bar_tooltip = "Choose a bar";
+    view.bar_tooltip = "Choose a profile";
     view.bar_tooltip_at = g.picker_button;
     compare.frame(view, phase("the tooltip").c_str());
     const auto above = [&](double x) {
@@ -1565,10 +1565,10 @@ void shortcut_editor(const char* theme_id, bool wide) {
     e.width = width;
     e.wide = wide;
     e.title = "Edit shortcuts";
-    e.notice = "shortcuts.json can't be read (bar 2: the ID is used by another bar).";
-    e.bars_caption = "Bars";
+    e.notice = "shortcuts.json can't be read (profile 2: the ID is used by another profile).";
+    e.profiles_caption = "Profiles";
     e.column = {x0 + 18, 70, wide ? 286.0 : 236.0, 500};
-    e.bars_list = {x0 + 18, 104, e.column.width, 156};
+    e.profiles_list = {x0 + 18, 104, e.column.width, 156};
     e.divider = e.column.x + e.column.width + 16;
     e.used = {e.column.x + 12, 420, e.column.width - 12, 150};
     e.used_caption = "Used for";
@@ -1593,14 +1593,14 @@ void shortcut_editor(const char* theme_id, bool wide) {
                     "Bar " + std::to_string(i),
                     {e.column.x, 106 + 52.0 * i, e.column.width, 48},
                     i == 1};
-        row.clip = e.bars_list;
+        row.clip = e.profiles_list;
         controls.push_back(row);
     }
     controls.push_back(
         {"shortcuts-rename", "", {e.column.x + e.column.width - 92, 156, 44, 52}, false, Icon::Pencil});
     controls.push_back(
         {"shortcuts-delete", "", {e.column.x + e.column.width - 48, 156, 44, 52}, false, Icon::Clear});
-    controls.push_back({"shortcuts-new-bar", "New bar", {e.column.x, 260, e.column.width, 52}});
+    controls.push_back({"shortcuts-new-profile", "New profile", {e.column.x, 260, e.column.width, 52}});
     controls.push_back({"shortcuts-tie-0", "", {e.used.x + 72, 454, 34, 40}});
     for (int i = 0; i < 4; ++i) {
         Control button{"shortcuts-button-" + std::to_string(i),
@@ -1769,8 +1769,8 @@ void app_controls_drawn() {
     ShortcutButton copy;
     copy.label = "Copy";
     copy.action.chords = {{{"ControlLeft"}, "KeyC"}};
-    model.bars.push_back({"b", "Bar", {copy}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", {copy}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
     Options options;
     options.config_dir = folder.path;
@@ -1802,7 +1802,7 @@ void app_controls_drawn() {
     drawn("bar hidden");
     // Settings with an unreadable file: its note under the switch, below
     // the General card's fold until the card scrolls.
-    std::ofstream(shortcuts_path(folder.path)) << R"({"schema_version":1,"bars":[{}]})";
+    std::ofstream(shortcuts_path(folder.path)) << R"({"schema_version":1,"profiles":[{}]})";
     App invalid(options, sink);
     invalid.show_settings();
     for (int step = 0; step < 40; ++step) {
@@ -1847,8 +1847,8 @@ void shortcut_popup(bool narrow) {
     ShortcutButton save;
     save.label = "Save";
     save.action.chords = {{{"ControlLeft"}, "KeyS"}};
-    model.bars.push_back({"b", "Editor", {save}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Editor", {save}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
     Options options;
     options.config_dir = folder.path;
@@ -1931,8 +1931,8 @@ void long_combinations_drawn() {
     ShortcutButton button;
     button.label = "Long";
     button.action.chords = {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}};
-    model.bars.push_back({"b", "Bar", {button}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", {button}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
     Options options;
     options.config_dir = folder.path;
@@ -1999,8 +1999,8 @@ void macro_view(bool narrow) {
     }
     button.action.repeat = {MacroRepeat::Mode::Times, 3};
     ShortcutModel model;
-    model.bars.push_back({"b", "Bar", {button}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", {button}});
+    model.free_profile = "b";
     std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
     Options options;
     options.config_dir = folder.path;

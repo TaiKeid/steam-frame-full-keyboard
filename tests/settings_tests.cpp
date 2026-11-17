@@ -3869,8 +3869,8 @@ void shortcut_bar_settings() {
         // The Debug card's sample bars, saved at once.
         click(app, "debug-sample-shortcuts");
         const auto samples = saved_shortcuts(app);
-        require(samples.bars.size() == 2 && samples.bars[1].buttons.size() == 18 &&
-                    samples.free_bar == samples.bars[0].id,
+        require(samples.profiles.size() == 2 && samples.profiles[1].buttons.size() == 18 &&
+                    samples.free_profile == samples.profiles[0].id,
                 "Add sample shortcuts saves two bars, the first the free bar");
         require(!control(app.view(), "debug-sample-shortcuts").enabled, "and only while there are none");
 #else
@@ -3890,12 +3890,12 @@ void shortcut_bar_settings() {
     const auto picker = view.shortcut_bar->picker_button;
     const auto spot = middle(picker);
     app.move(0, spot.x, spot.y);
-    require(app.view().bar_tooltip == "Choose a bar", "the picker's tooltip");
+    require(app.view().bar_tooltip == "Choose a profile", "the picker's tooltip");
     tap_rect(app, picker);
     view = app.view();
     require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 2 &&
                 view.shortcut_bar->menu->rows[0].shown && !view.shortcut_bar->menu->rows[1].shown &&
-                view.shortcut_bar->menu->title == "Bars" &&
+                view.shortcut_bar->menu->title == "Profiles" &&
                 view.shortcut_bar->menu->edit_label == "Edit shortcuts" &&
                 !view.shortcut_bar->menu->rows[0].assign_enabled,
             "the picker opens its menu: the bar showing filled, assigning off for now");
@@ -3925,7 +3925,7 @@ void shortcut_bar_settings() {
                 view.shortcut_bar->buttons[0].label == "Home" && view.shortcut_bar->more_after &&
                 !view.shortcut_bar->more_before,
             "a bar chosen shows, the menu closed; 15 slots, the rest scroll");
-    require(saved_shortcuts(app).free_bar == "sample-keys",
+    require(saved_shortcuts(app).free_profile == "sample-keys",
             "a free bar chosen is saved as the free bar");
     // The stick scrolls a button at a time, eased.
     const auto first = view.shortcut_bar->buttons[0].bounds;
@@ -4004,11 +4004,11 @@ void shortcut_buttons() {
     run.label = "Run";
     run.action.kind = ShortcutAction::Kind::Run;
     run.action.command = "true";
-    model.bars.push_back({"b",
-                          "Bar",
-                          {shortcut_button("Two", {{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}}),
-                           shortcut_button("Empty", {}), macro, run}});
-    model.free_bar = "b";
+    model.profiles.push_back({"b",
+                              "Bar",
+                              {shortcut_button("Two", {{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}}),
+                               shortcut_button("Empty", {}), macro, run}});
+    model.free_profile = "b";
     write_shortcuts(directory.path, model);
     Options options;
     options.config_dir = directory.path;
@@ -4111,10 +4111,10 @@ void shortcut_press_bar_change() {
     settings.shortcuts = true;
     save_settings(directory.path, settings);
     ShortcutModel model;
-    model.bars.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
-    model.bars.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
     model.apps.push_back({{AppIdentity::Kind::Program, "app"}, "App", "t"});
-    model.free_bar = "a";
+    model.free_profile = "a";
     write_shortcuts(directory.path, model);
     Options options;
     options.config_dir = directory.path;
@@ -4246,7 +4246,7 @@ void shortcut_invalid_note() {
     Settings settings;
     settings.shortcuts = true;
     save_settings(directory.path, settings);
-    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"bars\":[{}]}";
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"profiles\":[{}]}";
     Options options;
     options.config_dir = directory.path;
     options.mode = Mode::Render;
@@ -4278,23 +4278,24 @@ void shortcut_invalid_note() {
     open_editor(app);
     require(app.view().shortcut_editor && !app.view().shortcut_editor->notice.empty(),
             "so does the editor");
-    tap_control(app, "shortcuts-new-bar");
+    tap_control(app, "shortcuts-new-profile");
     tap_mini(app, "Escape");
     tap_control(app, "shortcuts-save");
-    require(saved_shortcuts(app).bars.size() == 1, "✓ saves the new bar");
+    require(saved_shortcuts(app).profiles.size() == 1, "✓ saves the new bar");
     app.tick(950);
     app.show_settings();
     require(has(app.view(), "shortcuts") && !noted(), "the save that worked ends the note");
 }
 ShortcutModel editor_model() {
     ShortcutModel model;
-    model.bars.push_back({"one",
-                          "One",
-                          {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}}),
-                           shortcut_button("B", {{{}, "KeyB"}}), shortcut_button("C", {{{}, "KeyC"}})}});
-    model.bars.push_back({"two", "Two", {}});
+    model.profiles.push_back(
+        {"one",
+         "One",
+         {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+          shortcut_button("C", {{{}, "KeyC"}})}});
+    model.profiles.push_back({"two", "Two", {}});
     model.apps.push_back({{AppIdentity::Kind::Program, "kate"}, "Kate", "one"});
-    model.free_bar = "two";
+    model.free_profile = "two";
     return model;
 }
 // The popup is the same whatever types: with the flick layout in use its
@@ -4361,12 +4362,12 @@ void long_combinations() {
     save_settings(directory.path, settings);
     const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
     ShortcutModel model;
-    model.bars.push_back(
+    model.profiles.push_back(
         {"b",
          "Bar",
          {shortcut_button("One", {{{}, "KeyA"}}),
           shortcut_button("Long", {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}})}});
-    model.free_bar = "b";
+    model.free_profile = "b";
     write_shortcuts(directory.path, model);
     Options options;
     options.config_dir = directory.path;
@@ -4570,10 +4571,10 @@ void shortcut_macro_view() {
         // ✓ saves only the chosen action: the macro, and no shortcut beside it.
         tap_control(app, "shortcuts-save");
         const auto saved = saved_shortcuts(app);
-        const auto& action = saved.bars[0].buttons[0].action;
+        const auto& action = saved.profiles[0].buttons[0].action;
         require(action.kind == ShortcutAction::Kind::Macro && action.steps.size() == 32 &&
                     action.chords.empty() && action.repeat.mode == MacroRepeat::Mode::WhileHeld &&
-                    saved.bars[0].buttons[1] == editor_model().bars[0].buttons[1],
+                    saved.profiles[0].buttons[1] == editor_model().profiles[0].buttons[1],
                 "✓ saves the macro alone; other buttons as they were");
     }
 }
@@ -4599,8 +4600,8 @@ void macro_buttons() {
     for (int i = 0; i < 20; ++i) {
         buttons.push_back(shortcut_button("K", {{{}, "KeyK"}})); // enough to scroll
     }
-    model.bars.push_back({"b", "Bar", buttons});
-    model.free_bar = "b";
+    model.profiles.push_back({"b", "Bar", buttons});
+    model.free_profile = "b";
     write_shortcuts(directory.path, model);
     Options options;
     options.config_dir = directory.path;
@@ -4675,14 +4676,14 @@ void first_bar_shows() {
     click(app, "bar-toggle");
     require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(), "the empty bar");
     open_editor(app);
-    tap_control(app, "shortcuts-new-bar");
+    tap_control(app, "shortcuts-new-profile");
     tap_mini(app, "Escape");
     tap_control(app, "shortcuts-add");
     tap_control(app, "shortcuts-save");
     const auto view = app.view();
     const auto saved = saved_shortcuts(app);
     require(!view.shortcut_editor && view.shortcut_bar && view.shortcut_bar->buttons.size() == 1 &&
-                saved.bars.size() == 1 && saved.free_bar == saved.bars[0].id,
+                saved.profiles.size() == 1 && saved.free_profile == saved.profiles[0].id,
             "✓ shows the bar selected in the editor, saved as the free bar");
 }
 // R335: while one laser's press on a strip button is pending, before it
@@ -4748,7 +4749,7 @@ void unsynced_save() {
     Settings settings;
     settings.shortcuts = true;
     save_settings(directory.path, settings);
-    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"bars\":[{}]}";
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"profiles\":[{}]}";
     Options options;
     options.config_dir = directory.path;
     options.mode = Mode::Render;
@@ -4757,7 +4758,7 @@ void unsynced_save() {
     click(app, "bar-toggle");
     open_editor(app);
     require(!app.view().shortcut_editor->notice.empty(), "the editor notes the unreadable file");
-    tap_control(app, "shortcuts-new-bar");
+    tap_control(app, "shortcuts-new-profile");
     tap_mini(app, "Escape");
     // A folder that can't be opened for reading still takes the file.
     fs::permissions(directory.path, fs::perms::owner_write | fs::perms::owner_exec);
@@ -4770,7 +4771,7 @@ void unsynced_save() {
                 view.status.find("not saved") == std::string::npos,
             "the status says the bars were saved, not yet safe on disk");
     open_editor(app);
-    require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).bars.size() == 1,
+    require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
 void shortcut_editor_settings() {
@@ -5027,10 +5028,11 @@ void shortcut_editor_settings() {
         tap_mini(app, "ShiftLeft");
         tap_mini(app, "Enter");
         require(row_names(app.view())[0] == "Onex", "Enter saves the name; Shift+Enter too, one line");
-        tap_control(app, "shortcuts-new-bar");
-        require(app.view().shortcut_editor->popup && popup_text(app) == "Bar 3", "New bar names itself");
+        tap_control(app, "shortcuts-new-profile");
+        require(app.view().shortcut_editor->popup && popup_text(app) == "Profile 3",
+                "New profile names itself");
         tap_mini(app, "Escape");
-        require(row_names(app.view()).size() == 3 && row_names(app.view())[2] == "Bar 3" &&
+        require(row_names(app.view()).size() == 3 && row_names(app.view())[2] == "Profile 3" &&
                     control(app.view(), "shortcuts-row-2").selected,
                 "the new bar stays with its name when the popup is canceled");
         tap_control(app, "shortcuts-delete");
@@ -5055,9 +5057,9 @@ void shortcut_editor_settings() {
         tap_control(app, "shortcuts-add");
         tap_control(app, "shortcuts-save");
         const auto stored = saved_shortcuts(app);
-        require(!app.view().shortcut_editor && stored.bars[0].buttons.size() == 4 &&
-                    stored.bars[0].buttons[3].label.empty() &&
-                    stored.bars[0].buttons[3].action.chords.empty(),
+        require(!app.view().shortcut_editor && stored.profiles[0].buttons.size() == 4 &&
+                    stored.profiles[0].buttons[3].label.empty() &&
+                    stored.profiles[0].buttons[3].action.chords.empty(),
                 "✓ saves the editor's copy");
         // ← without changes leaves at once; with changes, Save saves.
         open_editor(app);
@@ -5070,7 +5072,7 @@ void shortcut_editor_settings() {
         tap_control(app, "confirm-accept");
         tap_control(app, "shortcuts-back");
         tap_control(app, "confirm-accept");
-        require(saved_shortcuts(app).bars.size() == 1, "Save from the question saves");
+        require(saved_shortcuts(app).profiles.size() == 1, "Save from the question saves");
     }
     // The limits: the control that would exceed one is disabled.
     TemporaryDirectory directory;
@@ -5079,10 +5081,10 @@ void shortcut_editor_settings() {
     save_settings(directory.path, settings);
     ShortcutModel full;
     for (int i = 0; i < 32; ++i) {
-        full.bars.push_back({"b" + std::to_string(i), "Bar", {}});
+        full.profiles.push_back({"b" + std::to_string(i), "Bar", {}});
     }
-    full.bars[0].buttons.assign(64, shortcut_button("abcdefghijklmnopqrstuvwx", {{{}, "KeyA"}}));
-    full.free_bar = "b0";
+    full.profiles[0].buttons.assign(64, shortcut_button("abcdefghijklmnopqrstuvwx", {{{}, "KeyA"}}));
+    full.free_profile = "b0";
     write_shortcuts(directory.path, full);
     Options options;
     options.config_dir = directory.path;
@@ -5091,8 +5093,8 @@ void shortcut_editor_settings() {
     App app(options, sink);
     open_editor(app);
     auto view = app.view();
-    require(!control(view, "shortcuts-new-bar").enabled, "32 bars: New bar is disabled");
-    require(view.shortcut_editor->bars_thumb.has_value(), "a long list of bars scrolls");
+    require(!control(view, "shortcuts-new-profile").enabled, "32 profiles: New profile is disabled");
+    require(view.shortcut_editor->profiles_thumb.has_value(), "a long list of bars scrolls");
     tap_control(app, "shortcuts-label");
     tap_mini(app, "KeyY");
     tap_mini(app, "Enter");

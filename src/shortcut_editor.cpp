@@ -45,9 +45,9 @@ bool fits_label(const std::string& text) {
     return count_text(text, limits::label_lines - 1, characters) &&
            characters <= limits::label_characters;
 }
-bool fits_bar_name(const std::string& text) {
+bool fits_profile_name(const std::string& text) {
     std::size_t characters = 0;
-    return count_text(text, 0, characters) && characters <= limits::bar_name_characters;
+    return count_text(text, 0, characters) && characters <= limits::profile_name_characters;
 }
 std::string chord_text(const ShortcutChord& chord) {
     static const std::map<std::string, std::string> modifiers{
@@ -103,21 +103,22 @@ std::string chord_text(const ShortcutChord& chord) {
 ShortcutEditor::ShortcutEditor(ShortcutModel model, const std::string* showing)
     : model_(std::move(model)), original_(model_) {
     original_ = saved(); // as a save would write it, so an untouched copy is unchanged
-    for (std::size_t i = 0; showing && i < model_.bars.size(); ++i) {
-        if (model_.bars[i].id == *showing) {
-            bar_ = i;
+    for (std::size_t i = 0; showing && i < model_.profiles.size(); ++i) {
+        if (model_.profiles[i].id == *showing) {
+            profile_ = i;
         }
     }
-    if (!bar_ && !model_.bars.empty()) {
-        bar_ = 0;
+    if (!profile_ && !model_.profiles.empty()) {
+        profile_ = 0;
     }
-    select_button(selected_bar() && !selected_bar()->buttons.empty() ? std::optional<std::size_t>(0)
-                                                                     : std::nullopt);
+    select_button(selected_profile() && !selected_profile()->buttons.empty()
+                      ? std::optional<std::size_t>(0)
+                      : std::nullopt);
 }
 ShortcutModel ShortcutEditor::saved() const {
     auto model = model_;
-    for (auto& bar : model.bars) {
-        for (auto& button : bar.buttons) {
+    for (auto& profile : model.profiles) {
+        for (auto& button : profile.buttons) {
             auto& action = button.action;
             if (action.kind != ShortcutAction::Kind::Keys) {
                 action.chords.clear();
@@ -135,7 +136,7 @@ ShortcutAction* ShortcutEditor::macro() {
     if (!button || button->action.kind != ShortcutAction::Kind::Macro) {
         return nullptr;
     }
-    return &model_.bars[*bar_].buttons[*button_].action;
+    return &model_.profiles[*profile_].buttons[*button_].action;
 }
 void ShortcutEditor::set_kind(ShortcutAction::Kind kind) {
     const auto* button = selected_button();
@@ -143,7 +144,7 @@ void ShortcutEditor::set_kind(ShortcutAction::Kind kind) {
         button->action.kind == ShortcutAction::Kind::Run) {
         return;
     }
-    auto& action = model_.bars[*bar_].buttons[*button_].action;
+    auto& action = model_.profiles[*profile_].buttons[*button_].action;
     if (kind == ShortcutAction::Kind::Macro && action.kind == ShortcutAction::Kind::Keys &&
         action.steps.empty() && !action.chords.empty()) {
         MacroStep step;
@@ -210,100 +211,101 @@ void ShortcutEditor::set_repeat(MacroRepeat repeat) {
         action->repeat = repeat;
     }
 }
-const ShortcutBar* ShortcutEditor::selected_bar() const {
-    return bar_ && *bar_ < model_.bars.size() ? &model_.bars[*bar_] : nullptr;
+const ShortcutProfile* ShortcutEditor::selected_profile() const {
+    return profile_ && *profile_ < model_.profiles.size() ? &model_.profiles[*profile_] : nullptr;
 }
 const ShortcutButton* ShortcutEditor::selected_button() const {
-    const auto* bar = selected_bar();
-    return bar && button_ && *button_ < bar->buttons.size() ? &bar->buttons[*button_] : nullptr;
+    const auto* profile = selected_profile();
+    return profile && button_ && *button_ < profile->buttons.size() ? &profile->buttons[*button_]
+                                                                    : nullptr;
 }
-void ShortcutEditor::select_bar(std::size_t index) {
-    if (index >= model_.bars.size()) {
+void ShortcutEditor::select_profile(std::size_t index) {
+    if (index >= model_.profiles.size()) {
         return;
     }
-    bar_ = index;
-    button_ = model_.bars[index].buttons.empty() ? std::nullopt : std::optional<std::size_t>(0);
+    profile_ = index;
+    button_ = model_.profiles[index].buttons.empty() ? std::nullopt : std::optional<std::size_t>(0);
 }
 void ShortcutEditor::select_button(std::optional<std::size_t> index) {
-    const auto* bar = selected_bar();
-    button_ = bar && index && *index < bar->buttons.size() ? index : std::nullopt;
+    const auto* profile = selected_profile();
+    button_ = profile && index && *index < profile->buttons.size() ? index : std::nullopt;
 }
-void ShortcutEditor::add_bar(std::string name) {
-    if (!can_add_bar()) {
+void ShortcutEditor::add_profile(std::string name) {
+    if (!can_add_profile()) {
         return;
     }
-    // b1, b2, …: the first such ID no bar has.
+    // p1, p2, …: the first such ID no profile has.
     std::string id;
-    for (std::size_t n = 1; id.empty() || model_.bar(id); ++n) {
-        id = "b" + std::to_string(n);
+    for (std::size_t n = 1; id.empty() || model_.profile(id); ++n) {
+        id = "p" + std::to_string(n);
     }
-    model_.bars.push_back({std::move(id), fits_bar_name(name) ? name : std::string(), {}});
-    bar_ = model_.bars.size() - 1;
+    model_.profiles.push_back({std::move(id), fits_profile_name(name) ? name : std::string(), {}});
+    profile_ = model_.profiles.size() - 1;
     button_.reset();
 }
-void ShortcutEditor::rename_bar(std::string name) {
-    if (!bar_) {
+void ShortcutEditor::rename_profile(std::string name) {
+    if (!profile_) {
         return;
     }
     std::size_t characters = 0;
     if (!count_text(name, 0, characters)) {
         return;
     }
-    model_.bars[*bar_].name = first_characters(name, limits::bar_name_characters);
+    model_.profiles[*profile_].name = first_characters(name, limits::profile_name_characters);
 }
-void ShortcutEditor::delete_bar() {
-    if (!bar_) {
+void ShortcutEditor::delete_profile() {
+    if (!profile_) {
         return;
     }
-    const auto id = model_.bars[*bar_].id;
-    model_.bars.erase(model_.bars.begin() + static_cast<std::ptrdiff_t>(*bar_));
-    std::erase_if(model_.apps, [&](const AppTie& tie) { return tie.bar == id; });
-    if (model_.free_bar == id) {
-        model_.free_bar.clear();
+    const auto id = model_.profiles[*profile_].id;
+    model_.profiles.erase(model_.profiles.begin() + static_cast<std::ptrdiff_t>(*profile_));
+    std::erase_if(model_.apps, [&](const AppTie& tie) { return tie.profile == id; });
+    if (model_.free_profile == id) {
+        model_.free_profile.clear();
     }
-    if (model_.bars.empty()) {
-        bar_.reset();
+    if (model_.profiles.empty()) {
+        profile_.reset();
         button_.reset();
     } else {
-        select_bar(std::min(*bar_, model_.bars.size() - 1));
+        select_profile(std::min(*profile_, model_.profiles.size() - 1));
     }
 }
-void ShortcutEditor::move_bar(std::size_t from, std::size_t to) {
-    auto& bars = model_.bars;
-    if (from >= bars.size() || to >= bars.size() || from == to) {
+void ShortcutEditor::move_profile(std::size_t from, std::size_t to) {
+    auto& profiles = model_.profiles;
+    if (from >= profiles.size() || to >= profiles.size() || from == to) {
         return;
     }
-    const bool selected = bar_ == from;
-    auto moved = std::move(bars[from]);
-    bars.erase(bars.begin() + static_cast<std::ptrdiff_t>(from));
-    bars.insert(bars.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved));
-    // The selection follows its bar.
+    const bool selected = profile_ == from;
+    auto moved = std::move(profiles[from]);
+    profiles.erase(profiles.begin() + static_cast<std::ptrdiff_t>(from));
+    profiles.insert(profiles.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved));
+    // The selection follows its profile.
     if (selected) {
-        bar_ = to;
-    } else if (bar_ && from < *bar_ && to >= *bar_) {
-        --*bar_;
-    } else if (bar_ && from > *bar_ && to <= *bar_) {
-        ++*bar_;
+        profile_ = to;
+    } else if (profile_ && from < *profile_ && to >= *profile_) {
+        --*profile_;
+    } else if (profile_ && from > *profile_ && to <= *profile_) {
+        ++*profile_;
     }
 }
 bool ShortcutEditor::can_add_button() const {
-    const auto* bar = selected_bar();
-    return bar && bar->buttons.size() < limits::buttons;
+    const auto* profile = selected_profile();
+    return profile && profile->buttons.size() < limits::buttons;
 }
 void ShortcutEditor::add_button() {
     if (!can_add_button()) {
         return;
     }
-    auto& buttons = model_.bars[*bar_].buttons;
+    auto& buttons = model_.profiles[*profile_].buttons;
     buttons.push_back({}); // An empty label and an empty shortcut.
     button_ = buttons.size() - 1;
 }
 void ShortcutEditor::delete_button(std::size_t index) {
-    const auto* bar = selected_bar();
-    if (!bar || index >= bar->buttons.size()) {
+    const auto* profile = selected_profile();
+    if (!profile || index >= profile->buttons.size()) {
         return;
     }
-    auto& buttons = model_.bars[*bar_].buttons;
+    auto& buttons = model_.profiles[*profile_].buttons;
     buttons.erase(buttons.begin() + static_cast<std::ptrdiff_t>(index));
     if (buttons.empty()) {
         button_.reset();
@@ -313,11 +315,11 @@ void ShortcutEditor::delete_button(std::size_t index) {
     }
 }
 void ShortcutEditor::move_button(std::size_t from, std::size_t to) {
-    const auto* bar = selected_bar();
-    if (!bar || from >= bar->buttons.size() || to >= bar->buttons.size() || from == to) {
+    const auto* profile = selected_profile();
+    if (!profile || from >= profile->buttons.size() || to >= profile->buttons.size() || from == to) {
         return;
     }
-    auto& buttons = model_.bars[*bar_].buttons;
+    auto& buttons = model_.profiles[*profile_].buttons;
     auto moved = std::move(buttons[from]);
     buttons.erase(buttons.begin() + static_cast<std::ptrdiff_t>(from));
     buttons.insert(buttons.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved));
@@ -331,7 +333,7 @@ void ShortcutEditor::move_button(std::size_t from, std::size_t to) {
 }
 void ShortcutEditor::set_label(std::string label) {
     if (selected_button() && fits_label(label)) {
-        model_.bars[*bar_].buttons[*button_].label = std::move(label);
+        model_.profiles[*profile_].buttons[*button_].label = std::move(label);
     }
 }
 void ShortcutEditor::set_chords(std::vector<ShortcutChord> chords) {
@@ -342,13 +344,13 @@ void ShortcutEditor::set_chords(std::vector<ShortcutChord> chords) {
     if (chords.size() > limits::chords) {
         chords.resize(limits::chords);
     }
-    model_.bars[*bar_].buttons[*button_].action.chords = std::move(chords);
+    model_.profiles[*profile_].buttons[*button_].action.chords = std::move(chords);
 }
 std::vector<std::size_t> ShortcutEditor::ties() const {
     std::vector<std::size_t> result;
-    if (const auto* bar = selected_bar()) {
+    if (const auto* profile = selected_profile()) {
         for (std::size_t i = 0; i < model_.apps.size(); ++i) {
-            if (model_.apps[i].bar == bar->id) {
+            if (model_.apps[i].profile == profile->id) {
                 result.push_back(i);
             }
         }
@@ -373,10 +375,10 @@ ShortcutsCheck check_shortcuts(const std::filesystem::path& config_dir) {
         break;
     }
     std::size_t buttons = 0;
-    for (const auto& bar : loaded.model.bars) {
-        buttons += bar.buttons.size();
+    for (const auto& profile : loaded.model.profiles) {
+        buttons += profile.buttons.size();
     }
-    return {"shortcuts: " + std::to_string(loaded.model.bars.size()) + " bars, " +
+    return {"shortcuts: " + std::to_string(loaded.model.profiles.size()) + " profiles, " +
                 std::to_string(buttons) + " buttons, " + std::to_string(loaded.model.apps.size()) +
                 " assigned apps",
             true};

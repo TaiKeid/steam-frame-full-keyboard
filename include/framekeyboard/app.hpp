@@ -1781,19 +1781,19 @@ class App {
     // An invalid shortcuts.json loaded nothing: Settings says why (never
     // quoting its content), and the next save keeps it as shortcuts.json.bad.
     std::string shortcuts_invalid_;
-    ShortcutBarChoice bar_choice_;
+    ShortcutProfileChoice profile_choice_;
     bool pending_shortcuts_{};
     // Letters go through the target's keymap only in Unicode mode, as Cut,
     // Copy and Paste do (chord_code). Declared after output_, which it uses.
     QueuedShortcutOutput shortcut_output_{output_, [this] { return unicode_mode(); }};
     ShortcutRunner shortcut_runner_{shortcut_output_};
-    // The run under way: its bar and button, which stay lit while it runs.
+    // The run under way: its profile and button, which stay lit while it runs.
     struct ShortcutRun {
-        std::string bar;
+        std::string profile;
         std::size_t button{};
     };
     std::optional<ShortcutRun> shortcut_run_;
-    // Gamescope's focused window last given to bar_choice_ (as no app until
+    // Gamescope's focused window last given to profile_choice_ (as no app until
     // apps can be told apart): a change of it stops a run, too.
     std::uint32_t bar_window_{};
     std::uint64_t bar_focus_serial_{}; // KeySink::focus_serial, beside it
@@ -1813,8 +1813,8 @@ class App {
         std::string target; // as bar_hit names it
         double x{}, scroll{}, at{};
         bool dragging{}, stopped{};
-        // The bar a button press began on: it never acts on another (R321).
-        std::string bar;
+        // The profile a button press began on: it never acts on another (R321).
+        std::string profile;
         bool held{}; // runs a While held macro, from its press to its release
     };
     std::optional<BarPress> bar_press_;
@@ -1824,7 +1824,7 @@ class App {
     // The bar or the empty bar shows: not in Settings or dictation mode.
     bool bar_shown() const;
     // The bar showing, or null for the empty bar and for none.
-    const ShortcutBar* shown_bar() const;
+    const ShortcutProfile* shown_profile() const;
     // At startup, and again for Reload config: a reload that finds the file
     // invalid keeps the bars already loaded and reports it.
     void load_shortcuts(bool reloading = false);
@@ -1834,7 +1834,7 @@ class App {
     // A finished save's result: a failure's status, or, for one that worked,
     // the end of the note that shortcuts.json can't be read.
     void take_shortcuts_result();
-    void apply_bar_changes(const ShortcutBarChoice::Changes& changes);
+    void apply_bar_changes(const ShortcutProfileChoice::Changes& changes);
     void append_shortcut_bar(PanelView& view) const;
     // What of the bar `view` shows lies at (x, y): button-N, picker, plate,
     // and over an open menu row-N, assign-N, edit or menu.
@@ -1864,7 +1864,7 @@ class App {
     // case, working on its own copy until ✓, with a popup over it for
     // typing labels and bar names and recording keys on a mini keyboard.
     std::optional<ShortcutEditor> shortcut_editor_;
-    enum class EditorQuestion { None, Leave, DeleteBar };
+    enum class EditorQuestion { None, Leave, DeleteProfile };
     EditorQuestion editor_question_{EditorQuestion::None};
     BarScroll editor_rows_scroll_, editor_strip_scroll_;
     double editor_tick_{-1};

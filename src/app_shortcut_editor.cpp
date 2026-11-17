@@ -1,6 +1,6 @@
 // The shortcut editor (docs/shortcut-bar-design.md, Settings and the editor):
-// a screen of its own over the case, on its own copy of the bars until ✓,
-// with a popup over it where labels and bar names are typed and keys
+// a screen of its own over the case, on its own copy of the profiles until
+// ✓, with a popup over it where labels and profile names are typed and keys
 // recorded on a mini keyboard of its own (Typing and recording). The label
 // field typed on the real keyboard waits for renaming in place.
 #include "framekeyboard/app.hpp"
@@ -64,7 +64,7 @@ std::string wait_text(int ms) {
 struct EditorLayout {
     bool wide{};
     double column_width{};
-    Rect column, bars_list, new_bar, used;
+    Rect column, profiles_list, new_profile, used;
     double list_top{}, divider{}, right{}, left{};
     std::size_t visible_rows{};
     Rect strip_well, strip, label, explanation;
@@ -90,8 +90,8 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     const double room = l.used.y - 12 - row_height - l.list_top;
     l.visible_rows = static_cast<std::size_t>(std::max(1.0, std::floor(room / row_height)));
     const double shown = static_cast<double>(std::min(bars, l.visible_rows));
-    l.bars_list = {x, l.list_top, l.column_width, shown * row_height};
-    l.new_bar = {x, l.list_top + shown * row_height, l.column_width, row_height};
+    l.profiles_list = {x, l.list_top, l.column_width, shown * row_height};
+    l.new_profile = {x, l.list_top + shown * row_height, l.column_width, row_height};
     l.divider = x + l.column_width + 16;
     l.left = l.divider + 16;
     l.right = body.x + body.width - 18;
@@ -222,7 +222,7 @@ void App::open_shortcut_editor() {
     bar_press_.reset();
     close_emoji();
     release_input(false); // a reading stays, out of sight, as Settings keeps it
-    shortcut_editor_.emplace(shortcuts_, bar_choice_.shown());
+    shortcut_editor_.emplace(shortcuts_, profile_choice_.shown());
     // Its candidates go out of sight and take no press until the editor closes (R333).
     candidate_list_ = false;
     sync_candidates();
@@ -250,22 +250,22 @@ void App::close_shortcut_editor(bool save) {
             dirty = true;
             return;
         }
-        // The bar selected in the editor shows, as if chosen in the picker,
-        // and a free one becomes the free bar: a first bar shows as soon as
+        // The profile selected in the editor shows, as if chosen in the
+        // picker, and a free one becomes the free profile: a first profile shows as soon as
         // it is saved (R332).
-        const auto* selected = shortcut_editor_->selected_bar();
+        const auto* selected = shortcut_editor_->selected_profile();
         const std::string shown = selected ? selected->id : std::string();
         shortcuts_ = model;
-        auto changes = bar_choice_.model_changed(shortcuts_);
+        auto changes = profile_choice_.model_changed(shortcuts_);
         if (!shown.empty()) {
-            const auto picked = bar_choice_.pick(shortcuts_, shown);
+            const auto picked = profile_choice_.pick(shortcuts_, shown);
             changes.shortcuts_switch |= picked.shortcuts_switch;
         }
         // The worker keeps an unreadable file as shortcuts.json.bad; the
-        // note goes once its result says the save worked. The free bar goes
+        // note goes once its result says the save worked. The free profile goes
         // in the same save.
         save_shortcuts();
-        changes.free_bar = false;
+        changes.free_profile = false;
         apply_bar_changes(changes);
     }
     shortcut_editor_.reset();
@@ -274,7 +274,7 @@ void App::close_shortcut_editor(bool save) {
     hovered_.clear();
     pressed_controls_.clear();
     sync_candidates();    // a waiting reading's candidates come back (R333)
-    update_settings_ui(); // the Debug card's sample button follows the bars
+    update_settings_ui(); // the Debug card's sample button follows the profiles
     dirty = true;
 }
 void App::append_editor_controls(std::vector<Control>& result, const Rect& body) const {
@@ -285,35 +285,37 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
     };
     const auto& model = shortcut_editor_->model();
     const auto bar = bar_geometry(0);
-    const auto l = editor_layout(body, bar, shown_theme().depth, model.bars.size());
+    const auto l = editor_layout(body, bar, shown_theme().depth, model.profiles.size());
     add("shortcuts-back", "back", {{}, {}, {body.x + 18, 12, 60, 42}, false, Icon::Back});
     add("shortcuts-save", "save", {{}, {}, {body.x + 88, 12, 60, 42}, false, Icon::Apply});
     const bool lifted = shortcut_drag_ && shortcut_drag_->lifted;
-    // The bars, a row each; the selected one has rename and delete.
-    for (std::size_t i = 0; i < model.bars.size(); ++i) {
+    // The profiles, a row each; the selected one has rename and delete.
+    for (std::size_t i = 0; i < model.profiles.size(); ++i) {
         const Rect r{l.column.x,
                      l.list_top + static_cast<double>(i) * row_height - editor_rows_scroll_.shown,
                      l.column_width, row_height};
-        if (r.y + r.height <= l.bars_list.y || r.y >= l.bars_list.y + l.bars_list.height ||
+        if (r.y + r.height <= l.profiles_list.y || r.y >= l.profiles_list.y + l.profiles_list.height ||
             (lifted && shortcut_drag_->row && shortcut_drag_->index == i)) {
             continue;
         }
-        Control row{
-            {}, model.bars[i].name, {r.x, r.y + 2, r.width, r.height - 4}, shortcut_editor_->bar() == i};
-        row.clip = l.bars_list;
+        Control row{{},
+                    model.profiles[i].name,
+                    {r.x, r.y + 2, r.width, r.height - 4},
+                    shortcut_editor_->profile() == i};
+        row.clip = l.profiles_list;
         add("shortcuts-row-" + std::to_string(i), "row", row, static_cast<int>(i));
-        if (shortcut_editor_->bar() == i) {
+        if (shortcut_editor_->profile() == i) {
             Control rename{{}, {}, {r.x + r.width - 92, r.y, 44, r.height}, false, Icon::Pencil};
-            rename.clip = l.bars_list;
+            rename.clip = l.profiles_list;
             add("shortcuts-rename", "rename", rename);
             Control remove{{}, {}, {r.x + r.width - 48, r.y, 44, r.height}, false, Icon::Clear};
-            remove.clip = l.bars_list;
+            remove.clip = l.profiles_list;
             add("shortcuts-delete", "delete", remove);
         }
     }
-    Control new_bar{{}, tr("shortcuts.editor.new-bar"), l.new_bar};
-    new_bar.enabled = shortcut_editor_->can_add_bar();
-    add("shortcuts-new-bar", "new-bar", new_bar);
+    Control new_profile{{}, tr("shortcuts.editor.new-profile"), l.new_profile};
+    new_profile.enabled = shortcut_editor_->can_add_profile();
+    add("shortcuts-new-profile", "new-profile", new_profile);
     // Used for: each tie's ✕.
     double x = l.used.x, y = l.used.y + 34;
     for (const auto index : shortcut_editor_->ties()) {
@@ -327,8 +329,8 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
             static_cast<int>(index));
         x += width + 8;
     }
-    // The strip: the selected bar's buttons, then +.
-    if (const auto* selected = shortcut_editor_->selected_bar()) {
+    // The strip: the selected profile's buttons, then +.
+    if (const auto* selected = shortcut_editor_->selected_profile()) {
         const std::size_t count = selected->buttons.size();
         for (std::size_t i = 0; i <= count; ++i) {
             const Rect r{l.strip.x + static_cast<double>(i) * l.pitch - editor_strip_scroll_.shown,
@@ -413,7 +415,7 @@ void App::append_macro_controls(std::vector<Control>& result, const Rect& well,
         result.push_back(std::move(control));
     };
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+                                 shortcut_editor_->model().profiles.size());
     const auto& steps = button.action.steps;
     const bool lifted = shortcut_drag_ && shortcut_drag_->lifted && shortcut_drag_->step;
     // The steps' rows, in the well, clipped to it; a lifted one follows the laser.
@@ -518,7 +520,7 @@ double App::editor_steps_limit() const {
         return 0;
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+                                 shortcut_editor_->model().profiles.size());
     const double content =
         static_cast<double>(button->action.steps.size()) * step_pitch + 14 - step_pitch + step_height;
     return std::max(0.0, content - l.steps_well.height);
@@ -556,29 +558,29 @@ void App::append_shortcut_editor(PanelView& v) const {
     const auto body = panel_case_bounds(v);
     const auto& model = shortcut_editor_->model();
     const auto bar = bar_geometry(0);
-    const auto l = editor_layout(body, bar, shown_theme().depth, model.bars.size());
+    const auto l = editor_layout(body, bar, shown_theme().depth, model.profiles.size());
     auto& e = *v.shortcut_editor;
     e.wide = l.wide;
     e.title = tr("shortcuts.editor.title");
     if (!shortcuts_invalid_.empty()) {
         e.notice = tr("shortcuts.editor.invalid", {{"reason", shortcuts_invalid_}});
     }
-    e.bars_caption = tr("shortcuts.editor.bars");
+    e.profiles_caption = tr("shortcuts.editor.profiles");
     e.column = l.column;
-    e.bars_list = l.bars_list;
+    e.profiles_list = l.profiles_list;
     e.divider = l.divider;
     e.scale = bar.button_width / 69.5;
     const double rows_limit =
-        std::max(0.0, static_cast<double>(model.bars.size()) * row_height - l.bars_list.height);
+        std::max(0.0, static_cast<double>(model.profiles.size()) * row_height - l.profiles_list.height);
     if (rows_limit > 0) {
         const double length =
-            l.bars_list.height * l.bars_list.height / (l.bars_list.height + rows_limit);
-        e.bars_thumb =
-            Rect{l.column.x + l.column.width + 4,
-                 l.bars_list.y + editor_rows_scroll_.shown / rows_limit * (l.bars_list.height - length),
-                 3, length};
+            l.profiles_list.height * l.profiles_list.height / (l.profiles_list.height + rows_limit);
+        e.profiles_thumb = Rect{l.column.x + l.column.width + 4,
+                                l.profiles_list.y + editor_rows_scroll_.shown / rows_limit *
+                                                        (l.profiles_list.height - length),
+                                3, length};
     }
-    if (shortcut_editor_->selected_bar()) {
+    if (shortcut_editor_->selected_profile()) {
         e.used = l.used;
         e.used_caption = tr("shortcuts.editor.used");
         double x = l.used.x, y = l.used.y + 34;
@@ -596,7 +598,7 @@ void App::append_shortcut_editor(PanelView& v) const {
         e.used_hint = tr(e.ties.empty() ? "shortcuts.editor.used-none" : "shortcuts.editor.used-hint");
         e.strip_well = l.strip_well;
         e.strip = l.strip;
-        const auto count = shortcut_editor_->selected_bar()->buttons.size();
+        const auto count = shortcut_editor_->selected_profile()->buttons.size();
         const double limit =
             std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
         e.more_before = editor_strip_scroll_.shown > .5;
@@ -609,7 +611,7 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.empty_hint = tr("shortcuts.editor.no-buttons");
         }
     } else {
-        e.empty_hint = tr("shortcuts.editor.no-bars");
+        e.empty_hint = tr("shortcuts.editor.no-profiles");
     }
     if (const auto* button = shortcut_editor_->selected_button()) {
         e.label_caption = tr("shortcuts.editor.label");
@@ -666,9 +668,9 @@ void App::append_shortcut_editor(PanelView& v) const {
     // What a drag carries, where the laser holds it.
     if (shortcut_drag_ && shortcut_drag_->lifted) {
         const auto& d = *shortcut_drag_;
-        if (d.row && d.index < model.bars.size()) {
+        if (d.row && d.index < model.profiles.size()) {
             e.lifted_row =
-                ShortcutChip{model.bars[d.index].name,
+                ShortcutChip{model.profiles[d.index].name,
                              {l.column.x, d.py - row_height / 2, l.column_width, row_height - 4}};
         } else if (const auto* button = shortcut_editor_->selected_button();
                    d.step && button && d.index < button->action.steps.size()) {
@@ -684,7 +686,7 @@ void App::append_shortcut_editor(PanelView& v) const {
                 }
                 e.lifted_step = lifted;
             }
-        } else if (const auto* selected = shortcut_editor_->selected_bar();
+        } else if (const auto* selected = shortcut_editor_->selected_profile();
                    !d.row && !d.step && selected && d.index < selected->buttons.size()) {
             e.lifted_button = ShortcutChip{selected->buttons[d.index].label,
                                            {d.px - l.button_width / 2, d.py - l.button_height / 2,
@@ -698,8 +700,9 @@ void App::append_shortcut_editor(PanelView& v) const {
     if (editor_question_ == EditorQuestion::Leave) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("shortcuts.question.leave-title"),
                                            tr("shortcuts.question.leave-body")};
-    } else if (editor_question_ == EditorQuestion::DeleteBar && shortcut_editor_->selected_bar()) {
-        const auto count = static_cast<long long>(shortcut_editor_->selected_bar()->buttons.size());
+    } else if (editor_question_ == EditorQuestion::DeleteProfile &&
+               shortcut_editor_->selected_profile()) {
+        const auto count = static_cast<long long>(shortcut_editor_->selected_profile()->buttons.size());
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("shortcuts.question.delete-title"),
                                            tr("shortcuts.question.delete-body", {{"count", count}})};
     }
@@ -721,8 +724,8 @@ void App::editor_action(const ControlAction& command) {
             close_shortcut_editor(accept); // Discard or Save
             return;
         }
-        if (question == EditorQuestion::DeleteBar && accept) {
-            shortcut_editor_->delete_bar();
+        if (question == EditorQuestion::DeleteProfile && accept) {
+            shortcut_editor_->delete_profile();
             editor_strip_scroll_ = {};
         }
     } else if (value == "back") {
@@ -736,28 +739,28 @@ void App::editor_action(const ControlAction& command) {
         close_shortcut_editor(true);
         return;
     } else if (value == "row") {
-        shortcut_editor_->select_bar(index);
+        shortcut_editor_->select_profile(index);
         editor_strip_scroll_ = {};
         editor_chips_scroll_ = editor_steps_scroll_ = {};
     } else if (value == "rename") {
         open_popup(PopupKind::Name);
     } else if (value == "delete") {
-        if (const auto* bar = shortcut_editor_->selected_bar(); bar && !bar->buttons.empty()) {
-            editor_question_ = EditorQuestion::DeleteBar; // its buttons would go too
+        if (const auto* bar = shortcut_editor_->selected_profile(); bar && !bar->buttons.empty()) {
+            editor_question_ = EditorQuestion::DeleteProfile; // its buttons would go too
         } else {
-            shortcut_editor_->delete_bar();
+            shortcut_editor_->delete_profile();
             editor_strip_scroll_ = {};
         }
-    } else if (value == "new-bar") {
-        const auto number = static_cast<long long>(shortcut_editor_->model().bars.size() + 1);
-        shortcut_editor_->add_bar(tr("shortcuts.editor.bar-name", {{"number", number}}));
+    } else if (value == "new-profile") {
+        const auto number = static_cast<long long>(shortcut_editor_->model().profiles.size() + 1);
+        shortcut_editor_->add_profile(tr("shortcuts.editor.profile-name", {{"number", number}}));
         editor_strip_scroll_ = {};
         // The new row in view, then its name to type.
         const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                     shortcut_editor_->model().bars.size());
+                                     shortcut_editor_->model().profiles.size());
         const double limit =
-            std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
-                              l.bars_list.height);
+            std::max(0.0, static_cast<double>(shortcut_editor_->model().profiles.size()) * row_height -
+                              l.profiles_list.height);
         editor_rows_scroll_.shown = editor_rows_scroll_.target = limit;
         open_popup(PopupKind::Name);
     } else if (value == "tie") {
@@ -770,8 +773,8 @@ void App::editor_action(const ControlAction& command) {
         editor_chips_scroll_ = {};
         // The new button in view, at the strip's end.
         const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                     shortcut_editor_->model().bars.size());
-        const auto count = shortcut_editor_->selected_bar()->buttons.size();
+                                     shortcut_editor_->model().profiles.size());
+        const auto count = shortcut_editor_->selected_profile()->buttons.size();
         const double limit =
             std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
         editor_strip_scroll_.target = limit;
@@ -858,14 +861,14 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
         d.lifted = true;
         pressed_controls_.erase(pointer); // its release clicks nothing
         if (d.row) {
-            shortcut_editor_->select_bar(d.index);
+            shortcut_editor_->select_profile(d.index);
             editor_strip_scroll_ = {};
         } else if (!d.step) {
             shortcut_editor_->select_button(d.index);
         }
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+                                 shortcut_editor_->model().profiles.size());
     if (d.step) {
         const auto* button = shortcut_editor_->selected_button();
         const auto count = button ? button->action.steps.size() : 0;
@@ -876,14 +879,14 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
             d.index = to;
         }
     } else if (d.row) {
-        const auto count = shortcut_editor_->model().bars.size();
+        const auto count = shortcut_editor_->model().profiles.size();
         const double at = std::floor((y - l.list_top + editor_rows_scroll_.shown) / row_height);
         const auto to = static_cast<std::size_t>(std::clamp(at, 0.0, static_cast<double>(count - 1)));
         if (to != d.index) {
-            shortcut_editor_->move_bar(d.index, to);
+            shortcut_editor_->move_profile(d.index, to);
             d.index = to;
         }
-    } else if (const auto* bar = shortcut_editor_->selected_bar()) {
+    } else if (const auto* bar = shortcut_editor_->selected_profile()) {
         // Off the strip, a button would be deleted when let go.
         const auto& well = l.strip_well;
         d.outside = x < well.x - 20 || x > well.x + well.width + 20 || y < well.y - 20 ||
@@ -923,8 +926,8 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     }
     const auto [x, y] = position->second;
     const auto body = panel_case_bounds(geometry());
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     const double delta = std::isfinite(dx) && std::abs(dx) > std::abs(dy) ? dx : dy;
     bool moved = false;
     if (popup_) {
@@ -937,13 +940,13 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
         moved = step_scroll(editor_chips_scroll_, delta, chip_step, editor_chips_limit());
     } else if (l.steps_well.contains(x, y)) {
         moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
-    } else if (l.bars_list.contains(x, y)) {
+    } else if (l.profiles_list.contains(x, y)) {
         const double limit =
-            std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
-                              l.bars_list.height);
+            std::max(0.0, static_cast<double>(shortcut_editor_->model().profiles.size()) * row_height -
+                              l.profiles_list.height);
         moved = step_scroll(editor_rows_scroll_, delta, row_height, limit);
-    } else if (l.strip_well.contains(x, y) && shortcut_editor_->selected_bar()) {
-        const auto count = shortcut_editor_->selected_bar()->buttons.size();
+    } else if (l.strip_well.contains(x, y) && shortcut_editor_->selected_profile()) {
+        const auto count = shortcut_editor_->selected_profile()->buttons.size();
         const double limit =
             std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
         moved = step_scroll(editor_strip_scroll_, delta, l.pitch, limit);
@@ -956,8 +959,8 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
         return {};
     }
     const auto body = panel_case_bounds(geometry());
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     const auto room = [](const BarScroll& scroll, double limit) {
         return limit > 0 ? std::optional{ScrollRoom{scroll.target > 0, scroll.target < limit}}
                          : std::nullopt;
@@ -975,16 +978,16 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
     if (l.steps_well.contains(x, y)) {
         return room(editor_steps_scroll_, editor_steps_limit());
     }
-    if (l.bars_list.contains(x, y)) {
+    if (l.profiles_list.contains(x, y)) {
         const double limit =
-            std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
-                              l.bars_list.height);
+            std::max(0.0, static_cast<double>(shortcut_editor_->model().profiles.size()) * row_height -
+                              l.profiles_list.height);
         return limit > 0 ? std::optional{ScrollRoom{editor_rows_scroll_.target > 0,
                                                     editor_rows_scroll_.target < limit}}
                          : std::nullopt;
     }
-    if (l.strip_well.contains(x, y) && shortcut_editor_->selected_bar()) {
-        const auto count = shortcut_editor_->selected_bar()->buttons.size();
+    if (l.strip_well.contains(x, y) && shortcut_editor_->selected_profile()) {
+        const auto count = shortcut_editor_->selected_profile()->buttons.size();
         const double limit =
             std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
         return limit > 0 ? std::optional{ScrollRoom{editor_strip_scroll_.target > 0,
@@ -1011,12 +1014,12 @@ void App::tick_shortcut_editor(double now) {
         }
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+                                 shortcut_editor_->model().profiles.size());
     const double rows =
-        std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
-                          l.bars_list.height);
+        std::max(0.0, static_cast<double>(shortcut_editor_->model().profiles.size()) * row_height -
+                          l.profiles_list.height);
     const auto count =
-        shortcut_editor_->selected_bar() ? shortcut_editor_->selected_bar()->buttons.size() : 0;
+        shortcut_editor_->selected_profile() ? shortcut_editor_->selected_profile()->buttons.size() : 0;
     const double strip = std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
     // Rows, buttons or chips gone shorten the lists: their ends stay in place.
     for (auto [scroll, limit] :
@@ -1038,10 +1041,10 @@ void App::open_popup(PopupKind kind, std::optional<std::size_t> step, bool new_s
     popup.step = step;
     popup.new_step = new_step;
     if (kind == PopupKind::Name) {
-        if (!shortcut_editor_->selected_bar()) {
+        if (!shortcut_editor_->selected_profile()) {
             return;
         }
-        popup.text = shortcut_editor_->selected_bar()->name;
+        popup.text = shortcut_editor_->selected_profile()->name;
     } else {
         const auto* button = shortcut_editor_->selected_button();
         // A shortcut records its combinations; a macro one of its Keys steps.
@@ -1084,7 +1087,7 @@ void App::end_popup(bool save) {
             shortcut_editor_->set_label(popup.text);
             break;
         case PopupKind::Name:
-            shortcut_editor_->rename_bar(popup.text);
+            shortcut_editor_->rename_profile(popup.text);
             break;
         case PopupKind::Recording:
             // Done replaces: a shortcut's combinations, or a step's. A new
@@ -1175,7 +1178,7 @@ void App::popup_text_key(const Key& key) {
     }
     const bool label = p.kind == PopupKind::Label;
     const auto fits = [&](const std::string& text) {
-        return label ? fits_label(text) : fits_bar_name(text);
+        return label ? fits_label(text) : fits_profile_name(text);
     };
     auto& text = p.text;
     const auto at = std::min(p.cursor, text.size());
@@ -1331,8 +1334,8 @@ void App::tick_popup(double now) {
 }
 void App::append_popup_controls(std::vector<Control>& result, const Rect& body) const {
     const auto& p = *popup_;
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     const auto pl = popup_layout(body, l.strip_well, mini_layout_);
     const auto add = [&](std::string id, std::string value, Control control, int index = 0) {
         control.id = "shortcuts-popup-" + std::move(id);
@@ -1404,8 +1407,8 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
 }
 void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     const auto& p = *popup_;
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     const auto pl = popup_layout(body, l.strip_well, mini_layout_);
     ShortcutPopupView view;
     view.kind = p.kind;
@@ -1492,7 +1495,7 @@ double App::editor_chips_limit() const {
         return 0;
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
-                                 shortcut_editor_->model().bars.size());
+                                 shortcut_editor_->model().profiles.size());
     return chip_row(l.chips, 52, button->action.chords, {}, 0, localization_.fonts()).limit;
 }
 double App::popup_chips_limit() const {
@@ -1500,8 +1503,8 @@ double App::popup_chips_limit() const {
         return 0;
     }
     const auto body = panel_case_bounds(geometry());
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     const auto pl = popup_layout(body, l.strip_well, mini_layout_);
     const auto& p = *popup_;
     const bool room = p.chords.size() < popup_limit();
@@ -1518,8 +1521,8 @@ bool App::chips_press(unsigned pointer, double x, double y) {
         return false;
     }
     const auto body = panel_case_bounds(geometry());
-    const auto l =
-        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
     if (popup_) {
         if (popup_->kind != PopupKind::Recording || popup_->fkeys ||
             !popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
@@ -1813,10 +1816,10 @@ void App::append_field_view(PanelView& v) const {
     }
 }
 void App::append_field_bar(PanelView& v) const {
-    if (!shortcut_editor_ || !shortcut_editor_->selected_bar()) {
+    if (!shortcut_editor_ || !shortcut_editor_->selected_profile()) {
         return;
     }
-    const auto& bar = *shortcut_editor_->selected_bar();
+    const auto& bar = *shortcut_editor_->selected_profile();
     const auto count = bar.buttons.size();
     const auto g = bar_geometry(count);
     const auto selected = shortcut_editor_->button().value_or(0);

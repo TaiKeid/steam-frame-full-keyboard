@@ -668,7 +668,7 @@ std::vector<Control> App::controls() const {
     // button), after Pull for Shift: the fourth of a compact second row,
     // which dictation's editor needs, so it hides there with the bar.
     if (shortcuts_enabled() && !dictation_open_) {
-        const bool on = bar_choice_.button_on();
+        const bool on = profile_choice_.button_on();
         add({ControlKind::ShortcutsToggle},
             {"bar-toggle", tr(on ? "tooltip.shortcuts-hide" : "tooltip.shortcuts-show"),
              compact ? button(next_slot, next_column++, 1) : button(next_slot, 0, 0), false,
@@ -1154,10 +1154,10 @@ void App::update_settings_ui() {
         // Bars to try the shortcut bar with before its editor exists; saved
         // at once, and only while there are none.
         auto samples = field(ControlKind::DebugSampleShortcuts,
-                             SettingField{"debug-sample-shortcuts", "Shortcut bars",
+                             SettingField{"debug-sample-shortcuts", "Shortcut profiles",
                                           "Add sample shortcuts", ControlStyle::Button});
         samples.width = 300;
-        samples.enabled = shortcuts_.bars.empty();
+        samples.enabled = shortcuts_.profiles.empty();
         cards.back().fields.push_back(std::move(samples));
     }
 #endif
@@ -1837,7 +1837,7 @@ bool App::move(unsigned pointer, double x, double y) {
         if (target.kind == HoverTarget::Kind::Bar && target.id.starts_with("button-") && !dragging_ &&
             !pointer_pressed(pointer) && v.shortcut_bar) {
             // A bar button the laser enters ticks as a key does, if it can act.
-            const auto* bar = shown_bar();
+            const auto* bar = shown_profile();
             const auto index = static_cast<std::size_t>(std::stoul(target.id.substr(7)));
             return bar && index < bar->buttons.size() && shortcut_button_enabled(bar->buttons[index]);
         }
@@ -5222,11 +5222,11 @@ void App::apply_settings() {
         configure_bar();
     }
     dirty = true;
-    if (settings_.shortcuts && !before.shortcuts && shortcuts_.bars.empty() &&
-        !bar_choice_.button_on()) {
+    if (settings_.shortcuts && !before.shortcuts && shortcuts_.profiles.empty() &&
+        !profile_choice_.button_on()) {
         // Turned on with no bars: the empty bar shows once, so its picker,
         // and through it the editor, can be reached.
-        apply_bar_changes(bar_choice_.toolbar(shortcuts_));
+        apply_bar_changes(profile_choice_.toolbar(shortcuts_));
     }
     host_settings_changed(before, "user");
 }
@@ -5524,8 +5524,8 @@ void App::action(const ControlAction& command) {
         settings_.key_flicks_switch = !settings_.key_flicks_switch;
         save();
     } else if (kind == ControlKind::ShortcutsToggle) {
-        // Its three cases are the bar's own (ShortcutBarChoice::toolbar).
-        apply_bar_changes(bar_choice_.toolbar(shortcuts_));
+        // Its three cases are the bar's own (ShortcutProfileChoice::toolbar).
+        apply_bar_changes(profile_choice_.toolbar(shortcuts_));
     } else if (kind == ControlKind::Shortcuts) {
         pending_shortcuts_ = !pending_shortcuts_;
         update_settings_ui();

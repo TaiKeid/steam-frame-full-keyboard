@@ -48,11 +48,11 @@ bool clean_text(const std::string& text) {
     return clean_text(text, 0, characters);
 }
 // Where in the file a problem is, by position only.
-std::string bar_place(std::size_t bar) {
-    return "bar " + std::to_string(bar + 1);
+std::string bar_place(std::size_t profile) {
+    return "profile " + std::to_string(profile + 1);
 }
-std::string button_place(std::size_t bar, std::size_t button) {
-    return bar_place(bar) + ", button " + std::to_string(button + 1);
+std::string button_place(std::size_t profile, std::size_t button) {
+    return bar_place(profile) + ", button " + std::to_string(button + 1);
 }
 std::optional<std::string> check_chord(const ShortcutChord& chord) {
     if (chord.key.empty() && chord.modifiers.empty()) {
@@ -82,8 +82,8 @@ std::optional<std::string> check_chord(const ShortcutChord& chord) {
     }
     return {};
 }
-bool bar_id(const std::string& id) {
-    return !id.empty() && id.size() <= limits::bar_id_bytes &&
+bool profile_id(const std::string& id) {
+    return !id.empty() && id.size() <= limits::profile_id_bytes &&
            std::all_of(id.begin(), id.end(), [](unsigned char c) {
                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
                       c == '-' || c == '_';
@@ -182,8 +182,8 @@ std::optional<std::string> check_tie(const ShortcutModel& model, const AppTie& t
     if (!clean_text(tie.name, 0, characters) || characters > limits::app_name_characters) {
         return "an app name is too long or not valid text";
     }
-    if (!model.bar(tie.bar)) {
-        return "an app is assigned to a bar that does not exist";
+    if (!model.profile(tie.profile)) {
+        return "an app is assigned to a profile that does not exist";
     }
     return {};
 }
@@ -344,7 +344,7 @@ AppTie parse_tie(json_object* object, const std::string& where) {
     }
     tie.app.id = string_member(object, "id", where);
     tie.name = string_member(object, "name", where, true);
-    tie.bar = string_member(object, "bar", where);
+    tie.profile = string_member(object, "profile", where);
     return tie;
 }
 const char* kind_name(AppIdentity::Kind kind) {
@@ -432,18 +432,18 @@ json_object* action_json(const ShortcutAction& action) {
 }
 } // namespace
 
-const ShortcutBar* ShortcutModel::bar(const std::string& id) const {
-    const auto found =
-        std::find_if(bars.begin(), bars.end(), [&](const ShortcutBar& bar) { return bar.id == id; });
-    return found == bars.end() ? nullptr : &*found;
+const ShortcutProfile* ShortcutModel::profile(const std::string& id) const {
+    const auto found = std::find_if(profiles.begin(), profiles.end(),
+                                    [&](const ShortcutProfile& profile) { return profile.id == id; });
+    return found == profiles.end() ? nullptr : &*found;
 }
-const ShortcutBar* ShortcutModel::bar_for(const AppIdentity& app) const {
+const ShortcutProfile* ShortcutModel::profile_for(const AppIdentity& app) const {
     const auto found =
         std::find_if(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.app == app; });
-    return found == apps.end() ? nullptr : bar(found->bar);
+    return found == apps.end() ? nullptr : profile(found->profile);
 }
 bool ShortcutModel::free(const std::string& id) const {
-    return std::none_of(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.bar == id; });
+    return std::none_of(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.profile == id; });
 }
 
 bool shortcut_action_empty(const ShortcutAction& action) {
@@ -463,30 +463,30 @@ bool shortcut_modifier(const std::string& name) {
 }
 
 std::optional<std::string> validate_shortcuts(const ShortcutModel& model) {
-    if (model.bars.size() > limits::bars) {
-        return "more than 32 bars";
+    if (model.profiles.size() > limits::profiles) {
+        return "more than 32 profiles";
     }
     std::set<std::string> ids;
-    for (std::size_t i = 0; i < model.bars.size(); ++i) {
-        const auto& bar = model.bars[i];
-        if (!bar_id(bar.id)) {
+    for (std::size_t i = 0; i < model.profiles.size(); ++i) {
+        const auto& profile = model.profiles[i];
+        if (!profile_id(profile.id)) {
             return bar_place(i) + ": the ID is not 1 to 32 letters, digits, - or _";
         }
-        if (!ids.insert(bar.id).second) {
-            return bar_place(i) + ": the ID is used by another bar";
+        if (!ids.insert(profile.id).second) {
+            return bar_place(i) + ": the ID is used by another profile";
         }
         std::size_t characters = 0;
-        if (!clean_text(bar.name, 0, characters)) {
+        if (!clean_text(profile.name, 0, characters)) {
             return bar_place(i) + ": the name is not valid UTF-8 or has control characters";
         }
-        if (characters > limits::bar_name_characters) {
+        if (characters > limits::profile_name_characters) {
             return bar_place(i) + ": the name is longer than 32 characters";
         }
-        if (bar.buttons.size() > limits::buttons) {
+        if (profile.buttons.size() > limits::buttons) {
             return bar_place(i) + ": more than 64 buttons";
         }
-        for (std::size_t j = 0; j < bar.buttons.size(); ++j) {
-            const auto& button = bar.buttons[j];
+        for (std::size_t j = 0; j < profile.buttons.size(); ++j) {
+            const auto& button = profile.buttons[j];
             if (!clean_text(button.label, limits::label_lines - 1, characters)) {
                 return button_place(i, j) +
                        ": the label is not valid UTF-8, has control characters or more than two lines";
@@ -513,8 +513,8 @@ std::optional<std::string> validate_shortcuts(const ShortcutModel& model) {
             }
         }
     }
-    if (!model.free_bar.empty() && !model.bar(model.free_bar)) {
-        return "free_bar names a bar that does not exist";
+    if (!model.free_profile.empty() && !model.profile(model.free_profile)) {
+        return "free_profile names a profile that does not exist";
     }
     return {};
 }
@@ -522,34 +522,34 @@ std::optional<std::string> validate_shortcuts(const ShortcutModel& model) {
 std::string serialize_shortcuts(const ShortcutModel& model) {
     Json document(json_object_new_object(), json_object_put);
     json_object_object_add(document.get(), "schema_version", json_object_new_int(1));
-    auto* bars = json_object_new_array();
-    for (const auto& bar : model.bars) {
+    auto* profiles = json_object_new_array();
+    for (const auto& profile : model.profiles) {
         auto* object = json_object_new_object();
-        json_object_object_add(object, "id", new_string(bar.id));
-        json_object_object_add(object, "name", new_string(bar.name));
+        json_object_object_add(object, "id", new_string(profile.id));
+        json_object_object_add(object, "name", new_string(profile.name));
         auto* buttons = json_object_new_array();
-        for (const auto& button : bar.buttons) {
+        for (const auto& button : profile.buttons) {
             auto* entry = json_object_new_object();
             json_object_object_add(entry, "label", new_string(button.label));
             json_object_object_add(entry, "action", action_json(button.action));
             json_object_array_add(buttons, entry);
         }
         json_object_object_add(object, "buttons", buttons);
-        json_object_array_add(bars, object);
+        json_object_array_add(profiles, object);
     }
-    json_object_object_add(document.get(), "bars", bars);
+    json_object_object_add(document.get(), "profiles", profiles);
     auto* apps = json_object_new_array();
     for (const auto& tie : model.apps) {
         auto* object = json_object_new_object();
         json_object_object_add(object, "kind", json_object_new_string(kind_name(tie.app.kind)));
         json_object_object_add(object, "id", new_string(tie.app.id));
         json_object_object_add(object, "name", new_string(tie.name));
-        json_object_object_add(object, "bar", new_string(tie.bar));
+        json_object_object_add(object, "profile", new_string(tie.profile));
         json_object_array_add(apps, object);
     }
     json_object_object_add(document.get(), "apps", apps);
-    if (!model.free_bar.empty()) {
-        json_object_object_add(document.get(), "free_bar", new_string(model.free_bar));
+    if (!model.free_profile.empty()) {
+        json_object_object_add(document.get(), "free_profile", new_string(model.free_profile));
     }
     return std::string(json_object_to_json_string_ext(
                document.get(), JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE)) +
@@ -579,16 +579,16 @@ ShortcutModel parse_shortcuts(const std::string& json) {
         invalid("", "unsupported schema_version");
     }
     ShortcutModel model;
-    auto* bars = member(document.get(), "bars", json_type_array, "");
-    if (json_object_array_length(bars) > limits::bars) {
-        invalid("", "more than 32 bars");
+    auto* profiles = member(document.get(), "profiles", json_type_array, "");
+    if (json_object_array_length(profiles) > limits::profiles) {
+        invalid("", "more than 32 profiles");
     }
-    for (std::size_t i = 0; i < json_object_array_length(bars); ++i) {
+    for (std::size_t i = 0; i < json_object_array_length(profiles); ++i) {
         const auto where = bar_place(i);
-        auto* object = item(bars, i, json_type_object, where);
-        ShortcutBar bar;
-        bar.id = string_member(object, "id", where);
-        bar.name = string_member(object, "name", where);
+        auto* object = item(profiles, i, json_type_object, where);
+        ShortcutProfile profile;
+        profile.id = string_member(object, "id", where);
+        profile.name = string_member(object, "name", where);
         auto* buttons = member(object, "buttons", json_type_array, where);
         if (json_object_array_length(buttons) > limits::buttons) {
             invalid(where, "more than 64 buttons");
@@ -599,9 +599,9 @@ ShortcutModel parse_shortcuts(const std::string& json) {
             ShortcutButton button;
             button.label = string_member(entry, "label", place);
             button.action = parse_action(member(entry, "action", json_type_object, place), place);
-            bar.buttons.push_back(std::move(button));
+            profile.buttons.push_back(std::move(button));
         }
-        model.bars.push_back(std::move(bar));
+        model.profiles.push_back(std::move(profile));
     }
     if (auto* apps = member(document.get(), "apps", json_type_array, "", true)) {
         if (json_object_array_length(apps) > limits::apps) {
@@ -612,10 +612,10 @@ ShortcutModel parse_shortcuts(const std::string& json) {
             model.apps.push_back(parse_tie(item(apps, i, json_type_object, where), where));
         }
     }
-    if (auto* free = member(document.get(), "free_bar", json_type_string, "", true)) {
-        model.free_bar = string_of(free);
-        if (model.free_bar.empty()) {
-            invalid("", "free_bar is empty");
+    if (auto* free = member(document.get(), "free_profile", json_type_string, "", true)) {
+        model.free_profile = string_of(free);
+        if (model.free_profile.empty()) {
+            invalid("", "free_profile is empty");
         }
     }
     if (auto problem = validate_shortcuts(model)) {
@@ -715,50 +715,51 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
     return {};
 }
 
-void ShortcutBarChoice::configure(const ShortcutModel& model, bool enabled, bool on) {
+void ShortcutProfileChoice::configure(const ShortcutModel& model, bool enabled, bool on) {
     enabled_ = enabled;
     on_ = on;
     empty_ = false;
     resolve(model);
 }
-void ShortcutBarChoice::focus(const ShortcutModel& model, std::optional<AppIdentity> app) {
+void ShortcutProfileChoice::focus(const ShortcutModel& model, std::optional<AppIdentity> app) {
     app_ = std::move(app);
-    // A picked bar and the empty bar last until the focus moves on.
+    // A picked profile and the empty bar last until the focus moves on.
     chosen_.reset();
     empty_ = false;
     resolve(model);
 }
-std::optional<std::string> ShortcutBarChoice::due(const ShortcutModel& model) const {
-    if (chosen_ && model.bar(*chosen_)) {
+std::optional<std::string> ShortcutProfileChoice::due(const ShortcutModel& model) const {
+    if (chosen_ && model.profile(*chosen_)) {
         return chosen_;
     }
-    // Rule 1: the app has a bar. The dashboard and unknown apps have none.
+    // Rule 1: the app has a profile. The dashboard and unknown apps have none.
     if (app_) {
-        if (const auto* bar = model.bar_for(*app_)) {
-            return bar->id;
+        if (const auto* profile = model.profile_for(*app_)) {
+            return profile->id;
         }
     }
-    // Rule 2: the free bar chosen last, while it exists and is still free.
-    if (!model.free_bar.empty() && model.bar(model.free_bar) && model.free(model.free_bar)) {
-        return model.free_bar;
+    // Rule 2: the free profile chosen last, while it exists and is still free.
+    if (!model.free_profile.empty() && model.profile(model.free_profile) &&
+        model.free(model.free_profile)) {
+        return model.free_profile;
     }
     return {}; // Rule 3: nothing.
 }
-void ShortcutBarChoice::resolve(const ShortcutModel& model) {
+void ShortcutProfileChoice::resolve(const ShortcutModel& model) {
     // Turned off by hand, the switch overrides every rule. Rule 3 leaves it
-    // on, so a later app with a bar brings the bar back.
+    // on, so a later app with a profile brings the bar back.
     shown_ = enabled_ && on_ ? due(model) : std::nullopt;
     if (!enabled_ || !on_) {
         empty_ = false;
     }
 }
-ShortcutBarChoice::Changes ShortcutBarChoice::toolbar(const ShortcutModel& model) {
+ShortcutProfileChoice::Changes ShortcutProfileChoice::toolbar(const ShortcutModel& model) {
     Changes changes;
     if (!enabled_) {
         return changes;
     }
     if (button_on()) {
-        // A bar, or the empty one, shows: it hides everywhere until pressed again.
+        // A profile, or the empty bar, shows: it hides everywhere until pressed again.
         shown_.reset();
         empty_ = false;
         changes.shortcuts_switch = on_;
@@ -768,37 +769,38 @@ ShortcutBarChoice::Changes ShortcutBarChoice::toolbar(const ShortcutModel& model
     changes.shortcuts_switch = !on_;
     on_ = true;
     shown_ = due(model);
-    // No bar is due: the empty bar, so the picker can be reached.
+    // No profile is due: the empty bar, so the picker can be reached.
     empty_ = !shown_;
     return changes;
 }
-ShortcutBarChoice::Changes ShortcutBarChoice::pick(ShortcutModel& model, const std::string& bar) {
+ShortcutProfileChoice::Changes ShortcutProfileChoice::pick(ShortcutModel& model,
+                                                           const std::string& profile) {
     Changes changes;
-    // The picker hangs off a bar that shows, so the switch is on.
-    if (!enabled_ || !on_ || !model.bar(bar)) {
+    // The picker hangs off a profile that shows, so the switch is on.
+    if (!enabled_ || !on_ || !model.profile(profile)) {
         return changes;
     }
-    chosen_ = bar;
-    shown_ = bar;
+    chosen_ = profile;
+    shown_ = profile;
     empty_ = false;
-    if (model.free(bar) && model.free_bar != bar) {
-        model.free_bar = bar;
-        changes.free_bar = true;
+    if (model.free(profile) && model.free_profile != profile) {
+        model.free_profile = profile;
+        changes.free_profile = true;
     }
     return changes;
 }
-ShortcutBarChoice::Changes ShortcutBarChoice::model_changed(ShortcutModel& model) {
+ShortcutProfileChoice::Changes ShortcutProfileChoice::model_changed(ShortcutModel& model) {
     Changes changes;
-    if (!model.free_bar.empty() && !model.bar(model.free_bar)) {
-        model.free_bar.clear();
-        changes.free_bar = true;
+    if (!model.free_profile.empty() && !model.profile(model.free_profile)) {
+        model.free_profile.clear();
+        changes.free_profile = true;
     }
-    if (chosen_ && !model.bar(*chosen_)) {
+    if (chosen_ && !model.profile(*chosen_)) {
         chosen_.reset();
     }
-    // A bar that shows stays, even when ties changed (assigning doesn't switch
-    // bars). A deleted one goes, and nothing showing may now have a bar due.
-    if ((shown_ && !model.bar(*shown_)) || (!shown_ && !empty_)) {
+    // A profile that shows stays, even when ties changed (assigning doesn't switch
+    // profiles). A deleted one goes, and nothing showing may now have a profile due.
+    if ((shown_ && !model.profile(*shown_)) || (!shown_ && !empty_)) {
         resolve(model);
     }
     return changes;

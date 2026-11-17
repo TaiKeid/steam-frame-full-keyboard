@@ -40,7 +40,7 @@ std::string read(const fs::path& path) {
 // The design's example file.
 const char* const example = R"({
   "schema_version": 1,
-  "bars": [
+  "profiles": [
     {
       "id": "b1",
       "name": "Editor",
@@ -72,9 +72,9 @@ const char* const example = R"({
     }
   ],
   "apps": [
-    {"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "bar": "b1"}
+    {"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "profile": "b1"}
   ],
-  "free_bar": "b1"
+  "free_profile": "b1"
 })";
 ShortcutButton keys_button(std::string label, std::vector<ShortcutChord> chords) {
     ShortcutButton button;
@@ -86,8 +86,8 @@ ShortcutButton keys_button(std::string label, std::vector<ShortcutChord> chords)
 // A small valid model to change one thing at a time.
 ShortcutModel sample() {
     ShortcutModel model;
-    model.bars.push_back({"b1", "One", {keys_button("Copy", {{{"ControlLeft"}, "KeyC"}})}});
-    model.bars.push_back({"b2", "Two", {}});
+    model.profiles.push_back({"b1", "One", {keys_button("Copy", {{{"ControlLeft"}, "KeyC"}})}});
+    model.profiles.push_back({"b2", "Two", {}});
     return model;
 }
 // The model is refused by validation and by loading its file, and the
@@ -160,9 +160,10 @@ ShortcutButton run_button(std::string script, std::string command) {
 
 void example_file() {
     const auto model = parse_shortcuts(example);
-    require(model.bars.size() == 1 && model.bars[0].id == "b1" && model.bars[0].name == "Editor",
+    require(model.profiles.size() == 1 && model.profiles[0].id == "b1" &&
+                model.profiles[0].name == "Editor",
             "the design's bar");
-    const auto& buttons = model.bars[0].buttons;
+    const auto& buttons = model.profiles[0].buttons;
     require(buttons.size() == 3 && buttons[0].label == "Save\nall", "its buttons and a two-line label");
     const std::vector<ShortcutChord> save_all{{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}};
     require(buttons[0].action.kind == ShortcutAction::Kind::Keys && buttons[0].action.chords == save_all,
@@ -181,25 +182,25 @@ void example_file() {
     require(model.apps.size() == 1 &&
                 model.apps[0] == AppTie{{AppIdentity::Kind::Desktop, "org.kde.kate"}, "Kate", "b1"},
             "an assigned app");
-    require(model.free_bar == "b1", "the free bar");
+    require(model.free_profile == "b1", "the free bar");
     require(parse_shortcuts(serialize_shortcuts(model)) == model, "the example survives a round trip");
     // Unknown members are ignored at every level.
     const auto extra = parse_shortcuts(
-        R"({"schema_version":1,"later":true,"bars":[{"id":"a","name":"A","color":"red","buttons":[)"
+        R"({"schema_version":1,"later":true,"profiles":[{"id":"a","name":"A","color":"red","buttons":[)"
         R"({"label":"x","icon":"y","action":{"kind":"keys","hold":1,"chords":[{"key":"F13","x":1}]}}]}]})");
-    require(extra.bars[0].buttons[0].action.chords[0].key == "F13", "unknown members are ignored");
-    require(parse_shortcuts(R"({"schema_version":1,"bars":[]})").apps.empty(),
-            "apps and free_bar are optional");
+    require(extra.profiles[0].buttons[0].action.chords[0].key == "F13", "unknown members are ignored");
+    require(parse_shortcuts(R"({"schema_version":1,"profiles":[]})").apps.empty(),
+            "apps and free_profile are optional");
     // A macro without repeat runs once.
     const auto once =
-        parse_shortcuts(R"({"schema_version":1,"bars":[{"id":"a","name":"","buttons":[{"label":"",)"
+        parse_shortcuts(R"({"schema_version":1,"profiles":[{"id":"a","name":"","buttons":[{"label":"",)"
                         R"("action":{"kind":"macro","steps":[{"wait_ms":100}]}}]}]})");
-    require(once.bars[0].buttons[0].action.repeat.mode == MacroRepeat::Mode::Once,
+    require(once.profiles[0].buttons[0].action.repeat.mode == MacroRepeat::Mode::Once,
             "a macro without repeat runs once");
     // Modifiers alone, and every modifier and the new F keys by name.
     ShortcutModel keys = sample();
-    keys.bars[0].buttons.push_back(keys_button("Super", {{{"MetaLeft"}, ""}}));
-    keys.bars[0].buttons.push_back(
+    keys.profiles[0].buttons.push_back(keys_button("Super", {{{"MetaLeft"}, ""}}));
+    keys.profiles[0].buttons.push_back(
         keys_button("All", {{{"ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight", "AltLeft",
                               "AltRight", "MetaLeft", "MetaRight"},
                              "F24"}}));
@@ -208,11 +209,12 @@ void example_file() {
 
 // A button the user has not finished: its action is empty, valid, and does nothing.
 void empty_actions() {
-    const auto model = parse_shortcuts(R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[)"
-                                       R"({"label":"k","action":{"kind":"keys","chords":[]}},)"
-                                       R"({"label":"m","action":{"kind":"macro","steps":[]}},)"
-                                       R"({"label":"r","action":{"kind":"run"}}]}]})");
-    const auto& buttons = model.bars[0].buttons;
+    const auto model =
+        parse_shortcuts(R"({"schema_version":1,"profiles":[{"id":"a","name":"A","buttons":[)"
+                        R"({"label":"k","action":{"kind":"keys","chords":[]}},)"
+                        R"({"label":"m","action":{"kind":"macro","steps":[]}},)"
+                        R"({"label":"r","action":{"kind":"run"}}]}]})");
+    const auto& buttons = model.profiles[0].buttons;
     require(buttons.size() == 3 && std::all_of(buttons.begin(), buttons.end(),
                                                [](const ShortcutButton& button) {
                                                    return shortcut_action_empty(button.action);
@@ -220,10 +222,11 @@ void empty_actions() {
             "a shortcut without combinations, a macro without steps and Run with neither are empty");
     require(parse_shortcuts(serialize_shortcuts(model)) == model, "empty actions survive a round trip");
     auto finished = sample();
-    require(!shortcut_action_empty(finished.bars[0].buttons[0].action), "a shortcut with keys is not");
-    finished.bars[0].buttons.push_back(run_button("", "true"));
-    require(!shortcut_action_empty(finished.bars[0].buttons[1].action), "nor a command");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[)"
+    require(!shortcut_action_empty(finished.profiles[0].buttons[0].action),
+            "a shortcut with keys is not");
+    finished.profiles[0].buttons.push_back(run_button("", "true"));
+    require(!shortcut_action_empty(finished.profiles[0].buttons[1].action), "nor a command");
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A","buttons":[)"
                  R"({"label":"r","action":{"kind":"run","script":""}}]}]})",
                  "an empty script name");
 }
@@ -231,16 +234,16 @@ void invalid_files() {
     rejects_json("{broken", "not JSON");
     rejects_json("[]", "not an object");
     rejects_json("\"text\"", "a string");
-    rejects_json(R"({"bars":[]})", "no schema_version");
-    rejects_json(R"({"schema_version":2,"bars":[]})", "an unknown schema_version");
-    rejects_json(R"({"schema_version":"1","bars":[]})", "a schema_version that is a string");
-    rejects_json(R"({"schema_version":1.0,"bars":[]})", "a schema_version that is not an integer");
+    rejects_json(R"({"profiles":[]})", "no schema_version");
+    rejects_json(R"({"schema_version":2,"profiles":[]})", "an unknown schema_version");
+    rejects_json(R"({"schema_version":"1","profiles":[]})", "a schema_version that is a string");
+    rejects_json(R"({"schema_version":1.0,"profiles":[]})", "a schema_version that is not an integer");
     rejects_json(R"({"schema_version":1})", "no bars");
-    rejects_json(R"({"schema_version":1,"bars":{}})", "bars not an array");
-    rejects_json(R"({"schema_version":1,"bars":[1]})", "a bar that is not an object");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","buttons":[]}]})", "a bar without a name");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A"}]})", "a bar without buttons");
-    const std::string head = R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[)";
+    rejects_json(R"({"schema_version":1,"profiles":{}})", "bars not an array");
+    rejects_json(R"({"schema_version":1,"profiles":[1]})", "a bar that is not an object");
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","buttons":[]}]})", "a bar without a name");
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A"}]})", "a bar without buttons");
+    const std::string head = R"({"schema_version":1,"profiles":[{"id":"a","name":"A","buttons":[)";
     const std::string tail = "]}]}";
     auto button = [&](const std::string& action) {
         return head + R"({"label":"x","action":)" + action + "}" + tail;
@@ -298,35 +301,36 @@ void invalid_files() {
     rejects_json(button(R"({"kind":"run","script":".."})"), "a script that is the parent folder");
     rejects_json(button(R"({"kind":"run","command":"ls\nrm"})"), "a command of two lines");
     rejects_json(button(R"({"kind":"run","command":""})"), "an empty command");
-    const std::string bar = R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[]}],)";
-    rejects_json(bar + R"("apps":[{"kind":"flatpak","id":"x","bar":"a"}]})", "an unknown app kind");
-    rejects_json(bar + R"("apps":[{"kind":"program","id":"x","bar":"b"}]})", "a tie to no bar");
-    rejects_json(bar + R"("apps":[{"kind":"program","id":"","bar":"a"}]})", "an empty app ID");
-    rejects_json(bar + R"("apps":[{"kind":"program","id":"/usr/bin/x","bar":"a"}]})",
+    const std::string bar = R"({"schema_version":1,"profiles":[{"id":"a","name":"A","buttons":[]}],)";
+    rejects_json(bar + R"("apps":[{"kind":"flatpak","id":"x","profile":"a"}]})", "an unknown app kind");
+    rejects_json(bar + R"("apps":[{"kind":"program","id":"x","profile":"b"}]})", "a tie to no bar");
+    rejects_json(bar + R"("apps":[{"kind":"program","id":"","profile":"a"}]})", "an empty app ID");
+    rejects_json(bar + R"("apps":[{"kind":"program","id":"/usr/bin/x","profile":"a"}]})",
                  "a program with a folder part");
-    rejects_json(bar + R"("apps":[{"kind":"steam","id":"abc","bar":"a"}]})", "a Steam ID not a number");
-    rejects_json(bar + R"("apps":[{"kind":"steam","id":"4294967296","bar":"a"}]})",
+    rejects_json(bar + R"("apps":[{"kind":"steam","id":"abc","profile":"a"}]})",
+                 "a Steam ID not a number");
+    rejects_json(bar + R"("apps":[{"kind":"steam","id":"4294967296","profile":"a"}]})",
                  "a Steam ID past 32 bits");
-    rejects_json(bar + R"("apps":[{"kind":"program","id":"x","bar":"a"},)"
-                       R"({"kind":"program","id":"x","bar":"a"}]})",
+    rejects_json(bar + R"("apps":[{"kind":"program","id":"x","profile":"a"},)"
+                       R"({"kind":"program","id":"x","profile":"a"}]})",
                  "an app assigned twice");
-    rejects_json(bar + R"("free_bar":"b"})", "a free bar that does not exist");
-    rejects_json(bar + R"("free_bar":""})", "an empty free bar");
-    rejects_json(bar + R"("free_bar":1})", "a free bar that is a number");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[]},)"
+    rejects_json(bar + R"("free_profile":"b"})", "a free bar that does not exist");
+    rejects_json(bar + R"("free_profile":""})", "an empty free bar");
+    rejects_json(bar + R"("free_profile":1})", "a free bar that is a number");
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A","buttons":[]},)"
                  R"({"id":"a","name":"B","buttons":[]}]})",
                  "two bars with one ID");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a b","name":"A","buttons":[]}]})",
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a b","name":"A","buttons":[]}]})",
                  "a bar ID with a space");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"","name":"A","buttons":[]}]})",
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"","name":"A","buttons":[]}]})",
                  "an empty bar ID");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A\u0007","buttons":[]}]})",
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A\u0007","buttons":[]}]})",
                  "a control character in a name");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A\u0000B","buttons":[]}]})",
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A\u0000B","buttons":[]}]})",
                  "a NUL in a name");
-    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A\u0085","buttons":[]}]})",
+    rejects_json(R"({"schema_version":1,"profiles":[{"id":"a","name":"A\u0085","buttons":[]}]})",
                  "a C1 control character in a name");
-    rejects_json(std::string(R"({"schema_version":1,"bars":[{"id":"a","name":"A)") + "\xff" +
+    rejects_json(std::string(R"({"schema_version":1,"profiles":[{"id":"a","name":"A)") + "\xff" +
                      R"(","buttons":[]}]})",
                  "invalid UTF-8");
     rejects_json(head + R"({"label":"a\nb\nc","action":{"kind":"keys","chords":[{"key":"KeyA"}]}})" +
@@ -334,92 +338,92 @@ void invalid_files() {
                  "a label of three lines");
     // The editor's own models use the same rules.
     ShortcutModel model = sample();
-    model.bars[0].buttons[0].label = std::string("bad") + '\xc3';
+    model.profiles[0].buttons[0].label = std::string("bad") + '\xc3';
     refused(model, "an invalid UTF-8 label in a model");
     model = sample();
-    model.bars[0].buttons[0].action.chords[0].key = "SecretKeyName";
+    model.profiles[0].buttons[0].action.chords[0].key = "SecretKeyName";
     refused(model, "an unknown key name", "SecretKeyName");
 }
 
 void limits() {
     ShortcutModel model = sample();
     // Bars: 32.
-    model.bars.clear();
+    model.profiles.clear();
     for (int i = 0; i < 32; ++i) {
-        model.bars.push_back({"b" + std::to_string(i), "Bar", {}});
+        model.profiles.push_back({"b" + std::to_string(i), "Bar", {}});
     }
-    accepted(model, "32 bars");
-    model.bars.push_back({"b32", "Bar", {}});
-    refused(model, "33 bars");
+    accepted(model, "32 profiles");
+    model.profiles.push_back({"b32", "Bar", {}});
+    refused(model, "33 profiles");
     // Buttons in a bar: 64.
     model = sample();
-    model.bars[1].buttons.assign(64, keys_button("K", {{{}, "KeyA"}}));
+    model.profiles[1].buttons.assign(64, keys_button("K", {{{}, "KeyA"}}));
     accepted(model, "64 buttons");
-    model.bars[1].buttons.push_back(keys_button("K", {{{}, "KeyA"}}));
+    model.profiles[1].buttons.push_back(keys_button("K", {{{}, "KeyA"}}));
     refused(model, "65 buttons");
     // Label: two lines, 24 characters in all, counted as characters.
     model = sample();
-    model.bars[0].buttons[0].label = repeated("é", 12) + "\n" + repeated("ж", 12);
+    model.profiles[0].buttons[0].label = repeated("é", 12) + "\n" + repeated("ж", 12);
     accepted(model, "a two-line label of 24 characters");
-    model.bars[0].buttons[0].label = repeated("Secret", 4) + "!";
+    model.profiles[0].buttons[0].label = repeated("Secret", 4) + "!";
     refused(model, "a label of 25 characters", "Secret");
-    model.bars[0].buttons[0].label = repeated("x", 24);
+    model.profiles[0].buttons[0].label = repeated("x", 24);
     accepted(model, "a one-line label of 24 characters");
     // Bar name: 32 characters.
     model = sample();
-    model.bars[0].name = repeated("名", 32);
+    model.profiles[0].name = repeated("名", 32);
     accepted(model, "a bar name of 32 characters");
-    model.bars[0].name = repeated("名", 32) + "!";
+    model.profiles[0].name = repeated("名", 32) + "!";
     refused(model, "a bar name of 33 characters");
     // Combinations in a shortcut: up to 4.
     model = sample();
-    model.bars[0].buttons[0].action.chords.assign(4, {{"ControlLeft"}, "KeyK"});
+    model.profiles[0].buttons[0].action.chords.assign(4, {{"ControlLeft"}, "KeyK"});
     accepted(model, "4 combinations");
-    model.bars[0].buttons[0].action.chords.push_back({{}, "KeyS"});
+    model.profiles[0].buttons[0].action.chords.push_back({{}, "KeyS"});
     refused(model, "5 combinations");
     // Steps in a macro: up to 32.
     model = sample();
-    model.bars[0].buttons[0] = macro_button(std::vector<MacroStep>(32, wait_step(100)));
+    model.profiles[0].buttons[0] = macro_button(std::vector<MacroStep>(32, wait_step(100)));
     accepted(model, "32 steps");
-    model.bars[0].buttons[0].action.steps.push_back(wait_step(100));
+    model.profiles[0].buttons[0].action.steps.push_back(wait_step(100));
     refused(model, "33 steps");
     // Combinations in a Keys step: 1 to 32.
-    model.bars[0].buttons[0] =
+    model.profiles[0].buttons[0] =
         macro_button({keys_step(std::vector<ShortcutChord>(32, {{"ShiftLeft"}, "KeyA"}))});
     accepted(model, "a keys step of 32 combinations");
-    model.bars[0].buttons[0].action.steps[0].keys.push_back({{}, "Enter"});
+    model.profiles[0].buttons[0].action.steps[0].keys.push_back({{}, "Enter"});
     refused(model, "a keys step of 33 combinations");
-    model.bars[0].buttons[0] = macro_button({keys_step({})});
+    model.profiles[0].buttons[0] = macro_button({keys_step({})});
     refused(model, "a keys step of no combinations");
-    model.bars[0].buttons[0] = macro_button({keys_step({{{}, "Nope"}})});
+    model.profiles[0].buttons[0] = macro_button({keys_step({{{}, "Nope"}})});
     refused(model, "a keys step with an unknown key");
     // Wait: 100 to 10,000 ms.
-    model.bars[0].buttons[0] = macro_button({wait_step(100), wait_step(10000)});
+    model.profiles[0].buttons[0] = macro_button({wait_step(100), wait_step(10000)});
     accepted(model, "waits of 100 and 10000 ms");
-    model.bars[0].buttons[0] = macro_button({wait_step(99)});
+    model.profiles[0].buttons[0] = macro_button({wait_step(99)});
     refused(model, "a wait of 99 ms");
-    model.bars[0].buttons[0] = macro_button({wait_step(10001)});
+    model.profiles[0].buttons[0] = macro_button({wait_step(10001)});
     refused(model, "a wait of 10001 ms");
     // Repeat count: 2 to 99.
     for (int count : {2, 99}) {
-        model.bars[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::Times, count});
+        model.profiles[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::Times, count});
         accepted(model, "a repeat count of " + std::to_string(count));
     }
     for (int count : {1, 100}) {
-        model.bars[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::Times, count});
+        model.profiles[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::Times, count});
         refused(model, "a repeat count of " + std::to_string(count));
     }
-    model.bars[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::WhileHeld, 0});
+    model.profiles[0].buttons[0] = macro_button({wait_step(100)}, {MacroRepeat::Mode::WhileHeld, 0});
     accepted(model, "a macro repeated while held");
     // Command: 512 bytes, one line.
-    model.bars[0].buttons[0] = run_button("", "echo " + repeated("x", 507));
+    model.profiles[0].buttons[0] = run_button("", "echo " + repeated("x", 507));
     accepted(model, "a command of 512 bytes");
-    model.bars[0].buttons[0] = run_button("", "SecretCommand " + repeated("x", 499));
+    model.profiles[0].buttons[0] = run_button("", "SecretCommand " + repeated("x", 499));
     refused(model, "a command of 513 bytes", "SecretCommand");
     // Script name: 64 bytes, no folder part.
-    model.bars[0].buttons[0] = run_button(repeated("s", 61) + ".sh", "");
+    model.profiles[0].buttons[0] = run_button(repeated("s", 61) + ".sh", "");
     accepted(model, "a script name of 64 bytes");
-    model.bars[0].buttons[0] = run_button("SecretScript" + repeated("s", 50) + ".sh", "");
+    model.profiles[0].buttons[0] = run_button("SecretScript" + repeated("s", 50) + ".sh", "");
     refused(model, "a script name of 65 bytes", "SecretScript");
     // App ties: 128.
     model = sample();
@@ -433,7 +437,7 @@ void limits() {
     TemporaryDirectory directory;
     const auto path = shortcuts_path(directory.path);
     require(path == directory.path / "shortcuts.json", "the file is beside config.json");
-    std::string padded = R"({"schema_version":1,"bars":[]})";
+    std::string padded = R"({"schema_version":1,"profiles":[]})";
     padded.insert(padded.size() - 1, std::string(shortcut_limits::file_bytes - padded.size(), ' '));
     require(padded.size() == shortcut_limits::file_bytes, "a file of exactly 512 KB");
     write(path, padded);
@@ -442,7 +446,7 @@ void limits() {
     padded.insert(padded.size() - 1, " ");
     write(path, padded);
     const auto large = store.load();
-    require(large.state == ShortcutsLoad::State::Invalid && large.model.bars.empty(),
+    require(large.state == ShortcutsLoad::State::Invalid && large.model.profiles.empty(),
             "a larger file loads nothing");
 }
 
@@ -467,7 +471,7 @@ void store() {
             "nothing is left beside it");
     // An invalid model is never written.
     auto broken = model;
-    broken.free_bar = "gone";
+    broken.free_profile = "gone";
     require(store.save(broken).has_value() && read(path) == serialize_shortcuts(model),
             "an invalid model is refused and the file is unchanged");
     // A missing folder is made.
@@ -480,7 +484,7 @@ void bad_file_rule() {
     TemporaryDirectory directory;
     const auto path = shortcuts_path(directory.path);
     const auto bad = path.string() + ".bad";
-    const std::string original = R"({"schema_version":1,"bars":[{"id":"a","name":"MyPrivateName",)"
+    const std::string original = R"({"schema_version":1,"profiles":[{"id":"a","name":"MyPrivateName",)"
                                  R"("buttons":[{"label":"MyLabel","action":{"kind":"run",)"
                                  R"("command":"MyCommand","script":"x"}}]}]})";
     write(path, original);
@@ -495,7 +499,7 @@ void bad_file_rule() {
     require(read(path) == original, "loading leaves an invalid file alone");
     // A refused save doesn't move it either.
     ShortcutModel invalid_model;
-    invalid_model.free_bar = "none";
+    invalid_model.free_profile = "none";
     require(store.save(invalid_model).has_value() && read(path) == original && !fs::exists(bad),
             "an invalid model moves nothing aside");
     // The first save moves it to shortcuts.json.bad, then writes.
@@ -505,13 +509,13 @@ void bad_file_rule() {
     require(ShortcutStore(path).load().model == model, "the new file is the saved model");
     // Later saves leave the .bad file alone.
     write(bad, "kept");
-    model.bars[0].name = "Changed";
+    model.profiles[0].name = "Changed";
     require(!store.save(model) && read(bad) == "kept", "the second save leaves .bad alone");
     // An unknown schema_version counts as invalid too.
-    write(path, R"({"schema_version":2,"bars":[]})");
+    write(path, R"({"schema_version":2,"profiles":[]})");
     const auto future = store.load();
     require(future.state == ShortcutsLoad::State::Invalid, "an unknown schema_version is invalid");
-    require(!store.save(model) && read(bad) == R"({"schema_version":2,"bars":[]})",
+    require(!store.save(model) && read(bad) == R"({"schema_version":2,"profiles":[]})",
             "and is moved aside by the next save");
     // A valid file is simply replaced.
     require(store.load().state == ShortcutsLoad::State::Valid, "the saved file loads");
@@ -528,10 +532,10 @@ void hand_edits() {
     ShortcutStore store(path);
     require(store.load().state == ShortcutsLoad::State::Valid, "a valid file loads");
     // Edited with a typo after it was loaded.
-    write(path, "{\"schema_version\":1,\"bars\":[");
+    write(path, "{\"schema_version\":1,\"profiles\":[");
     auto model = sample();
-    model.bars[0].name = "Saved";
-    require(!store.save(model) && read(bad) == "{\"schema_version\":1,\"bars\":[" &&
+    model.profiles[0].name = "Saved";
+    require(!store.save(model) && read(bad) == "{\"schema_version\":1,\"profiles\":[" &&
                 parse_shortcuts(read(path)) == model,
             "a hand edit that doesn't parse is kept as .bad, and the save goes ahead");
     // A store that never read the file finds it invalid.
@@ -542,27 +546,27 @@ void hand_edits() {
     // A valid hand edit is kept as .old.
     require(store.load().state == ShortcutsLoad::State::Valid, "the saved file loads again");
     auto edited = model;
-    edited.bars[1].name = "By hand";
+    edited.profiles[1].name = "By hand";
     write(path, serialize_shortcuts(edited));
-    model.bars[0].name = "Saved again";
+    model.profiles[0].name = "Saved again";
     require(!store.save(model) && parse_shortcuts(read(old)) == edited &&
                 parse_shortcuts(read(path)) == model,
             "a valid hand edit is kept as .old, and the save goes ahead");
     // What this store wrote last is replaced without a copy.
     fs::remove(old);
-    model.bars[0].name = "Third";
+    model.profiles[0].name = "Third";
     require(!store.save(model) && !fs::exists(old), "its own last save is simply replaced");
     // R326: the folder's sync after the rename fails (a folder that can't be
     // opened for reading can still take the file). The new file is in place,
     // so the next save takes it for this store's own, not a hand edit.
     if (geteuid() != 0) {
         fs::permissions(directory.path, fs::perms::owner_write | fs::perms::owner_exec);
-        model.bars[0].name = "Unsynced";
+        model.profiles[0].name = "Unsynced";
         const auto problem = store.save(model);
         fs::permissions(directory.path, fs::perms::owner_all);
         require(problem && parse_shortcuts(read(path)) == model,
                 "a failed folder sync is reported, the new file in place");
-        model.bars[0].name = "Fourth";
+        model.profiles[0].name = "Fourth";
         require(!store.save(model) && !fs::exists(old) && parse_shortcuts(read(path)) == model,
                 "and the next save replaces it without keeping it as .old");
     }
@@ -580,9 +584,9 @@ void reload_and_check() {
     settings.shortcuts = true;
     save_settings(directory.path, settings);
     auto model = sample();
-    model.free_bar = "b1";
+    model.free_profile = "b1";
     write(path, serialize_shortcuts(model));
-    require(check_shortcuts(directory.path).line == "shortcuts: 2 bars, 1 buttons, 0 assigned apps",
+    require(check_shortcuts(directory.path).line == "shortcuts: 2 profiles, 1 buttons, 0 assigned apps",
             "--check counts a valid file's bars, buttons and apps");
     Options options;
     options.config_dir = directory.path;
@@ -596,11 +600,11 @@ void reload_and_check() {
                    : std::string("(none)");
     };
     require(label() == "Copy", "the bar loads");
-    model.bars[0].buttons[0].label = "Edited";
+    model.profiles[0].buttons[0].label = "Edited";
     write(path, serialize_shortcuts(model));
     app.reload();
     require(label() == "Edited", "Reload shows a valid hand edit");
-    write(path, "{\"schema_version\":1,\"bars\":[{\"id\":\"b1\",\"name\":\"SecretName\"}]}");
+    write(path, "{\"schema_version\":1,\"profiles\":[{\"id\":\"b1\",\"name\":\"SecretName\"}]}");
     app.reload();
     require(label() == "Edited" && app.view().status.find("can't be read") != std::string::npos &&
                 app.view().status.find("SecretName") == std::string::npos,
@@ -613,15 +617,15 @@ void reload_and_check() {
 AppIdentity program(std::string id) {
     return {AppIdentity::Kind::Program, std::move(id)};
 }
-std::string shown(const ShortcutBarChoice& choice) {
+std::string shown(const ShortcutProfileChoice& choice) {
     return choice.shown() ? *choice.shown() : "";
 }
 void which_bar_shows() {
     ShortcutModel model;
-    model.bars = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}, {"free2", "Free 2", {}}};
+    model.profiles = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}, {"free2", "Free 2", {}}};
     model.apps = {{program("kate"), "Kate", "editor"}};
-    model.free_bar = "free1";
-    ShortcutBarChoice choice;
+    model.free_profile = "free1";
+    ShortcutProfileChoice choice;
     choice.configure(model, true, true);
     choice.focus(model, program("kate"));
     require(shown(choice) == "editor" && choice.button_on() && !choice.empty_bar(),
@@ -641,10 +645,10 @@ void which_bar_shows() {
     require(shown(choice) == "free1", "a later app with a bar brings the bar back");
     model.apps.pop_back();
     // The free bar no longer exists.
-    model.free_bar = "gone";
+    model.free_profile = "gone";
     choice.focus(model, program("other"));
     require(!choice.shown(), "rule 2 needs the free bar to exist");
-    model.free_bar.clear();
+    model.free_profile.clear();
     choice.focus(model, program("other"));
     require(!choice.shown(), "rule 3 without a free bar");
     // Steam app identities are kinds of their own.
@@ -656,15 +660,15 @@ void which_bar_shows() {
 }
 void toolbar_button() {
     ShortcutModel model;
-    model.bars = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}};
+    model.profiles = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}};
     model.apps = {{program("kate"), "Kate", "editor"}};
-    ShortcutBarChoice choice;
+    ShortcutProfileChoice choice;
     choice.configure(model, true, true);
     choice.focus(model, program("kate"));
     // A bar shows: it hides and stays hidden everywhere.
     auto changes = choice.toolbar(model);
     require(!choice.shown() && !choice.button_on() && !choice.switch_on() && changes.shortcuts_switch &&
-                !changes.free_bar,
+                !changes.free_profile,
             "pressed while a bar shows: hidden, and the switch is saved off");
     choice.focus(model, program("other"));
     choice.focus(model, program("kate"));
@@ -691,12 +695,12 @@ void toolbar_button() {
     require(choice.empty_bar() && choice.switch_on() && changes.shortcuts_switch,
             "switched back on with no bar due: the empty bar");
     // The saved switch is honored at start.
-    ShortcutBarChoice later;
+    ShortcutProfileChoice later;
     later.configure(model, true, false);
     later.focus(model, program("kate"));
     require(!later.shown() && !later.switch_on(), "a saved switch that is off shows nothing");
     // With the feature off nothing shows and the button does nothing.
-    ShortcutBarChoice off;
+    ShortcutProfileChoice off;
     off.configure(model, false, true);
     off.focus(model, program("kate"));
     changes = off.toolbar(model);
@@ -707,14 +711,14 @@ void toolbar_button() {
 }
 void picker() {
     ShortcutModel model;
-    model.bars = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}, {"free2", "Free 2", {}}};
+    model.profiles = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}, {"free2", "Free 2", {}}};
     model.apps = {{program("kate"), "Kate", "editor"}};
-    model.free_bar = "free1";
-    ShortcutBarChoice choice;
+    model.free_profile = "free1";
+    ShortcutProfileChoice choice;
     choice.configure(model, true, true);
     choice.focus(model, program("kate"));
     auto changes = choice.pick(model, "free2");
-    require(shown(choice) == "free2" && model.free_bar == "free2" && changes.free_bar,
+    require(shown(choice) == "free2" && model.free_profile == "free2" && changes.free_profile,
             "a free bar picked shows and becomes the free bar");
     // Turned off and on in the same focus, the pick is still what is due.
     choice.toolbar(model);
@@ -726,46 +730,47 @@ void picker() {
     require(shown(choice) == "free2", "rule 2 returns to the free bar picked last");
     // A bar tied to an app shows but doesn't become the free bar.
     changes = choice.pick(model, "editor");
-    require(shown(choice) == "editor" && model.free_bar == "free2" && !changes.free_bar,
+    require(shown(choice) == "editor" && model.free_profile == "free2" && !changes.free_profile,
             "an assigned bar picked shows, and the free bar stays");
     // The same free bar again changes nothing to save.
     changes = choice.pick(model, "free2");
-    require(shown(choice) == "free2" && !changes.free_bar, "picking the free bar again saves nothing");
+    require(shown(choice) == "free2" && !changes.free_profile,
+            "picking the free bar again saves nothing");
     // Picking from the empty bar.
-    model.free_bar.clear();
+    model.free_profile.clear();
     choice.focus(model, program("other"));
     choice.toolbar(model);
     require(choice.empty_bar(), "the empty bar");
     changes = choice.pick(model, "free1");
-    require(shown(choice) == "free1" && !choice.empty_bar() && model.free_bar == "free1" &&
-                changes.free_bar,
+    require(shown(choice) == "free1" && !choice.empty_bar() && model.free_profile == "free1" &&
+                changes.free_profile,
             "a bar picked from the empty bar");
     // Nothing is picked while the bar is off by hand, or for a bar that doesn't exist.
     choice.toolbar(model);
     changes = choice.pick(model, "free2");
-    require(!choice.shown() && model.free_bar == "free1" && !changes.free_bar,
+    require(!choice.shown() && model.free_profile == "free1" && !changes.free_profile,
             "nothing is picked while the switch is off");
     choice.toolbar(model);
     changes = choice.pick(model, "gone");
-    require(shown(choice) == "free1" && !changes.free_bar, "a bar that doesn't exist is not picked");
+    require(shown(choice) == "free1" && !changes.free_profile, "a bar that doesn't exist is not picked");
 }
 void model_changes() {
     ShortcutModel model;
-    model.bars = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}};
+    model.profiles = {{"editor", "Editor", {}}, {"free1", "Free 1", {}}};
     model.apps = {{program("kate"), "Kate", "editor"}};
-    model.free_bar = "free1";
-    ShortcutBarChoice choice;
+    model.free_profile = "free1";
+    ShortcutProfileChoice choice;
     choice.configure(model, true, true);
     choice.focus(model, program("other"));
     require(shown(choice) == "free1", "the free bar");
     // Assigning the focused app to another bar doesn't switch the bar showing.
     model.apps.push_back({program("other"), "Other", "editor"});
     auto changes = choice.model_changed(model);
-    require(shown(choice) == "free1" && !changes.free_bar, "a new tie leaves the bar showing");
+    require(shown(choice) == "free1" && !changes.free_profile, "a new tie leaves the bar showing");
     // The bar showing and the free bar are deleted.
-    model.bars.erase(model.bars.begin() + 1);
+    model.profiles.erase(model.profiles.begin() + 1);
     changes = choice.model_changed(model);
-    require(model.free_bar.empty() && changes.free_bar, "a free bar that is gone is cleared");
+    require(model.free_profile.empty() && changes.free_profile, "a free bar that is gone is cleared");
     require(shown(choice) == "editor", "a deleted bar gives way to the bar now due");
     // Nothing showing may now have a bar due.
     model.apps.clear();

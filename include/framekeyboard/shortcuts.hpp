@@ -8,18 +8,18 @@
 #include <vector>
 
 // The shortcut bar's model and its file (docs/shortcut-bar-design.md,
-// Storage), and which bar shows. Plain data and pure logic: nothing here
+// Storage), and which profile shows. Plain data and pure logic: nothing here
 // draws, sends keys or starts programs. Labels, names, recorded keys,
 // commands and script names are the user's own and never appear in an
 // error or a log.
 namespace framekeyboard {
 // The design's limits. Characters are Unicode code points.
 namespace shortcut_limits {
-inline constexpr std::size_t bars = 32;
-inline constexpr std::size_t buttons = 64;          // in a bar
+inline constexpr std::size_t profiles = 32;
+inline constexpr std::size_t buttons = 64;          // in a profile
 inline constexpr std::size_t label_characters = 24; // both lines together
 inline constexpr std::size_t label_lines = 2;
-inline constexpr std::size_t bar_name_characters = 32;
+inline constexpr std::size_t profile_name_characters = 32;
 inline constexpr std::size_t chords = 4;            // in a shortcut
 inline constexpr std::size_t steps = 32;            // in a macro
 inline constexpr std::size_t step_chords = 32;      // in a macro's Keys step
@@ -31,7 +31,7 @@ inline constexpr std::size_t apps = 128; // app ties
 inline constexpr std::size_t file_bytes = 512 * 1024;
 // Not in the design's table: the file's own identifiers and the names it
 // keeps for assigned apps, bounded so a hand-edited file stays small.
-inline constexpr std::size_t bar_id_bytes = 32;
+inline constexpr std::size_t profile_id_bytes = 32;
 inline constexpr std::size_t app_id_bytes = 255;
 inline constexpr std::size_t app_name_characters = 128;
 } // namespace shortcut_limits
@@ -75,10 +75,10 @@ struct ShortcutButton {
     ShortcutAction action;
     bool operator==(const ShortcutButton&) const = default;
 };
-struct ShortcutBar {
+struct ShortcutProfile {
     std::string id, name;
     std::vector<ShortcutButton> buttons;
-    bool operator==(const ShortcutBar&) const = default;
+    bool operator==(const ShortcutProfile&) const = default;
 };
 // The app that has the keys, as far as it can be told (design, Apps).
 // Steam's dashboard and an unknown focus have none.
@@ -91,27 +91,27 @@ struct AppIdentity {
 // An assigned app: the name is looked up once when it is assigned.
 struct AppTie {
     AppIdentity app;
-    std::string name, bar;
+    std::string name, profile;
     bool operator==(const AppTie&) const = default;
 };
 struct ShortcutModel {
-    std::vector<ShortcutBar> bars;
+    std::vector<ShortcutProfile> profiles;
     std::vector<AppTie> apps;
-    // The free bar rule 2 returns to; empty for none.
-    std::string free_bar;
+    // The free profile rule 2 returns to; empty for none.
+    std::string free_profile;
     bool operator==(const ShortcutModel&) const = default;
 
-    const ShortcutBar* bar(const std::string& id) const;
-    // The bar tied to this app, or null.
-    const ShortcutBar* bar_for(const AppIdentity& app) const;
-    // Whether no app is tied to this bar.
+    const ShortcutProfile* profile(const std::string& id) const;
+    // The profile tied to this app, or null.
+    const ShortcutProfile* profile_for(const AppIdentity& app) const;
+    // Whether no app is tied to this profile.
     bool free(const std::string& id) const;
 };
 
 // Every rule of the file's content: limits, key and modifier names, unique
-// bar IDs, ties and free_bar naming existing bars, text that is valid UTF-8
+// profile IDs, ties and free_profile naming existing profiles, text that is valid UTF-8
 // without control characters. Loading and the editor both use it. The
-// reason, when invalid, names the place by position (bar 2, button 5) and
+// reason, when invalid, names the place by position (profile 2, button 5) and
 // never quotes the user's labels, text, commands or names.
 std::optional<std::string> validate_shortcuts(const ShortcutModel& model);
 // An action with nothing to do yet: a shortcut without combinations, a
@@ -160,15 +160,15 @@ class ShortcutStore {
     std::optional<std::string> known_;
 };
 
-// Which bar shows (design, Toolbar button and Which bar shows). Pure state:
+// Which profile shows (design, Toolbar button and Which profile shows). Pure state:
 // App feeds it focus changes and presses and draws what it says. It owns
 // the user's toolbar switch (shortcuts_switch) while the keyboard runs; the
-// model it reads and updates (free_bar) belongs to the caller.
-class ShortcutBarChoice {
+// model it reads and updates (free_profile) belongs to the caller.
+class ShortcutProfileChoice {
   public:
     // What the caller should save after a call.
     struct Changes {
-        bool free_bar{}, shortcuts_switch{};
+        bool free_profile{}, shortcuts_switch{};
     };
     // `enabled`: Shortcuts and macros is on and no shell runs the keyboard.
     // `on`: the saved toolbar switch.
@@ -178,22 +178,22 @@ class ShortcutBarChoice {
     void focus(const ShortcutModel& model, std::optional<AppIdentity> app);
     // The toolbar button's three cases.
     Changes toolbar(const ShortcutModel& model);
-    // A bar chosen in the picker: it shows until the focus changes, and a
-    // free one becomes the free bar rule 2 returns to.
-    Changes pick(ShortcutModel& model, const std::string& bar);
-    // The model changed (an editor save, a tie): a bar that no longer exists
-    // stops showing, and a free_bar naming none is cleared.
+    // A profile chosen in the picker: it shows until the focus changes, and a
+    // free one becomes the free profile rule 2 returns to.
+    Changes pick(ShortcutModel& model, const std::string& profile);
+    // The model changed (an editor save, a tie): a profile that no longer exists
+    // stops showing, and a free_profile naming none is cleared.
     Changes model_changed(ShortcutModel& model);
 
-    // The bar showing, or null. With the empty bar or nothing showing, null.
+    // The profile showing, or null. With the empty bar or nothing showing, null.
     const std::string* shown() const { return shown_ ? &*shown_ : nullptr; }
-    // The two-slot bar the toolbar button opens when no bar is due.
+    // The two-slot bar the toolbar button opens when no profile is due.
     bool empty_bar() const { return empty_; }
     // Something shows: the button reads on; crossed otherwise.
     bool button_on() const { return shown_.has_value() || empty_; }
     bool switch_on() const { return on_; }
     bool enabled() const { return enabled_; }
-    // The bar due for the focused app: the picker's choice since the focus
+    // The profile due for the focused app: the picker's choice since the focus
     // came, else rule 1, else rule 2; none for rule 3.
     std::optional<std::string> due(const ShortcutModel& model) const;
 
@@ -201,7 +201,7 @@ class ShortcutBarChoice {
     void resolve(const ShortcutModel& model);
     bool enabled_{}, on_{true};
     std::optional<AppIdentity> app_;
-    // A bar chosen in the picker for this focus; cleared when it moves on.
+    // A profile chosen in the picker for this focus; cleared when it moves on.
     std::optional<std::string> chosen_;
     std::optional<std::string> shown_;
     bool empty_{};

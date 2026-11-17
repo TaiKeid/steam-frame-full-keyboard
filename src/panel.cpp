@@ -3980,7 +3980,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
         interface_label(cr, e.notice, {body.x + 600, 8, body.width - 620, 52}, 16, view.interface_font,
                         t.warning, false, PANGO_ALIGN_LEFT, true);
     }
-    interface_label(cr, e.bars_caption, {e.column.x + 12, e.column.y, e.column.width, 30}, 17,
+    interface_label(cr, e.profiles_caption, {e.column.x + 12, e.column.y, e.column.width, 30}, 17,
                     view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
     // The line between the column and the rest.
     cairo_move_to(cr, std::round(e.divider) + .5, e.column.y);
@@ -3988,7 +3988,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
-    clipped(e.bars_list, [&] {
+    clipped(e.profiles_list, [&] {
         for (const auto& c : view.controls) {
             if (!c.id.starts_with("shortcuts-row-")) {
                 continue;
@@ -4019,8 +4019,8 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             }
         }
     });
-    if (e.bars_thumb) {
-        rounded(cr, *e.bars_thumb, 3);
+    if (e.profiles_thumb) {
+        rounded(cr, *e.profiles_thumb, 3);
         source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
         cairo_fill(cr);
     }
