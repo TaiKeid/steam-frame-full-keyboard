@@ -3497,14 +3497,15 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
     const auto& e = menu.edit;
-    if (menu.edit_hovered || menu.edit_pressed) {
+    if (menu.edit_enabled && (menu.edit_hovered || menu.edit_pressed)) {
         rounded(cr, {e.x, e.y + 2, e.width, e.height - 4}, t.radius);
         source(cr, t.hover);
         cairo_fill(cr);
     }
-    draw_icon(cr, Icon::Pencil, {e.x + 6, e.y, 40, e.height}, t.legend, 20);
+    const Color ink = menu.edit_enabled ? t.legend : quiet;
+    draw_icon(cr, Icon::Pencil, {e.x + 6, e.y, 40, e.height}, ink, 20);
     interface_label(cr, menu.edit_label, {e.x + 50, e.y, e.width - 60, e.height}, 21,
-                    view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+                    view.interface_font, ink, false, PANGO_ALIGN_LEFT);
 }
 } // namespace
 Rect dictation_status_bounds(const PanelView& view) {

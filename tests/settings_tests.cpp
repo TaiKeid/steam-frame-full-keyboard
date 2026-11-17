@@ -3937,12 +3937,13 @@ void shortcut_bar_settings() {
     const auto back = app.view().shortcut_bar->menu->rows[0].bounds;
     tap_at(app, back.x + 30, back.y + back.height / 2);
     require(app.view().shortcut_bar->buttons[0].label == "Undo", "the other bar from its start");
-    // Edit shortcuts opens Settings at the card.
+    // Edit shortcuts waits, disabled, for the editor: a press there does nothing.
     tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(!app.view().shortcut_bar->menu->edit_enabled, "Edit shortcuts is disabled for now");
     tap_rect(app, app.view().shortcut_bar->menu->edit);
-    require(app.view().settings && has(app.view(), "shortcuts"),
-            "Edit shortcuts opens Settings at its card");
-    app.back();
+    require(!app.view().settings && app.view().shortcut_bar->menu, "a press on it does nothing");
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(!app.view().shortcut_bar->menu, "the picker closes its menu");
     // Nothing shows and a bar is due: that bar.
     click(app, "shortcuts-toggle");
     require(!app.view().shortcut_bar, "hidden by hand");

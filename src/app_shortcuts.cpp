@@ -180,8 +180,9 @@ void App::append_shortcut_bar(PanelView& v) const {
                               3, length};
         }
         menu.edit_label = tr("shortcuts.menu.edit");
-        menu.edit_hovered = hovered("edit");
-        menu.edit_pressed = pressed("edit");
+        // The editor comes with its own screen (design, Settings and the
+        // editor); until then the row waits, disabled.
+        menu.edit_enabled = false;
         view.menu = std::move(menu);
     }
     if (view.picker_hovered && !bar_menu_) {
@@ -259,8 +260,10 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         // A key's press haptic and pop, for a button that can act.
         return shortcut_button_enabled(bar->buttons[*index]);
     }
-    if (target.starts_with("assign-")) {
-        return false; // Disabled until apps can be identified.
+    if (target.starts_with("assign-") || target == "edit") {
+        // Disabled: assigning until apps can be identified, editing until
+        // the editor exists. The press goes nowhere else.
+        return false;
     }
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false};
     dirty = true;
@@ -337,11 +340,6 @@ void App::bar_action(const std::string& target) {
         bar_menu_ = false;
         const auto changes = bar_choice_.pick(shortcuts_, shortcuts_.bars[*row].id);
         apply_bar_changes(changes);
-    } else if (target == "edit") {
-        // The editor comes later; for now the switch's card in Settings.
-        bar_menu_ = false;
-        show_settings();
-        settings_ui_.show_card("general");
     }
     dirty = true;
 }

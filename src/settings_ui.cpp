@@ -36,17 +36,6 @@ void SettingsUi::set_cards(std::vector<SettingsCard> cards) {
         close_popup();
     }
 }
-void SettingsUi::show_card(const std::string& id) {
-    for (std::size_t i = 0; i < cards_.size(); ++i) {
-        if (cards_[i].id == id) {
-            // Its right edge at the viewport's, or as far as the row goes.
-            const double right = static_cast<double>(i) * (card_width + card_gap) + card_width;
-            horizontal_ = horizontal_target_ =
-                std::clamp(right - viewport.width, 0.0, horizontal_limit());
-            return;
-        }
-    }
-}
 Rect SettingsUi::card_bounds(std::size_t i) const {
     return {viewport.x + static_cast<double>(i) * (card_width + card_gap) - horizontal_, viewport.y,
             card_width, viewport.height};

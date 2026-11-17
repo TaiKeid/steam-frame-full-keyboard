@@ -287,7 +287,8 @@ struct ShortcutBarView {
         std::optional<Rect> thumb; // while more rows than six
         Rect edit;
         std::string edit_label;
-        bool edit_hovered{}, edit_pressed{};
+        // Edit shortcuts opens the editor, which comes later: disabled until then.
+        bool edit_enabled{}, edit_hovered{}, edit_pressed{};
     };
     std::optional<Menu> menu;
 };
