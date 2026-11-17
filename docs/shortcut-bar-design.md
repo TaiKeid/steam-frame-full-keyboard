@@ -66,6 +66,8 @@ Each time another app takes the keys:
 
 Steam's dashboard and an app that can't be identified count as apps without a profile. An empty bar opened with the toolbar button stays until the focus moves on.
 
+Inside SteamOS's Desktop another app taking the keys is a change of focus, as another window is elsewhere. Another window of the same app, such as a dialog, is not: the bar and a profile chosen in the picker stay, and only a run under way stops.
+
 Choosing a profile in the picker shows it until the focus changes. If it is a free profile, it also becomes the one rule 2 returns to. The switch turned off by hand overrides all of this.
 
 ## Picker menu
@@ -79,9 +81,11 @@ The picker's button opens a menu that drops over the case from the picker, right
 | Last | **Edit shortcuts**, which opens the editor on the profile showing |
 
 - A press on a name switches to that profile and does nothing else.
-- A press on an assign button ties the focused app to that profile, lights the button, and clears any other profile's tie to that app. A press on a lit button removes the tie. Both are saved at once.
-- Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported.
-- Six profiles show; more scroll. A tooltip on an assign button says what it will do, naming the profile and the app.
+- A press on an assign button ties the focused app to that profile, lights the button, and clears any other profile's tie to that app. A press on a lit button removes the tie. Both are saved at once, and the menu stays open.
+- A profile just tied to the focused app shows at once. Removing a tie leaves the bar as it is until the focus changes.
+- Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported. They are also disabled, for an app without a tie, once 128 apps have one.
+- Six profiles show; more scroll. A tooltip on an assign button says what it will do, naming the profile and the app; on a disabled one it says why.
+- The header shows no app while the focused one can't be assigned.
 
 ## Apps
 
@@ -94,7 +98,21 @@ The picker's button opens a menu that drops over the case from the picker, right
 | A game or app streamed from a PC with Streaming support | To be decided by a [probe](#frame-probes): the stream's own identity if Gamescope reports one, else all such streams as one app | — |
 | Steam's dashboard | None; it can't be assigned | — |
 
-`DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, the focused app's kind and ID, read without blocking. The name shown is looked up once when an app is assigned, off the VR thread, and stored with the tie.
+Which identity the focus has, by the first row that fits:
+
+| Focus | Identity |
+| --- | --- |
+| Steam's dashboard has the keys, the keys go to one of Steam's own text fields, the focused window is Steam's own, or nothing is focused | None |
+| SteamOS's Desktop | `desktop`, with the app ID its window manager reported last; none before its first report and while no window is active there |
+| A game-streaming client, such as Moonlight | `program`, even when Steam started it as a non-Steam shortcut: its file name outlasts a shortcut's ID |
+| A window with a Steam app ID | `steam` |
+| Any other window | `program`; none when the program's name can't be read |
+
+- `DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, read without blocking: the focused window with its app's kind and ID, published together, so the bar never sees a new window with the last one's app.
+- An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set.
+- The uinput backend can't tell which app has the keys: there is no identity there, only free profiles.
+- A name is looked up when the picker's menu opens and when an app is assigned, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives the menu shows what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie and not looked up again.
+- Desktop files are looked for by the app ID as a file name, in the user's and the system's application folders, Flatpak's included.
 
 ## Actions
 
