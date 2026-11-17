@@ -658,6 +658,43 @@ void modifier_lock_tests(const fk::Layout& layout) {
                                     {KEY_LEFTALT, 0}},
             "a held Alt stays down over Tabs through the output queue");
 }
+// A shortcut button sends only its own modifiers (docs/shortcut-bar-design.md).
+void shortcut_clearing_tests(const fk::Layout& layout) {
+    Capture target;
+    fk::OutputController output(target);
+    output.set_enabled(true);
+    fk::KeyboardState hands(output);
+    const auto held = [&](int code) {
+        int count = 0;
+        for (const auto& [event, value] : target.events) {
+            count += event != code ? 0 : value == 1 ? 1 : value == 0 ? -1 : 0;
+        }
+        return count;
+    };
+    hands.down(0, key(layout, "ControlLeft"), 10);
+    hands.up(0);
+    require(hands.modifiers().contains(KEY_LEFTCTRL), "a tapped Ctrl latches");
+    require(hands.clear_for_shortcut() && hands.modifiers().empty() && target.events.empty(),
+            "a shortcut clears a latched Ctrl, sending nothing");
+    // A locked Alt kept down after Tab used it comes up, and stays locked.
+    hands.down(0, key(layout, "AltLeft"), 20);
+    hands.tick(20.6);
+    hands.up(0);
+    hands.down(1, key(layout, "Tab"), 21);
+    output.tick(21);
+    hands.up(1);
+    output.tick(21.1);
+    require(hands.locked(KEY_LEFTALT) && held(KEY_LEFTALT) == 1, "a locked Alt stays down after Tab");
+    require(hands.clear_for_shortcut() && hands.locked(KEY_LEFTALT) && held(KEY_LEFTALT) == 0,
+            "a shortcut lets a locked Alt up and keeps the lock");
+    // Another hand holding a key: the shortcut waits.
+    hands.down(1, key(layout, "KeyA"), 22);
+    output.tick(22);
+    require(!hands.clear_for_shortcut(), "not while another key is held down");
+    hands.up(1);
+    output.tick(22.1);
+    hands.cancel_all();
+}
 void profile_tests(const fk::Profiles& defaults) {
     TemporaryDirectory directory;
     write(
@@ -947,6 +984,7 @@ int main() {
         }
         state_tests(defaults.layouts.at("en-us-full"));
         modifier_lock_tests(defaults.layouts.at("en-us-full"));
+        shortcut_clearing_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         key_area_tests(defaults);
         app_key_area_tests();

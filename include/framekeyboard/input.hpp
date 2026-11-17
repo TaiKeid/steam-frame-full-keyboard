@@ -190,6 +190,12 @@ class KeyboardState {
     // Ends every press as cancel_pointer() does, and any other output hold,
     // keeping latches and locks: the keys come up, not the modifier state.
     void release_presses();
+    // Before a shortcut button's combinations, which carry their own
+    // modifiers: latched ones are cleared, not added, and held or locked
+    // ones kept down let up, as Cut, Copy and Paste do; a lock stays locked
+    // and goes down again with the next key that uses it. False, changing
+    // nothing, while another pointer holds a key down.
+    bool clear_for_shortcut();
     bool tick(double now);
     bool pressed(const std::string& id) const;
     std::set<int> modifiers() const;

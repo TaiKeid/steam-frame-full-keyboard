@@ -12,6 +12,9 @@ bool QueuedShortcutOutput::tap(const std::vector<int>& codes) {
     return output_.tap(codes);
 }
 int QueuedShortcutOutput::shortcut_code(xkb_keysym_t symbol, int fallback) {
+    if (keymap_letters_ && !keymap_letters_()) {
+        return fallback;
+    }
     return output_.shortcut_code(symbol, fallback);
 }
 std::uint64_t QueuedShortcutOutput::completed() const {

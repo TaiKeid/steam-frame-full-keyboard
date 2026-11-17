@@ -94,10 +94,9 @@ bool steam_id(const std::string& id) {
 }
 std::optional<std::string> check_action(const ShortcutAction& action) {
     switch (action.kind) {
+    // An action may be empty: the editor saves a button the user has not
+    // finished, and a press on it does nothing (shortcut_action_empty).
     case ShortcutAction::Kind::Keys:
-        if (action.chords.empty()) {
-            return "a shortcut has no key combination";
-        }
         if (action.chords.size() > limits::chords) {
             return "a shortcut has more than 4 key combinations";
         }
@@ -108,9 +107,6 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
         }
         return {};
     case ShortcutAction::Kind::Macro:
-        if (action.steps.empty()) {
-            return "a macro has no steps";
-        }
         if (action.steps.size() > limits::steps) {
             return "a macro has more than 32 steps";
         }
@@ -148,8 +144,8 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
         }
         return {};
     case ShortcutAction::Kind::Run:
-        if (action.script.empty() == action.command.empty()) {
-            return "a run action needs either a script or a command";
+        if (!action.script.empty() && !action.command.empty()) {
+            return "a run action has both a script and a command";
         }
         if (!action.script.empty()) {
             if (action.script.size() > limits::script_bytes) {
@@ -159,7 +155,7 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
                 action.script.find('/') != std::string::npos || !clean_text(action.script)) {
                 return "a script name is not a plain file name";
             }
-        } else {
+        } else if (!action.command.empty()) {
             if (action.command.size() > limits::command_bytes) {
                 return "a command is longer than 512 bytes";
             }
@@ -311,10 +307,16 @@ ShortcutAction parse_action(json_object* object, const std::string& where) {
         action.kind = ShortcutAction::Kind::Run;
         auto* script = member(object, "script", json_type_string, where, true);
         auto* command = member(object, "command", json_type_string, where, true);
-        if ((script != nullptr) == (command != nullptr)) {
-            invalid(where, "a run action needs either a script or a command");
+        // Neither is a Run button not finished yet; an empty name is no name.
+        if (script && command) {
+            invalid(where, "a run action has both a script and a command");
         }
-        (script ? action.script : action.command) = string_of(script ? script : command);
+        if (script || command) {
+            (script ? action.script : action.command) = string_of(script ? script : command);
+            if ((script ? action.script : action.command).empty()) {
+                invalid(where, "a run action names an empty script or command");
+            }
+        }
     } else {
         invalid(where, "an unknown action kind");
     }
@@ -411,7 +413,7 @@ json_object* action_json(const ShortcutAction& action) {
         json_object_object_add(object, "kind", json_object_new_string("run"));
         if (!action.script.empty()) {
             json_object_object_add(object, "script", new_string(action.script));
-        } else {
+        } else if (!action.command.empty()) {
             json_object_object_add(object, "command", new_string(action.command));
         }
         break;
@@ -434,6 +436,17 @@ bool ShortcutModel::free(const std::string& id) const {
     return std::none_of(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.bar == id; });
 }
 
+bool shortcut_action_empty(const ShortcutAction& action) {
+    switch (action.kind) {
+    case ShortcutAction::Kind::Keys:
+        return action.chords.empty();
+    case ShortcutAction::Kind::Macro:
+        return action.steps.empty();
+    case ShortcutAction::Kind::Run:
+        return action.script.empty() && action.command.empty();
+    }
+    return true;
+}
 bool shortcut_modifier(const std::string& name) {
     const int code = key_code(name);
     return code != 0 && is_modifier(code);

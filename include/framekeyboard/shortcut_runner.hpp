@@ -3,6 +3,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <utility>
 #include <vector>
 #include <xkbcommon/xkbcommon.h>
 
@@ -26,10 +28,14 @@ class ShortcutOutput {
     virtual std::uint64_t failures() const = 0;
     virtual std::uint64_t cancels() const = 0;
 };
-// The real output queue behind that view.
+// The real output queue behind that view. `keymap_letters`, when given,
+// says whether letters go through the target's keymap now: App's answer is
+// Unicode mode, as for Cut, Copy and Paste (App::chord_code); otherwise a
+// letter goes by its position.
 class QueuedShortcutOutput final : public ShortcutOutput {
   public:
-    explicit QueuedShortcutOutput(OutputController& output) : output_(output) {}
+    explicit QueuedShortcutOutput(OutputController& output, std::function<bool()> keymap_letters = {})
+        : output_(output), keymap_letters_(std::move(keymap_letters)) {}
     bool can_queue(std::size_t entries) const override;
     bool tap(const std::vector<int>& codes) override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
@@ -40,6 +46,7 @@ class QueuedShortcutOutput final : public ShortcutOutput {
 
   private:
     OutputController& output_;
+    std::function<bool()> keymap_letters_;
 };
 
 // Sends a button's action over time: the only code that sends a button's

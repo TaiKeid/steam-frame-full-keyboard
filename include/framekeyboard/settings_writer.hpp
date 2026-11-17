@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "localization.hpp"
+#include "shortcuts.hpp"
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -40,6 +41,15 @@ class SettingsWriter {
     bool idle();
     // Explicit durability barrier for shutdown and tests, never a UI action.
     void flush();
+    // shortcuts.json beside config.json (shortcuts.hpp). Loaded on App's
+    // thread before any save is queued; saved on the worker, a newer model
+    // replacing one not yet written. Without a config folder nothing is read
+    // or written.
+    ShortcutsLoad load_shortcuts();
+    void save_shortcuts(ShortcutModel model);
+    // The newest finished shortcuts save, once nothing newer is queued: empty
+    // when it worked, else why it did not (never quoting the user's content).
+    std::optional<std::optional<std::string>> take_shortcuts_result();
 
   private:
     void run();
@@ -48,12 +58,18 @@ class SettingsWriter {
         bool reconcile{};
     };
     void queue(Request request);
+    // Only the worker touches the store once App's startup load is done.
+    ShortcutStore shortcuts_store_;
+    bool has_shortcuts_{};
     Write write_, reconcile_;
     std::mutex mutex_;
     std::condition_variable changed_;
     std::optional<Request> pending_;
     std::optional<Result> result_;
     bool writing_{}, stopping_{};
+    std::optional<ShortcutModel> shortcuts_pending_;
+    std::optional<std::optional<std::string>> shortcuts_result_;
+    bool shortcuts_writing_{};
     std::thread worker_;
 };
 } // namespace framekeyboard

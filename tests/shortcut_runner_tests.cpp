@@ -229,6 +229,21 @@ void letters() {
     later.tick(.031);
     require(later.sink.events == Events{{KEY_A, 1}, {KEY_A, 0}, {KEY_Q, 1}, {KEY_Q, 0}},
             "each combination is resolved as it is sent");
+    // Outside Unicode mode App keeps letters by position, as Cut, Copy and
+    // Paste do: the target's keymap is not asked.
+    Recorder sink;
+    sink.keymap = {{XKB_KEY_a, KEY_Q}};
+    OutputController output(sink);
+    output.set_enabled(true);
+    bool unicode = false;
+    QueuedShortcutOutput view(output, [&] { return unicode; });
+    ShortcutRunner runner(view);
+    runner.start(shortcut({{{}, "KeyA"}}), 0);
+    unicode = true;
+    runner.start(shortcut({{{}, "KeyA"}}), 1);
+    require(sink.events == Events{{KEY_A, 1}, {KEY_A, 0}, {KEY_Q, 1}, {KEY_Q, 0}} &&
+                sink.asked == std::vector<xkb_keysym_t>{XKB_KEY_a},
+            "the keymap is asked only when App says letters go through it");
 }
 void stops() {
     const auto two = shortcut({{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}});

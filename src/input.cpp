@@ -758,6 +758,14 @@ bool KeyboardState::make_room_for_shortcut(const std::vector<int>& chord) {
     }
     return true;
 }
+bool KeyboardState::clear_for_shortcut() {
+    // No chord of its own: every kept-down modifier comes up.
+    if (!make_room_for_shortcut({})) {
+        return false;
+    }
+    use_modifiers();
+    return true;
+}
 void KeyboardState::note_new_lock(unsigned pointer) {
     // Only VR takes these for its haptic; elsewhere the newest few are kept.
     if (new_locks_.size() >= 8) {

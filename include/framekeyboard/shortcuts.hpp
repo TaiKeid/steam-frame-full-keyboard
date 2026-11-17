@@ -62,7 +62,7 @@ struct ShortcutAction {
     std::vector<ShortcutChord> chords; // Keys
     std::vector<MacroStep> steps;      // Macro
     MacroRepeat repeat;                // Macro
-    // Run: exactly one is set. A script is a file name in the config
+    // Run: at most one is set. A script is a file name in the config
     // folder's scripts/; a command is one line for /bin/sh -c.
     std::string script, command;
     bool operator==(const ShortcutAction&) const = default;
@@ -111,6 +111,10 @@ struct ShortcutModel {
 // reason, when invalid, names the place by position (bar 2, button 5) and
 // never quotes the user's labels, text, commands or names.
 std::optional<std::string> validate_shortcuts(const ShortcutModel& model);
+// An action with nothing to do yet: a shortcut without combinations, a
+// macro without steps, Run with neither a script nor a command. Valid, as
+// the editor saves unfinished buttons; drawn disabled, and a press does nothing.
+bool shortcut_action_empty(const ShortcutAction& action);
 // Whether a key name is one of the eight modifiers.
 bool shortcut_modifier(const std::string& name);
 

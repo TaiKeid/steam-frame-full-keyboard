@@ -3,10 +3,12 @@
 #include "framekeyboard/stream_support.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 namespace framekeyboard {
 SettingsWriter::SettingsWriter(fs::path directory, Write write, Write reconcile)
-    : write_(write ? std::move(write)
+    : shortcuts_store_(shortcuts_path(directory)), has_shortcuts_(!directory.empty()),
+      write_(write ? std::move(write)
                    : Write([directory = std::move(directory)](const Settings& settings) {
                          save_settings(directory, settings);
                      })),
@@ -47,16 +49,58 @@ std::optional<SettingsWriter::Result> SettingsWriter::take_result() {
 }
 bool SettingsWriter::idle() {
     std::lock_guard lock(mutex_);
-    return !pending_ && !writing_;
+    return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_;
 }
 void SettingsWriter::flush() {
     std::unique_lock lock(mutex_);
-    changed_.wait(lock, [&] { return !pending_ && !writing_; });
+    changed_.wait(lock,
+                  [&] { return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_; });
+}
+ShortcutsLoad SettingsWriter::load_shortcuts() {
+    std::unique_lock lock(mutex_);
+    // A save under way owns the store; a load waits for it.
+    changed_.wait(lock, [&] { return !shortcuts_pending_ && !shortcuts_writing_; });
+    return has_shortcuts_ ? shortcuts_store_.load() : ShortcutsLoad{};
+}
+void SettingsWriter::save_shortcuts(ShortcutModel model) {
+    if (!has_shortcuts_) {
+        return;
+    }
+    {
+        std::lock_guard lock(mutex_);
+        shortcuts_pending_ = std::move(model);
+        shortcuts_result_.reset();
+    }
+    changed_.notify_all();
+}
+std::optional<std::optional<std::string>> SettingsWriter::take_shortcuts_result() {
+    std::lock_guard lock(mutex_);
+    if (shortcuts_pending_ || shortcuts_writing_) {
+        return {};
+    }
+    return std::exchange(shortcuts_result_, std::nullopt);
 }
 void SettingsWriter::run() {
     std::unique_lock lock(mutex_);
     for (;;) {
-        changed_.wait(lock, [&] { return pending_ || stopping_; });
+        changed_.wait(lock, [&] { return pending_ || shortcuts_pending_ || stopping_; });
+        if (shortcuts_pending_ && !pending_) {
+            auto model = std::move(*shortcuts_pending_);
+            shortcuts_pending_.reset();
+            shortcuts_writing_ = true;
+            lock.unlock();
+            std::optional<std::string> problem;
+            try {
+                problem = shortcuts_store_.save(model);
+            } catch (const std::exception& error) {
+                problem = error.what();
+            }
+            lock.lock();
+            shortcuts_writing_ = false;
+            shortcuts_result_ = std::move(problem);
+            changed_.notify_all();
+            continue;
+        }
         if (!pending_) {
             return;
         }

@@ -1,5 +1,6 @@
 #include "framekeyboard/shortcuts.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -201,6 +202,27 @@ void example_file() {
     accepted(keys, "modifiers alone and all eight modifiers");
 }
 
+// A button the user has not finished: its action is empty, valid, and does nothing.
+void empty_actions() {
+    const auto model = parse_shortcuts(R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[)"
+                                       R"({"label":"k","action":{"kind":"keys","chords":[]}},)"
+                                       R"({"label":"m","action":{"kind":"macro","steps":[]}},)"
+                                       R"({"label":"r","action":{"kind":"run"}}]}]})");
+    const auto& buttons = model.bars[0].buttons;
+    require(buttons.size() == 3 && std::all_of(buttons.begin(), buttons.end(),
+                                               [](const ShortcutButton& button) {
+                                                   return shortcut_action_empty(button.action);
+                                               }),
+            "a shortcut without combinations, a macro without steps and Run with neither are empty");
+    require(parse_shortcuts(serialize_shortcuts(model)) == model, "empty actions survive a round trip");
+    auto finished = sample();
+    require(!shortcut_action_empty(finished.bars[0].buttons[0].action), "a shortcut with keys is not");
+    finished.bars[0].buttons.push_back(run_button("", "true"));
+    require(!shortcut_action_empty(finished.bars[0].buttons[1].action), "nor a command");
+    rejects_json(R"({"schema_version":1,"bars":[{"id":"a","name":"A","buttons":[)"
+                 R"({"label":"r","action":{"kind":"run","script":""}}]}]})",
+                 "an empty script name");
+}
 void invalid_files() {
     rejects_json("{broken", "not JSON");
     rejects_json("[]", "not an object");
@@ -225,7 +247,6 @@ void invalid_files() {
     rejects_json(button(R"({"kind":"press","chords":[]})"), "an unknown action kind");
     rejects_json(button(R"({"chords":[{"key":"KeyA"}]})"), "an action without a kind");
     rejects_json(button(R"({"kind":"keys"})"), "a shortcut without chords");
-    rejects_json(button(R"({"kind":"keys","chords":[]})"), "a shortcut with no chords");
     rejects_json(button(R"({"kind":"keys","chords":[{}]})"), "an empty chord");
     rejects_json(button(R"({"kind":"keys","chords":[{"key":""}]})"), "an empty key");
     rejects_json(button(R"({"kind":"keys","chords":[{"key":"KeyAA"}]})"), "an unknown key name");
@@ -240,7 +261,6 @@ void invalid_files() {
         button(R"({"kind":"keys","chords":[{"modifiers":["ShiftLeft","ShiftLeft"],"key":"KeyA"}]})"),
         "a repeated modifier");
     rejects_json(button(R"({"kind":"macro"})"), "a macro without steps");
-    rejects_json(button(R"({"kind":"macro","steps":[]})"), "a macro with no steps");
     rejects_json(button(R"({"kind":"macro","steps":[{}]})"), "a step of no kind");
     rejects_json(button(R"({"kind":"macro","steps":[{"text":"a","wait_ms":100}]})"),
                  "a step of two kinds");
@@ -253,7 +273,6 @@ void invalid_files() {
                  "an unknown repeat mode");
     rejects_json(button(R"({"kind":"macro","steps":[{"wait_ms":100}],"repeat":{"mode":"times"}})"),
                  "times without a count");
-    rejects_json(button(R"({"kind":"run"})"), "a run with neither script nor command");
     rejects_json(button(R"({"kind":"run","script":"a.sh","command":"ls"})"),
                  "a run with both script and command");
     rejects_json(button(R"({"kind":"run","script":"bin/a.sh"})"), "a script with a folder part");
@@ -334,15 +353,13 @@ void limits() {
     accepted(model, "a bar name of 32 characters");
     model.bars[0].name = repeated("名", 32) + "!";
     refused(model, "a bar name of 33 characters");
-    // Combinations in a shortcut: 1 to 4.
+    // Combinations in a shortcut: up to 4.
     model = sample();
     model.bars[0].buttons[0].action.chords.assign(4, {{"ControlLeft"}, "KeyK"});
     accepted(model, "4 combinations");
     model.bars[0].buttons[0].action.chords.push_back({{}, "KeyS"});
     refused(model, "5 combinations");
-    model.bars[0].buttons[0].action.chords.clear();
-    refused(model, "no combination");
-    // Steps in a macro: 1 to 32.
+    // Steps in a macro: up to 32.
     model = sample();
     model.bars[0].buttons[0] = macro_button(std::vector<MacroStep>(32, wait_step(100)));
     accepted(model, "32 steps");
@@ -655,6 +672,7 @@ void model_changes() {
 int main() {
     try {
         example_file();
+        empty_actions();
         invalid_files();
         limits();
         store();
