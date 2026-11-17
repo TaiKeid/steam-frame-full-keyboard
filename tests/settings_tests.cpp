@@ -3870,9 +3870,10 @@ void shortcut_bar_settings() {
         // The Debug card's sample bars, saved at once.
         click(app, "debug-sample-shortcuts");
         const auto samples = saved_shortcuts(app);
-        require(samples.profiles.size() == 2 && samples.profiles[1].buttons.size() == 18 &&
-                    samples.free_profile == samples.profiles[0].id,
-                "Add sample shortcuts saves two bars, the first the free bar");
+        require(samples.profiles.size() == 3 && samples.profiles[1].buttons.size() == 18 &&
+                    samples.free_profile == samples.profiles[0].id && samples.apps.size() == 1 &&
+                    samples.apps[0].profile == samples.profiles[2].id,
+                "Add sample shortcuts saves three profiles, the first the free one, the last assigned");
         require(!control(app.view(), "debug-sample-shortcuts").enabled, "and only while there are none");
 #else
         app.back();
@@ -3894,12 +3895,12 @@ void shortcut_bar_settings() {
     require(app.view().bar_tooltip == "Choose a profile", "the picker's tooltip");
     tap_rect(app, picker);
     view = app.view();
-    require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 2 &&
+    require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 3 &&
                 view.shortcut_bar->menu->rows[0].shown && !view.shortcut_bar->menu->rows[1].shown &&
                 view.shortcut_bar->menu->title == "Profiles" &&
                 view.shortcut_bar->menu->edit_label == "Edit shortcuts" &&
-                !view.shortcut_bar->menu->rows[0].assign_enabled,
-            "the picker opens its menu: the bar showing filled, assigning off for now");
+                !view.shortcut_bar->menu->rows[0].assign_enabled && view.shortcut_bar->menu->app.empty(),
+            "the picker opens its menu: the profile showing filled; no app to assign");
     // R319: the bar's plate, the picker's plate and the menu above the case
     // take the pointer, as the case does; the margin above the plate doesn't.
     {

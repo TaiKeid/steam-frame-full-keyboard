@@ -559,6 +559,65 @@ void shortcut_editor() {
             "the Macro view takes clicks: a wait added and changed");
     simulator.shutdown();
 }
+// The App button goes round its apps; a profile assigned to one follows it.
+void app_button() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    ShortcutButton home;
+    home.label = "Home";
+    home.action.chords = {{{}, "Home"}};
+    ShortcutButton end = home;
+    end.label = "End";
+    end.action.chords = {{{}, "End"}};
+    model.profiles.push_back({"f", "Free", {home}});
+    model.profiles.push_back({"g", "Game keys", {end}});
+    model.free_profile = "f";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    const auto label = [&] { return simulator.app().view().shortcut_bar->buttons[0].label; };
+    const auto click_app = [&] {
+        const auto r = Simulator::app_button();
+        simulator.pointer_down(Simulator::mouse, r.x + 5, r.y + 5, clock_now);
+        simulator.pointer_up(Simulator::mouse, r.x + 5, r.y + 5);
+        wait(simulator);
+    };
+    require(simulator.app_label() == "App: Notes" && simulator.sink().focused_app().app &&
+                simulator.sink().focused_app().app->kind == AppIdentity::Kind::Desktop,
+            "it starts on Notes, a Desktop app");
+    click_app();
+    click_app();
+    require(simulator.app_label() == "App: Game" && label() == "Home", "on to Game, without a profile");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    // The name comes from the lookup's thread, on a tick.
+    for (int i = 0; i < 500 && simulator.app().view().shortcut_bar->menu->app != "Game"; ++i) {
+        usleep(2000);
+        wait(simulator, .01);
+    }
+    require(simulator.app().view().shortcut_bar->menu->app == "Game",
+            "the menu names it with the simulator's own name");
+    click_rect(simulator, simulator.app().view().shortcut_bar->menu->rows[1].assign);
+    require(label() == "End", "Game keys, assigned, shows at once");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_app();
+    require(simulator.app_label() == "App: Moonlight" && label() == "Home",
+            "another app: the free profile");
+    click_app();
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    const auto menu = *simulator.app().view().shortcut_bar->menu;
+    require(simulator.app_label() == "App: Steam" && menu.app.empty() && !menu.rows[0].assign_enabled,
+            "Steam's dashboard: no app, the assign buttons disabled");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_app();
+    click_app();
+    click_app();
+    require(simulator.app_label() == "App: Game" && label() == "End",
+            "round again to Game: its profile");
+    simulator.shutdown();
+}
 int main() {
     try {
         injected_converter();
@@ -573,6 +632,7 @@ int main() {
         bad_selection();
         shortcut_bar();
         shortcut_editor();
+        app_button();
         std::cout << "simulator tests passed\n";
         return 0;
     } catch (const std::exception& error) {

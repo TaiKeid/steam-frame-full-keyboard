@@ -72,6 +72,13 @@ class Simulator {
     std::optional<std::pair<double, double>> hold() const { return hold_; }
     static Rect slow_button();
     static Rect clear_button();
+    // App: <name> stands for another app taking the keys, going round a
+    // fixed list of made-up apps: each another window and identity, with its
+    // name from the simulator, never the computer's own files. Steam is
+    // Steam's dashboard, which has none.
+    static Rect app_button();
+    void next_app();
+    std::string app_label() const;
 
   private:
     struct Pointer {
@@ -93,6 +100,7 @@ class Simulator {
     std::optional<std::pair<double, double>> hold_;
     double field_scroll_{}; // Pixels of field text above its top edge.
     std::uint64_t drawn_revision_{~std::uint64_t{}};
+    std::size_t app_entry_{}; // the App button's
     bool redraw_{true};
     // Last, so it is destroyed first: App's cleanup still sends to the sink.
     std::unique_ptr<App> app_;

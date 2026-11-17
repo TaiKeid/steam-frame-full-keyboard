@@ -16,7 +16,7 @@ cmake --build --preset simulator
 
 In a development build, `cmake --build build/host --target framekeyboard-simulator` builds it beside the other programs, as `build/host/framekeyboard-simulator`. An [AppImage](#appimage) runs it without building anything.
 
-The window shows the text field at the top and the keyboard below it. The keyboard's × shows, so the toolbar lays out as on the headset, but it closes nothing; close the window to quit. Below the keyboard are two buttons of the simulator's own: **Slow field** and **Clear field**. Click in the field to move its caret. The PC's own keyboard does nothing in the window: everything is typed with the on-screen keyboard.
+The window shows the text field at the top and the keyboard below it. The keyboard's × shows, so the toolbar lays out as on the headset, but it closes nothing; close the window to quit. Below the keyboard are three buttons of the simulator's own: **App**, **Slow field** and **Clear field**. Click in the field to move its caret. The PC's own keyboard does nothing in the window: everything is typed with the on-screen keyboard.
 
 ![The simulator converting にほんご, with 日本語 already typed into its field](images/simulator.png)
 
@@ -60,6 +60,10 @@ A chosen layout, language or theme is applied and saved, as **Apply and save** i
 ## Slow field
 
 Steam's own text fields confirm each key the keyboard sends before taking the next one, which takes a moment. The slow field does the same: it answers every key press and every piece of text "waiting" for about 30 ms before taking it, and the keyboard holds the rest back meanwhile, as it does on the headset. Use it to check how typing and ↶ behave in Steam's fields. Turn it on with `--slow-field` or the **Slow field** button.
+
+## App
+
+The **App** button stands for another app taking the keys, so the [shortcut bar](shortcut-bar-design.md) can be tried with profiles assigned to apps. Each click goes on to the next of Notes, Terminal (both apps in SteamOS's Desktop), Game (a Steam game), Moonlight and Steam, then round again; it starts on Notes. Each is another window with an identity and a name of the simulator's own; Steam is Steam's dashboard, which can't be assigned and takes no typing, as on the headset. Nothing of the computer's own apps is read.
 
 ## Japanese
 

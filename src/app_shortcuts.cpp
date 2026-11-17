@@ -752,8 +752,8 @@ void App::add_sample_shortcuts() {
     if (!shortcuts_.profiles.empty()) {
         return;
     }
-    // Two profiles to try the bar with: everyday editing with two macros, and
-    // enough keys to scroll.
+    // Profiles to try the bar with: everyday editing with two macros, enough
+    // keys to scroll, and a terminal's keys assigned to an app.
     ShortcutProfile editing{
         "sample-editing",
         "Sample editing",
@@ -781,8 +781,19 @@ void App::add_sample_shortcuts() {
          keys("Word\nright", {chord({"ControlLeft"}, "ArrowRight")}),
          keys("Copy", {chord({"ControlLeft"}, "KeyC")}), keys("Paste", {chord({"ControlLeft"}, "KeyV")}),
          keys("Save,\nthen close", {chord({"ControlLeft"}, "KeyS"), chord({"ControlLeft"}, "KeyW")})}};
-    shortcuts_.profiles = {std::move(editing), std::move(many)};
+    // A terminal's own keys, for the simulator's made-up Terminal (its App
+    // button), assigned to it.
+    ShortcutProfile terminal{"sample-terminal",
+                             "Sample terminal",
+                             {keys("Copy", {chord({"ControlLeft", "ShiftLeft"}, "KeyC")}),
+                              keys("Paste", {chord({"ControlLeft", "ShiftLeft"}, "KeyV")}),
+                              keys("Stop", {chord({"ControlLeft"}, "KeyC")}),
+                              keys("Clear", {chord({"ControlLeft"}, "KeyL")}),
+                              keys("Tab", {chord({}, "Tab")}), keys("Esc", {chord({}, "Escape")})}};
+    shortcuts_.profiles = {std::move(editing), std::move(many), std::move(terminal)};
     shortcuts_.free_profile = shortcuts_.profiles.front().id; // shows wherever no app has a profile
+    shortcuts_.apps = {
+        {{AppIdentity::Kind::Desktop, "org.example.Terminal"}, "Terminal", "sample-terminal"}};
     save_shortcuts();
     // Shown at once, in place of the empty bar the toolbar may have opened.
     configure_bar();

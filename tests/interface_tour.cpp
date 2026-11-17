@@ -13,8 +13,13 @@
 
 using namespace framekeyboard;
 namespace {
+// Sends nothing. The app with the keys is one of the simulator's made-up
+// apps, for the picker's header and the profiles assigned to it.
 struct Sink : KeySink {
     void send(int, int) override {}
+    FocusedApp focus{1, {}, {}};
+    std::uint32_t focused_window() const override { return focus.window; }
+    FocusedApp focused_app() const override { return focus; }
 };
 double now = 100;
 fs::path output;
@@ -202,13 +207,17 @@ int main(int argc, char** argv) {
                 bars.scroll(0, 3, 0);
                 shot(bars, "shortcut-bar-scrolled");
                 // The editor at both widths, with its popup for a label and for recording.
-                const auto open_editor = [](App& app) {
+                // The picker's button: opens its menu, or closes it.
+                const auto open_menu = [](App& app) {
                     const auto picker = app.view().shortcut_bar->picker_button;
                     const double px = picker.x + picker.width / 2, py = picker.y + picker.height / 2;
                     app.move(0, px, py);
                     app.down(0, px, py, 1);
                     app.up(0, px, py);
                     settle(app, 10);
+                };
+                const auto open_editor = [&](App& app) {
+                    open_menu(app);
                     const auto edit = app.view().shortcut_bar->menu->edit;
                     const double ex = edit.x + edit.width / 2, ey = edit.y + edit.height / 2;
                     app.move(0, ex, ey);
@@ -241,6 +250,18 @@ int main(int argc, char** argv) {
                 popups(bars, "");
                 macro_view(bars, "");
                 click(bars, "shortcuts-back");
+                // The Desktop app the terminal profile is assigned to: its
+                // name in the menu's header and its button lit; Used for in
+                // the editor.
+                sink.focus = {3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, {}};
+                settle(bars);
+                open_menu(bars);
+                shot(bars, "shortcut-bar-menu-app");
+                open_menu(bars);
+                open_editor(bars);
+                shot(bars, "shortcut-editor-used-for");
+                click(bars, "shortcuts-back");
+                sink.focus = {1, {}, {}};
                 bars.flush_settings();
                 Settings narrow = settings;
                 narrow.hide_numpad = true;
