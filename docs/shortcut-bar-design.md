@@ -32,7 +32,7 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 - A bar with no buttons shows two empty slots. One button sits centered in two slots.
 - A bar with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each bar keeps its scroll position while the keyboard runs.
 - Buttons look and feel like keys: hover, press travel, vibration and haptic sounds. They act on release over the same button, as controls do, so a drag can scroll. A macro that repeats while held starts on press instead, and a press on it never starts a drag.
-- A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)).
+- A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)). So is a button that has no action yet.
 - The bar hides in Settings and in dictation mode, and stays up with the emoji picker. Under a shell the feature is off.
 - While the bar shows, tooltips and the status card sit above it instead of above the case. When both can't sit side by side there, the status card shows and the tooltip waits.
 
@@ -114,7 +114,7 @@ Up to 32 steps, run in order.
 | Step | Sends |
 | --- | --- |
 | Keys | One key combination, as in a shortcut |
-| Text | Up to 256 characters, typed as the keyboard types text, in any language |
+| Text | Up to 256 characters on one line, typed as the keyboard types text, in any language. Tab and Enter are Keys steps |
 | Wait | 0.1 to 10 s |
 
 | Repeat | Behavior |
@@ -264,6 +264,8 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 | File | 512 KB |
 
 - Key names are the logical names of `key_codes`; a chord without `key` is modifiers alone. An unknown name, kind or field value makes the file invalid as a whole.
+- An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
+- Labels, names, text and commands are valid UTF-8 without control characters; a label's one line break is the exception.
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the first save moves it to `shortcuts.json.bad`.
 - What saves when: ✓ writes the editor's pending copy; a tie made in the picker, a rename in place and the free bar are written at once.
 - The installer and updates leave the file alone, as they do other user files.
