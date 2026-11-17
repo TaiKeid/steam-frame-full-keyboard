@@ -3859,6 +3859,12 @@ void shortcut_bar_settings() {
                 "pressed with no bar due, the empty bar shows");
         app.show_settings();
         require(!app.view().shortcut_bar, "the bar hides in Settings");
+        // R322: ✓ with the shortcut switches unchanged keeps the empty bar.
+        click(app, "apply");
+        view = app.view();
+        require(view.shortcut_bar && view.shortcut_bar->slots && view.shortcut_bar->buttons.empty(),
+                "Settings' ✓ keeps the empty bar");
+        app.show_settings();
 #ifdef FRAMEKEYBOARD_DEBUG_MODE
         // The Debug card's sample bars, saved at once.
         click(app, "debug-sample-shortcuts");

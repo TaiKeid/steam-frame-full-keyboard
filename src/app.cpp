@@ -5149,7 +5149,14 @@ void App::apply_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
-    configure_bar(); // The shortcut bar on or off, and Settings closed.
+    // The shortcut bar on or off. Configuring it again ends the empty bar,
+    // so only when one of its switches changed (R322); Settings closed
+    // redraws all the same.
+    if (settings_.shortcuts != before.shortcuts ||
+        settings_.shortcuts_switch != before.shortcuts_switch) {
+        configure_bar();
+    }
+    dirty = true;
     if (settings_.shortcuts && !before.shortcuts && shortcuts_.bars.empty() &&
         !bar_choice_.button_on()) {
         // Turned on with no bars: the empty bar shows once, so its picker,
