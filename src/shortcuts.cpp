@@ -618,37 +618,49 @@ fs::path shortcuts_path(const fs::path& config_dir) {
     return config_dir / "shortcuts.json";
 }
 
-ShortcutsLoad ShortcutStore::load() {
-    keep_aside_ = false;
-    ShortcutsLoad result;
+namespace {
+// The file's bytes, one past the cap at most, so a file too large shows;
+// none when it isn't there, or isn't a regular file one can read.
+enum class FileRead { Missing, Unreadable, Read };
+FileRead read_shortcuts_file(const fs::path& path, std::string& data) {
     std::error_code error;
-    const auto status = fs::status(path_, error);
+    const auto status = fs::status(path, error);
     if (status.type() == fs::file_type::not_found) {
-        return result; // Missing: an empty model.
+        return FileRead::Missing;
     }
-    auto refuse = [&](std::string reason) {
-        result.state = ShortcutsLoad::State::Invalid;
-        result.reason = std::move(reason);
-        keep_aside_ = true;
-        return result;
-    };
     if (error || status.type() != fs::file_type::regular) {
-        return refuse("not a readable file");
+        return FileRead::Unreadable;
     }
-    std::ifstream file(path_, std::ios::binary);
+    std::ifstream file(path, std::ios::binary);
     if (!file) {
-        return refuse("not a readable file");
+        return FileRead::Unreadable;
     }
-    // One byte past the cap tells a file that is too large.
-    std::string data(limits::file_bytes + 1, '\0');
+    data.assign(limits::file_bytes + 1, '\0');
     file.read(data.data(), static_cast<std::streamsize>(data.size()));
     data.resize(static_cast<std::size_t>(file.gcount()));
+    return FileRead::Read;
+}
+} // namespace
+ShortcutsLoad ShortcutStore::load() {
+    ShortcutsLoad result;
+    std::string data;
+    const auto read = read_shortcuts_file(path_, data);
+    known_.reset();
+    if (read == FileRead::Missing) {
+        return result; // Missing: an empty model.
+    }
+    result.state = ShortcutsLoad::State::Invalid;
+    if (read == FileRead::Unreadable) {
+        result.reason = "not a readable file";
+        return result;
+    }
     try {
         result.model = parse_shortcuts(data);
         result.state = ShortcutsLoad::State::Valid;
+        known_ = data; // Only a valid file: an invalid one is always kept aside.
     } catch (const std::exception& problem) {
         result.model = {};
-        return refuse(problem.what());
+        result.reason = problem.what();
     }
     return result;
 }
@@ -657,20 +669,31 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
         return problem;
     }
     const auto text = serialize_shortcuts(model);
-    if (keep_aside_) {
-        // The invalid file is the user's work: kept beside, never overwritten.
-        auto bad = path_;
-        bad += ".bad";
-        std::error_code error;
-        fs::rename(path_, bad, error);
-        if (error && error != std::errc::no_such_file_or_directory) {
-            return "the invalid file could not be moved aside";
+    // What is there now is the user's work: an invalid file, or a valid one
+    // edited by hand since this store read or wrote it, is kept beside.
+    std::string data;
+    const auto read = read_shortcuts_file(path_, data);
+    if (read != FileRead::Missing && (read != FileRead::Read || data != known_)) {
+        bool valid = false;
+        if (read == FileRead::Read) {
+            try {
+                parse_shortcuts(data);
+                valid = true;
+            } catch (const std::exception&) {
+            }
         }
-        keep_aside_ = false;
+        auto aside = path_;
+        aside += valid ? ".old" : ".bad";
+        std::error_code error;
+        fs::rename(path_, aside, error);
+        if (error && error != std::errc::no_such_file_or_directory) {
+            return "the file on disk could not be moved aside";
+        }
     }
     if (!write_private_file(path_, text, true)) {
         return "the file could not be written";
     }
+    known_ = text;
     return {};
 }
 

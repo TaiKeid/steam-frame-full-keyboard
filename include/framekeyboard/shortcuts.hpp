@@ -133,24 +133,26 @@ struct ShortcutsLoad {
     ShortcutModel model;
     std::string reason; // Invalid only; never quotes the file's content.
 };
-// Reads and saves one shortcuts.json. It remembers whether the file was
-// invalid when loaded: such a file is never overwritten, and the first save
-// moves it to shortcuts.json.bad before writing. Synchronous; callers keep
-// it off the VR thread.
+// Reads and saves one shortcuts.json. A save looks at the file first, as the
+// user may have edited it by hand while the keyboard ran: one that doesn't
+// parse is moved to shortcuts.json.bad, and a valid one that differs from
+// what this store last read or wrote is kept as shortcuts.json.old; then the
+// save goes ahead. Synchronous; callers keep it off the VR thread.
 class ShortcutStore {
   public:
     explicit ShortcutStore(std::filesystem::path path) : path_(std::move(path)) {}
     ShortcutsLoad load();
     // Validates, then writes atomically, readable by the user alone. The
-    // reason when nothing was written: an invalid model, an invalid file that
-    // could not be moved aside, or a failed write.
+    // reason when nothing was written: an invalid model, a file that could
+    // not be moved aside, or a failed write.
     std::optional<std::string> save(const ShortcutModel& model);
     const std::filesystem::path& path() const { return path_; }
 
   private:
     std::filesystem::path path_;
-    // The file on disk was invalid when last loaded and is still there.
-    bool keep_aside_{};
+    // The file's bytes as this store last read (when valid) or wrote them;
+    // none before.
+    std::optional<std::string> known_;
 };
 
 // Which bar shows (design, Toolbar button and Which bar shows). Pure state:

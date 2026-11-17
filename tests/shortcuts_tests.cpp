@@ -493,7 +493,42 @@ void bad_file_rule() {
     // A valid file is simply replaced.
     require(store.load().state == ShortcutsLoad::State::Valid, "the saved file loads");
     write(bad, "older");
-    require(!store.save(sample()) && read(bad) == "older", "a valid file is replaced, not moved");
+    require(!store.save(sample()) && read(bad) == "older" && !fs::exists(path.string() + ".old"),
+            "a file as this store left it is replaced, not moved");
+}
+// A hand edit made while the keyboard runs is kept, not overwritten.
+void hand_edits() {
+    TemporaryDirectory directory;
+    const auto path = shortcuts_path(directory.path);
+    const auto bad = path.string() + ".bad", old = path.string() + ".old";
+    write(path, serialize_shortcuts(sample()));
+    ShortcutStore store(path);
+    require(store.load().state == ShortcutsLoad::State::Valid, "a valid file loads");
+    // Edited with a typo after it was loaded.
+    write(path, "{\"schema_version\":1,\"bars\":[");
+    auto model = sample();
+    model.bars[0].name = "Saved";
+    require(!store.save(model) && read(bad) == "{\"schema_version\":1,\"bars\":[" &&
+                parse_shortcuts(read(path)) == model,
+            "a hand edit that doesn't parse is kept as .bad, and the save goes ahead");
+    // A store that never read the file finds it invalid.
+    write(path, "not JSON");
+    ShortcutStore fresh(path);
+    require(!fresh.save(model) && read(bad) == "not JSON",
+            "an invalid file under a fresh store goes to .bad");
+    // A valid hand edit is kept as .old.
+    require(store.load().state == ShortcutsLoad::State::Valid, "the saved file loads again");
+    auto edited = model;
+    edited.bars[1].name = "By hand";
+    write(path, serialize_shortcuts(edited));
+    model.bars[0].name = "Saved again";
+    require(!store.save(model) && parse_shortcuts(read(old)) == edited &&
+                parse_shortcuts(read(path)) == model,
+            "a valid hand edit is kept as .old, and the save goes ahead");
+    // What this store wrote last is replaced without a copy.
+    fs::remove(old);
+    model.bars[0].name = "Third";
+    require(!store.save(model) && !fs::exists(old), "its own last save is simply replaced");
 }
 
 AppIdentity program(std::string id) {
@@ -677,6 +712,7 @@ int main() {
         limits();
         store();
         bad_file_rule();
+        hand_edits();
         which_bar_shows();
         toolbar_button();
         picker();
