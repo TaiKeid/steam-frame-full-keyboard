@@ -364,15 +364,35 @@ void stops() {
                 "and nothing reaches the new window");
     }
     {
-        // Between combinations the output queue is empty, so a focus change
-        // fails nothing there: App stops the run when the focus moves.
+        // Between combinations the output queue is empty and checks no
+        // window: the runner itself ends the run before the next one.
         Rig rig;
         rig.sink.window = 5;
         rig.runner.start(two, 0);
-        rig.runner.stop(); // as App does when the focus moves
+        rig.tick(.01);
         rig.sink.window = 6;
-        rig.tick(1);
-        require(rig.sink.events == ctrl_k, "a run stopped on a focus change sends nothing more");
+        rig.tick(.05);
+        require(rig.runner.end() == ShortcutRunner::End::Canceled && rig.sink.events == ctrl_k,
+                "another window between combinations ends the run, the second unsent");
+    }
+    {
+        // A window that became unknown counts as another.
+        Rig rig;
+        rig.sink.window = 5;
+        rig.runner.start(two, 0);
+        rig.sink.window = 0;
+        rig.tick(.05);
+        require(rig.runner.end() == ShortcutRunner::End::Canceled && rig.sink.events == ctrl_k,
+                "a window that became unknown ends the run");
+    }
+    {
+        // A route that names no window, as a Steam field, isn't checked so.
+        Rig rig;
+        rig.runner.start(two, 0);
+        rig.tick(.05);
+        require(rig.runner.end() == ShortcutRunner::End::Finished &&
+                    rig.sink.events == joined(ctrl_k, s),
+                "a route without windows runs to its end");
     }
 }
 } // namespace

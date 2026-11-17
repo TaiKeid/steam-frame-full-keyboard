@@ -27,6 +27,9 @@ class ShortcutOutput {
     virtual bool tap(const std::vector<int>& codes) = 0;
     // The code that types `symbol` on the target, or `fallback`.
     virtual int shortcut_code(xkb_keysym_t symbol, int fallback) = 0;
+    // The window with the keys (KeySink::focused_window): 0 when unknown or
+    // when the route names none, as Steam fields and streams from a PC.
+    virtual std::uint32_t focused_window() const = 0;
     virtual std::uint64_t completed() const = 0;
     virtual std::size_t pending_entries() const = 0;
     virtual std::uint64_t failures() const = 0;
@@ -44,6 +47,7 @@ class QueuedShortcutOutput final : public ShortcutOutput {
     bool can_queue(std::size_t entries) const override;
     bool tap(const std::vector<int>& codes) override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
+    std::uint32_t focused_window() const override;
     std::uint64_t completed() const override;
     std::size_t pending_entries() const override;
     std::uint64_t failures() const override;
@@ -71,7 +75,7 @@ class ShortcutRunner {
         Finished, // every step was delivered
         Stopped,  // stop(), or a new start()
         Failed,   // a step failed to deliver or could not be queued
-        Canceled, // the output dropped what was queued: hide, target change
+        Canceled, // the output dropped what was queued, or another window has the keys
     };
     explicit ShortcutRunner(ShortcutOutput& output) : output_(output) {}
     // Starts `action` at `now`, ending a run under way as Stopped, and sends
@@ -113,6 +117,11 @@ class ShortcutRunner {
     // The output's failures and cancels when the run began: any new one
     // dropped the step in flight and ends the run.
     std::uint64_t failures_{}, cancels_{};
+    // The window with the keys at start(). Between combinations the queue
+    // is empty and checks no window, so the runner does: a later combination
+    // goes only to the same one. A window that became unknown counts as
+    // another; a route naming none (0 throughout) is not checked this way.
+    std::uint32_t window_{};
     double ready_at_{}; // when the next step may be pressed
     End end_{End::None};
 };

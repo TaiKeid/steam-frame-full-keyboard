@@ -20,6 +20,9 @@ int QueuedShortcutOutput::shortcut_code(xkb_keysym_t symbol, int fallback) {
     }
     return output_.shortcut_code(symbol, fallback);
 }
+std::uint32_t QueuedShortcutOutput::focused_window() const {
+    return output_.focused_window();
+}
 std::uint64_t QueuedShortcutOutput::completed() const {
     return output_.completed();
 }
@@ -91,6 +94,7 @@ bool ShortcutRunner::start(const ShortcutAction& action, double now) {
     end_ = End::None;
     failures_ = output_.failures();
     cancels_ = output_.cancels();
+    window_ = output_.focused_window();
     ready_at_ = now;
     advance(now);
     return true;
@@ -132,6 +136,11 @@ bool ShortcutRunner::advance(double now) {
         }
         if (now < ready_at_) {
             return false;
+        }
+        // Ctrl+O, then S: the first may open a dialog, which the second must
+        // not reach.
+        if (next_ > 0 && output_.focused_window() != window_) {
+            return finish(End::Canceled);
         }
         const auto chord = codes(steps_[next_].chord);
         // Counted before the tap, which may deliver at once.
