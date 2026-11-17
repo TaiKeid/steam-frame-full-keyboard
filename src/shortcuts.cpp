@@ -452,6 +452,32 @@ const ShortcutProfile* ShortcutModel::profile_for(const AppIdentity& app) const 
 bool ShortcutModel::free(const std::string& id) const {
     return std::none_of(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.profile == id; });
 }
+const AppTie* ShortcutModel::tie(const AppIdentity& app) const {
+    const auto found =
+        std::find_if(apps.begin(), apps.end(), [&](const AppTie& tie) { return tie.app == app; });
+    return found == apps.end() ? nullptr : &*found;
+}
+bool ShortcutModel::can_assign(const AppIdentity& app) const {
+    return tie(app) || apps.size() < limits::apps;
+}
+bool ShortcutModel::assign(const AppIdentity& app, const std::string& name, const std::string& id) {
+    if (!profile(id) || !can_assign(app)) {
+        return false;
+    }
+    // An app has at most one profile: its tie moves, keeping its place.
+    for (auto& tie : apps) {
+        if (tie.app == app) {
+            tie.profile = id;
+            tie.name = name;
+            return true;
+        }
+    }
+    apps.push_back({app, name, id});
+    return true;
+}
+bool ShortcutModel::unassign(const AppIdentity& app) {
+    return std::erase_if(apps, [&](const AppTie& tie) { return tie.app == app; }) > 0;
+}
 
 bool shortcut_action_empty(const ShortcutAction& action) {
     switch (action.kind) {

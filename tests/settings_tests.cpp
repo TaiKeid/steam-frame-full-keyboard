@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <limits>
@@ -4697,6 +4698,218 @@ void lifted_step_moves_whole() {
 }
 // R332: a new user's first bar shows as soon as ✓ saves it, and becomes
 // the free bar.
+// Phase 5 (design, Which profile shows, Picker menu and Apps): the app with
+// the keys from a fake focus, assigned in the picker and saved at once, the
+// bar following the focus, names looked up off the VR thread, and Used for.
+void shortcut_apps() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.profiles.push_back({"u", "Other", {shortcut_button("U", {{{"ControlLeft"}, "KeyU"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const AppIdentity notes{AppIdentity::Kind::Desktop, "org.example.Notes"},
+        terminal{AppIdentity::Kind::Desktop, "org.example.Terminal"},
+        game{AppIdentity::Kind::Steam, "4000010"};
+    // Names from the test itself; the game's waits until the test lets it go.
+    std::atomic<bool> game_named{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app == notes) {
+            return "Example Notes";
+        }
+        if (app == game) {
+            for (int i = 0; i < 2000 && !game_named; ++i) {
+                usleep(1000);
+            }
+            return "Example Game";
+        }
+        return {};
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint64_t serial{};
+        std::uint32_t focused_window() const override { return focus.window; }
+        std::uint64_t focus_serial() const override { return serial; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, notes, "kwin_wayland"};
+    App app(options, sink);
+    double now = 950;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto wait_for = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 1000 && !done(); ++i) {
+            usleep(2000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    require(label() == "A", "an app without a profile: the free profile");
+    // The menu: the app's own name until the lookup lands, then the one found.
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(menu().app == "Notes" || menu().app == "Example Notes",
+            "the header names the app: first the last part of its ID");
+    require(wait_for([&] { return menu().app == "Example Notes"; }),
+            "the name looked up arrives on a tick");
+    const auto rows = menu().rows;
+    require(std::all_of(rows.begin(), rows.end(),
+                        [](const auto& row) { return row.assign_enabled && !row.assigned; }),
+            "every assign button can tie the app; none is lit");
+    const auto hover = [&](std::size_t row) {
+        const auto at = middle(menu().rows[row].assign);
+        app.move(0, at.x, at.y);
+        return app.view().bar_tooltip;
+    };
+    require(hover(1) == "Show Tied whenever Example Notes has the keys",
+            "the tooltip says what the press will do, naming the profile and the app");
+    tap_rect(app, menu().rows[1].assign);
+    require(app.view().shortcut_bar->menu && menu().rows[1].assigned && !menu().rows[2].assigned &&
+                label() == "T",
+            "a tie lights its button, the menu stays open, and the profile tied shows at once");
+    const std::vector<AppTie> first_tie{{notes, "Example Notes", "t"}};
+    require(saved_shortcuts(app).apps == first_tie, "saved at once, with the name");
+    require(hover(1) == "Stop showing Tied for Example Notes", "a lit button's tooltip");
+    tap_rect(app, menu().rows[2].assign);
+    const std::vector<AppTie> moved_tie{{notes, "Example Notes", "u"}};
+    const auto moved_saved = saved_shortcuts(app).apps;
+    require(menu().rows[2].assigned && !menu().rows[1].assigned && label() == "U" &&
+                moved_saved == moved_tie,
+            "another profile's button moves the tie");
+    tap_rect(app, menu().rows[2].assign);
+    require(!menu().rows[2].assigned && saved_shortcuts(app).apps.empty() && label() == "U",
+            "a lit button unties; the bar stays as it is until the focus changes");
+    tap_rect(app, menu().rows[1].assign);
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(!app.view().shortcut_bar->menu, "the picker closes its menu");
+
+    // The bar follows the focus.
+    sink.focus = {8, game, "game.x86_64"};
+    app.tick(now += .1);
+    require(label() == "A", "another app without a profile: the free one");
+    sink.focus = {7, notes, "kwin_wayland"};
+    app.tick(now += .1);
+    require(label() == "T", "back to the tied app: its profile, on the first tick");
+    sink.focus = {7, terminal, "kwin_wayland"};
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "A", "inside the Desktop another app in the same window is a change of focus");
+    sink.focus = {7, notes, "kwin_wayland"};
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "T", "and back");
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    const auto picked = menu().rows[2].bounds;
+    tap_at(app, picked.x + 30, picked.y + picked.height / 2);
+    require(label() == "U", "a profile picked");
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "U", "another window of the same app, such as a dialog, keeps the pick");
+    sink.focus.window = 9;
+    app.tick(now += .1);
+    require(label() == "T", "another window: a change of focus, rule 1 again");
+
+    // No identity: the assign buttons are disabled and say why.
+    app.set_dashboard_focus(true);
+    app.tick(now += .1);
+    require(label() == "U", "Steam's dashboard has no profile: the free one picked last, Other");
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(menu().app.empty() && !menu().rows[0].assign_enabled && !menu().rows[1].assigned,
+            "no app in the header, the buttons disabled");
+    require(hover(0) == "Steam's dashboard has the keys, so there is no app to assign",
+            "a disabled button's tooltip names the cause");
+    tap_rect(app, menu().rows[0].assign);
+    require(app.view().shortcut_bar->menu && saved_shortcuts(app).apps.size() == 1,
+            "a press on a disabled button does nothing");
+    app.set_dashboard_focus(false);
+    sink.focus = {10, std::nullopt, ""};
+    app.tick(now += .1);
+    require(hover(0) == "The app that has the keys can't be told" && menu().app.empty(),
+            "an app that can't be told");
+
+    // Assigned before its name arrives: saved with the program's name, then
+    // the name found, once.
+    sink.focus = {8, game, "game.x86_64"};
+    app.tick(now += .1);
+    require(menu().app == "game.x86_64", "a Steam game's program name until its lookup lands");
+    tap_rect(app, menu().rows[2].assign);
+    const auto first_save = saved_shortcuts(app);
+    require(first_save.tie(game) && first_save.tie(game)->name == "game.x86_64",
+            "saved with that name at once");
+    game_named = true;
+    require(wait_for([&] { return menu().app == "Example Game"; }), "the name arrives");
+    const auto named = saved_shortcuts(app);
+    require(named.tie(game) && named.tie(game)->name == "Example Game", "the tie takes it, saved");
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+
+    // Used for: the profile's apps; a ✕ waits for ✓, and ← drops it.
+    open_editor(app);
+    tap_control(app, "shortcuts-row-1");
+    auto view = app.view();
+    require(view.shortcut_editor->ties.size() == 1 &&
+                view.shortcut_editor->ties[0].text == "Example Notes" && has(view, "shortcuts-tie-0"),
+            "Used for shows the selected profile's app, with its ✕");
+    tap_control(app, "shortcuts-tie-0");
+    require(app.view().shortcut_editor->ties.empty() && saved_shortcuts(app).tie(notes) != nullptr,
+            "the ✕ takes it off, pending");
+    tap_control(app, "shortcuts-back");
+    tap_control(app, "confirm-cancel");
+    require(!app.view().shortcut_editor && saved_shortcuts(app).tie(notes) != nullptr,
+            "← drops the change");
+    open_editor(app);
+    tap_control(app, "shortcuts-row-1");
+    tap_control(app, "shortcuts-tie-0");
+    tap_control(app, "shortcuts-save");
+    const auto stored = saved_shortcuts(app);
+    require(!stored.tie(notes) && stored.tie(game), "✓ saves the profile without the app");
+
+    // 128 apps have a tie: an untied app can't have one; a tied one can move.
+    {
+        TemporaryDirectory full;
+        save_settings(full.path, settings);
+        ShortcutModel many = model;
+        for (std::size_t i = 0; i < shortcut_limits::apps; ++i) {
+            many.apps.push_back({{AppIdentity::Kind::Program, "app" + std::to_string(i)}, "App", "t"});
+        }
+        write_shortcuts(full.path, many);
+        Options limited = options;
+        limited.config_dir = full.path;
+        limited.app_names = {};
+        FocusSink other;
+        other.focus = {3, AppIdentity{AppIdentity::Kind::Program, "new"}, "new"};
+        App capped(limited, other);
+        capped.tick(now += .1);
+        tap_rect(capped, capped.view().shortcut_bar->picker_button);
+        const auto rows = capped.view().shortcut_bar->menu->rows;
+        require(
+            std::none_of(rows.begin(), rows.end(), [](const auto& row) { return row.assign_enabled; }),
+            "at 128 ties an untied app's buttons are disabled");
+        const auto at = middle(rows[0].assign);
+        capped.move(0, at.x, at.y);
+        require(capped.view().bar_tooltip ==
+                    "128 apps have a profile already. Remove one in the editor first",
+                "and say why");
+        other.focus = {4, AppIdentity{AppIdentity::Kind::Program, "app5"}, "app5"};
+        capped.tick(now += .1);
+        const auto moved = capped.view().shortcut_bar->menu->rows;
+        require(moved[1].assigned && moved[0].assign_enabled, "a tied app's tie can still move");
+    }
+}
 void first_bar_shows() {
     TemporaryDirectory directory;
     Settings settings;
@@ -5315,6 +5528,7 @@ int main() {
         shortcut_macro_view();
         macro_buttons();
         first_bar_shows();
+        shortcut_apps();
         pending_drag_two_lasers();
         carry_buttons();
         lifted_step_moves_whole();

@@ -33,6 +33,11 @@ constexpr double narrow_width = 1326;
 double chip_width(const std::string& text, double size, const std::string& family) {
     return interface_text_width(text, size, family) + 24;
 }
+// A Used for chip: the tie's stored name, else what its identity gives, as a
+// hand-edited file may leave the name empty.
+std::string tie_chip(const AppTie& tie) {
+    return tie.name.empty() ? fallback_app_name(tie.app) : tie.name;
+}
 // The gap between chips, where a chevron goes, and one stick step's scroll.
 constexpr double chip_gap = 28, chip_step = 80;
 // A macro step's row in its well: 48 tall, 54 apart.
@@ -342,8 +347,8 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
     // Used for: each tie's ✕.
     double x = l.used.x, y = l.used.y + 34;
     for (const auto index : shortcut_editor_->ties()) {
-        const double width =
-            std::min(l.used.width, chip_width(model.apps[index].name, 19, localization_.fonts()) + 32);
+        const double width = std::min(
+            l.used.width, chip_width(tie_chip(model.apps[index]), 19, localization_.fonts()) + 32);
         if (x + width > l.used.x + l.used.width && x > l.used.x) {
             x = l.used.x;
             y += 48;
@@ -618,14 +623,14 @@ void App::append_shortcut_editor(PanelView& v) const {
         e.used_caption = tr("shortcuts.editor.used");
         double x = l.used.x, y = l.used.y + 34;
         for (const auto index : shortcut_editor_->ties()) {
-            const auto& name = model.apps[index].name;
+            const auto name = tie_chip(model.apps[index]);
             const double width =
                 std::min(l.used.width, chip_width(name, 19, localization_.fonts()) + 32);
             if (x + width > l.used.x + l.used.width && x > l.used.x) {
                 x = l.used.x;
                 y += 48;
             }
-            e.ties.push_back({name.empty() ? model.apps[index].app.id : name, {x, y, width, 40}});
+            e.ties.push_back({name, {x, y, width, 40}});
             x += width + 8;
         }
         e.used_hint = tr(e.ties.empty() ? "shortcuts.editor.used-none" : "shortcuts.editor.used-hint");

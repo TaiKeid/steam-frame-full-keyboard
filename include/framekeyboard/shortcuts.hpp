@@ -100,6 +100,17 @@ struct ShortcutModel {
     const ShortcutProfile* profile_for(const AppIdentity& app) const;
     // Whether no app is tied to this profile.
     bool free(const std::string& id) const;
+    // This app's tie, or null.
+    const AppTie* tie(const AppIdentity& app) const;
+    // Whether this app can be tied: it has a tie to move, or fewer than
+    // shortcut_limits::apps apps have one.
+    bool can_assign(const AppIdentity& app) const;
+    // Ties the app to an existing profile, in place of its tie to any
+    // other, with the name to show for it; false, changing nothing, past
+    // the limit or for a profile that doesn't exist.
+    bool assign(const AppIdentity& app, const std::string& name, const std::string& profile);
+    // Removes the app's tie; false when it had none.
+    bool unassign(const AppIdentity& app);
 };
 
 // Every rule of the file's content: limits, key and modifier names, unique

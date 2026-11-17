@@ -569,9 +569,18 @@
         "tooltip.reload": "Reload config",
         "tooltip.settings": "Settings",
         "tooltip.settings-back": "Back (Esc)",
+        "tooltip.shortcuts-assign": "Show {profile} whenever {app} has the keys",
+        "tooltip.shortcuts-assign-dashboard":
+            "Steam's dashboard has the keys, so there is no app to assign",
+        "tooltip.shortcuts-assign-full":
+            "128 apps have a profile already. Remove one in the editor first",
+        "tooltip.shortcuts-assign-steam-field":
+            "A Steam text field has the keys, so there is no app to assign",
+        "tooltip.shortcuts-assign-unknown": "The app that has the keys can't be told",
         "tooltip.shortcuts-hide": "Hide shortcut bar",
         "tooltip.shortcuts-picker": "Choose a profile",
         "tooltip.shortcuts-show": "Show shortcut bar",
+        "tooltip.shortcuts-unassign": "Stop showing {profile} for {app}",
         "tooltip.sounds-off": "Turn haptic sounds off",
         "tooltip.sounds-on": "Turn haptic sounds on",
         "tooltip.stay-open": "Stay open over apps",

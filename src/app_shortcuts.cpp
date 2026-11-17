@@ -193,7 +193,10 @@ void App::append_shortcut_bar(PanelView& v) const {
         menu.list = m.list;
         menu.edit = m.edit;
         menu.title = tr("shortcuts.menu.title");
-        // The focused app's name comes with app identities (design, Apps).
+        // The focused app, when it can be assigned (design, Picker menu).
+        menu.app = focused_app_name();
+        const auto* tie = bar_focus_.app ? shortcuts_.tie(*bar_focus_.app) : nullptr;
+        const bool assignable = assign_unavailable().empty();
         const auto* showing = profile_choice_.shown();
         for (std::size_t i = 0; i < shortcuts_.profiles.size(); ++i) {
             const auto r = m.row(i, menu_scroll_.shown);
@@ -208,8 +211,18 @@ void App::append_shortcut_bar(PanelView& v) const {
             row.shown = showing && *showing == listed.id;
             row.hovered = hovered("row-" + std::to_string(i));
             row.pressed = pressed("row-" + std::to_string(i));
-            // Disabled until the focused app can be identified.
-            row.assign_enabled = false;
+            row.assign_enabled = assignable;
+            row.assigned = assignable && tie && tie->profile == listed.id;
+            row.assign_hovered = hovered("assign-" + std::to_string(i));
+            if (row.assign_hovered) {
+                // What a press will do, naming the profile and the app; on a
+                // disabled button, why it is.
+                v.bar_tooltip = assignable ? tr(row.assigned ? "tooltip.shortcuts-unassign"
+                                                             : "tooltip.shortcuts-assign",
+                                                {{"profile", listed.name}, {"app", menu.app}})
+                                           : assign_unavailable();
+                v.bar_tooltip_at = row.assign;
+            }
             menu.rows.push_back(std::move(row));
         }
         if (m.scroll_limit > 0) {
@@ -308,9 +321,11 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         // A key's press haptic and pop, for a button that can act.
         return enabled;
     }
-    if (target.starts_with("assign-")) {
-        // Disabled until apps can be identified. The press goes nowhere else.
-        return false;
+    if (const auto row = target_index(target, "assign-")) {
+        // A disabled button takes the press, which goes nowhere else.
+        if (*row >= shortcuts_.profiles.size() || !assign_unavailable().empty()) {
+            return false;
+        }
     }
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}, false};
     dirty = true;
@@ -378,6 +393,9 @@ void App::bar_action(const std::string& target) {
     if (target == "picker") {
         bar_menu_ = !bar_menu_;
         menu_scroll_ = {};
+        if (bar_menu_) {
+            look_up_focused_name();
+        }
         // The chosen profile's row in view.
         if (const auto* id = profile_choice_.shown(); bar_menu_ && id) {
             const auto* bar = shown_profile();
@@ -390,6 +408,8 @@ void App::bar_action(const std::string& target) {
                 }
             }
         }
+    } else if (const auto row = target_index(target, "assign-")) {
+        assign_profile(*row); // The menu stays open.
     } else if (const auto row = target_index(target, "row-"); row && *row < shortcuts_.profiles.size()) {
         // A choice closes the menu; a free profile becomes the one returned to.
         bar_menu_ = false;
@@ -491,19 +511,24 @@ void App::tick_shortcut_bar(double now) {
         shortcut_run_.reset();
         dirty = true;
     }
-    // Another window has the keys: a run stops, as nothing between its
-    // combinations would catch it, and which profile shows is decided again.
-    // Until apps can be told apart, every window counts as one without a profile.
-    if (const auto window = output_.focused_window(); window != bar_window_) {
-        bar_window_ = window;
+    // Another window or another app has the keys: a run stops, as nothing
+    // between its combinations would catch it, and which profile shows is
+    // decided again. Inside SteamOS's Desktop another app is a change of
+    // identity in the same window. Both come in one snapshot, so a new
+    // window never shows the last app's profile.
+    if (auto focus = focused_app(); focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
+        bar_focus_ = std::move(focus);
         bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
-        profile_choice_.focus(shortcuts_, std::nullopt);
+        profile_choice_.focus(shortcuts_, bar_focus_.app);
+        if (bar_menu_) {
+            look_up_focused_name(); // for the header of the menu still open
+        }
         dirty = true;
     }
-    // Inside SteamOS's Desktop another app or a dialog took the keys in the
-    // same window: a run stops too. The bar stays, as the Desktop's apps
-    // aren't told apart yet (R320).
+    // Another window of the same app, such as a dialog inside the Desktop,
+    // took the keys: only a run stops. The bar and a profile picked for this
+    // app stay (R320).
     if (const auto serial = output_.focus_serial(); serial != bar_focus_serial_) {
         bar_focus_serial_ = serial;
         stop_shortcut_run();
@@ -528,6 +553,127 @@ void App::tick_shortcut_bar(double now) {
     }
     dirty |= ease_scroll(menu_scroll_.shown, menu_scroll_.target, elapsed);
     take_shortcuts_result();
+    take_app_names();
+}
+FocusedApp App::focused_app() const {
+    auto focus = output_.focused_app();
+    if (dashboard_focus_) {
+        // Steam's dashboard has the keys: it is no app, whatever window
+        // Gamescope would fall back to.
+        focus.app.reset();
+        focus.program.clear();
+    }
+    return focus;
+}
+std::string App::focused_app_name() const {
+    if (!bar_focus_.app) {
+        return {};
+    }
+    const auto& app = *bar_focus_.app;
+    if (const auto* tie = shortcuts_.tie(app); tie && !tie->name.empty()) {
+        return tie->name; // stored with the tie, not looked up again
+    }
+    if (app_name_ && app_name_->app == app && !app_name_->name.empty()) {
+        return app_name_->name;
+    }
+    return fallback_app_name(app, bar_focus_.program);
+}
+void App::look_up_focused_name() {
+    if (!bar_focus_.app) {
+        return;
+    }
+    const auto& app = *bar_focus_.app;
+    if (const auto* tie = shortcuts_.tie(app); tie && !tie->name.empty()) {
+        return;
+    }
+    if (!app_name_ || app_name_->app != app) {
+        app_names_.request(app);
+    }
+}
+void App::take_app_names() {
+    // A tie's name changes only in the model the editor doesn't hold: its ✓
+    // would put the old one back. Lookups wait until it closes.
+    if (shortcut_editor_) {
+        return;
+    }
+    bool renamed = false;
+    while (auto result = app_names_.take()) {
+        if (bar_focus_.app == result->app) {
+            app_name_ = AppName{result->app, result->name};
+            dirty = true;
+        }
+        // A tie saved with the identity's own name takes the one found, once,
+        // unless it changed since.
+        for (auto fix = name_fixes_.begin(); fix != name_fixes_.end();) {
+            if (fix->app != result->app) {
+                ++fix;
+                continue;
+            }
+            for (auto& tie : shortcuts_.apps) {
+                if (tie.app == fix->app && tie.name == fix->name && !result->name.empty() &&
+                    tie.name != result->name) {
+                    tie.name = result->name;
+                    renamed = true;
+                }
+            }
+            fix = name_fixes_.erase(fix);
+        }
+    }
+    if (renamed) {
+        save_shortcuts();
+        dirty = true;
+    }
+}
+std::string App::assign_unavailable() const {
+    if (dashboard_focus_) {
+        return tr("tooltip.shortcuts-assign-dashboard");
+    }
+    if (output_.steam_field_target()) {
+        return tr("tooltip.shortcuts-assign-steam-field");
+    }
+    if (!bar_focus_.app) {
+        return tr("tooltip.shortcuts-assign-unknown");
+    }
+    if (!shortcuts_.can_assign(*bar_focus_.app)) {
+        return tr("tooltip.shortcuts-assign-full");
+    }
+    return {};
+}
+void App::assign_profile(std::size_t row) {
+    if (row >= shortcuts_.profiles.size() || !assign_unavailable().empty()) {
+        return;
+    }
+    const auto app = *bar_focus_.app;
+    const auto id = shortcuts_.profiles[row].id;
+    const auto* tie = shortcuts_.tie(app);
+    ShortcutProfileChoice::Changes changes;
+    if (tie && tie->profile == id) {
+        // Untied: the bar stays as it is until the focus changes.
+        shortcuts_.unassign(app);
+        std::erase_if(name_fixes_, [&](const AppName& fix) { return fix.app == app; });
+        changes = profile_choice_.model_changed(shortcuts_);
+    } else {
+        // Saved with the name known now; until a lookup lands, the one the
+        // identity gives, updated once it does (take_app_names).
+        const bool known = (tie && !tie->name.empty()) || (app_name_ && app_name_->app == app);
+        const auto name = focused_app_name();
+        if (!shortcuts_.assign(app, name, id)) {
+            return;
+        }
+        if (!known) {
+            std::erase_if(name_fixes_, [&](const AppName& fix) { return fix.app == app; });
+            name_fixes_.push_back({app, name});
+            app_names_.request(app);
+        }
+        // Its other tie is gone; the profile just tied shows at once.
+        changes = profile_choice_.model_changed(shortcuts_);
+        const auto picked = profile_choice_.pick(shortcuts_, id);
+        changes.shortcuts_switch |= picked.shortcuts_switch;
+    }
+    // Saved at once, the free profile with it.
+    save_shortcuts();
+    changes.free_profile = false;
+    apply_bar_changes(changes);
 }
 void App::take_shortcuts_result() {
     const auto result = settings_writer_.take_shortcuts_result();

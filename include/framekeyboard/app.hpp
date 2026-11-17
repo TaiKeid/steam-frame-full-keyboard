@@ -1799,10 +1799,35 @@ class App {
         std::size_t button{};
     };
     std::optional<ShortcutRun> shortcut_run_;
-    // Gamescope's focused window last given to profile_choice_ (as no app until
-    // apps can be told apart): a change of it stops a run, too.
-    std::uint32_t bar_window_{};
+    // The focus last given to profile_choice_: Gamescope's window and its
+    // app's identity. A change of either is a change of focus, which stops
+    // a run too; the identity is kept only while that app has the keys.
+    FocusedApp bar_focus_;
     std::uint64_t bar_focus_serial_{}; // KeySink::focus_serial, beside it
+    // The app with the keys, as the bar sees it: none while Steam's
+    // dashboard has them (set_dashboard_focus).
+    FocusedApp focused_app() const;
+    // App names (design, Apps): looked up off the VR thread when the menu
+    // opens and on an assign, taken on a tick. `app_name_` is the last one
+    // found for an app; `name_fixes_` are ties saved with the name the
+    // identity gave, updated once when their lookup lands.
+    AppNameLookup app_names_{options_.app_names};
+    struct AppName {
+        AppIdentity app;
+        std::string name; // empty: none found, the fallback stands
+    };
+    std::optional<AppName> app_name_;
+    std::vector<AppName> name_fixes_; // the identity and the name saved with it
+    // The focused app's name for the picker: its tie's, one found, else the
+    // identity's own; empty without an identity.
+    std::string focused_app_name() const;
+    void look_up_focused_name();
+    void take_app_names();
+    // Why the focused app can't be assigned, as a tooltip; empty when it can.
+    std::string assign_unavailable() const;
+    // A press on an assign button: ties the focused app to that profile, or
+    // unties it, saved at once.
+    void assign_profile(std::size_t row);
     // Each bar's sideways scroll, kept while the keyboard runs, by bar ID;
     // stick steps set the target and tick() eases to it.
     struct BarScroll {

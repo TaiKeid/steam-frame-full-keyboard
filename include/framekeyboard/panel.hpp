@@ -280,19 +280,20 @@ struct ShortcutBarView {
     struct Menu {
         struct Row {
             bool operator==(const Row&) const = default;
-            std::string name; // the bar's, never logged
+            std::string name; // the profile's, never logged
             Rect bounds, assign;
             bool shown{}, hovered{}, pressed{};
             bool assign_hovered{}, assign_enabled{}, assigned{};
         };
         bool operator==(const Menu&) const = default;
         Rect bounds, header, list; // `list` clips the rows
-        std::string title, app;    // "Bars", and the focused app's name if known
+        // "Profiles", and the focused app's name; empty while it can't be assigned.
+        std::string title, app;
         std::vector<Row> rows;     // only those in view
         std::optional<Rect> thumb; // while more rows than six
         Rect edit;
         std::string edit_label;
-        // Edit shortcuts opens the editor, which comes later: disabled until then.
+        // Edit shortcuts, which opens the editor on the profile showing.
         bool edit_enabled{}, edit_hovered{}, edit_pressed{};
     };
     std::optional<Menu> menu;

@@ -789,6 +789,33 @@ void model_changes() {
     choice.model_changed(model);
     require(choice.empty_bar(), "the empty bar stays");
 }
+// Ties made in the picker: one per app, moved by a re-tie, at most 128.
+void ties() {
+    ShortcutModel model;
+    model.profiles = {{"p1", "One", {}}, {"p2", "Two", {}}};
+    require(model.assign(program("kate"), "Kate", "p1") &&
+                model.profile_for(program("kate"))->id == "p1",
+            "a tie");
+    require(model.assign(program("kate"), "Kate", "p2") && model.apps.size() == 1 &&
+                model.profile_for(program("kate"))->id == "p2" && model.free("p1"),
+            "a re-tie clears the app's other tie");
+    require(!model.assign(program("kate"), "Kate", "gone") &&
+                model.tie(program("kate"))->profile == "p2",
+            "no tie to a profile that doesn't exist");
+    require(model.unassign(program("kate")) && model.apps.empty() && !model.unassign(program("kate")),
+            "an untie, once");
+    for (std::size_t i = 0; i < shortcut_limits::apps; ++i) {
+        require(model.assign(program("app" + std::to_string(i)), "App", i % 2 ? "p1" : "p2"),
+                "ties up to the limit");
+    }
+    require(!validate_shortcuts(model), "128 ties are a valid file");
+    require(!model.can_assign(program("more")) && !model.assign(program("more"), "More", "p1") &&
+                model.apps.size() == shortcut_limits::apps,
+            "no 129th app");
+    require(model.can_assign(program("app0")) && model.assign(program("app0"), "App", "p1") &&
+                model.tie(program("app0"))->profile == "p1",
+            "a tied app's tie still moves at the limit");
+}
 // App names, from a temporary folder only: never the computer's own files.
 void app_names() {
     TemporaryDirectory folder;
@@ -896,6 +923,7 @@ int main() {
         toolbar_button();
         picker();
         model_changes();
+        ties();
         app_names();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";
     } catch (const std::exception& error) {
