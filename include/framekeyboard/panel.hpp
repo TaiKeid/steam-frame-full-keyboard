@@ -369,6 +369,9 @@ struct ShortcutStepView {
     Rect more_bounds;
     std::string time;
     Rect time_bounds;
+    // Where its − + (a wait's) and ✕ are: controls on a row in its place,
+    // drawn with the row while a drag carries it (R337).
+    Rect minus_bounds, plus_bounds, remove_bounds;
 };
 // The shortcut editor's screen, over the case in place of the keys. Its
 // pressable parts are controls named shortcuts-…, which it draws; this holds

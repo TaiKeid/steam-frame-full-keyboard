@@ -4661,6 +4661,40 @@ void macro_buttons() {
     require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
             "a cancel lets it go");
 }
+// R337: a lifted Wait row carries its time, − and + and ✕ with it.
+void lifted_step_moves_whole() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-kind-1");
+    tap_control(app, "shortcuts-add-wait");
+    const auto before = app.view().shortcut_editor->steps.at(1);
+    const auto start = middle(control(app.view(), "shortcuts-step-1").bounds);
+    // Down by 30, past the dead zone, and past no other row: it is the last.
+    app.move(0, start.x, start.y);
+    app.down(0, start.x, start.y, 1400);
+    app.move(0, start.x, start.y + 15);
+    app.move(0, start.x, start.y + 30);
+    const auto lifted = app.view().shortcut_editor->lifted_step;
+    require(lifted && lifted->wait, "the Wait row is lifted");
+    for (const auto& [moved, was] : {std::pair{lifted->time_bounds, before.time_bounds},
+                                     std::pair{lifted->minus_bounds, before.minus_bounds},
+                                     std::pair{lifted->plus_bounds, before.plus_bounds},
+                                     std::pair{lifted->remove_bounds, before.remove_bounds}}) {
+        require(std::abs(moved.y - (was.y + 30)) < .5 && moved.x == was.x,
+                "its time, − and + and ✕ moved by the same 30 px");
+    }
+    app.up(0, start.x, start.y + 30);
+}
 // R332: a new user's first bar shows as soon as ✓ saves it, and becomes
 // the free bar.
 void first_bar_shows() {
@@ -5283,6 +5317,7 @@ int main() {
         first_bar_shows();
         pending_drag_two_lasers();
         carry_buttons();
+        lifted_step_moves_whole();
         unsynced_save();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";

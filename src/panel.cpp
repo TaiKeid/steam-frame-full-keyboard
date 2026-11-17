@@ -3799,8 +3799,19 @@ void draw_macro_steps(cairo_t* cr, const PanelView& view) {
         cairo_fill(cr);
     }
     if (e.lifted_step) {
-        soft_shadow(cr, e.lifted_step->bounds, t.radius + 2, tone_shadow);
-        draw_step_row(cr, view, *e.lifted_step, true);
+        // The carried row with its own − + and ✕, which are controls only
+        // in their place (R337).
+        const auto& step = *e.lifted_step;
+        soft_shadow(cr, step.bounds, t.radius + 2, tone_shadow);
+        draw_step_row(cr, view, step, true);
+        if (step.wait) {
+            for (const auto& [r, sign] :
+                 {std::pair{step.minus_bounds, "−"}, std::pair{step.plus_bounds, "+"}}) {
+                draw_cap(cr, t, r, false, false, true);
+                interface_label(cr, sign, r, 22, view.interface_font, t.legend);
+            }
+        }
+        draw_icon(cr, Icon::Close, step.remove_bounds, t.legend, 14);
     }
     for (const auto& c : view.controls) {
         if (c.id == "shortcuts-add-keys" || c.id == "shortcuts-add-wait" ||

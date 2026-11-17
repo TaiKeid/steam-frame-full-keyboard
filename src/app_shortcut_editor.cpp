@@ -517,10 +517,13 @@ std::vector<ShortcutStepView> steps_view(const EditorLayout& l, const ShortcutAc
         const auto g = step_geometry(l.steps_well, l.steps_top, i, scroll);
         ShortcutStepView row;
         row.bounds = g.row;
+        row.remove_bounds = g.remove;
         row.wait = step.kind == MacroStep::Kind::Wait;
         if (row.wait) {
             row.time = wait_text(step.wait_ms);
             row.time_bounds = g.time;
+            row.minus_bounds = g.minus;
+            row.plus_bounds = g.plus;
         } else {
             // As many chips as fit, the rest an ellipsis.
             const auto chips =
@@ -708,9 +711,14 @@ void App::append_shortcut_editor(PanelView& v) const {
             auto rows = steps_view(l, button->action, editor_steps_scroll_.shown, localization_.fonts(),
                                    d.index);
             if (!rows.empty()) {
+                // Everything of the row moves with it: its time, − and +,
+                // chips and ✕ (R337).
                 auto lifted = rows.front();
                 const double dy = d.py - step_height / 2 - lifted.bounds.y;
-                lifted.bounds.y += dy;
+                for (auto* r : {&lifted.bounds, &lifted.more_bounds, &lifted.time_bounds,
+                                &lifted.minus_bounds, &lifted.plus_bounds, &lifted.remove_bounds}) {
+                    r->y += dy;
+                }
                 for (auto& chip : lifted.chips) {
                     chip.bounds.y += dy;
                 }
