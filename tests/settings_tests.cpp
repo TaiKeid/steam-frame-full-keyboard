@@ -4697,8 +4697,6 @@ void lifted_step_moves_whole() {
     }
     app.up(0, start.x, start.y + 30);
 }
-// R332: a new user's first bar shows as soon as ✓ saves it, and becomes
-// the free bar.
 // Phase 5 (design, Which profile shows, Picker menu and Apps): the app with
 // the keys from a fake focus, assigned in the picker and saved at once, the
 // bar following the focus, names looked up off the VR thread, and Used for.
@@ -4911,6 +4909,38 @@ void shortcut_apps() {
         require(moved[1].assigned && moved[0].assign_enabled, "a tied app's tie can still move");
     }
 }
+// R338: VR reads the stick for the bar, its menu and the editor too.
+void stick_scrolls_bar() {
+    TemporaryDirectory directory;
+    Settings settings;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    {
+        App off(options, sink);
+        require(!off.view().shortcut_bar && !off.stick_scrolls(), "the feature off: no stick");
+    }
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    App app(options, sink);
+    require(app.view().shortcut_bar && app.stick_scrolls(), "the bar showing: the stick");
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    require(app.view().shortcut_bar->menu && app.stick_scrolls(), "the menu open: the stick");
+    tap_rect(app, app.view().shortcut_bar->menu->edit);
+    require(app.view().shortcut_editor && !app.view().shortcut_bar && app.stick_scrolls(),
+            "the editor open: the stick");
+    tap_control(app, "shortcuts-back");
+    click(app, "bar-toggle");
+    require(!app.view().shortcut_bar && !app.stick_scrolls(), "the bar hidden by hand: no stick");
+}
+// R332: a new user's first bar shows as soon as ✓ saves it, and becomes
+// the free bar.
 void first_bar_shows() {
     TemporaryDirectory directory;
     Settings settings;
@@ -5530,6 +5560,7 @@ int main() {
         macro_buttons();
         first_bar_shows();
         shortcut_apps();
+        stick_scrolls_bar();
         pending_drag_two_lasers();
         carry_buttons();
         lifted_step_moves_whole();

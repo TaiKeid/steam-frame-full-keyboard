@@ -4469,12 +4469,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 scene_inside[other] = false;
                 lifecycle.pointer_left(samples[other].device, drag.active());
             }
-            // The stick scrolls the emoji grid or the dictation editor under its hand's ray: outside the
-            // dashboard SteamVR sends no scroll events. It scrolls at the rate
-            // measured from the dashboard's steps, two columns a step.
+            // The stick scrolls the emoji grid, the dictation editor, the
+            // shortcut bar, its menu or the shortcut editor under its hand's
+            // ray: outside the dashboard SteamVR sends no scroll events. It
+            // scrolls at the rate measured from the dashboard's steps.
             const double stick_seconds = std::clamp(now - std::exchange(stick_scrolled, now), 0.0, .1);
-            for (std::size_t hand = 0;
-                 (app.emoji_open() || app.dictation_open()) && !drag.active() && hand < samples.size();
+            for (std::size_t hand = 0; app.stick_scrolls() && !drag.active() && hand < samples.size();
                  ++hand) {
                 // Read the stick only while its ray is over something that scrolls.
                 const auto stick =
