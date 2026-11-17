@@ -145,10 +145,12 @@ Up to 32 steps, run in order. A macro presses keys; it does not type text.
 
 `ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run stops, sending nothing more and retrying nothing, when:
 
-- its button is pressed again, or any key or other button is pressed;
+- its button is pressed again, or anything else on the keyboard or the bar is pressed: a key, another button, the picker, a row or an assign button of its menu;
 - another window takes the keys, or the target goes away;
 - the keyboard hides, Settings or dictation opens, or the headset sleeps;
 - a step fails to deliver.
+
+A While held button is the exception to the first rule. Once its press lets go, its run is only finishing a pass, and a new press on it takes the hold again, so quick taps each act.
 
 Keys are what streams take best: with Streaming support every key goes to the PC as a press and release with its modifiers, and through Moonlight as a key. The PC reads positions with its own layout.
 
@@ -328,7 +330,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 - A button can run a command and press any keys, so `shortcuts.json` is the only place such actions come from. Layout, language and theme profiles stay data and cannot run commands, and nothing in a shell's protocol or the instance socket can add, change or press a button.
 - There is no import or sharing of profiles in this version.
 - Labels, names, recorded keys, commands and script names are never logged.
-- App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) is updated to say so when this lands.
+- App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) says the same.
 
 ## Code map
 
