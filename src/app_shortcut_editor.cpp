@@ -1351,6 +1351,7 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
     add("done", "popup-done", {{}, tr("shortcuts.popup.done"), take(120), true, Icon::Apply});
     add("cancel", "popup-cancel", {{}, tr("button.cancel"), take(104)});
     const bool room = p.chords.size() < popup_limit();
+    std::optional<Rect> fkeys_menu; // the F13–F24 button, while its menu is open
     if (p.kind == PopupKind::Recording) {
         Control remove{{}, tr("shortcuts.popup.remove-last"), take(146)};
         remove.enabled = !p.chords.empty();
@@ -1367,20 +1368,7 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
             chip.clip = strip; // scrolled out of the well, it takes no press
             add("pending", "popup-pending", chip);
         }
-        if (p.fkeys && room) {
-            // Six across, two down, under their button, right-aligned with it.
-            constexpr double size = 70, height = 46, gap = 8, pad = 8;
-            const double left = menu_at.x + menu_at.width - (6 * size + 5 * gap + 2 * pad);
-            for (int n = 13; n <= 24; ++n) {
-                const int i = n - 13;
-                add("fkey-" + std::to_string(n), "popup-fkey",
-                    {{},
-                     "F" + std::to_string(n),
-                     {left + pad + (i % 6) * (size + gap),
-                      menu_at.y + menu_at.height + 6 + pad + (i / 6) * (height + gap), size, height}},
-                    n);
-            }
-        }
+        fkeys_menu = p.fkeys && room ? std::optional<Rect>(menu_at) : std::nullopt;
     }
     // The keys: each takes its row's whole height, side included, so a
     // press between rows still lands on one.
@@ -1393,6 +1381,25 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
                          (r.height + depth + 1) * pl.scale}};
         control.enabled = !popup_disabled(key, p.kind);
         add("key-" + key.id, "key", control);
+    }
+    // The F13–F24 menu over the keys, after them, so its items take the
+    // press: hover looks from the last control to the first (R334). Its
+    // panel takes the gaps between them, so no key under it does.
+    if (fkeys_menu) {
+        constexpr double size = 70, height = 46, gap = 8, pad = 8;
+        const double width = 6 * size + 5 * gap + 2 * pad;
+        const double left = fkeys_menu->x + fkeys_menu->width - width;
+        const double top = fkeys_menu->y + fkeys_menu->height + 6;
+        add("fkeys-menu", "popup-menu", {{}, {}, {left, top, width, 2 * height + gap + 2 * pad}});
+        for (int n = 13; n <= 24; ++n) {
+            const int i = n - 13;
+            add("fkey-" + std::to_string(n), "popup-fkey",
+                {{},
+                 "F" + std::to_string(n),
+                 {left + pad + (i % 6) * (size + gap), top + pad + (i / 6) * (height + gap), size,
+                  height}},
+                n);
+        }
     }
 }
 void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {

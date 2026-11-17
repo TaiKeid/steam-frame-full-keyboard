@@ -4900,6 +4900,24 @@ void shortcut_editor_settings() {
         tap_mini(app, "KeyQ");
         tap_control(app, "shortcuts-popup-cancel");
         require(app.view().shortcut_editor->chords.size() == 4, "Cancel keeps the shortcut as it was");
+        // R334: every item of the open F13–F24 menu takes its press, its
+        // second row over the keys too.
+        tap_control(app, "shortcuts-record");
+        for (const char* key : {"19", "21", "24"}) {
+            tap_control(app, "shortcuts-popup-fkeys");
+            tap_control(app, std::string("shortcuts-popup-fkey-") + key);
+        }
+        require(popup_chips(app.view()) == std::vector<std::string>{"F19", "F21", "F24"},
+                "F19, F21 and F24 are recorded from the menu");
+        tap_control(app, "shortcuts-popup-fkeys");
+        {
+            // Between its items, the menu takes the press and no key under it.
+            const auto f19 = control(app.view(), "shortcuts-popup-fkey-19").bounds;
+            tap_at(app, f19.x + f19.width + 4, f19.y + f19.height / 2);
+            require(popup_chips(app.view()).size() == 3, "no key under the menu is recorded");
+        }
+        tap_control(app, "shortcuts-popup-fkeys"); // closes the menu
+        tap_control(app, "shortcuts-popup-cancel");
         tap_control(app, "shortcuts-record");
         tap_mini(app, "KeyQ");
         require(popup_chips(app.view()) == std::vector<std::string>{"Q"},
