@@ -41,6 +41,10 @@ class DesktopTerminal {
     EditKeys edit_keys() const { return keys_; }
     // Whether KWin reported the active app since attaching.
     bool reported() const { return reported_; }
+    // How many activations KWin reported since this object began, across
+    // attachments: each window that became active, a dialog of the same app
+    // included (R320).
+    std::uint64_t activations() const { return activations_; }
 
   private:
     struct Bus;
@@ -61,5 +65,6 @@ class DesktopTerminal {
     // The script file in the runtime folder, while the script is loaded.
     std::string script_;
     bool kwin_lost_{}, more_{}, reported_{};
+    std::uint64_t activations_{};
 };
 } // namespace framekeyboard

@@ -49,6 +49,7 @@ class NativeReplacement : public KeySink {
     bool steam_field_target() const override { return remote_ && state_.active; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
+    std::uint64_t focus_serial() const override { return remote_ ? 0 : local_.focus_serial(); }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return local_.desktop_focused(); }

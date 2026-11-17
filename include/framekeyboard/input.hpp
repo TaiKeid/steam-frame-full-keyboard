@@ -71,6 +71,11 @@ class KeySink {
     // Gamescope's focused window, which typed text reaches; 0 when unknown or
     // when text goes elsewhere, such as a Steam field or the shell. Never blocks.
     virtual std::uint32_t focused_window() const { return 0; }
+    // Changes when the window with the keys may have changed where
+    // focused_window() can't show it: each activation SteamOS's Desktop
+    // reports inside its one Gamescope window. Beside the window, never in
+    // place of it; 0 where nothing reports. Never blocks.
+    virtual std::uint64_t focus_serial() const { return 0; }
     // The minimum gap between characters typed one at a time, for transports
     // that pace them (GamescopeText::set_character_gap).
     virtual void set_character_gap(double) {}

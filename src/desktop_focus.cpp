@@ -29,6 +29,7 @@ struct DesktopFocus::State {
     std::atomic<bool> desktop_waiting{};
     std::atomic<std::int64_t> desktop_waiting_since{};
     std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
+    std::atomic<std::uint64_t> desktop_activations{}; // DesktopTerminal::activations
     mutable std::mutex mutex;
     std::string title; // the focused window's, for Keep open's cue and tooltip
     // The focusable list's windows, under mutex, and how often it changed.
@@ -229,6 +230,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (terminal.process() && desktop) {
             state.edit_keys = terminal.edit_keys();
         }
+        state.desktop_activations = terminal.activations();
         follow_report();
         // sd-bus may need to wake for its own timeouts, or at once when more
         // messages wait in its queue.
@@ -239,6 +241,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 if (terminal.attach(desktop_bus)) {
                     terminal.process(); // The script reports the active window as it starts.
                     state.edit_keys = terminal.edit_keys();
+                    state.desktop_activations = terminal.activations();
                     follow_report();
                 }
                 now = std::chrono::steady_clock::now();
@@ -320,6 +323,9 @@ bool DesktopFocus::edit_keys_known() const {
         std::chrono::steady_clock::now().time_since_epoch().count() -
         state_->desktop_waiting_since.load()};
     return waited >= desktop_report_wait;
+}
+std::uint64_t DesktopFocus::desktop_activations() const {
+    return state_->desktop_activations.load();
 }
 DesktopFocus::Window DesktopFocus::window() const {
     const auto packed = state_->window.load();

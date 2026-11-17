@@ -21,6 +21,7 @@ struct Recorder : KeySink {
     Events events;
     bool slow{}, waiting{}, done{}, succeed{true};
     std::uint32_t window{};
+    std::uint64_t serial{};             // KeySink::focus_serial
     std::map<xkb_keysym_t, int> keymap; // the target's letters, when not US
     std::vector<xkb_keysym_t> asked;
     // The tick time of each event, in step with `events`.
@@ -67,6 +68,7 @@ struct Recorder : KeySink {
     bool text_pending() const override { return text_waiting; }
     void cancel_text() override { text_waiting = false; }
     std::uint32_t focused_window() const override { return window; }
+    std::uint64_t focus_serial() const override { return serial; }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         asked.push_back(symbol);
         const auto found = keymap.find(symbol);
@@ -387,6 +389,19 @@ void stops() {
         rig.tick(.05);
         require(rig.runner.end() == ShortcutRunner::End::Canceled && rig.sink.events == ctrl_k,
                 "another window between combinations ends the run, the second unsent");
+    }
+    {
+        // Inside SteamOS's Desktop the window stays one: an activation
+        // reported between combinations ends the run (R320).
+        Rig rig;
+        rig.sink.window = 5;
+        rig.sink.serial = 3;
+        rig.runner.start(two, 0);
+        rig.tick(.01);
+        rig.sink.serial = 4;
+        rig.tick(.05);
+        require(rig.runner.end() == ShortcutRunner::End::Canceled && rig.sink.events == ctrl_k,
+                "an activation in the same window between combinations ends the run, the second unsent");
     }
     {
         // A window that became unknown counts as another.

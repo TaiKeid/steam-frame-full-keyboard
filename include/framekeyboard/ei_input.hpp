@@ -40,6 +40,9 @@ class EiSink : public KeySink {
     std::optional<bool> num_lock_state() override { return num_lock_; }
     // The desktop focus watcher's window, an atomic read; it starts with the text path.
     std::uint32_t focused_window() const override { return desktop_ ? desktop_->window().id : 0; }
+    std::uint64_t focus_serial() const override {
+        return desktop_ ? desktop_->desktop_activations() : 0;
+    }
     // Measurement only: forces every multi-character commit to go whole (false)
     // or per character (true) instead of the on_keymap() choice.
     void force_per_character(std::optional<bool> value) { per_character_ = value; }

@@ -253,6 +253,7 @@ bool DesktopTerminal::attach(const std::string& address) {
             api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
             self->keys_ = app_edit_keys(app ? app : "");
             self->reported_ = true;
+            ++self->activations_;
         }
         api.reply(message, "");
         return 1;

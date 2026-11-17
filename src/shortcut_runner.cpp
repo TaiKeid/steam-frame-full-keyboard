@@ -23,6 +23,9 @@ int QueuedShortcutOutput::shortcut_code(xkb_keysym_t symbol, int fallback) {
 std::uint32_t QueuedShortcutOutput::focused_window() const {
     return output_.focused_window();
 }
+std::uint64_t QueuedShortcutOutput::focus_serial() const {
+    return output_.focus_serial();
+}
 std::uint64_t QueuedShortcutOutput::completed() const {
     return output_.completed();
 }
@@ -95,6 +98,7 @@ bool ShortcutRunner::start(const ShortcutAction& action, double now) {
     failures_ = output_.failures();
     cancels_ = output_.cancels();
     window_ = output_.focused_window();
+    focus_serial_ = output_.focus_serial();
     ready_at_ = now;
     advance(now);
     return true;
@@ -138,8 +142,9 @@ bool ShortcutRunner::advance(double now) {
             return false;
         }
         // Ctrl+O, then S: the first may open a dialog, which the second must
-        // not reach.
-        if (next_ > 0 && output_.focused_window() != window_) {
+        // not reach. Inside SteamOS's Desktop only the serial shows it.
+        if (next_ > 0 &&
+            (output_.focused_window() != window_ || output_.focus_serial() != focus_serial_)) {
             return finish(End::Canceled);
         }
         const auto chord = codes(steps_[next_].chord);

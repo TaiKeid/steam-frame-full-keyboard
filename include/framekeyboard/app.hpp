@@ -1788,6 +1788,7 @@ class App {
     // Gamescope's focused window last given to bar_choice_ (as no app until
     // apps can be told apart): a change of it stops a run, too.
     std::uint32_t bar_window_{};
+    std::uint64_t bar_focus_serial_{}; // KeySink::focus_serial, beside it
     // Each bar's sideways scroll, kept while the keyboard runs, by bar ID;
     // stick steps set the target and tick() eases to it.
     struct BarScroll {

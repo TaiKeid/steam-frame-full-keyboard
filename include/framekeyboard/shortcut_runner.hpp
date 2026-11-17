@@ -30,6 +30,9 @@ class ShortcutOutput {
     // The window with the keys (KeySink::focused_window): 0 when unknown or
     // when the route names none, as Steam fields and streams from a PC.
     virtual std::uint32_t focused_window() const = 0;
+    // Beside the window: changes on each activation inside SteamOS's Desktop
+    // (KeySink::focus_serial).
+    virtual std::uint64_t focus_serial() const = 0;
     virtual std::uint64_t completed() const = 0;
     virtual std::size_t pending_entries() const = 0;
     virtual std::uint64_t failures() const = 0;
@@ -48,6 +51,7 @@ class QueuedShortcutOutput final : public ShortcutOutput {
     bool tap(const std::vector<int>& codes) override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     std::uint32_t focused_window() const override;
+    std::uint64_t focus_serial() const override;
     std::uint64_t completed() const override;
     std::size_t pending_entries() const override;
     std::uint64_t failures() const override;
@@ -121,7 +125,10 @@ class ShortcutRunner {
     // is empty and checks no window, so the runner does: a later combination
     // goes only to the same one. A window that became unknown counts as
     // another; a route naming none (0 throughout) is not checked this way.
+    // The focus serial too: inside SteamOS's Desktop the window stays one
+    // while its apps and dialogs take turns (R320).
     std::uint32_t window_{};
+    std::uint64_t focus_serial_{};
     double ready_at_{}; // when the next step may be pressed
     End end_{End::None};
 };

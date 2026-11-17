@@ -58,6 +58,11 @@ class DesktopFocus {
     // reported the active app yet, for at most desktop_report_wait.
     bool edit_keys_known() const;
     static constexpr std::chrono::seconds desktop_report_wait{3};
+    // Never blocks: how many activations SteamOS's Desktop reported inside
+    // its one Gamescope window, when following its apps; 0 otherwise. Each
+    // changes it, a dialog of the same app included, which window() can't
+    // show (R320).
+    std::uint64_t desktop_activations() const;
     // A process's program file name, from argv[0]; empty if it is gone.
     static std::string program(std::uint32_t pid);
     // Whether this process is a nested desktop compositor (exposed for tests).

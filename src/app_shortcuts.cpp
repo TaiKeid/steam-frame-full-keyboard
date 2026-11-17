@@ -443,8 +443,17 @@ void App::tick_shortcut_bar(double now) {
     // Until apps can be told apart, every window counts as one without a bar.
     if (const auto window = output_.focused_window(); window != bar_window_) {
         bar_window_ = window;
+        bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
         bar_choice_.focus(shortcuts_, std::nullopt);
+        dirty = true;
+    }
+    // Inside SteamOS's Desktop another app or a dialog took the keys in the
+    // same window: a run stops too. The bar stays, as the Desktop's apps
+    // aren't told apart yet (R320).
+    if (const auto serial = output_.focus_serial(); serial != bar_focus_serial_) {
+        bar_focus_serial_ = serial;
+        stop_shortcut_run();
         dirty = true;
     }
     if (!bar_shown()) {
