@@ -690,7 +690,8 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
             return "the file on disk could not be moved aside";
         }
     }
-    if (!write_private_file(path_, text, true)) {
+    // Written on the preference worker, so synced as config.json is.
+    if (!write_private_file(path_, text, true, true)) {
         return "the file could not be written";
     }
     known_ = text;

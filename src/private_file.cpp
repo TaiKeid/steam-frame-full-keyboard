@@ -31,11 +31,11 @@ bool write_all(int fd, const std::string& data) {
 }
 } // namespace
 
-bool write_private_file(const fs::path& file, const std::string& text, bool make_folder) {
+bool write_private_file(const fs::path& file, const std::string& text, bool make_folder, bool sync) {
     std::error_code error;
     const auto folder = file.parent_path();
-    if (make_folder && !folder.empty() && !fs::exists(folder, error) && mkdir(folder.c_str(), 0700) != 0 &&
-        errno != EEXIST) {
+    if (make_folder && !folder.empty() && !fs::exists(folder, error) &&
+        mkdir(folder.c_str(), 0700) != 0 && errno != EEXIST) {
         return false;
     }
     const auto temporary = temporary_of(file);
@@ -44,7 +44,9 @@ bool write_private_file(const fs::path& file, const std::string& text, bool make
     if (fd < 0) {
         return false;
     }
-    const bool written = write_all(fd, text);
+    // Synced before the rename, so the new name never points at a file
+    // whose bytes a power loss could still take.
+    const bool written = write_all(fd, text) && (!sync || fsync(fd) == 0);
     if (close(fd) != 0 || !written) {
         unlink(temporary.c_str());
         return false;
@@ -53,6 +55,17 @@ bool write_private_file(const fs::path& file, const std::string& text, bool make
     if (error) {
         unlink(temporary.c_str());
         return false;
+    }
+    if (sync) {
+        // The rename itself lives in the folder.
+        const int directory =
+            open(folder.empty() ? "." : folder.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (directory < 0) {
+            return false;
+        }
+        const bool synced = fsync(directory) == 0;
+        close(directory);
+        return synced;
     }
     return true;
 }
