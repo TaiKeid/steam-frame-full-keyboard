@@ -65,9 +65,10 @@ class QueuedShortcutOutput final : public ShortcutOutput {
 // Sends a button's action over time: the only code that sends a button's
 // keys. A run is a list of steps, each queued only after the one before it
 // was delivered, so a stop sends nothing more; tick() advances it. Only
-// shortcuts run so far; macros (text, waits, repeats, while held) become
-// further step kinds of the same run, and Run actions start programs
-// elsewhere. Nothing a run sends is ever logged.
+// shortcuts run so far. Macros press keys only: their Keys steps become
+// chords of the same run, and waits, repeats and while held become further
+// step kinds; Run actions start programs elsewhere. Nothing a run sends is
+// ever logged.
 class ShortcutRunner {
   public:
     // The least time between one combination's delivery and the next one's
@@ -96,7 +97,8 @@ class ShortcutRunner {
 
   private:
     struct Step {
-        // Text, Wait and pass boundaries join with macros.
+        // Wait and pass boundaries join with macros; a macro's Keys step is
+        // chords, as a shortcut's.
         enum class Kind { Chord };
         Kind kind{Kind::Chord};
         ShortcutChord chord;

@@ -60,10 +60,9 @@ const char* const example = R"({
           "action": {
             "kind": "macro",
             "steps": [
-              {"keys": {"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}},
+              {"keys": [{"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}]},
               {"wait_ms": 500},
-              {"text": "npm run dev"},
-              {"keys": {"key": "Enter"}}
+              {"keys": [{"key": "KeyL"}, {"key": "KeyS"}, {"key": "Enter"}]}
             ],
             "repeat": {"mode": "times", "count": 3}
           }
@@ -112,10 +111,13 @@ void accepted(const ShortcutModel& model, const std::string& what) {
     require(!reason, what + ": accepted (" + reason.value_or("") + ")");
     require(parse_shortcuts(serialize_shortcuts(model)) == model, what + ": survives a round trip");
 }
-void rejects_json(const std::string& json, const std::string& what) {
+void rejects_json(const std::string& json, const std::string& what, const std::string& secret = "") {
     try {
         parse_shortcuts(json);
-    } catch (const std::runtime_error&) {
+    } catch (const std::runtime_error& error) {
+        if (!secret.empty() && std::string(error.what()).find(secret) != std::string::npos) {
+            throw std::runtime_error(what + ": the reason quotes the file");
+        }
         return;
     }
     throw std::runtime_error(what + ": refused");
@@ -135,10 +137,10 @@ ShortcutButton macro_button(std::vector<MacroStep> steps, MacroRepeat repeat = {
     button.action.repeat = repeat;
     return button;
 }
-MacroStep text_step(std::string text) {
+MacroStep keys_step(std::vector<ShortcutChord> keys) {
     MacroStep step;
-    step.kind = MacroStep::Kind::Text;
-    step.text = std::move(text);
+    step.kind = MacroStep::Kind::Keys;
+    step.keys = std::move(keys);
     return step;
 }
 MacroStep wait_step(int ms) {
@@ -166,12 +168,13 @@ void example_file() {
     require(buttons[0].action.kind == ShortcutAction::Kind::Keys && buttons[0].action.chords == save_all,
             "a shortcut's combinations in order");
     const auto& macro = buttons[1].action;
-    require(macro.kind == ShortcutAction::Kind::Macro && macro.steps.size() == 4 &&
-                macro.steps[0].kind == MacroStep::Kind::Keys &&
-                macro.steps[0].keys.modifiers.size() == 2 && macro.steps[1].wait_ms == 500 &&
-                macro.steps[2].text == "npm run dev" && macro.steps[3].keys.key == "Enter" &&
-                macro.repeat == MacroRepeat{MacroRepeat::Mode::Times, 3},
-            "a macro's steps and repeat");
+    const std::vector<ShortcutChord> typed{{{}, "KeyL"}, {{}, "KeyS"}, {{}, "Enter"}};
+    require(macro.kind == ShortcutAction::Kind::Macro && macro.steps.size() == 3 &&
+                macro.steps[0].kind == MacroStep::Kind::Keys && macro.steps[0].keys.size() == 1 &&
+                macro.steps[0].keys[0].modifiers.size() == 2 &&
+                macro.steps[1].kind == MacroStep::Kind::Wait && macro.steps[1].wait_ms == 500 &&
+                macro.steps[2].keys == typed && macro.repeat == MacroRepeat{MacroRepeat::Mode::Times, 3},
+            "a macro's steps, a Keys step's combinations in order, and its repeat");
     require(buttons[2].action.kind == ShortcutAction::Kind::Run &&
                 buttons[2].action.script == "open-terminal.sh" && buttons[2].action.command.empty(),
             "a script button");
@@ -263,12 +266,21 @@ void invalid_files() {
         "a repeated modifier");
     rejects_json(button(R"({"kind":"macro"})"), "a macro without steps");
     rejects_json(button(R"({"kind":"macro","steps":[{}]})"), "a step of no kind");
-    rejects_json(button(R"({"kind":"macro","steps":[{"text":"a","wait_ms":100}]})"),
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":[{"key":"KeyA"}],"wait_ms":100}]})"),
                  "a step of two kinds");
     rejects_json(button(R"({"kind":"macro","steps":[{"wait_ms":"100"}]})"), "a wait that is a string");
     rejects_json(button(R"({"kind":"macro","steps":[{"wait_ms":100.5}]})"), "a fractional wait");
-    rejects_json(button(R"({"kind":"macro","steps":[{"text":""}]})"), "an empty text step");
-    rejects_json(button(R"({"kind":"macro","steps":[{"keys":{"key":"Nope"}}]})"),
+    // Macros press keys only: a text step, even beside a valid one, refuses the file.
+    rejects_json(button(R"({"kind":"macro","steps":[{"text":"SecretText"}]})"), "a text step",
+                 "SecretText");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":[{"key":"KeyA"}]},{"text":""}]})"),
+                 "a text step after a keys step");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":{"key":"KeyA"}}]})"),
+                 "a keys step that is one combination, not a list");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":[]}]})"), "a keys step with nothing");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":["KeyA"]}]})"),
+                 "a keys step of names, not combinations");
+    rejects_json(button(R"({"kind":"macro","steps":[{"keys":[{"key":"Nope"}]}]})"),
                  "an unknown key in a step");
     rejects_json(button(R"({"kind":"macro","steps":[{"wait_ms":100}],"repeat":{"mode":"forever"}})"),
                  "an unknown repeat mode");
@@ -311,7 +323,6 @@ void invalid_files() {
     rejects_json(std::string(R"({"schema_version":1,"bars":[{"id":"a","name":"A)") + "\xff" +
                      R"(","buttons":[]}]})",
                  "invalid UTF-8");
-    rejects_json(button(R"({"kind":"macro","steps":[{"text":"a\tb"}]})"), "a tab in macro text");
     rejects_json(head + R"({"label":"a\nb\nc","action":{"kind":"keys","chords":[{"key":"KeyA"}]}})" +
                      tail,
                  "a label of three lines");
@@ -366,11 +377,16 @@ void limits() {
     accepted(model, "32 steps");
     model.bars[0].buttons[0].action.steps.push_back(wait_step(100));
     refused(model, "33 steps");
-    // Text step: 256 characters.
-    model.bars[0].buttons[0] = macro_button({text_step(repeated("ü", 256))});
-    accepted(model, "a text step of 256 characters");
-    model.bars[0].buttons[0] = macro_button({text_step(repeated("SecretText", 26))});
-    refused(model, "a text step of 260 characters", "SecretText");
+    // Combinations in a Keys step: 1 to 32.
+    model.bars[0].buttons[0] =
+        macro_button({keys_step(std::vector<ShortcutChord>(32, {{"ShiftLeft"}, "KeyA"}))});
+    accepted(model, "a keys step of 32 combinations");
+    model.bars[0].buttons[0].action.steps[0].keys.push_back({{}, "Enter"});
+    refused(model, "a keys step of 33 combinations");
+    model.bars[0].buttons[0] = macro_button({keys_step({})});
+    refused(model, "a keys step of no combinations");
+    model.bars[0].buttons[0] = macro_button({keys_step({{{}, "Nope"}})});
+    refused(model, "a keys step with an unknown key");
     // Wait: 100 to 10,000 ms.
     model.bars[0].buttons[0] = macro_button({wait_step(100), wait_step(10000)});
     accepted(model, "waits of 100 and 10000 ms");

@@ -3999,7 +3999,7 @@ void shortcut_buttons() {
     ShortcutButton macro;
     macro.label = "Macro";
     macro.action.kind = ShortcutAction::Kind::Macro;
-    macro.action.steps.push_back({MacroStep::Kind::Wait, {}, {}, 100});
+    macro.action.steps.push_back({MacroStep::Kind::Wait, {}, 100});
     ShortcutButton run;
     run.label = "Run";
     run.action.kind = ShortcutAction::Kind::Run;

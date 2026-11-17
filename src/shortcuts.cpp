@@ -113,22 +113,18 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
         for (std::size_t i = 0; i < action.steps.size(); ++i) {
             const auto& step = action.steps[i];
             const auto where = "step " + std::to_string(i + 1) + ": ";
-            std::size_t characters = 0;
             switch (step.kind) {
             case MacroStep::Kind::Keys:
-                if (auto problem = check_chord(step.keys)) {
-                    return where + *problem;
+                if (step.keys.empty()) {
+                    return where + "a keys step has no key combinations";
                 }
-                break;
-            case MacroStep::Kind::Text:
-                if (!clean_text(step.text, 0, characters)) {
-                    return where + "text is not valid UTF-8 or has control characters";
+                if (step.keys.size() > limits::step_chords) {
+                    return where + "a keys step has more than 32 key combinations";
                 }
-                if (characters == 0) {
-                    return where + "text is empty";
-                }
-                if (characters > limits::text_characters) {
-                    return where + "text is longer than 256 characters";
+                for (const auto& chord : step.keys) {
+                    if (auto problem = check_chord(chord)) {
+                        return where + *problem;
+                    }
                 }
                 break;
             case MacroStep::Kind::Wait:
@@ -249,19 +245,26 @@ ShortcutChord parse_chord(json_object* object, const std::string& where) {
 }
 MacroStep parse_step(json_object* object, const std::string& where) {
     MacroStep step;
-    auto* keys = member(object, "keys", json_type_object, where, true);
-    auto* text = member(object, "text", json_type_string, where, true);
+    // A macro presses keys only: a text step, from an earlier draft of the
+    // format, makes the file invalid rather than being skipped.
+    if (json_object* text = nullptr; json_object_object_get_ex(object, "text", &text)) {
+        invalid(where, "a text step; macros press keys only");
+    }
+    auto* keys = member(object, "keys", json_type_array, where, true);
     json_object* wait = nullptr;
     const bool waits = json_object_object_get_ex(object, "wait_ms", &wait);
-    if ((keys != nullptr) + (text != nullptr) + waits != 1) {
-        invalid(where, "a step needs exactly one of keys, text and wait_ms");
+    if ((keys != nullptr) + waits != 1) {
+        invalid(where, "a step needs exactly one of keys and wait_ms");
     }
     if (keys) {
         step.kind = MacroStep::Kind::Keys;
-        step.keys = parse_chord(keys, where);
-    } else if (text) {
-        step.kind = MacroStep::Kind::Text;
-        step.text = string_of(text);
+        // Bounded before the copy; validation reports the limit itself.
+        if (json_object_array_length(keys) > limits::step_chords) {
+            invalid(where, "a keys step has more than 32 key combinations");
+        }
+        for (std::size_t i = 0; i < json_object_array_length(keys); ++i) {
+            step.keys.push_back(parse_chord(item(keys, i, json_type_object, where), where));
+        }
     } else {
         step.kind = MacroStep::Kind::Wait;
         step.wait_ms = int_member(object, "wait_ms", where);
@@ -385,12 +388,14 @@ json_object* action_json(const ShortcutAction& action) {
         for (const auto& step : action.steps) {
             auto* entry = json_object_new_object();
             switch (step.kind) {
-            case MacroStep::Kind::Keys:
-                json_object_object_add(entry, "keys", chord_json(step.keys));
+            case MacroStep::Kind::Keys: {
+                auto* keys = json_object_new_array();
+                for (const auto& chord : step.keys) {
+                    json_object_array_add(keys, chord_json(chord));
+                }
+                json_object_object_add(entry, "keys", keys);
                 break;
-            case MacroStep::Kind::Text:
-                json_object_object_add(entry, "text", new_string(step.text));
-                break;
+            }
             case MacroStep::Kind::Wait:
                 json_object_object_add(entry, "wait_ms", json_object_new_int(step.wait_ms));
                 break;

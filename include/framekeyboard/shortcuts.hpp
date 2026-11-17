@@ -8,8 +8,9 @@
 
 // The shortcut bar's model and its file (docs/shortcut-bar-design.md,
 // Storage), and which bar shows. Plain data and pure logic: nothing here
-// draws, sends keys or starts programs. Labels, macro text, commands and
-// script names are the user's own and never appear in an error or a log.
+// draws, sends keys or starts programs. Labels, names, recorded keys,
+// commands and script names are the user's own and never appear in an
+// error or a log.
 namespace framekeyboard {
 // The design's limits. Characters are Unicode code points.
 namespace shortcut_limits {
@@ -20,7 +21,7 @@ inline constexpr std::size_t label_lines = 2;
 inline constexpr std::size_t bar_name_characters = 32;
 inline constexpr std::size_t chords = 4;            // in a shortcut
 inline constexpr std::size_t steps = 32;            // in a macro
-inline constexpr std::size_t text_characters = 256; // in a text step
+inline constexpr std::size_t step_chords = 32;      // in a macro's Keys step
 inline constexpr int wait_min_ms = 100, wait_max_ms = 10000;
 inline constexpr int repeat_min = 2, repeat_max = 99;
 inline constexpr std::size_t command_bytes = 512;
@@ -42,12 +43,13 @@ struct ShortcutChord {
     std::string key;
     bool operator==(const ShortcutChord&) const = default;
 };
+// A macro presses keys; it never types text (design, Macro). A Keys step
+// is combinations recorded in a row, each sent as a shortcut's is.
 struct MacroStep {
-    enum class Kind { Keys, Text, Wait };
+    enum class Kind { Keys, Wait };
     Kind kind{Kind::Keys};
-    ShortcutChord keys; // Keys
-    std::string text;   // Text: typed as the keyboard types text
-    int wait_ms{};      // Wait
+    std::vector<ShortcutChord> keys; // Keys: 1 to 32 combinations
+    int wait_ms{};                   // Wait
     bool operator==(const MacroStep&) const = default;
 };
 struct MacroRepeat {

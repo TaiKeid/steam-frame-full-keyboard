@@ -244,7 +244,7 @@ void whole_or_refused() {
         require(!rig.runner.start(shortcut({{{}, ""}}), 0), "an empty combination is refused");
         ShortcutAction macro;
         macro.kind = ShortcutAction::Kind::Macro;
-        macro.steps.push_back({MacroStep::Kind::Wait, {}, {}, 100});
+        macro.steps.push_back({MacroStep::Kind::Wait, {}, 100});
         require(!rig.runner.start(macro, 0), "macros are not run yet");
         ShortcutAction run;
         run.kind = ShortcutAction::Kind::Run;
