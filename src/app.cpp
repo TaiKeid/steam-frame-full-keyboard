@@ -2007,8 +2007,9 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         dirty |= emoji_.down(pointer, x, y, now).redraw;
         return false;
     }
-    // Japanese candidates, also over the dictation editor's foot.
-    if (candidates_.contains(x, y)) {
+    // Japanese candidates, also over the dictation editor's foot; none under
+    // the shortcut editor (R333).
+    if (!shortcut_editor_ && candidates_.contains(x, y)) {
         dirty |= candidates_.down(pointer, x, y, now).redraw;
         return false;
     }
@@ -4600,7 +4601,7 @@ PanelView App::band_geometry() const {
     return v;
 }
 std::optional<Rect> App::candidate_area(const PanelView& v) const {
-    if (!(japanese() || cjk_) || emoji_open_ || settings_open_) {
+    if (!(japanese() || cjk_) || emoji_open_ || settings_open_ || shortcut_editor_) {
         return {};
     }
     if (dictation_open_) {
@@ -4614,7 +4615,8 @@ void App::sync_candidates() {
     std::vector<std::string> owned;
     const std::vector<std::string>* texts = &owned; // The composer's own, where it has them.
     int source = 0, selected = -1;
-    const bool shown = (japanese() || cjk_) && !emoji_open_ && !settings_open_;
+    // Out of sight in Settings and the shortcut editor, taking no press (R333).
+    const bool shown = (japanese() || cjk_) && !emoji_open_ && !settings_open_ && !shortcut_editor_;
     if (shown && cjk_) {
         source = 1;
         owned = cjk_->candidates();

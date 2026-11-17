@@ -223,6 +223,9 @@ void App::open_shortcut_editor() {
     close_emoji();
     release_input(false); // a reading stays, out of sight, as Settings keeps it
     shortcut_editor_.emplace(shortcuts_, bar_choice_.shown());
+    // Its candidates go out of sight and take no press until the editor closes (R333).
+    candidate_list_ = false;
+    sync_candidates();
     editor_question_ = EditorQuestion::None;
     editor_rows_scroll_ = editor_strip_scroll_ = {};
     shortcut_drag_.reset();
@@ -270,6 +273,7 @@ void App::close_shortcut_editor(bool save) {
     shortcut_drag_.reset();
     hovered_.clear();
     pressed_controls_.clear();
+    sync_candidates();    // a waiting reading's candidates come back (R333)
     update_settings_ui(); // the Debug card's sample button follows the bars
     dirty = true;
 }

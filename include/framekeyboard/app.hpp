@@ -839,7 +839,10 @@ class App {
     std::optional<Rect> candidate_area(const PanelView& band) const;
     // A composing language's reading and candidates show over the main
     // keyboard (PanelView::ime_band).
-    bool ime_band_shown() const { return (japanese() || cjk_) && !emoji_open_ && !dictation_open_; }
+    // The shortcut editor keeps it out of sight, as Settings does (R333).
+    bool ime_band_shown() const {
+        return (japanese() || cjk_) && !emoji_open_ && !dictation_open_ && !shortcut_editor_;
+    }
     // The views' ime_room: kept while the band isn't shown, outside the emoji
     // picker and dictation mode, whose layouts already take the room.
     bool ime_room_kept() const { return !japanese() && !cjk_ && !emoji_open_ && !dictation_open_; }
