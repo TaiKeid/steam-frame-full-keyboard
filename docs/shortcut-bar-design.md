@@ -2,19 +2,20 @@
 
 Status: design, not implemented. The owner settled the behavior on 2026-11-17; open facts are listed under [Frame probes](#frame-probes). Milestones are in the [roadmap](plan.md#shortcut-bar).
 
-With **Shortcut bar** on in Settings, a bar of the user's own buttons sits above the keyboard, like a dock. A button sends a shortcut, runs a macro, or starts a script or command. Buttons are grouped into bars; a bar can be chosen by hand or tied to an app, and then shows whenever that app has the keys.
+With **Shortcut bar** on in Settings, a bar of the user's own buttons sits above the keyboard, like a dock. A button sends a shortcut, runs a macro, or starts a script or command. Buttons are grouped into profiles; a profile is chosen by hand or tied to an app, and then shows in the bar whenever that app has the keys.
 
 ## Terms
 
 | Term | Meaning |
 | --- | --- |
-| Bar | A named, ordered set of buttons. One bar shows at a time. |
+| Bar | The strip above the keyboard that holds the buttons. |
+| Profile | A named, ordered set of buttons. The bar shows one profile at a time. |
 | Button | A label and one action. |
 | Action | Shortcut (key combinations in order), Macro (steps), or Run (a script or a command). |
-| Assigned app | An app tied to a bar. An app has at most one bar; a bar can serve several apps. |
-| Free bar | A bar no app is tied to. |
+| Assigned app | An app tied to a profile. An app has at most one profile; a profile can serve several apps. |
+| Free profile | A profile no app is tied to. |
 
-Code and interface say "assign" and "use for", never "pin": Pin already locks the keyboard in place (`pinned`).
+Code and interface say "assign" and "use for", never "pin": Pin already locks the keyboard in place (`pinned`). Layouts, languages and themes are called profiles in the [configuration reference](configuration.md) too; a shortcut profile is none of those and lives in a file of its own.
 
 ## The bar on the keyboard
 
@@ -29,8 +30,8 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 | Position | Plate, gap and picker together are centered on the case |
 | Width | Grows with its buttons from two slots up to the case's width with the numpad hidden (1326), picker included: 15 buttons. A narrower case, such as the flick layout's, limits it to its own width |
 
-- A bar with no buttons shows two empty slots. One button sits centered in two slots.
-- A bar with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each bar keeps its scroll position while the keyboard runs.
+- A profile with no buttons shows as two empty slots. One button sits centered in two slots.
+- A profile with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each profile keeps its scroll position while the keyboard runs.
 - Buttons look and feel like keys: hover, press travel, vibration and haptic sounds. They act on release over the same button, as controls do, so a drag can scroll. A macro that repeats while held starts on press instead, and a press on it never starts a drag.
 - A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)). So is a button that has no action yet.
 - The bar hides in Settings and in dictation mode, and stays up with the emoji picker. Under a shell the feature is off.
@@ -51,21 +52,21 @@ The button is the user's switch for the bar, saved as `shortcuts_switch`. Its ic
 
 | Press while | Result |
 | --- | --- |
-| A bar shows | The bar hides and stays hidden everywhere until the button is pressed again |
-| Nothing shows, and a bar is due for the focused app | That bar shows |
-| Nothing shows, and no bar is due | An empty bar with two slots shows, so the picker can be reached |
+| A profile shows | The bar hides and stays hidden everywhere until the button is pressed again |
+| Nothing shows, and a profile is due for the focused app | That profile shows |
+| Nothing shows, and no profile is due | An empty bar with two slots shows, so the picker can be reached |
 
-## Which bar shows
+## Which profile shows
 
 Each time another app takes the keys:
 
-1. The app has a bar: that bar.
-2. Otherwise the free bar chosen last, if it still exists and is still free.
-3. Otherwise nothing. The toolbar button shows off, without changing the user's switch, so a later app with a bar brings the bar back.
+1. The app has a profile: that profile.
+2. Otherwise the free profile chosen last, if it still exists and is still free.
+3. Otherwise nothing. The toolbar button shows off, without changing the user's switch, so a later app with a profile brings the bar back.
 
-Steam's dashboard and an app that can't be identified count as apps without a bar. An empty bar opened with the toolbar button stays until the focus moves on.
+Steam's dashboard and an app that can't be identified count as apps without a profile. An empty bar opened with the toolbar button stays until the focus moves on.
 
-Choosing a bar in the picker shows it until the focus changes. If it is a free bar, it also becomes the one rule 2 returns to. The switch turned off by hand overrides all of this.
+Choosing a profile in the picker shows it until the focus changes. If it is a free profile, it also becomes the one rule 2 returns to. The switch turned off by hand overrides all of this.
 
 ## Picker menu
 
@@ -73,14 +74,14 @@ The picker's button opens a menu that drops over the case from the picker, right
 
 | Row | Content |
 | --- | --- |
-| Header | "Bars" at the left; the focused app's name and a window icon at the right |
-| One per bar, in the bars' order | The name, filled while it is the bar showing, and an assign button at its right |
-| Last | **Edit shortcuts**, which opens the editor on the bar showing |
+| Header | "Profiles" at the left; the focused app's name and a window icon at the right |
+| One per profile, in the profiles' order | The name, filled while it is the profile showing, and an assign button at its right |
+| Last | **Edit shortcuts**, which opens the editor on the profile showing |
 
-- A press on a name switches to that bar and does nothing else.
-- A press on an assign button ties the focused app to that bar, lights the button, and clears any other bar's tie to that app. A press on a lit button removes the tie. Both are saved at once.
+- A press on a name switches to that profile and does nothing else.
+- A press on an assign button ties the focused app to that profile, lights the button, and clears any other profile's tie to that app. A press on a lit button removes the tie. Both are saved at once.
 - Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported.
-- Six bars show; more scroll. A tooltip on an assign button says what it will do, naming the bar and the app.
+- Six profiles show; more scroll. A tooltip on an assign button says what it will do, naming the profile and the app.
 
 ## Apps
 
@@ -168,25 +169,27 @@ Settings has one row for the feature, in the General card after Hide numpad. Und
 | --- | --- |
 | Shortcut bar, with the second line "Your own buttons above the keyboard: shortcuts, macros and scripts" | Switch, saved as `shortcuts`, off by default; pending until ✓ like the rows around it |
 
-- Turning it on while there are no bars shows the empty bar once, so its picker, and through it the editor, can be reached.
-- When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (bar 2, button 5), never quoting the user's text.
+- Turning it on while there are no profiles shows the empty bar once, so its picker, and through it the editor, can be reached.
+- When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (profile 2, button 5), never quoting the user's text.
 
 The editor is a screen of its own, opened from the picker's **Edit shortcuts** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad. While it is open a composing language's reading and candidates are out of sight and take no press, as in Settings, and come back when it closes.
 
-Its layout fits both widths. With the numpad hidden the bars column is 236 wide instead of 286, the label field 250 instead of 300, the strip shows 12 buttons instead of 15, the steps list is narrower, and the strip's hint is left out.
+Its layout fits both widths. With the numpad hidden the profiles column is 236 wide instead of 286, the label field 250 instead of 300, the strip shows 12 buttons instead of 15, the steps list is narrower, and the strip's hint is left out.
 
 | Area | Content |
 | --- | --- |
-| Left column | The bars: press to select, drag to reorder. The selected row has rename and delete. **New bar** under the list. Below it, **Used for**: the selected bar's apps as chips, each with ✕ to remove the tie |
-| Strip | The selected bar's buttons as they look on the bar, then **+**. Press selects; a sideways drag lifts a button to reorder it; dropped outside the strip it is deleted. It scrolls as the bar does |
+| Left column | The profiles: press to select, drag to reorder. The selected row has rename and delete. **New profile** under the list. Below it, **Used for**: the selected profile's apps as chips, each with ✕ to remove the tie |
+| Strip | The selected profile's buttons as they look on the bar, then **+**. Press selects; a sideways drag lifts a button to reorder it; dropped on another profile's row it is moved or copied there; dropped anywhere else outside the strip it is deleted. It scrolls as the bar does |
 | Label and Action | The selected button's label field, and Shortcut, Macro or Run |
 | Shortcut | The recorded combinations as chips in a strip of fixed width, then **Record** and clear, which stay in place whatever is recorded. A strip too short for its chips scrolls sideways, as the bar does, and fades at a clipped side |
 | Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete. A Keys step shows its combinations as chips and a press on it opens the recorder; a Wait step has − and + beside its time, in steps of 0.1 s. **+ Keys** opens the recorder for a new step and **+ Wait** adds half a second. Repeat: Once, Times with a count, While held |
 | Run | Script or Command; a list of the script files, or the command field |
 
+A button lifted from the strip can be carried to another profile. The row under it lights up, and letting go there opens a small popover beside that row with **Move** and **Copy**. Either puts the button at the end of that profile; a press anywhere else closes the popover and the button goes back to its place. The selected profile stays selected, so more buttons can follow. A profile that already holds 64 buttons takes no drop.
+
 Shortcut and Macro each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
 
-Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the bar that was selected in the editor, as if it had been chosen in the picker: a free one becomes the free bar. So a first bar shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
+Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the profile that was selected in the editor, as if it had been chosen in the picker: a free one becomes the free profile. So a first profile shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a profile that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
 ### Typing and recording
 
@@ -196,7 +199,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 
 | Row | Content |
 | --- | --- |
-| 1 | What is edited (Label, Bar name, Recording), then **F13–F24** and **Remove last** while recording, **Cancel** and **Done** |
+| 1 | What is edited (Label, Profile name, Recording), then **F13–F24** and **Remove last** while recording, **Cancel** and **Done** |
 | 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. When they don't fit it scrolls sideways, with the stick or a drag, and follows the newest chip while recording |
 | Keys | The mini keyboard |
 
@@ -210,7 +213,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 
 | Editing | A key press | Ends with |
 | --- | --- | --- |
-| Label, bar name, later a command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
+| Label, profile name, later a command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
 | Recording | Records the key with the modifiers latched then, as one combination. A press on the pending modifiers' chip, or Done, records them alone | Done; Cancel keeps what was there |
 
 - A chip is as wide as its text plus 12 px on each side. The line that says what a button sends ends in an ellipsis when it is too long.
@@ -237,9 +240,9 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 ```json
 {
   "schema_version": 1,
-  "bars": [
+  "profiles": [
     {
-      "id": "b1",
+      "id": "p1",
       "name": "Editor",
       "buttons": [
         {
@@ -269,18 +272,18 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
     }
   ],
   "apps": [
-    {"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "bar": "b1"}
+    {"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "profile": "p1"}
   ],
-  "free_bar": "b1"
+  "free_profile": "p1"
 }
 ```
 
 | Limit | Value |
 | --- | --- |
-| Bars | 32 |
-| Buttons in a bar | 64 |
+| Profiles | 32 |
+| Buttons in a profile | 64 |
 | Label | Two lines, 24 characters in all |
-| Bar name | 32 characters |
+| Profile name | 32 characters |
 | Combinations in a shortcut | 4 |
 | Steps in a macro | 32 |
 | Combinations in a macro's Keys step | 32 |
@@ -295,9 +298,9 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 - An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
 - Labels, names and commands are valid UTF-8 without control characters; a label's one line break is the exception.
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
-- What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and the free bar are written at once.
+- What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and the free profile are written at once.
 - Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. The file is synced to disk before it replaces the old one.
-- Reload config rereads and rechecks the file, so a hand edit shows without a restart; a reload that finds it invalid keeps the bars already loaded and reports. `framekeyboard --check` reports the file's state beside the profiles.
+- Reload config rereads and rechecks the file, so a hand edit shows without a restart; a reload that finds it invalid keeps the profiles already loaded and reports. `framekeyboard --check` reports the file's state beside the layouts, languages and themes.
 - The installer and updates leave the file alone, as they do other user files.
 
 `key_codes` gains `F13` to `F24`, and the stream key table their scancodes.
@@ -305,7 +308,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 ## Security and privacy
 
 - A button can run a command and press any keys, so `shortcuts.json` is the only place such actions come from. Layout, language and theme profiles stay data and cannot run commands, and nothing in a shell's protocol or the instance socket can add, change or press a button.
-- There is no import or sharing of bars in this version.
+- There is no import or sharing of profiles in this version.
 - Labels, names, recorded keys, commands and script names are never logged.
 - App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) is updated to say so when this lands.
 
@@ -316,7 +319,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 | Model, validation and the file | `include/framekeyboard/shortcuts.hpp`, `src/shortcuts.cpp` |
 | Sending actions over time, stop rules | `src/shortcut_runner.cpp` |
 | Starting programs | `src/shortcut_launch.cpp` |
-| Bar view, picker, which bar shows, fields and recording | `src/app_shortcuts.cpp` |
+| Bar view, picker, which profile shows, fields and recording | `src/app_shortcuts.cpp` |
 | Editor popup | `src/app_shortcut_editor.cpp` |
 | Drawing, `shortcut_bar_bounds`, `shortcut_bar_damage` | `src/panel.cpp`, `include/framekeyboard/panel.hpp` |
 | Focused app's identity | `src/desktop_focus.cpp`, `src/desktop_terminal.cpp`; names in `src/app_names.cpp` |
@@ -326,9 +329,9 @@ The model knows nothing of drawing or output. The runner and the launcher are th
 
 ## Tests
 
-- `shortcuts`: the file's parsing, limits, invalid files and the `.bad` rule; which bar shows for each focus change; the toolbar button's three cases.
+- `shortcuts`: the file's parsing, limits, invalid files and the `.bad` rule; which profile shows for each focus change; the toolbar button's three cases.
 - `shortcut-runner`: order and spacing against a recording sink, whole-or-refused sequences, every stop rule, a focus change mid-run.
-- `settings`: the General row, the editor's flows (bars, strip drags, steps), ✓ and ← with the question, the popup's typing and recording at both widths.
+- `settings`: the General row, the editor's flows (profiles, strip drags between profiles, steps), ✓ and ← with the question, the popup's typing and recording at both widths.
 - `rendering`: bar hover, press and scroll repaints compared with a full repaint; the bar with the tooltip and the status card.
 - `locales` and the interface tour: new strings in every language, labels fit, pictures of the bar, the menu and the editor.
 - The uinput smoke test's receiver takes a recorded shortcut and a macro, never the focused app.
@@ -353,4 +356,4 @@ Facts to measure on the Frame before the parts that depend on them:
 - Macro steps that hold and release a key, macro steps that type text, and endless repeats.
 - Starting installed apps or Steam games from a list.
 - Volume and media keys.
-- Sharing or importing bars; the feature under a shell.
+- Sharing or importing profiles; the feature under a shell.

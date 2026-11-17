@@ -50,15 +50,15 @@ Full Keyboard for Steam Frame is an alternative keyboard for local dashboard app
 
 ## Shortcut bar
 
-A bar of the user's own buttons above the keyboard: shortcuts, macros, and scripts or commands, in bars chosen by hand or tied to an app. See the [design](shortcut-bar-design.md).
+A bar of the user's own buttons above the keyboard: shortcuts, macros, and scripts or commands, in profiles chosen by hand or tied to an app. See the [design](shortcut-bar-design.md).
 
 - [ ] Frame probes: the stick press, what Gamescope reports for streams, key spacing, and a program started by the keyboard.
 - [ ] The shortcuts file with its validation, and sending shortcuts into a private receiver.
 - [ ] The bar on the keyboard: drawing, laser areas, the toolbar button and sideways scrolling.
 - [ ] The picker menu with manual switching, and the Settings switch.
-- [ ] The editor: bars, buttons, and labels and key recording typed on the keyboard.
-- [ ] Apps: assigning a bar and switching to it when the app has the keys.
-- [ ] Macros: keys, text and waits, repeated a number of times or while held.
+- [ ] The editor: profiles, buttons, and labels and key recording on a mini keyboard inside it.
+- [ ] Apps: assigning a profile and switching to it when the app has the keys.
+- [ ] Macros: keys and waits, repeated a number of times or while held.
 - [ ] Run: a script from the scripts folder or a typed command.
 - [ ] Renaming a button in place with the stick.
 - [ ] Interface languages, READMEs, documentation and the acceptance list, then acceptance in the headset.
