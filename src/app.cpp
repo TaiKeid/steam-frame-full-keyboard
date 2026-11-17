@@ -5703,11 +5703,6 @@ bool App::band_more() const {
     return ime_band_shown();
 }
 double App::reading_room() const {
-    // The shortcut editor shows no reading line: it takes the case's whole
-    // height, which its popup needs on a composing layout too.
-    if (editor_screen()) {
-        return 0;
-    }
     return reading_case_room(
         profiles_.layouts.at(settings_.active.layout), profiles_.themes.at(settings_.active.theme),
         profiles_.languages.at(settings_.active.language).input_method == "japanese-flick");

@@ -4328,7 +4328,8 @@ void shortcut_popup_flick() {
     tap_control(app, "shortcuts-row-0");
     tap_control(app, "shortcuts-label");
     const auto view = app.view();
-    require(panel_case_bounds(view).width == 1326, "the editor takes the no-numpad width");
+    require(panel_case_bounds(view).width == 1326 && panel_case_bounds(view).height == settings_height,
+            "the editor takes the no-numpad width, and Settings' height");
     popup_fits(view, true);
     tap_mini(app, "KeyH");
     tap_mini(app, "KeyI");
@@ -4359,10 +4360,13 @@ void shortcut_editor_settings() {
         App app(options, sink);
         require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(),
                 "the free bar, empty");
+        const auto keyboard_case = panel_case_bounds(app.view());
         tap_rect(app, app.view().shortcut_bar->picker_button);
         require(app.view().shortcut_bar->menu->edit_enabled, "Edit shortcuts is enabled");
         tap_rect(app, app.view().shortcut_bar->menu->edit);
         auto view = app.view();
+        require(panel_case_bounds(view) == keyboard_case,
+                "R329: the editor's case is the keyboard's, its edge and handle in place");
         require(view.shortcut_editor && !view.shortcut_bar && has(view, "shortcuts-back") &&
                     has(view, "shortcuts-save") && !has(view, "settings"),
                 "Edit shortcuts opens the editor, its own screen, in place of the toolbar and bar");

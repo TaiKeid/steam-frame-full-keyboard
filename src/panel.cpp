@@ -169,7 +169,10 @@ constexpr double reading_line_top = second_row_top - 1;
 // in every view of it, is at most that much shorter.
 constexpr double second_row_room = 50;
 double case_height(const PanelView& view) {
-    return view.settings ? settings_height : panel_height - view.reading_room;
+    // The shortcut editor is as tall as Settings and a full layout's case,
+    // on every layout, so the case's edge and its handle stay in place as
+    // it opens and closes; its popup fits in it (R329).
+    return view.settings || view.shortcut_editor ? settings_height : panel_height - view.reading_room;
 }
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
