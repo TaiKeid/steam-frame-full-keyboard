@@ -1538,8 +1538,170 @@ void shortcut_bar(const char* theme_id, double opacity) {
         throw std::runtime_error(phase("nothing is left where the bar was"));
     }
 }
+// The shortcut editor's screen, a lifted button and the keyboard's field
+// strip and Label field paint the same incrementally as in full.
+void shortcut_editor(const char* theme_id, bool wide) {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at(theme_id);
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.hide_numpad = !wide;
+    const double width = wide ? panel_width : 1326, x0 = (panel_width - width) / 2;
+    ShortcutEditorView e;
+    e.width = width;
+    e.wide = wide;
+    e.title = "Edit shortcuts";
+    e.notice = "shortcuts.json can't be read (bar 2: the ID is used by another bar).";
+    e.bars_caption = "Bars";
+    e.column = {x0 + 18, 70, wide ? 286.0 : 236.0, 500};
+    e.bars_list = {x0 + 18, 104, e.column.width, 156};
+    e.divider = e.column.x + e.column.width + 16;
+    e.used = {e.column.x + 12, 420, e.column.width - 12, 150};
+    e.used_caption = "Used for";
+    e.used_hint = "Shows when one of these apps has the keys.";
+    e.ties = {{"Kate", {e.used.x, 454, 110, 40}}};
+    const double left = e.divider + 16, right = x0 + width - 18;
+    e.strip_well = {left, 70, right - left, 102};
+    e.strip = {left + 14, 70, right - left - 28, 102};
+    e.scale = 1.054;
+    e.strip_hint = "Drag to reorder, drop outside to delete";
+    e.label_caption = "Label";
+    e.action_caption = "Action";
+    e.keys_caption = "Keys";
+    e.chords = {{"Ctrl + K", {left + 100, 280, 120, 52}}, {"S", {left + 248, 280, 50, 52}}};
+    e.explanation = {"Sends Ctrl + K, then S, once per press.",
+                     "Record takes the keys on the keyboard."};
+    e.explanation_bounds = {left, 372, right - left, 60};
+    std::vector<Control> controls{{"shortcuts-back", "", {x0 + 18, 12, 60, 42}, false, Icon::Back},
+                                  {"shortcuts-save", "", {x0 + 88, 12, 60, 42}, false, Icon::Apply}};
+    for (int i = 0; i < 3; ++i) {
+        Control row{"shortcuts-row-" + std::to_string(i),
+                    "Bar " + std::to_string(i),
+                    {e.column.x, 106 + 52.0 * i, e.column.width, 48},
+                    i == 1};
+        row.clip = e.bars_list;
+        controls.push_back(row);
+    }
+    controls.push_back(
+        {"shortcuts-rename", "", {e.column.x + e.column.width - 92, 156, 44, 52}, false, Icon::Pencil});
+    controls.push_back(
+        {"shortcuts-delete", "", {e.column.x + e.column.width - 48, 156, 44, 52}, false, Icon::Clear});
+    controls.push_back({"shortcuts-new-bar", "New bar", {e.column.x, 260, e.column.width, 52}});
+    controls.push_back({"shortcuts-tie-0", "", {e.used.x + 72, 454, 34, 40}});
+    for (int i = 0; i < 4; ++i) {
+        Control button{"shortcuts-button-" + std::to_string(i),
+                       i == 1 ? "Save\nall" : "Undo",
+                       {e.strip.x + 79.6 * i, 84, 73.3, 65.4},
+                       i == 0};
+        button.clip = e.strip;
+        controls.push_back(button);
+    }
+    Control plus{"shortcuts-add", "", {e.strip.x + 79.6 * 4, 84, 73.3, 65.4}};
+    plus.clip = e.strip;
+    controls.push_back(plus);
+    Control label{"shortcuts-label", "Save\nall", {left + 100, 196, wide ? 300.0 : 250.0, 56}};
+    label.style = ControlStyle::TextField;
+    controls.push_back(label);
+    for (int i = 0; i < 3; ++i) {
+        Control segment{"shortcuts-kind-" + std::to_string(i),
+                        i == 0   ? "Shortcut"
+                        : i == 1 ? "Macro"
+                                 : "Run",
+                        {label.bounds.x + label.bounds.width + 160 + 110.0 * i, 196, 110, 56},
+                        i == 0};
+        segment.style = ControlStyle::Segment;
+        segment.segments = 3;
+        segment.action.index = i;
+        segment.enabled = i == 0;
+        controls.push_back(segment);
+    }
+    controls.push_back({"shortcuts-record", "Record", {left + 322, 280, 160, 52}});
+    controls.push_back({"shortcuts-clear", "", {left + 494, 280, 60, 52}, false, Icon::Clear});
+    view.controls = controls;
+    view.shortcut_editor = e;
+    const std::string name = std::string(theme_id) + (wide ? "" : " no numpad");
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(view, phase("the editor").c_str());
+    view.hovered_controls = {"shortcuts-button-2"};
+    compare.frame(view, phase("a hovered button").c_str());
+    view.hovered_controls = {"shortcuts-row-2"};
+    compare.frame(view, phase("a hovered row").c_str());
+    for (const double dx : {0.0, 40.0, 120.0}) {
+        view.shortcut_editor->lifted_button =
+            ShortcutChip{"Undo", {e.strip.x + 20 + dx, 100, 73.3, 65.4}};
+        compare.frame(view, phase("a lifted button").c_str());
+    }
+    view.shortcut_editor->lifted_button = ShortcutChip{"Undo", {e.strip.x + 60, 260, 73.3, 65.4}};
+    view.shortcut_editor->lifted_removing = true;
+    compare.frame(view, phase("a button off the strip").c_str());
+    view.shortcut_editor->lifted_button.reset();
+    view.shortcut_editor->lifted_row = ShortcutChip{"Bar 0", {e.column.x, 140, e.column.width, 48}};
+    compare.frame(view, phase("a lifted row").c_str());
+    // The keyboard with the recording strip, then the Label field on the bar.
+    view.shortcut_editor.reset();
+    view.hovered_controls.clear();
+    const auto body = panel_case_bounds(view);
+    ShortcutFieldView field;
+    field.kind = ShortcutFieldView::Kind::Keys;
+    field.strip = {body.x + 18, 12, body.width - 36, 42};
+    field.title = "Recording";
+    field.chords = {{"Ctrl + K", {body.x + 192, 12, 120, 42}}};
+    field.hint = "Press the next key, or Done";
+    field.hint_bounds = {body.x + 340, 12, 300, 42};
+    field.fkeys = Rect{body.x + body.width - 650, 62, 476, 116};
+    view.shortcut_field = field;
+    view.controls = {{"field-done", "Done", {body.x + body.width - 168, 12, 150, 42}, true},
+                     {"field-cancel", "Cancel", {body.x + body.width - 308, 12, 130, 42}},
+                     {"field-fkey-13", "F13", {body.x + body.width - 642, 70, 70, 46}}};
+    compare.frame(view, phase("the recording strip").c_str());
+    view.shortcut_field->chords.push_back({"S", {body.x + 340, 12, 50, 42}});
+    compare.frame(view, phase("a combination recorded").c_str());
+    const auto bar_geometry = shortcut_bar_geometry(view, 3);
+    ShortcutBarView bar;
+    bar.plate = bar_geometry.plate;
+    bar.strip = bar_geometry.strip;
+    bar.scale = bar_geometry.button_width / 69.5;
+    for (int i = 0; i < 3; ++i) {
+        bar.buttons.push_back({"Undo",
+                               {bar_geometry.strip.x + i * bar_geometry.pitch, bar_geometry.button_top,
+                                bar_geometry.button_width, bar_geometry.button_height}});
+    }
+    bar.picker = bar_geometry.picker;
+    bar.picker_button = bar_geometry.picker_button;
+    bar.field = 1;
+    bar.field_text = "Save\nal";
+    bar.field_cursor = 8;
+    view.shortcut_bar = bar;
+    view.shortcut_field->kind = ShortcutFieldView::Kind::Label;
+    view.shortcut_field->chords.clear();
+    view.shortcut_field->fkeys.reset();
+    view.bar_tooltip = "Enter saves · Esc cancels · Shift+Enter starts a second line";
+    view.bar_tooltip_at = bar.buttons[1].bounds;
+    compare.frame(view, phase("the Label field").c_str());
+    view.shortcut_bar->field_text = "Save\nall";
+    view.shortcut_bar->field_cursor = 9;
+    compare.frame(view, phase("a letter typed").c_str());
+    view.shortcut_field->kind = ShortcutFieldView::Kind::Name;
+    view.shortcut_field->field = {body.x + 192, 12, 600, 42};
+    view.shortcut_field->text = "Editor";
+    view.shortcut_field->cursor = 6;
+    view.shortcut_bar.reset();
+    compare.frame(view, phase("the bar name").c_str());
+}
 int main() {
     try {
+        shortcut_editor("graphite", true);
+        shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);
         shortcut_bar("porcelain", 1);
         shortcut_bar("graphite", .5);

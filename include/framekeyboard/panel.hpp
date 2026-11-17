@@ -129,7 +129,14 @@ enum class ControlKind {
     // card's sample bars.
     ShortcutsToggle,
     Shortcuts,
-    DebugSampleShortcuts
+    DebugSampleShortcuts,
+    // The shortcut editor's controls (shortcuts-…; value says which), and
+    // the keyboard's strip while one of its fields is typed or keys are
+    // recorded: its items at the left, where candidates start after them,
+    // and its buttons at the right, where they end before them.
+    ShortcutEditor,
+    FieldStrip,
+    FieldAction
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -291,6 +298,61 @@ struct ShortcutBarView {
         bool edit_enabled{}, edit_hovered{}, edit_pressed{};
     };
     std::optional<Menu> menu;
+    // A button whose label is being typed (the shortcut editor's Label
+    // field): its index in `buttons`, drawn as a field with this text, the
+    // caret at a byte offset of it.
+    std::optional<std::size_t> field;
+    std::string field_text; // never logged
+    std::size_t field_cursor{};
+};
+// A chip of text: a recorded key combination, an assigned app.
+struct ShortcutChip {
+    bool operator==(const ShortcutChip&) const = default;
+    std::string text;
+    Rect bounds;
+};
+// The shortcut editor's screen, over the case in place of the keys. Its
+// pressable parts are controls named shortcuts-…, which it draws; this holds
+// the rest. Panel coordinates.
+struct ShortcutEditorView {
+    bool operator==(const ShortcutEditorView&) const = default;
+    double width{}; // the case's: the keyboard's, or without its numpad
+    bool wide{};    // full width: the strip shows its hint
+    std::string title;
+    std::string notice; // shortcuts.json can't be read: why, and what saving does
+    std::string bars_caption, used_caption, used_hint, strip_hint, empty_hint;
+    Rect column, bars_list, strip_well, strip;
+    Rect used;        // Used for: its caption at the top, its hint at the foot
+    double divider{}; // x of the line right of the column
+    double scale{1};  // the strip's buttons are keys at the layout's scale
+    bool more_before{}, more_after{};
+    std::optional<Rect> bars_thumb;
+    std::vector<ShortcutChip> ties; // Used for; their ✕ are controls
+    // A row or button a drag carries, where the laser holds it; a button
+    // carried off the strip would be deleted.
+    std::optional<ShortcutChip> lifted_row, lifted_button;
+    bool lifted_removing{};
+    std::string label_caption, action_caption, keys_caption;
+    std::vector<ShortcutChip> chords;
+    std::vector<std::string> explanation;
+    Rect explanation_bounds;
+};
+// The keyboard's toolbar row while a shortcut editor field is typed or keys
+// are recorded: nothing typed there reaches the app. Its buttons are
+// controls (field-…); the bar above shows a Label field (ShortcutBarView).
+struct ShortcutFieldView {
+    bool operator==(const ShortcutFieldView&) const = default;
+    enum class Kind { Label, Name, Keys };
+    Kind kind{Kind::Label};
+    Rect strip;
+    std::string title, hint;
+    Rect hint_bounds;                 // where the hint fits, after the chips; empty: left out
+    std::vector<ShortcutChip> chords; // Keys: recorded so far
+    // Name: the one-line field, its text and the caret's byte offset.
+    Rect field;
+    std::string text; // never logged
+    std::size_t cursor{};
+    std::optional<Rect> fkeys; // the F13–F24 menu, open
 };
 // Where the bar's parts go for `buttons` buttons on the case `view` shows.
 // Sizes follow the layout's scale (design, The bar on the keyboard).
@@ -406,6 +468,10 @@ struct PanelView {
     // The shortcut bar above the case, while it shows; tooltips and the
     // status card then sit above it.
     std::optional<ShortcutBarView> shortcut_bar;
+    // The shortcut editor's screen, in place of the keys; or the keyboard's
+    // strip while one of its fields is typed or keys are recorded.
+    std::optional<ShortcutEditorView> shortcut_editor;
+    std::optional<ShortcutFieldView> shortcut_field;
     // Typing was refused for want of a target: from this time the Focus mode
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};
