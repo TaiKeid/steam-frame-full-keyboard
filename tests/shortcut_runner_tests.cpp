@@ -23,7 +23,13 @@ struct Recorder : KeySink {
     std::uint32_t window{};
     std::map<xkb_keysym_t, int> keymap; // the target's letters, when not US
     std::vector<xkb_keysym_t> asked;
-    void send(int code, int value) override { events.emplace_back(code, value); }
+    // The tick time of each event, in step with `events`.
+    double now{};
+    std::vector<double> times;
+    void send(int code, int value) override {
+        events.emplace_back(code, value);
+        times.push_back(now);
+    }
     Delivery deliver_key(int code, int value) override {
         if (!slow || value == 0) {
             send(code, value);
@@ -75,6 +81,7 @@ struct Rig {
     ShortcutRunner runner{view};
     Rig() { output.set_enabled(true); }
     bool tick(double now) {
+        sink.now = now;
         output.tick(now);
         return runner.tick(now);
     }
@@ -130,6 +137,12 @@ void order_and_spacing() {
                                        {KEY_F24, 0}},
             "F13 to F24 are sent by their codes, each a gap apart");
     require(four.runner.end() == ShortcutRunner::End::Finished, "four combinations finish");
+    for (std::size_t press = 2; press < four.sink.events.size(); press += 2) {
+        // Each combination's press at least the gap after the one before.
+        require(four.sink.times[press] - four.sink.times[press - 2] >=
+                    ShortcutRunner::shortcut_key_gap - 1e-9,
+                "each combination goes at least shortcut_key_gap after the one before");
+    }
     // Modifiers alone.
     Rig super;
     super.runner.start(shortcut({{{"MetaLeft"}, ""}}), 0);
