@@ -534,10 +534,15 @@ void App::take_shortcuts_result() {
     if (!result) {
         return;
     }
+    // The file is in place whether or not its folder's sync worked: only a
+    // power loss soon after could still lose it (R336).
+    const bool saved = !*result || **result == ShortcutStore::unsynced;
     if (*result) {
-        status_ = tr("status.shortcuts-not-saved", {{"error", **result}});
+        status_ = tr(saved ? "status.shortcuts-unsynced" : "status.shortcuts-not-saved",
+                     {{"error", **result}});
         dirty = true;
-    } else if (!shortcuts_invalid_.empty()) {
+    }
+    if (saved && !shortcuts_invalid_.empty()) {
         // The save kept the unreadable file as shortcuts.json.bad and wrote
         // a valid one: the note goes, in Settings and the editor (R323).
         shortcuts_invalid_.clear();

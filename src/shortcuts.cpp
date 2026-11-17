@@ -709,7 +709,7 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
         // Only the folder's sync failed: the new file is in place, so it is
         // what the next save compares, not a hand edit to keep (R326).
         known_ = text;
-        return "the file could not be synced to disk";
+        return std::string(unsynced);
     }
     known_ = text;
     return {};

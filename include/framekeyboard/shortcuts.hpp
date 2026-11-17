@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -146,8 +147,10 @@ class ShortcutStore {
     ShortcutsLoad load();
     // Validates, then writes atomically, readable by the user alone. The
     // reason when nothing was written: an invalid model, a file that could
-    // not be moved aside, or a failed write.
+    // not be moved aside, or a failed write; or `unsynced` when the file
+    // was written in place but its folder's sync failed (R336).
     std::optional<std::string> save(const ShortcutModel& model);
+    static constexpr std::string_view unsynced = "the file could not be synced to disk";
     const std::filesystem::path& path() const { return path_; }
 
   private:

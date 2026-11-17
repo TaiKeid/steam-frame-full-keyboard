@@ -4723,6 +4723,42 @@ void pending_drag_two_lasers() {
     tap_control(app, "shortcuts-row-1");
     require(strip_labels(app.view()).empty(), "the other bar keeps what it had");
 }
+// R336: a save whose folder sync failed put the file in place: the status
+// says it was saved but isn't yet safe on disk, and the note that the old
+// file couldn't be read goes.
+void unsynced_save() {
+    if (geteuid() == 0) {
+        return; // root opens any folder: the sync can't be made to fail
+    }
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"bars\":[{}]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    click(app, "bar-toggle");
+    open_editor(app);
+    require(!app.view().shortcut_editor->notice.empty(), "the editor notes the unreadable file");
+    tap_control(app, "shortcuts-new-bar");
+    tap_mini(app, "Escape");
+    // A folder that can't be opened for reading still takes the file.
+    fs::permissions(directory.path, fs::perms::owner_write | fs::perms::owner_exec);
+    tap_control(app, "shortcuts-save");
+    app.flush_settings();
+    fs::permissions(directory.path, fs::perms::owner_all);
+    app.tick(1200);
+    const auto view = app.view();
+    require(view.status.find("not yet safe on disk") != std::string::npos &&
+                view.status.find("not saved") == std::string::npos,
+            "the status says the bars were saved, not yet safe on disk");
+    open_editor(app);
+    require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).bars.size() == 1,
+            "the file was replaced: the unreadable-file note goes");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -5125,6 +5161,7 @@ int main() {
         macro_buttons();
         first_bar_shows();
         pending_drag_two_lasers();
+        unsynced_save();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {
