@@ -2100,6 +2100,10 @@ class VrPanel {
         if (const auto handle = panel_move_handle_bounds(view)) {
             rectangle(*handle);
         }
+        // The shortcut bar's plates and its open menu, above or over the case.
+        for (const auto& area : shortcut_bar_bounds(view)) {
+            rectangle(area);
+        }
         rectangle(panel_case_bounds(view));
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
@@ -2948,6 +2952,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         if (const auto preview = flick_preview_bounds(view)) {
             areas.push_back(*preview);
+        }
+        for (const auto& area : shortcut_bar_bounds(view)) {
+            areas.push_back(area);
         }
         return areas;
     };

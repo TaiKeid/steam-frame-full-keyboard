@@ -166,8 +166,14 @@ bool Simulator::on_keyboard(double x, double y) const {
     if (panel_case_bounds(app_->geometry()).contains(x, py)) {
         return true;
     }
-    const auto popup = app_->input_view().popup;
-    return popup && popup->contains(x, py);
+    const auto view = app_->input_view();
+    // The shortcut bar above the case and its menu take the mouse too.
+    for (const auto& area : shortcut_bar_bounds(view)) {
+        if (area.contains(x, py)) {
+            return true;
+        }
+    }
+    return view.popup && view.popup->contains(x, py);
 }
 void Simulator::leave(unsigned pointer) {
     // A repeating key, such as Backspace, stays held until its button lets go.

@@ -171,8 +171,9 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
 // is on them. Buttons with words, such as the language's, need none.
 bool toolbar_icon_button(const Control& control) {
     static const std::set<std::string, std::less<>> ids{
-        "settings",  "apply",        "reload",        "recenter",          "pin",   "passthrough",
-        "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle", "close", "quit"};
+        "settings",         "apply",     "reload",       "recenter",      "pin",
+        "passthrough",      "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle",
+        "shortcuts-toggle", "close",     "quit"};
     return control.icon != Icon::None && ids.contains(control.id);
 }
 // The Debug card and what it switches on: only in debug builds, and there
@@ -309,6 +310,7 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_shortcuts_ = settings_.shortcuts;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
     pending_debug_interface_language_ = debug_interface_language_;
@@ -359,6 +361,8 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
     pending_dictation_fallback_ = settings_.dictation_fallback;
     pending_dictation_device_model_ = settings_.dictation_device_model;
     emoji_preferences_ = emoji_saved_ = load_emoji_preferences(options_.config_dir / "emoji.json");
+    load_shortcuts();
+    configure_bar();
     prepare_swipe();
     update_settings_ui();
     route_desktop_text();
@@ -645,6 +649,17 @@ std::vector<Control> App::controls() const {
             {"key-flicks-toggle", tr(on ? "tooltip.key-flicks-off" : "tooltip.key-flicks-on"),
              on_top ? button(0, top_column++, 0) : button(next_slot, next_column++, 1), false,
              on ? Icon::KeyFlick : Icon::KeyFlickOff});
+        ++next_slot;
+    }
+    // The shortcut bar's switch (docs/shortcut-bar-design.md, Toolbar
+    // button), after Pull for Shift: the fourth of a compact second row,
+    // which dictation's editor needs, so it hides there with the bar.
+    if (shortcuts_enabled() && !dictation_open_) {
+        const bool on = bar_choice_.button_on();
+        add({ControlKind::ShortcutsToggle},
+            {"shortcuts-toggle", tr(on ? "tooltip.shortcuts-hide" : "tooltip.shortcuts-show"),
+             compact ? button(next_slot, next_column++, 1) : button(next_slot, 0, 0), false,
+             on ? Icon::ShortcutBar : Icon::ShortcutBarOff});
         ++next_slot;
     }
     if (cycle_entries_.size() > 1 && host_.chrome.favorites) {
@@ -1084,6 +1099,19 @@ void App::update_settings_ui() {
         // Replacement and boot start belong to the SteamOS dashboard; under a
         // shell they are unavailable, and their saved values stay as they are.
         cards.pop_back();
+    } else {
+        // Shortcuts and macros, after Dictation; Integration stays last. Not
+        // under a shell, where the feature is off.
+        std::vector<SettingField> shortcut_fields{field(
+            ControlKind::Shortcuts, checkbox("shortcuts", tr("setting.shortcuts"), pending_shortcuts_,
+                                             true, tr("setting.shortcuts.note")))};
+        if (!shortcuts_invalid_.empty()) {
+            // The file stays as it is until a save keeps it as shortcuts.json.bad.
+            shortcut_fields.push_back(SettingField{
+                "shortcuts-invalid", tr("setting.shortcuts.invalid", {{"reason", shortcuts_invalid_}}),
+                "", ControlStyle::Note});
+        }
+        cards.insert(cards.end() - 1, SettingsCard{"shortcuts", tr("card.shortcuts"), shortcut_fields});
     }
 #ifdef FRAMEKEYBOARD_DEBUG_MODE
     // Last, after everything a release shows. Not saved (App::debug_mark_anthy_).
@@ -1107,6 +1135,14 @@ void App::update_settings_ui() {
                                  ? "system"
                                  : pending_debug_interface_language_,
                              interface_languages))}});
+        // Bars to try the shortcut bar with before its editor exists; saved
+        // at once, and only while there are none.
+        auto samples = field(ControlKind::DebugSampleShortcuts,
+                             SettingField{"debug-sample-shortcuts", "Shortcut bars",
+                                          "Add sample shortcuts", ControlStyle::Button});
+        samples.width = 300;
+        samples.enabled = shortcuts_.bars.empty();
+        cards.back().fields.push_back(std::move(samples));
     }
 #endif
     settings_ui_.set_cards(std::move(cards));
@@ -1580,6 +1616,7 @@ PanelView App::build_view(bool picker) const {
         v.swipe_reach = &swipe_keyboard_->reach;
     }
     v.composition_hint = composition_hint(v);
+    append_shortcut_bar(v);
     return v;
 }
 const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
@@ -1617,6 +1654,9 @@ bool App::scroll(unsigned pointer, double dx, double dy) {
     }
     if (settings_open_ && themes_) {
         return themes_scroll(pointer, dy);
+    }
+    if (!settings_open_ && bar_scroll(pointer, dx, dy)) {
+        return true;
     }
     if (candidates_.shown() && !settings_open_ && interaction_active_ && !dragging_ &&
         pointer_positions_.contains(pointer)) {
@@ -1720,9 +1760,17 @@ bool App::move(unsigned pointer, double x, double y) {
             return false; // Scrolling or picking: keys under the laser don't count.
         }
     }
+    if (bar_move(pointer, x)) {
+        return false; // Dragging the bar sideways: nothing under the laser counts.
+    }
     const auto v = input_view();
     HoverTarget target;
-    for (auto it = v.controls.rbegin(); it != v.controls.rend(); ++it) {
+    // The shortcut bar and its menu lie over everything else they reach.
+    if (const auto part = bar_hit(v, x, y)) {
+        target = {HoverTarget::Kind::Bar, *part};
+    }
+    for (auto it = v.controls.rbegin();
+         target.kind == HoverTarget::Kind::None && it != v.controls.rend(); ++it) {
         if (v.popup && it->style != ControlStyle::MenuItem &&
             it->action.kind != ControlKind::ScrollMenu) {
             continue;
@@ -1747,6 +1795,13 @@ bool App::move(unsigned pointer, double x, double y) {
     if (hovered_[pointer] != target) {
         hovered_[pointer] = target;
         dirty = true;
+        if (target.kind == HoverTarget::Kind::Bar && target.id.starts_with("button-") && !dragging_ &&
+            !pointer_pressed(pointer) && v.shortcut_bar) {
+            // A bar button the laser enters ticks as a key does, if it can act.
+            const auto* bar = shown_bar();
+            const auto index = static_cast<std::size_t>(std::stoul(target.id.substr(7)));
+            return bar && index < bar->buttons.size() && shortcut_button_enabled(bar->buttons[index]);
+        }
         return target.kind == HoverTarget::Kind::Key && !dragging_ &&
                !keyboard_.pointer_pressed(pointer) && !v.disabled_keys.contains(target.id);
     }
@@ -1796,6 +1851,23 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         hovered_.clear();
         dirty = true;
         return false; // Dismissal consumes the click instead of hitting through.
+    }
+    // The bar's open menu closes on a click outside it, which it consumes;
+    // the picker's own button closes it on release.
+    if (bar_menu_) {
+        const auto& hit = hovered_[pointer];
+        const bool inside = hit.kind == HoverTarget::Kind::Bar &&
+                            (hit.id == "menu" || hit.id == "edit" || hit.id == "picker" ||
+                             hit.id.starts_with("row-") || hit.id.starts_with("assign-"));
+        if (!inside) {
+            bar_menu_ = false;
+            pressed_controls_.clear();
+            dirty = true;
+            return false;
+        }
+    }
+    if (hovered_[pointer].kind == HoverTarget::Kind::Bar) {
+        return bar_down(pointer, hovered_[pointer].id, x, now);
     }
     // The open candidate list takes the laser, as a dropdown does: a
     // candidate or ∧ takes the press, anything else only closes the list,
@@ -1876,6 +1948,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 // A key pressed on the keyboard.
 bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v,
                     bool gap) {
+    stop_shortcut_run(); // Any key stops a button's run.
     if (undo_held(pointer)) {
         finish_flick(); // In press order, as for any held flick below.
     }
@@ -2155,6 +2228,10 @@ bool App::up(unsigned pointer, double x, double y) {
     if (!interaction_active_) {
         return false;
     }
+    if (bar_press_ && bar_press_->pointer == pointer) {
+        move(pointer, x, y); // Where it was let go: over the same part, it acts.
+        return bar_up(pointer);
+    }
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         const auto drag = *std::exchange(editor_drag_, std::nullopt);
         // A tap places the cursor, unless the editor is locked: listening,
@@ -2270,6 +2347,9 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
     clear_table_context();
     if (editor_drag_ && editor_drag_->pointer == pointer) {
         editor_drag_.reset();
+    }
+    if (bar_press_ && bar_press_->pointer == pointer) {
+        bar_press_.reset(); // A press that left the panel does nothing.
     }
     if (address_repeat_ && address_repeat_->pointer == pointer) {
         address_repeat_.reset();
@@ -2406,6 +2486,11 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     }
     pressed_controls_.clear();
     hovered_.clear();
+    bar_press_.reset();
+    bar_menu_ = false;
+    if (cancel_delivery) {
+        stop_shortcut_run(); // Hiding, sleep, a target that went: sends nothing more.
+    }
     dirty = true;
 }
 void App::suspend_input(bool asleep) {
@@ -2583,6 +2668,7 @@ bool App::tick(double now) {
     finish_swipe(false);
     dirty |= keyboard_.tick(now); // a held modifier locks
     dirty |= output_.tick(now);
+    tick_shortcut_bar(now);
     if (table_context_.waiting()) {
         observe_table_context();
     }
@@ -2695,7 +2781,8 @@ void App::tick_passing_status() {
     }
 }
 void App::show_settings() {
-    close_emoji(); // Settings returns to the keyboard, not the picker.
+    stop_shortcut_run(); // The bar hides in Settings.
+    close_emoji();       // Settings returns to the keyboard, not the picker.
     // An unfinished reading is in no field yet and the target keeps its
     // focus: it waits, out of sight, for the user to come back and go on.
     release_input(false);
@@ -2738,6 +2825,7 @@ void App::show_settings() {
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_shortcuts_ = settings_.shortcuts;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
     pending_debug_interface_language_ = debug_interface_language_;
@@ -3057,6 +3145,8 @@ void App::reload() {
         settings_.flick_only = updated_settings.flick_only;
         settings_.flick_katakana = updated_settings.flick_katakana;
         settings_.extended_key_collision = updated_settings.extended_key_collision;
+        settings_.shortcuts = updated_settings.shortcuts;
+        settings_.shortcuts_switch = updated_settings.shortcuts_switch;
         katakana_ = katakana_ && settings_.flick_katakana;
         apply_learning();
         sync_mozc();
@@ -3108,6 +3198,7 @@ void App::reload() {
     pending_flick_only_ = settings_.flick_only;
     pending_flick_katakana_ = settings_.flick_katakana;
     pending_extended_key_collision_ = settings_.extended_key_collision;
+    pending_shortcuts_ = settings_.shortcuts;
     pending_debug_mark_anthy_ = debug_mark_anthy_;
     pending_debug_key_outlines_ = debug_key_outlines_;
     pending_debug_interface_language_ = debug_interface_language_;
@@ -3120,6 +3211,9 @@ void App::reload() {
     pending_dictation_server_ = settings_.dictation_server;
     pending_dictation_fallback_ = settings_.dictation_fallback;
     pending_dictation_device_model_ = settings_.dictation_device_model;
+    // shortcuts.json may have been edited too.
+    load_shortcuts();
+    configure_bar();
     // Settings is rebuilt in the language now, so after the pending choices,
     // or one naming a removed language file would be looked up.
     interface_shown_.clear();
@@ -4945,6 +5039,7 @@ void App::apply_settings() {
     settings_.flick_only = pending_flick_only_;
     settings_.flick_katakana = pending_flick_katakana_;
     settings_.extended_key_collision = pending_extended_key_collision_;
+    settings_.shortcuts = pending_shortcuts_;
     debug_mark_anthy_ = pending_debug_mark_anthy_;
     debug_key_outlines_ = pending_debug_key_outlines_;
     debug_interface_language_ = pending_debug_interface_language_;
@@ -4986,6 +5081,7 @@ void App::apply_settings() {
     leave_saves_languages_.reset();
     languages_.reset();
     themes_.reset();
+    configure_bar(); // Shortcuts and macros on or off, and Settings closed.
     host_settings_changed(before, "user");
 }
 void App::action(const ControlAction& command) {
@@ -5278,6 +5374,15 @@ void App::action(const ControlAction& command) {
     } else if (kind == ControlKind::KeyFlicksToggle) {
         settings_.key_flicks_switch = !settings_.key_flicks_switch;
         save();
+    } else if (kind == ControlKind::ShortcutsToggle) {
+        // Its three cases are the bar's own (ShortcutBarChoice::toolbar).
+        apply_bar_changes(bar_choice_.toolbar(shortcuts_));
+    } else if (kind == ControlKind::Shortcuts) {
+        pending_shortcuts_ = !pending_shortcuts_;
+        update_settings_ui();
+    } else if (kind == ControlKind::DebugSampleShortcuts) {
+        add_sample_shortcuts();
+        update_settings_ui();
     } else if (kind == ControlKind::KeyFlicks) {
         pending_key_flicks_ = !pending_key_flicks_;
         update_settings_ui();
@@ -6926,6 +7031,9 @@ std::optional<ScrollRoom> App::scroll_room(unsigned pointer) const {
         // Settings rarely overflows; its ends are not worth tracking.
         return settings_ui_.scrolls_at(x, y) ? std::optional{ScrollRoom{true, true}} : std::nullopt;
     }
+    if (const auto room = bar_scroll_room(x, y)) {
+        return room;
+    }
     if (candidates_.contains(x, y)) {
         return candidates_.scroll_room(x, y);
     }
@@ -7208,6 +7316,7 @@ void App::open_dictation() {
     if (!commit_composition()) {
         return;
     }
+    stop_shortcut_run(); // The bar hides in dictation mode.
     close_emoji();
     // A Type as I speak session still recognizing, from before the switch was
     // turned off, ends here: speech in the editor waits for Send, so none of

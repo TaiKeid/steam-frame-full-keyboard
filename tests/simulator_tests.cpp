@@ -3,6 +3,7 @@
 #include "simulator/simulator.hpp"
 #include <algorithm>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <sys/wait.h>
@@ -468,6 +469,39 @@ void bad_selection() {
 }
 } // namespace
 
+// The shortcut bar shows above the case in the simulator's window, over the
+// field's foot, and takes clicks: its button's key reaches the field.
+void shortcut_bar() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    ShortcutButton home;
+    home.label = "Home";
+    home.action.chords = {{{}, "Home"}};
+    model.bars.push_back({"b", "Bar", {home}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    const auto view = simulator.app().view();
+    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 1,
+            "the bar shows in the simulator");
+    press(simulator, "KeyH");
+    press(simulator, "KeyI");
+    const auto& button = view.shortcut_bar->buttons[0].bounds;
+    const double x = button.x + button.width / 2, y = button.y + button.height / 2 + popup_margin;
+    require(y > 0 && y < popup_margin, "the bar is above the case");
+    simulator.pointer_move(Simulator::mouse, x, y);
+    simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+    wait(simulator, .03);
+    simulator.pointer_up(Simulator::mouse, x, y);
+    wait(simulator);
+    press(simulator, "KeyX");
+    require(simulator.field().text() == "xhi", "a click on the bar's button sends its key to the field");
+    simulator.shutdown();
+}
 int main() {
     try {
         injected_converter();
@@ -480,6 +514,7 @@ int main() {
         english();
         typing_suggestions();
         bad_selection();
+        shortcut_bar();
         std::cout << "simulator tests passed\n";
         return 0;
     } catch (const std::exception& error) {

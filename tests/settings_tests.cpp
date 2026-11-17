@@ -76,6 +76,9 @@ Control shown_control(App& app, const std::string& id) {
     return control(app.view(), id);
 }
 void click(App& app, const std::string& id, unsigned pointer = 0) {
+    // A row below the fold of a card in view, first; then the cards cut
+    // off at the right, which leave those at the left out once scrolled.
+    reveal(app, id, pointer);
     if (!has(app.view(), id) && app.view().settings) {
         // The Integration card is cut off at the right until the row scrolls.
         app.move(pointer, 800, 300);
@@ -3775,6 +3778,291 @@ void scroll_cards() {
     renderer.write_png("/tmp/framekeyboard-settings-scroll-cards.png");
 }
 } // namespace
+// The shortcut bar (docs/shortcut-bar-design.md): its Settings card, the
+// toolbar button's place and three cases, the picker's menu, scrolling, a
+// button's keys and what is saved.
+Rect middle(const Rect& r) {
+    return {r.x + r.width / 2, r.y + r.height / 2, 0, 0};
+}
+void tap_at(App& app, double x, double y, unsigned pointer = 0) {
+    static double now = 700;
+    app.move(pointer, x, y);
+    app.down(pointer, x, y, now += .1);
+    app.up(pointer, x, y);
+    app.tick(now += .02);
+}
+void tap_rect(App& app, const Rect& r) {
+    const auto point = middle(r);
+    tap_at(app, point.x, point.y);
+}
+ShortcutModel saved_shortcuts(App& app) {
+    app.flush_settings();
+    std::ifstream file(shortcuts_path(app.config_dir()));
+    return parse_shortcuts({std::istreambuf_iterator<char>(file), {}});
+}
+void write_shortcuts(const fs::path& dir, const ShortcutModel& model) {
+    std::ofstream(shortcuts_path(dir)) << serialize_shortcuts(model);
+}
+ShortcutButton shortcut_button(std::string label, std::vector<ShortcutChord> chords) {
+    ShortcutButton button;
+    button.label = std::move(label);
+    button.action.chords = std::move(chords);
+    return button;
+}
+void shortcut_bar_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.debug = true;
+    CaptureSink sink;
+    {
+        App app(options, sink);
+        require(!has(app.view(), "shortcuts-toggle") && !app.view().shortcut_bar,
+                "Shortcuts and macros starts off: no button and no bar");
+        app.show_settings();
+        click(app, "shortcuts");
+        const auto cards = app.view().cards;
+        const auto at = [&](const std::string& title) {
+            const auto found = std::find_if(cards.begin(), cards.end(),
+                                            [&](const CardView& card) { return card.title == title; });
+            return found == cards.end() ? -1 : static_cast<int>(found - cards.begin());
+        };
+        require(at("Shortcuts and macros") >= 0 && at("Shortcuts and macros") < at("Integration"),
+                "its card comes before Integration");
+        require(control(app.view(), "shortcuts").selected && !saved(app).shortcuts,
+                "the switch is pending until Apply");
+        click(app, "apply");
+        require(saved(app).shortcuts && saved(app).shortcuts_switch,
+                "Apply saves it; the toolbar's own switch is on");
+        // The toolbar button after Pull for Shift's place, before the language.
+        auto view = app.view();
+        const auto toggle = control(view, "shortcuts-toggle");
+        require(toggle.bounds.y == 12 && toggle.bounds.x == control(view, "passthrough").bounds.x + 70,
+                "the button follows the toolbar's switches on a full case");
+        require(toggle.icon == Icon::ShortcutBarOff && !view.shortcut_bar,
+                "with no bars nothing shows, and the button is crossed");
+        // Nothing shows and no bar is due: the empty bar with two slots.
+        click(app, "shortcuts-toggle");
+        view = app.view();
+        require(view.shortcut_bar && view.shortcut_bar->slots && view.shortcut_bar->buttons.empty() &&
+                    control(view, "shortcuts-toggle").icon == Icon::ShortcutBar &&
+                    control(view, "shortcuts-toggle").label == "Hide shortcut bar",
+                "pressed with no bar due, the empty bar shows");
+        const auto plate = view.shortcut_bar->plate;
+        const auto body = panel_case_bounds(view);
+        require(plate.y + plate.height == body.y - 10 && plate.height == 90,
+                "the plate stands 10 px above the case, 90 tall");
+        // A bar shows: it hides, and the switch is saved off.
+        click(app, "shortcuts-toggle");
+        require(!app.view().shortcut_bar && !saved(app).shortcuts_switch &&
+                    control(app.view(), "shortcuts-toggle").label == "Show shortcut bar",
+                "pressed while a bar shows, it hides and stays off");
+        click(app, "shortcuts-toggle");
+        require(app.view().shortcut_bar && saved(app).shortcuts_switch, "pressed again, it shows");
+        app.show_settings();
+        require(!app.view().shortcut_bar, "the bar hides in Settings");
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+        // The Debug card's sample bars, saved at once.
+        click(app, "debug-sample-shortcuts");
+        const auto samples = saved_shortcuts(app);
+        require(samples.bars.size() == 2 && samples.bars[1].buttons.size() == 18 &&
+                    samples.free_bar == samples.bars[0].id,
+                "Add sample shortcuts saves two bars, the first the free bar");
+        require(!control(app.view(), "debug-sample-shortcuts").enabled, "and only while there are none");
+#else
+        app.back();
+        return;
+#endif
+        app.back();
+        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 6,
+                "the sample bar shows");
+    }
+    App app(options, sink);
+    auto view = app.view();
+    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 6 &&
+                view.shortcut_bar->buttons[0].label == "Undo" &&
+                view.shortcut_bar->buttons[4].label == "Select\nall",
+            "a restart loads the bars; the free bar shows");
+    const auto picker = view.shortcut_bar->picker_button;
+    const auto spot = middle(picker);
+    app.move(0, spot.x, spot.y);
+    require(app.view().bar_tooltip == "Choose a bar", "the picker's tooltip");
+    tap_rect(app, picker);
+    view = app.view();
+    require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 2 &&
+                view.shortcut_bar->menu->rows[0].shown && !view.shortcut_bar->menu->rows[1].shown &&
+                view.shortcut_bar->menu->title == "Bars" &&
+                view.shortcut_bar->menu->edit_label == "Edit shortcuts" &&
+                !view.shortcut_bar->menu->rows[0].assign_enabled,
+            "the picker opens its menu: the bar showing filled, assigning off for now");
+    // A click outside the menu closes it and goes nowhere else.
+    const auto [kx, ky] = key_point(app, "Space");
+    tap_at(app, kx, ky);
+    require(!app.view().shortcut_bar->menu && sink.events.empty(), "a click outside closes the menu");
+    tap_rect(app, picker);
+    const auto row = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, row.x + 30, row.y + row.height / 2);
+    view = app.view();
+    require(!view.shortcut_bar->menu && view.shortcut_bar->buttons.size() == 15 &&
+                view.shortcut_bar->buttons[0].label == "Home" && view.shortcut_bar->more_after &&
+                !view.shortcut_bar->more_before,
+            "a bar chosen shows, the menu closed; 15 slots, the rest scroll");
+    require(saved_shortcuts(app).free_bar == "sample-keys",
+            "a free bar chosen is saved as the free bar");
+    // The stick scrolls a button at a time, eased.
+    const auto first = view.shortcut_bar->buttons[0].bounds;
+    const auto over = middle(view.shortcut_bar->plate);
+    app.move(0, over.x, over.y);
+    require(app.scroll_room(0) == ScrollRoom{false, true}, "the bar can scroll forward only");
+    require(app.scroll(0, 1, 0), "a stick step scrolls the bar");
+    for (double now = 800; now < 801; now += .05) {
+        app.tick(now);
+    }
+    view = app.view();
+    const double pitch = view.shortcut_bar->buttons[1].bounds.x - view.shortcut_bar->buttons[0].bounds.x;
+    require(view.shortcut_bar->buttons[0].label == "End" &&
+                std::abs(view.shortcut_bar->buttons[0].bounds.x - first.x) < 1 &&
+                view.shortcut_bar->more_before,
+            "one step moves one button");
+    require(pitch > 70 && pitch < 90, "buttons are left Ctrl's size, 6 units apart");
+    // A press dragged past 12 px scrolls instead of acting.
+    const auto press = middle(view.shortcut_bar->buttons[2].bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 802);
+    app.move(0, press.x - 5, press.y);
+    app.move(0, press.x - 60, press.y);
+    app.up(0, press.x - 60, press.y);
+    view = app.view();
+    require(view.shortcut_bar->buttons[0].bounds.x < first.x - 30, "a drag scrolls the bar");
+    // Each bar keeps its own place. This bar is wider: its picker moved.
+    tap_rect(app, view.shortcut_bar->picker_button);
+    const auto back = app.view().shortcut_bar->menu->rows[0].bounds;
+    tap_at(app, back.x + 30, back.y + back.height / 2);
+    require(app.view().shortcut_bar->buttons[0].label == "Undo", "the other bar from its start");
+    // Edit shortcuts opens Settings at the card.
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    tap_rect(app, app.view().shortcut_bar->menu->edit);
+    require(app.view().settings && has(app.view(), "shortcuts"),
+            "Edit shortcuts opens Settings at its card");
+    app.back();
+    // Nothing shows and a bar is due: that bar.
+    click(app, "shortcuts-toggle");
+    require(!app.view().shortcut_bar, "hidden by hand");
+    click(app, "shortcuts-toggle");
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons[0].label == "Undo",
+            "pressed with a bar due, that bar shows");
+    // A compact case: the button on the second row.
+    {
+        Settings settings = saved(app);
+        settings.hide_numpad = true;
+        TemporaryDirectory narrow;
+        save_settings(narrow.path, settings);
+        Options compact = options;
+        compact.config_dir = narrow.path;
+        App small(compact, sink);
+        const auto v = small.view();
+        require(control(v, "shortcuts-toggle").bounds.y == second_row_top &&
+                    control(v, "shortcuts-toggle").bounds.x == control(v, "passthrough").bounds.x + 70,
+                "on a narrow case the button joins the second row");
+        const auto b = shortcut_bar_geometry(v, 30);
+        require(b.slots == 15 && b.picker.x + b.picker.width - b.plate.x <= panel_case_bounds(v).width,
+                "with the numpad hidden the bar keeps its 15 slots, within the case");
+    }
+}
+// A button's keys go out through the output queue, and the buttons that
+// can't send are drawn disabled.
+void shortcut_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton macro;
+    macro.label = "Macro";
+    macro.action.kind = ShortcutAction::Kind::Macro;
+    macro.action.steps.push_back({MacroStep::Kind::Wait, {}, {}, 100});
+    ShortcutButton run;
+    run.label = "Run";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.command = "true";
+    model.bars.push_back({"b",
+                          "Bar",
+                          {shortcut_button("Two", {{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}}),
+                           shortcut_button("Empty", {}), macro, run}});
+    model.free_bar = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    app.tick(900);
+    auto view = app.view();
+    const auto& buttons = view.shortcut_bar->buttons;
+    require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && !buttons[2].enabled &&
+                !buttons[3].enabled,
+            "an empty action, and macros and Run for now, are disabled");
+    const auto press = middle(buttons[0].bounds);
+    app.move(0, press.x, press.y);
+    require(app.down(0, press.x, press.y, 900.1), "a button's press feels like a key's");
+    require(sink.events.empty(), "it acts on release");
+    require(app.up(0, press.x, press.y), "and its release too");
+    require(app.view().shortcut_bar->buttons[0].running, "a running button stays lit");
+    for (double now = 900.2; now < 900.5; now += .01) {
+        app.tick(now);
+    }
+    require(
+        sink.events ==
+            std::vector<std::pair<int, int>>{
+                {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
+        "its combinations go out in order");
+    require(!app.view().shortcut_bar->buttons[0].running, "and its light goes out");
+    // A latched Ctrl is cleared, not added.
+    sink.events.clear();
+    const auto [cx, cy] = key_point(app, "ControlLeft");
+    app.down(1, cx, cy, 901);
+    app.up(1, cx, cy);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 901.1);
+    app.up(0, press.x, press.y);
+    for (double now = 901.2; now < 901.5; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.size() == 6 && sink.events[0] == std::pair{KEY_LEFTCTRL, 1} &&
+                sink.events[4] == std::pair{KEY_S, 1},
+            "a latched Ctrl joins nothing");
+    // A press on a disabled button does nothing.
+    sink.events.clear();
+    const auto empty = middle(app.view().shortcut_bar->buttons[1].bounds);
+    app.move(0, empty.x, empty.y);
+    require(!app.down(0, empty.x, empty.y, 902), "a disabled button gives no press");
+    app.up(0, empty.x, empty.y);
+    app.tick(902.2);
+    require(sink.events.empty(), "and sends nothing");
+    // Hiding stops a run: the second combination never goes.
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 903);
+    app.up(0, press.x, press.y);
+    app.set_interaction_active(false);
+    for (double now = 903.1; now < 903.5; now += .01) {
+        app.tick(now);
+    }
+    require(std::none_of(sink.events.begin(), sink.events.end(),
+                         [](const auto& event) { return event.first == KEY_S; }),
+            "hiding stops a run");
+    // A Steam field takes none of it: every button is disabled there.
+    struct SteamField : CaptureSink {
+        bool steam_field_target() const override { return true; }
+    } field;
+    App steam(options, field);
+    const auto shown = steam.view().shortcut_bar->buttons;
+    require(std::none_of(shown.begin(), shown.end(), [](const auto& b) { return b.enabled; }),
+            "buttons are disabled in a Steam field");
+}
 int main() {
     // Theme pictures the tests draw go to a folder of their own, never to the
     // user's cache (R290).
@@ -3829,6 +4117,8 @@ int main() {
         fractional_dropdown_scroll();
         drag_dropdown();
         scroll_cards();
+        shortcut_bar_settings();
+        shortcut_buttons();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

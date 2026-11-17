@@ -49,6 +49,8 @@ class SettingsUi {
     // Scrolls the row of cards back to its start at once, under a popup
     // that belongs over the first card.
     void show_first_card() { horizontal_ = horizontal_target_ = 0; }
+    // Scrolls the row of cards at once so the card `id` is in view.
+    void show_card(const std::string& id);
     bool popup_open() const { return !open_field_.empty(); }
     // ID of the field whose dropdown is open, or empty.
     const std::string& open_field() const { return open_field_; }

@@ -21,6 +21,8 @@
 #include "settings_writer.hpp"
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
+#include "shortcut_runner.hpp"
+#include "shortcuts.hpp"
 #include "stream_support.hpp"
 #include "swipe.hpp"
 #include "theme_previews.hpp"
@@ -148,8 +150,9 @@ class App {
     // and an emoji press, drag or tone popup, so lost tracking still cancels them.
     bool pointer_pressed(unsigned pointer) const {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
-               settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer) ||
-               emoji_.pressed(pointer) || candidates_.pressed(pointer) ||
+               (bar_press_ && bar_press_->pointer == pointer) || settings_ui_.pressed(pointer) ||
+               (swipe_track_ && swipe_track_->pointer == pointer) || emoji_.pressed(pointer) ||
+               candidates_.pressed(pointer) ||
                (languages_ && languages_->drag && languages_->drag->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
@@ -1298,7 +1301,8 @@ class App {
     bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
     struct HoverTarget {
-        enum class Kind { None, Key, Control, Status } kind{Kind::None};
+        // Bar: a part of the shortcut bar or its menu (bar_hit names them).
+        enum class Kind { None, Key, Control, Status, Bar } kind{Kind::None};
         std::string id;
         bool operator==(const HoverTarget&) const = default;
     };
@@ -1757,6 +1761,80 @@ class App {
     void reading_replaces_selection(bool was_open);
     void start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
                               double now);
+
+    // The shortcut bar (docs/shortcut-bar-design.md), in app_shortcuts.cpp.
+    // App owns the bars, which one shows and the runner; the panel only
+    // draws the view App builds, and only the runner sends a button's keys.
+    ShortcutModel shortcuts_;
+    // An invalid shortcuts.json loaded nothing: Settings says why (never
+    // quoting its content), and the next save keeps it as shortcuts.json.bad.
+    std::string shortcuts_invalid_;
+    ShortcutBarChoice bar_choice_;
+    bool pending_shortcuts_{};
+    // Letters go through the target's keymap only in Unicode mode, as Cut,
+    // Copy and Paste do (chord_code). Declared after output_, which it uses.
+    QueuedShortcutOutput shortcut_output_{output_, [this] { return unicode_mode(); }};
+    ShortcutRunner shortcut_runner_{shortcut_output_};
+    // The run under way: its bar and button, which stay lit while it runs.
+    struct ShortcutRun {
+        std::string bar;
+        std::size_t button{};
+    };
+    std::optional<ShortcutRun> shortcut_run_;
+    // Gamescope's focused window last given to bar_choice_ (as no app until
+    // apps can be told apart): a change of it stops a run, too.
+    std::uint32_t bar_window_{};
+    // Each bar's sideways scroll, kept while the keyboard runs, by bar ID;
+    // stick steps set the target and tick() eases to it.
+    struct BarScroll {
+        double shown{}, target{}, remainder{};
+    };
+    std::map<std::string, BarScroll> bar_scroll_;
+    BarScroll menu_scroll_;
+    double bar_tick_{-1};
+    // A press on the bar, the picker or the menu, which acts on release over
+    // the same part. One on a button dragged past 12 px scrolls the bar
+    // instead; one that stopped the button's own run does nothing more.
+    struct BarPress {
+        unsigned pointer{};
+        std::string target; // as bar_hit names it
+        double x{}, scroll{}, at{};
+        bool dragging{}, stopped{};
+    };
+    std::optional<BarPress> bar_press_;
+    bool bar_menu_{};
+    // Shortcuts and macros is on, and no shell runs the keyboard.
+    bool shortcuts_enabled() const { return settings_.shortcuts && !hosted(); }
+    // The bar or the empty bar shows: not in Settings or dictation mode.
+    bool bar_shown() const;
+    // The bar showing, or null for the empty bar and for none.
+    const ShortcutBar* shown_bar() const;
+    void load_shortcuts();
+    void configure_bar();
+    // Saves the model on the preference worker.
+    void save_shortcuts();
+    void apply_bar_changes(const ShortcutBarChoice::Changes& changes);
+    void append_shortcut_bar(PanelView& view) const;
+    // What of the bar `view` shows lies at (x, y): button-N, picker, plate,
+    // and over an open menu row-N, assign-N, edit or menu.
+    std::optional<std::string> bar_hit(const PanelView& view, double x, double y) const;
+    ShortcutBarGeometry bar_geometry(std::size_t buttons) const;
+    Rect bar_button_bounds(const ShortcutBarGeometry& bar, std::size_t count, std::size_t index,
+                           double scroll) const;
+    bool shortcut_button_enabled(const ShortcutButton& button) const;
+    // A press on the bar; true for a button's, which feels like a key's.
+    bool bar_down(unsigned pointer, const std::string& target, double x, double now);
+    // A pressed button dragged sideways scrolls the bar; true while it does.
+    bool bar_move(unsigned pointer, double x);
+    bool bar_up(unsigned pointer);
+    void bar_action(const std::string& target);
+    bool bar_scroll(unsigned pointer, double dx, double dy);
+    std::optional<ScrollRoom> bar_scroll_room(double x, double y) const;
+    void tick_shortcut_bar(double now);
+    void press_shortcut_button(std::size_t index, double now);
+    void stop_shortcut_run();
+    // The Debug card's sample bars, while there are none.
+    void add_sample_shortcuts();
 };
 
 double monotonic_seconds();

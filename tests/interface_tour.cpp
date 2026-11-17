@@ -169,6 +169,42 @@ int main(int argc, char** argv) {
             usleep(10000);
         }
         shot(app, "emoji");
+        // The shortcut bar with the Debug card's sample bars, its picker's
+        // menu, and the bar with its last buttons scrolled into view.
+        {
+            Options bar_options = options;
+            bar_options.config_dir = fs::path(config) / "shortcut-bar";
+            fs::create_directories(bar_options.config_dir);
+            Settings settings;
+            settings.shortcuts = true;
+            save_settings(bar_options.config_dir, settings);
+            App bars(bar_options, sink);
+            choose_language(bars, language);
+            bars.show_settings();
+            to_last_card(bars);
+            if (has(bars.view(), "debug-sample-shortcuts")) {
+                click(bars, "debug-sample-shortcuts");
+                bars.back();
+                shot(bars, "shortcut-bar");
+                const auto picker = bars.view().shortcut_bar->picker_button;
+                const double x = picker.x + picker.width / 2, y = picker.y + picker.height / 2;
+                bars.move(0, x, y);
+                shot(bars, "shortcut-bar-picker-tooltip");
+                bars.down(0, x, y, 1);
+                bars.up(0, x, y);
+                shot(bars, "shortcut-bar-menu");
+                const auto row = bars.view().shortcut_bar->menu->rows[1].bounds;
+                bars.move(0, row.x + 30, row.y + row.height / 2);
+                bars.down(0, row.x + 30, row.y + row.height / 2, 1);
+                bars.up(0, row.x + 30, row.y + row.height / 2);
+                const auto plate = bars.view().shortcut_bar->plate;
+                bars.move(0, plate.x + plate.width / 2, plate.y + plate.height / 2);
+                bars.scroll(0, 3, 0);
+                shot(bars, "shortcut-bar-scrolled");
+            } else {
+                bars.back();
+            }
+        }
         // The editor opens only in dictation's render mode, as for its image export.
         options.mode = Mode::RenderDictation;
         App dictation(options, sink);
