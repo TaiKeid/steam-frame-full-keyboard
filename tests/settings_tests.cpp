@@ -4371,7 +4371,8 @@ void shortcut_editor_settings() {
                     has(view, "shortcuts-save") && !has(view, "settings"),
                 "Edit shortcuts opens the editor, its own screen, in place of the toolbar and bar");
         require(view.shortcut_editor->wide == !narrow &&
-                    panel_case_bounds(view).width == (narrow ? 1326 : panel_width),
+                    panel_case_bounds(view).width == keyboard_case.width &&
+                    std::abs(keyboard_case.width - (narrow ? 1326 : panel_width)) < 1,
                 "the editor keeps the keyboard's width, full or without the numpad");
         require(control(view, "shortcuts-row-1").selected && view.shortcut_editor->strip.width > 0 &&
                     strip_labels(view).empty() && !view.shortcut_editor->empty_hint.empty(),

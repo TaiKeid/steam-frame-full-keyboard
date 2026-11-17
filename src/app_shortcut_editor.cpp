@@ -143,10 +143,14 @@ ChipRow chip_row(const Rect& well, const std::vector<ShortcutChord>& chords,
 } // namespace
 
 double App::editor_width(const PanelView& keyboard) const {
-    // Only a full-width case keeps its width; any narrower one, the flick
+    // A full-width case keeps its width, and so does one with its numpad
+    // hidden, to the fraction of a pixel (R329); any other, the flick
     // layout's (1509) included, takes the width without the numpad.
     const double width = panel_case_bounds(keyboard).width;
-    return width >= panel_width - .5 ? width : narrow_width;
+    if (width >= panel_width - .5 || (keyboard.hide_numpad && std::abs(width - narrow_width) < 2)) {
+        return width;
+    }
+    return narrow_width;
 }
 void App::open_shortcut_editor() {
     if (settings_open_ || dictation_open_ || shortcut_editor_) {
