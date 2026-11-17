@@ -123,7 +123,13 @@ enum class ControlKind {
     // The Debug card, only in debug builds (FRAMEKEYBOARD_DEBUG_MODE).
     DebugMarkAnthy,
     DebugKeyCollision,
-    DebugInterfaceLanguage
+    DebugInterfaceLanguage,
+    // The shortcut bar (docs/shortcut-bar-design.md): the toolbar's switch
+    // for the bar, Settings' Shortcuts and macros switch, and the Debug
+    // card's sample bars.
+    ShortcutsToggle,
+    Shortcuts,
+    DebugSampleShortcuts
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -242,6 +248,70 @@ struct LabelFit {
 cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, const Language& language,
                                       const LanguageMap& keymap, int width, int height);
 void record_label_fits(std::vector<LabelFit>* into);
+struct PanelView;
+// The shortcut bar above the case (docs/shortcut-bar-design.md), in panel
+// coordinates, as App built it: the renderer only draws it, and nothing it
+// draws acts. Its parts take the laser through shortcut_bar_bounds().
+struct ShortcutBarView {
+    // A button, drawn as a key in Ctrl's tone at the layout's scale.
+    struct Button {
+        bool operator==(const Button&) const = default;
+        std::string label; // up to two lines; the user's own, never logged
+        Rect bounds;       // where it is after scrolling; `strip` clips it
+        bool hovered{}, pressed{}, enabled{true};
+        bool running{}; // its run is under way: lit, as a latched key
+    };
+    bool operator==(const ShortcutBarView&) const = default;
+    Rect plate, strip; // the bar's plate, and where its buttons show
+    double scale{1};   // the layout's, which sizes the buttons as keys
+    // Two empty slots: a bar without buttons, or the empty bar.
+    bool slots{};
+    std::vector<Button> buttons; // only those at least partly in the strip
+    // Clipped sides fade out under a chevron.
+    bool more_before{}, more_after{};
+    Rect picker, picker_button; // the picker's plate and its flat button
+    bool picker_hovered{}, picker_pressed{};
+    // The picker's menu, dropped over the case from the picker.
+    struct Menu {
+        struct Row {
+            bool operator==(const Row&) const = default;
+            std::string name; // the bar's, never logged
+            Rect bounds, assign;
+            bool shown{}, hovered{}, pressed{};
+            bool assign_hovered{}, assign_enabled{}, assigned{};
+        };
+        bool operator==(const Menu&) const = default;
+        Rect bounds, header, list; // `list` clips the rows
+        std::string title, app;    // "Bars", and the focused app's name if known
+        std::vector<Row> rows;     // only those in view
+        std::optional<Rect> thumb; // while more rows than six
+        Rect edit;
+        std::string edit_label;
+        bool edit_hovered{}, edit_pressed{};
+    };
+    std::optional<Menu> menu;
+};
+// Where the bar's parts go for `buttons` buttons on the case `view` shows.
+// Sizes follow the layout's scale (design, The bar on the keyboard).
+struct ShortcutBarGeometry {
+    Rect plate, strip, picker, picker_button;
+    double button_width{}, button_height{}, pitch{};
+    double button_top{};   // a button's face at rest, its side below it
+    std::size_t slots{};   // as many as show at once
+    double scroll_limit{}; // how far the buttons can scroll
+};
+ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons);
+// The picker's menu for `rows` bars: six rows show, more scroll.
+struct ShortcutMenuGeometry {
+    Rect bounds, header, list, edit;
+    double row_height{};
+    std::size_t visible{};
+    double scroll_limit{};
+    Rect row(std::size_t index, double scroll) const;
+    Rect assign(const Rect& row) const;
+};
+inline constexpr std::size_t shortcut_menu_rows = 6;
+ShortcutMenuGeometry shortcut_menu_geometry(const ShortcutBarGeometry& bar, std::size_t rows);
 struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
@@ -328,6 +398,13 @@ struct PanelView {
     // The toolbar icon button a laser is on: its label shows in the same
     // place, above the case, while focus_tooltip is empty. Empty: none.
     std::string hover_tooltip;
+    // A tooltip for a part of the shortcut bar the laser is on, such as the
+    // picker, pointing at `bar_tooltip_at`, while neither above shows.
+    std::string bar_tooltip;
+    Rect bar_tooltip_at;
+    // The shortcut bar above the case, while it shows; tooltips and the
+    // status card then sit above it.
+    std::optional<ShortcutBarView> shortcut_bar;
     // Typing was refused for want of a target: from this time the Focus mode
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};
@@ -490,6 +567,15 @@ std::vector<Rect> theme_cards_damage(const PanelView& before, const PanelView& n
 // changed (R292); empty otherwise.
 std::vector<Rect> theme_hover_damage(const PanelView& before, const PanelView& now);
 Rect panel_rect(const PanelView& view, Rect layout_rect);
+// The rectangles of the shortcut bar the laser may hit: both plates and the
+// open menu. The VR mask and the passthrough pointer add them to the case's.
+std::vector<Rect> shortcut_bar_bounds(const PanelView& view);
+// What the bar repaints when only its buttons' or the picker's states
+// changed (hover, press, enabled, running) or its buttons scrolled; empty
+// when the bar did not change, or when anything else in it did, the open
+// menu included (it lies over keys), which a full repaint covers. Bar
+// buttons never force a full repaint by their hover alone.
+std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);

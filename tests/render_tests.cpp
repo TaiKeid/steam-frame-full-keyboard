@@ -1377,8 +1377,173 @@ void no_stray_lines() {
                                  " bright pixels in the flick ← key's lower left");
     }
 }
+// The shortcut bar (docs/shortcut-bar-design.md): a button's hover, press
+// and light, a scroll and the menu's rows repaint only their own areas, each
+// frame the same as a full repaint, in a dark and a light theme, over an
+// opaque and a see-through case. The tooltip and the status card stand above
+// the bar.
+void shortcut_bar(const char* theme_id, double opacity) {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at(theme_id);
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.case_opacity = opacity;
+    view.controls = {{"settings", "Settings", {18, 12, 60, 42}, false, Icon::Settings}};
+    const std::vector<std::string> labels{"Undo",
+                                          "Redo",
+                                          "Save\nall",
+                                          "Find",
+                                          "A label far too long",
+                                          "Two\nlines here",
+                                          "Copy",
+                                          "Paste",
+                                          "Cut",
+                                          "Build",
+                                          "Run",
+                                          "Term",
+                                          "Zen\nmode",
+                                          "Close",
+                                          "Split",
+                                          "Last",
+                                          "Past the end",
+                                          "→"};
+    const auto g = shortcut_bar_geometry(view, labels.size());
+    struct State {
+        double scroll{};
+        int hovered{-1}, pressed{-1}, running{-1}, disabled{-1};
+        bool picker_hovered{}, menu{};
+        int row_hovered{-1};
+    };
+    const auto bar = [&](const State& state) {
+        ShortcutBarView result;
+        result.plate = g.plate;
+        result.strip = g.strip;
+        result.scale = g.button_width / 69.5;
+        for (std::size_t i = 0; i < labels.size(); ++i) {
+            const Rect r{g.strip.x + static_cast<double>(i) * g.pitch - state.scroll, g.button_top,
+                         g.button_width, g.button_height};
+            if (r.x + r.width <= g.strip.x || r.x >= g.strip.x + g.strip.width) {
+                continue;
+            }
+            const int at = static_cast<int>(i);
+            result.buttons.push_back({labels[i], r, at == state.hovered, at == state.pressed,
+                                      at != state.disabled, at == state.running});
+        }
+        result.more_before = state.scroll > .5;
+        result.more_after = state.scroll < g.scroll_limit - .5;
+        result.picker = g.picker;
+        result.picker_button = g.picker_button;
+        result.picker_hovered = state.picker_hovered;
+        if (state.menu) {
+            const auto m = shortcut_menu_geometry(g, 8);
+            ShortcutBarView::Menu menu;
+            menu.bounds = m.bounds;
+            menu.header = m.header;
+            menu.list = m.list;
+            menu.edit = m.edit;
+            menu.title = "Bars";
+            menu.edit_label = "Edit shortcuts";
+            for (std::size_t i = 0; i < m.visible; ++i) {
+                const auto row = m.row(i, 0);
+                const int at = static_cast<int>(i);
+                menu.rows.push_back({"Bar " + std::to_string(i), row, m.assign(row), i == 0,
+                                     at == state.row_hovered, false, false, false, false});
+            }
+            menu.thumb = Rect{m.bounds.x + m.bounds.width - 6, m.list.y, 3, 60};
+            result.menu = menu;
+        }
+        return result;
+    };
+    const auto within = [](const std::vector<Rect>& damage, const Rect& area) {
+        return !damage.empty() && std::all_of(damage.begin(), damage.end(), [&](const Rect& r) {
+            return r.x >= area.x - 2 && r.x + r.width <= area.x + area.width + 2 &&
+                   r.y >= area.y + popup_margin - 2 &&
+                   r.y + r.height <= area.y + area.height + popup_margin + 2;
+        });
+    };
+    const std::string name = std::string(theme_id) + (opacity < 1 ? " see-through" : "");
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(view, phase("keyboard alone").c_str());
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the bar appears").c_str());
+    if (opacity == 1 && alpha_at(compare.incremental, static_cast<int>(g.plate.x + 6),
+                                 static_cast<int>(g.plate.y + g.plate.height / 2)) != 255) {
+        throw std::runtime_error(phase("the plate is the case's color, opaque"));
+    }
+    // The plate and the picker beside it: a state repaints only within them.
+    const Rect both{g.plate.x, g.plate.y, g.picker.x + g.picker.width - g.plate.x, g.plate.height};
+    for (const auto& state : {State{0, 2}, State{0, 3}, State{0, 3, 3}, State{0, -1, -1, 3},
+                              State{0, -1, -1, -1, 4}, State{0, -1, -1, -1, -1, true}, State{}}) {
+        view.shortcut_bar = bar(state);
+        compare.frame(view, phase("a button's state").c_str());
+        if (!within(compare.incremental.damage(), both)) {
+            throw std::runtime_error(phase("a button's state repaints only the bar"));
+        }
+    }
+    for (const double scroll : {g.pitch * .4, g.pitch, g.scroll_limit}) {
+        view.shortcut_bar = bar({scroll});
+        compare.frame(view, phase("scrolling").c_str());
+        if (!within(compare.incremental.damage(), g.plate)) {
+            throw std::runtime_error(phase("a scroll repaints only the strip"));
+        }
+    }
+    view.shortcut_bar = bar({0, -1, -1, -1, -1, false, true});
+    compare.frame(view, phase("the menu opens").c_str());
+    // The menu lies over keys: its rows repaint with everything.
+    for (const int row : {2, 3, -1}) {
+        view.shortcut_bar = bar({0, -1, -1, -1, -1, false, true, row});
+        compare.frame(view, phase("a row's hover").c_str());
+    }
+    // A button's hover under the open menu still repaints only the bar.
+    view.shortcut_bar = bar({0, 1, -1, -1, -1, false, true, -1});
+    compare.frame(view, phase("a button's hover with the menu open").c_str());
+    if (!within(compare.incremental.damage(), g.plate)) {
+        throw std::runtime_error(phase("a button's hover with the menu open repaints only the bar"));
+    }
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the menu closes").c_str());
+    // The picker's tooltip and a message stand above the bar.
+    view.bar_tooltip = "Choose a bar";
+    view.bar_tooltip_at = g.picker_button;
+    compare.frame(view, phase("the tooltip").c_str());
+    const auto above = [&](double x) {
+        return alpha_at(compare.incremental, static_cast<int>(x), static_cast<int>(g.plate.y - 33)) >
+               200;
+    };
+    if (!above(g.picker_button.x + g.picker_button.width / 2)) {
+        throw std::runtime_error(phase("the tooltip stands above the bar"));
+    }
+    view.status = "A message that comes while the bar shows";
+    compare.frame(view, phase("a message with the tooltip").c_str());
+    view.bar_tooltip.clear();
+    compare.frame(view, phase("the message alone").c_str());
+    if (!above(panel_case_bounds(view).x + panel_case_bounds(view).width / 2)) {
+        throw std::runtime_error(phase("the status card stands above the bar"));
+    }
+    view.status.clear();
+    view.shortcut_bar.reset();
+    compare.frame(view, phase("the bar goes").c_str());
+    if (alpha_at(compare.incremental, static_cast<int>(g.plate.x + 6),
+                 static_cast<int>(g.plate.y + g.plate.height / 2)) != 0) {
+        throw std::runtime_error(phase("nothing is left where the bar was"));
+    }
+}
 int main() {
     try {
+        shortcut_bar("graphite", 1);
+        shortcut_bar("porcelain", 1);
+        shortcut_bar("graphite", .5);
+        shortcut_bar("porcelain", 0);
         no_stray_lines();
         candidate_menu_resize();
         candidate_scrolling();
