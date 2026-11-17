@@ -1805,6 +1805,8 @@ class App {
         std::string target; // as bar_hit names it
         double x{}, scroll{}, at{};
         bool dragging{}, stopped{};
+        // The bar a button press began on: it never acts on another (R321).
+        std::string bar;
     };
     std::optional<BarPress> bar_press_;
     bool bar_menu_{};

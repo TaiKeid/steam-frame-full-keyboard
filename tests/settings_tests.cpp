@@ -4075,6 +4075,57 @@ void shortcut_buttons() {
     require(std::none_of(shown.begin(), shown.end(), [](const auto& b) { return b.enabled; }),
             "buttons are disabled in a Steam field");
 }
+// R321: a button's press belongs to the bar it began on. Another window
+// takes the keys while it is held and the free bar comes back: letting go in
+// place sends nothing.
+void shortcut_press_bar_change() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.bars.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.bars.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.apps.push_back({{AppIdentity::Kind::Program, "app"}, "App", "t"});
+    model.free_bar = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct WindowSink : CaptureSink {
+        std::uint32_t window{5};
+        std::uint32_t focused_window() const override { return window; }
+    } sink;
+    App app(options, sink);
+    app.tick(900);
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    const auto row = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, row.x + 30, row.y + row.height / 2);
+    require(app.view().shortcut_bar->buttons[0].label == "T", "the picked bar shows");
+    const auto press = middle(app.view().shortcut_bar->buttons[0].bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 900.5);
+    sink.window = 6;
+    app.tick(900.6);
+    require(app.view().shortcut_bar->buttons[0].label == "A", "another window brings the free bar back");
+    app.up(0, press.x, press.y);
+    for (double now = 900.7; now < 901.2; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.empty(), "the press held over the change sends nothing on release");
+    // A press begun on the bar now showing still acts.
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 901.3);
+    app.up(0, press.x, press.y);
+    for (double now = 901.4; now < 901.9; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.size() == 4 && sink.events[1] == std::pair{KEY_A, 1},
+            "a press on the bar showing sends its own keys");
+}
 // The shortcut editor (docs/shortcut-bar-design.md, Settings and the
 // editor): opened from the picker, its bars column and strip with drags,
 // the Label and bar name fields and recording on the keyboard, the limits,
@@ -4436,6 +4487,7 @@ int main() {
         scroll_cards();
         shortcut_bar_settings();
         shortcut_buttons();
+        shortcut_press_bar_change();
         shortcut_editor_settings();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";

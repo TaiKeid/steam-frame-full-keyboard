@@ -268,9 +268,8 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
             stop_shortcut_run();
         }
         const auto scrolled = bar_scroll_.find(bar->id);
-        bar_press_ = BarPress{
-            pointer, target, x,      scrolled == bar_scroll_.end() ? 0 : scrolled->second.target,
-            now,     false,  stopped};
+        const double scroll = scrolled == bar_scroll_.end() ? 0 : scrolled->second.target;
+        bar_press_ = BarPress{pointer, target, x, scroll, now, false, stopped, bar->id};
         dirty = true;
         // A key's press haptic and pop, for a button that can act.
         return shortcut_button_enabled(bar->buttons[*index]);
@@ -279,7 +278,7 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         // Disabled until apps can be identified. The press goes nowhere else.
         return false;
     }
-    bar_press_ = BarPress{pointer, target, x, 0, now, false, false};
+    bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}};
     dirty = true;
     return false;
 }
@@ -288,7 +287,7 @@ bool App::bar_move(unsigned pointer, double x) {
         return false;
     }
     const auto* bar = shown_bar();
-    if (!bar) {
+    if (!bar || bar->id != bar_press_->bar) {
         return false;
     }
     auto& press = *bar_press_;
@@ -315,7 +314,9 @@ bool App::bar_up(unsigned pointer) {
     dirty = true;
     const auto index = target_index(press.target, "button-");
     const auto* bar = shown_bar();
-    const bool button = index && bar && *index < bar->buttons.size();
+    // Only on the bar it began on: another that showed meanwhile has other
+    // buttons in the same places (R321).
+    const bool button = index && bar && bar->id == press.bar && *index < bar->buttons.size();
     // A key's release haptic and pop, as for any button pressed.
     const bool felt = button && shortcut_button_enabled(bar->buttons[*index]);
     if (press.dragging || press.stopped) {
@@ -328,7 +329,7 @@ bool App::bar_up(unsigned pointer) {
     }
     if (button) {
         press_shortcut_button(*index, std::max(press.at, mozc_clock_));
-    } else {
+    } else if (!index) {
         bar_action(press.target);
     }
     return felt;
@@ -459,6 +460,13 @@ void App::tick_shortcut_bar(double now) {
     if (!bar_shown()) {
         bar_menu_ = false;
         bar_press_.reset();
+    }
+    // A button's press belongs to the bar it began on: another bar showing
+    // drops it, so its release sends nothing (R321).
+    if (bar_press_ && bar_press_->target.starts_with("button-") &&
+        (!shown_bar() || shown_bar()->id != bar_press_->bar)) {
+        bar_press_.reset();
+        dirty = true;
     }
     if (const auto* bar = shown_bar()) {
         auto& scroll = bar_scroll_[bar->id];
