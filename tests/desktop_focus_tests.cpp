@@ -506,6 +506,70 @@ void probe_title_tests(int number) {
                 sample.app.steam,
             "the same app's title is read again at each poll, keeping what describe found");
 }
+// Each row of the design's "Which identity the focus has", first row that fits.
+void identity_tests() {
+    using Kind = AppIdentity::Kind;
+    const auto is = [](const std::optional<AppIdentity>& app, Kind kind, const std::string& id) {
+        return app && app->kind == kind && app->id == id;
+    };
+    FocusFacts facts;
+    facts.program = "kate";
+    require(!focus_identity(facts), "nothing focused: none");
+    facts.window = 10;
+    facts.steam_app = steam_client_app_id;
+    facts.program = "steamwebhelper";
+    require(!focus_identity(facts), "Steam's own window: none");
+
+    FocusFacts desktop{10, 7, "kwin_wayland", true, std::nullopt};
+    require(!focus_identity(desktop), "the Desktop before its KWin reports: none");
+    desktop.desktop_app = "";
+    require(!focus_identity(desktop), "the Desktop with no window active: none");
+    desktop.desktop_app = "org.kde.kate";
+    require(is(focus_identity(desktop), Kind::Desktop, "org.kde.kate"),
+            "the Desktop: the app ID its KWin reported last, before its Steam app ID");
+    desktop.steam_app = steam_client_app_id;
+    require(!focus_identity(desktop), "Steam's own window comes first, the Desktop's too");
+
+    FocusFacts stream{20, 5000001, "moonlight", false, std::nullopt};
+    require(is(focus_identity(stream), Kind::Program, "moonlight"),
+            "a streaming client started as a non-Steam shortcut: its program, not the shortcut's ID");
+    stream.program = "moonlight-qt";
+    stream.steam_app = 0;
+    require(is(focus_identity(stream), Kind::Program, "moonlight-qt"),
+            "a streaming client: its program");
+
+    FocusFacts game{30, 4000010, "game.x86_64", false, std::nullopt};
+    require(is(focus_identity(game), Kind::Steam, "4000010"), "a window with a Steam app ID: steam");
+    game.program.clear();
+    require(is(focus_identity(game), Kind::Steam, "4000010"), "a Steam game needs no program name");
+
+    FocusFacts other{40, 0, "konsole", false, std::nullopt};
+    require(is(focus_identity(other), Kind::Program, "konsole"), "any other window: its program");
+    other.program.clear();
+    require(!focus_identity(other), "any other window whose program can't be read: none");
+
+    // An ID shortcuts.json could not hold is no identity: a program's name
+    // comes from its command line, which the program sets itself.
+    other.program = std::string(256, 'a');
+    require(!focus_identity(other), "a program name over 255 bytes: none");
+    other.program = std::string(255, 'a');
+    require(is(focus_identity(other), Kind::Program, other.program), "255 bytes still fit");
+    other.program = "bad\xff\xfename";
+    require(!focus_identity(other), "a program name that isn't UTF-8: none");
+    other.program = "tab\there";
+    require(!focus_identity(other), "a program name with a control character: none");
+    other.program = std::string("nul\0name", 8);
+    require(!focus_identity(other), "a program name with a NUL: none");
+    desktop.steam_app = 7;
+    desktop.desktop_app = std::string("org.example.") + '\x1b' + "app";
+    require(!focus_identity(desktop), "a Desktop app ID with a control character: none");
+    desktop.desktop_app = std::string(300, 'x');
+    require(!focus_identity(desktop), "a Desktop app ID over 255 bytes: none");
+    require(app_identity_valid({Kind::Steam, "4000010"}) && !app_identity_valid({Kind::Steam, "0"}) &&
+                !app_identity_valid({Kind::Steam, "abc"}) &&
+                !app_identity_valid({Kind::Program, "a/b"}) && !app_identity_valid({Kind::Program, ""}),
+            "the file's own rules: Steam IDs are numbers, programs have no folder part");
+}
 template <class Call> std::chrono::steady_clock::duration timed(Call call) {
     const auto start = std::chrono::steady_clock::now();
     call();
@@ -572,6 +636,12 @@ int main() {
         require(!answering.first_watched,
                 "the window that lost focus is no longer watched for its title");
         require(moving.edit_keys() == EditKeys::Standard, "this test is no terminal: Ctrl+X/C/V");
+        {
+            const auto focus = moving.focused_app();
+            require(focus.window == 20 && focus.app && focus.app->kind == AppIdentity::Kind::Program &&
+                        focus.app->id == "desktop-focus-tests" && focus.program == "desktop-focus-tests",
+                    "the new window comes with its own program as its identity");
+        }
 
         // A focused terminal: its program's name gives its own edit keys.
         require(DesktopFocus::program(static_cast<std::uint32_t>(getpid())) == "desktop-focus-tests" &&
@@ -602,8 +672,15 @@ int main() {
         require(terminal_focus.edit_keys() == EditKeys::CtrlShift && !terminal_focus.focused(),
                 "a focused Konsole takes Ctrl+Shift, and is not the Desktop");
         require(timed([&] { (void)terminal_focus.edit_keys(); }) < 5ms, "edit_keys() never blocks");
+        {
+            const auto focus = terminal_focus.focused_app();
+            require(focus.window == 10 && focus.app && focus.app->kind == AppIdentity::Kind::Program &&
+                        focus.app->id == "konsole",
+                    "a focused Konsole is the program konsole");
+        }
         require(DesktopFocus::program(static_cast<std::uint32_t>(terminal)).empty(),
                 "a process that is gone has no name");
+        identity_tests();
         probe_epoch_tests(answering_number + 1);
         probe_title_tests(answering_number + 10);
     } catch (const std::exception& error) {

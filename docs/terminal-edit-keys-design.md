@@ -90,9 +90,10 @@ Inside the Desktop, Gamescope's focus only shows `kwin_wayland`, and the Desktop
 ## Privacy
 
 - Only the program's file name is read, from `/proc/<pid>/cmdline`, as `DesktopFocus` already does. Nothing else of the command line is kept.
-- The name is compared against the fixed list on the watcher thread and dropped. Only the resulting kind (standard, Ctrl+Shift, Ctrl+Alt, selection-only) is kept, as one atomic value.
-- Inside SteamOS's Desktop, only `DBUS_SESSION_BUS_ADDRESS` is taken from the environment of `kwin_wayland`'s parent, and the script sends only the active window's app ID, never its caption. Only reports from KWin's own unique name count. The app ID is matched and dropped like a program name.
-- No window titles, no `WM_CLASS` from Gamescope's displays, no accessibility data, no clipboard or primary selection reads. Program names, app IDs and kinds are never logged.
+- The name is compared against the fixed list on the watcher thread. The resulting kind (standard, Ctrl+Shift, Ctrl+Alt, selection-only) is kept as one atomic value.
+- Inside SteamOS's Desktop, only `DBUS_SESSION_BUS_ADDRESS` is taken from the environment of `kwin_wayland`'s parent, and the script sends only the active window's app ID, never its caption. Only reports from KWin's own unique name count.
+- For the [shortcut bar](shortcut-bar-design.md#apps), the program name and the Desktop's app ID are also kept in memory while that app has the keys, as the focused app's identity. For an app the user assigns to a profile, the identity is written to `shortcuts.json` with the app's name. Nothing else of the command line is kept.
+- No window titles, no `WM_CLASS` from Gamescope's displays, no accessibility data, no clipboard or primary selection reads. Program names, app IDs, app names and kinds are never logged, debug builds included.
 
 ## Cost
 

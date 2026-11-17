@@ -1,4 +1,5 @@
 #pragma once
+#include "app_identity.hpp"
 #include <cstddef>
 #include <filesystem>
 #include <optional>
@@ -80,15 +81,8 @@ struct ShortcutProfile {
     std::vector<ShortcutButton> buttons;
     bool operator==(const ShortcutProfile&) const = default;
 };
-// The app that has the keys, as far as it can be told (design, Apps).
-// Steam's dashboard and an unknown focus have none.
-struct AppIdentity {
-    enum class Kind { Steam, Program, Desktop };
-    Kind kind{Kind::Program};
-    std::string id;
-    bool operator==(const AppIdentity&) const = default;
-};
-// An assigned app: the name is looked up once when it is assigned.
+// An assigned app (AppIdentity, app_identity.hpp): the name is looked up
+// once when it is assigned.
 struct AppTie {
     AppIdentity app;
     std::string name, profile;

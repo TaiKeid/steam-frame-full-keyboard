@@ -169,6 +169,8 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
     return "an action has an unknown kind";
 }
 std::optional<std::string> check_tie(const ShortcutModel& model, const AppTie& tie) {
+    // The same rule the focus applies before it reports an identity
+    // (app_identity_valid), with the reason for a hand-edited file.
     if (tie.app.id.empty() || tie.app.id.size() > limits::app_id_bytes || !clean_text(tie.app.id)) {
         return "an app ID is empty, too long or not valid text";
     }
@@ -432,6 +434,11 @@ json_object* action_json(const ShortcutAction& action) {
 }
 } // namespace
 
+bool app_identity_valid(const AppIdentity& app) {
+    return !app.id.empty() && app.id.size() <= limits::app_id_bytes && clean_text(app.id) &&
+           (app.kind != AppIdentity::Kind::Steam || steam_id(app.id)) &&
+           (app.kind != AppIdentity::Kind::Program || app.id.find('/') == std::string::npos);
+}
 const ShortcutProfile* ShortcutModel::profile(const std::string& id) const {
     const auto found = std::find_if(profiles.begin(), profiles.end(),
                                     [&](const ShortcutProfile& profile) { return profile.id == id; });

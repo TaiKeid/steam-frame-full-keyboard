@@ -50,6 +50,8 @@ class NativeReplacement : public KeySink {
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
     std::uint64_t focus_serial() const override { return remote_ ? 0 : local_.focus_serial(); }
+    // The keys go to Steam's own field: no app has them.
+    FocusedApp focused_app() const override { return remote_ ? FocusedApp{} : local_.focused_app(); }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return local_.desktop_focused(); }

@@ -1,14 +1,41 @@
 #pragma once
 
+#include "app_identity.hpp"
 #include "terminal_keys.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace framekeyboard {
+// The Steam app ID Gamescope gives Steam's own windows, which are no app the
+// user can assign. Believed to be 769; a Frame probe has to confirm it
+// (docs/shortcut-bar-design.md, Frame probes). Use this name, not the number.
+inline constexpr std::uint32_t steam_client_app_id = 769;
+// What the focus watcher knows of the focused window, for focus_identity().
+struct FocusFacts {
+    std::uint32_t window{};    // Gamescope's focused window; 0 when nothing is focused
+    std::uint32_t steam_app{}; // its Steam app ID; 0 for none
+    std::string program;       // the focused process's program file name; empty if unreadable
+    bool desktop{};            // a nested desktop compositor: SteamOS's Desktop
+    // The app ID the Desktop's KWin reported last, once it has reported
+    // since attaching (DesktopTerminal::app); empty while no window is
+    // active there. None before the first report or when not following.
+    std::optional<std::string> desktop_app;
+};
+// The focused app's identity, by the first row of the design's table that
+// fits (docs/shortcut-bar-design.md, Apps: Which identity the focus has):
+// none for nothing focused or Steam's own window; the Desktop's app ID
+// inside the Desktop, none before its first report; a game-streaming
+// client's program name, even when Steam started it; a Steam app ID; else
+// the program name. An ID shortcuts.json could not hold is none
+// (app_identity_valid). Pure, for tests. Steam's dashboard and Steam's own
+// fields are told by App and NativeReplacement, which don't ask this.
+std::optional<AppIdentity> focus_identity(const FocusFacts& facts);
+
 // Whether Gamescope's focused window belongs to a nested desktop compositor,
 // such as SteamOS's Desktop (kwin_wayland on Gamescope's second X display).
 // That compositor reads Gamescope's keys with its own keymap, so text sent
@@ -16,6 +43,11 @@ namespace framekeyboard {
 // Reads only Gamescope's focus properties on the root window of its X
 // display, the focused window's title and the focused process's program name;
 // never window contents.
+//
+// The focused program's name, and inside the Desktop the app ID its KWin
+// reported, are kept in memory while that app has the keys, as the focused
+// app's identity for the shortcut bar (focused_app()). They are never
+// logged, and window titles never go into an identity.
 //
 // X calls wait for the server, so they run on a thread of its own: a server
 // that accepts the connection and stops answering stalls only that thread.
@@ -63,6 +95,10 @@ class DesktopFocus {
     // changes it, a dialog of the same app included, which window() can't
     // show (R320).
     std::uint64_t desktop_activations() const;
+    // Never blocks: the focused window and its app's identity, published
+    // together (focus_identity); empty until known and while the connection
+    // is lost.
+    FocusedApp focused_app() const;
     // A process's program file name, from argv[0]; empty if it is gone.
     static std::string program(std::uint32_t pid);
     // Whether this process is a nested desktop compositor (exposed for tests).

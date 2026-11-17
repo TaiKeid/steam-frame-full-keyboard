@@ -9,9 +9,11 @@ namespace framekeyboard {
 // program there is only ever kwin_wayland. While attached, the Desktop's own
 // KWin runs a few lines of script for this session that send the app ID of
 // each newly active window (never its title) to this object over the
-// Desktop's session bus, which picks the edit keys. Nothing is saved in the
-// Desktop's settings; the script is unloaded on detaching. systemd's sd-bus
-// is loaded at runtime: without it nothing is known.
+// Desktop's session bus, which picks the edit keys. The last app ID is kept
+// in memory too, as the Desktop app's identity for the shortcut bar
+// (docs/shortcut-bar-design.md, Apps); it is never logged. Nothing is saved
+// in the Desktop's settings; the script is unloaded on detaching. systemd's
+// sd-bus is loaded at runtime: without it nothing is known.
 class DesktopTerminal {
   public:
     DesktopTerminal();
@@ -33,7 +35,7 @@ class DesktopTerminal {
     int fd() const;
     short events() const;
     int timeout() const;
-    // Takes what arrived; true when the active window's kind changed. A
+    // Takes what arrived; true when the active window's kind or app changed. A
     // Desktop that closed, or whose KWin left or restarted, detaches, its
     // keys Standard, until attach() is called again.
     bool process();
@@ -41,6 +43,9 @@ class DesktopTerminal {
     EditKeys edit_keys() const { return keys_; }
     // Whether KWin reported the active app since attaching.
     bool reported() const { return reported_; }
+    // The app ID KWin reported last, as it sent it; empty before a report,
+    // after detaching, and while no window is active in the Desktop.
+    const std::string& app() const { return app_; }
     // How many activations KWin reported since this object began, across
     // attachments: each window that became active, a dialog of the same app
     // included (R320).
@@ -64,6 +69,7 @@ class DesktopTerminal {
     std::string kwin_;
     // The script file in the runtime folder, while the script is loaded.
     std::string script_;
+    std::string app_; // KWin's last report: an app ID, never logged
     bool kwin_lost_{}, more_{}, reported_{};
     std::uint64_t activations_{};
 };

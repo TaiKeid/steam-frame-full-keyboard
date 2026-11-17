@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_identity.hpp"
 #include "config.hpp"
 #include "terminal_keys.hpp"
 #include <cstdint>
@@ -76,6 +77,10 @@ class KeySink {
     // reports inside its one Gamescope window. Beside the window, never in
     // place of it; 0 where nothing reports. Never blocks.
     virtual std::uint64_t focus_serial() const { return 0; }
+    // The app with the keys, with focused_window() in one snapshot
+    // (docs/shortcut-bar-design.md, Apps): no identity where it can't be
+    // told, as for uinput, a Steam field or a shell's field. Never blocks.
+    virtual FocusedApp focused_app() const { return {focused_window(), {}, {}}; }
     // The minimum gap between characters typed one at a time, for transports
     // that pace them (GamescopeText::set_character_gap).
     virtual void set_character_gap(double) {}

@@ -237,6 +237,7 @@ bool DesktopTerminal::attach(const std::string& address) {
         self->kwin_lost_ = true;
         self->keys_ = EditKeys::Standard;
         self->reported_ = false;
+        self->app_.clear();
         return 0;
     };
     // The script's calls arrive here: each says which app became active.
@@ -252,6 +253,7 @@ bool DesktopTerminal::attach(const std::string& address) {
         if (sender && self->kwin_ == sender && path && object == path &&
             api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
             self->keys_ = app_edit_keys(app ? app : "");
+            self->app_ = app ? app : "";
             self->reported_ = true;
             ++self->activations_;
         }
@@ -299,6 +301,7 @@ void DesktopTerminal::detach() {
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;
     reported_ = false;
+    app_.clear();
 }
 int DesktopTerminal::fd() const {
     return bus_ ? sd().get_fd(bus_->bus) : -1;
@@ -335,6 +338,7 @@ bool DesktopTerminal::process() {
         return false;
     }
     const auto before = keys_;
+    const auto before_app = app_;
     // A burst larger than one round leaves the rest queued in sd-bus, where
     // poll() can't see it: more_ makes the next wait return at once.
     constexpr int round = 256;
@@ -357,7 +361,7 @@ bool DesktopTerminal::process() {
     if (kwin_lost_) {
         lose_kwin(); // The script went with that KWin: attach() loads it into the next.
     }
-    return keys_ != before;
+    return keys_ != before || app_ != before_app;
 }
 void DesktopTerminal::lose_kwin() {
     bus_.reset();
@@ -366,5 +370,6 @@ void DesktopTerminal::lose_kwin() {
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;
     reported_ = false;
+    app_.clear();
 }
 } // namespace framekeyboard

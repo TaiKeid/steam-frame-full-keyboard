@@ -43,6 +43,7 @@ class EiSink : public KeySink {
     std::uint64_t focus_serial() const override {
         return desktop_ ? desktop_->desktop_activations() : 0;
     }
+    FocusedApp focused_app() const override { return desktop_ ? desktop_->focused_app() : FocusedApp{}; }
     // Measurement only: forces every multi-character commit to go whole (false)
     // or per character (true) instead of the on_keymap() choice.
     void force_per_character(std::optional<bool> value) { per_character_ = value; }
