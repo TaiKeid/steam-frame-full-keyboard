@@ -46,6 +46,9 @@ const ShortcutBar* App::shown_bar() const {
 }
 void App::load_shortcuts(bool reloading) {
     auto loaded = settings_writer_.load_shortcuts();
+    // The load waited for any save under way: its result is taken first, so
+    // it never clears the note this load sets.
+    take_shortcuts_result();
     shortcuts_invalid_ = loaded.state == ShortcutsLoad::State::Invalid ? loaded.reason : "";
     if (reloading && loaded.state == ShortcutsLoad::State::Invalid) {
         // A hand edit with a fault: the bars already loaded stay, and the
@@ -475,8 +478,21 @@ void App::tick_shortcut_bar(double now) {
         }
     }
     dirty |= ease_scroll(menu_scroll_.shown, menu_scroll_.target, elapsed);
-    if (const auto result = settings_writer_.take_shortcuts_result(); result && *result) {
+    take_shortcuts_result();
+}
+void App::take_shortcuts_result() {
+    const auto result = settings_writer_.take_shortcuts_result();
+    if (!result) {
+        return;
+    }
+    if (*result) {
         status_ = tr("status.shortcuts-not-saved", {{"error", **result}});
+        dirty = true;
+    } else if (!shortcuts_invalid_.empty()) {
+        // The save kept the unreadable file as shortcuts.json.bad and wrote
+        // a valid one: the note goes, in Settings and the editor (R323).
+        shortcuts_invalid_.clear();
+        update_settings_ui();
         dirty = true;
     }
 }

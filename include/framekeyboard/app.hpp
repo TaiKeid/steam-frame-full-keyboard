@@ -1822,6 +1822,9 @@ class App {
     void configure_bar();
     // Saves the model on the preference worker.
     void save_shortcuts();
+    // A finished save's result: a failure's status, or, for one that worked,
+    // the end of the note that shortcuts.json can't be read.
+    void take_shortcuts_result();
     void apply_bar_changes(const ShortcutBarChoice::Changes& changes);
     void append_shortcut_bar(PanelView& view) const;
     // What of the bar `view` shows lies at (x, y): button-N, picker, plate,

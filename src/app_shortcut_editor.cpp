@@ -132,8 +132,8 @@ void App::close_shortcut_editor(bool save) {
             return;
         }
         shortcuts_ = model;
-        // The worker keeps an unreadable file as shortcuts.json.bad.
-        shortcuts_invalid_.clear();
+        // The worker keeps an unreadable file as shortcuts.json.bad; the
+        // note goes once its result says the save worked.
         save_shortcuts();
         apply_bar_changes(bar_choice_.model_changed(shortcuts_));
     }

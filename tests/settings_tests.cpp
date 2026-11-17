@@ -4170,6 +4170,53 @@ void drag(App& app, const Rect& from, double dx, double dy, unsigned pointer = 0
     app.up(pointer, start.x + dx, start.y + dy);
     app.tick(now += .05);
 }
+// R323: the note that shortcuts.json can't be read goes once a save that
+// replaced the file reports success, in the editor and in Settings.
+void shortcut_invalid_note() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"bars\":[{}]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    // The note is a line of text under the switch, not a control, below
+    // the General card's fold until the card scrolls.
+    const auto noted = [&] {
+        const auto cards = app.view().cards;
+        const auto general = std::find_if(cards.begin(), cards.end(),
+                                          [](const auto& card) { return card.title == "General"; });
+        require(general != cards.end(), "the General card is in view");
+        const auto card = general->bounds;
+        app.move(0, std::max(card.x, 0.0) + 40, 300);
+        app.scroll(0, 0, 20);
+        static double now = 960;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+        const auto labels = app.view().field_labels;
+        return std::any_of(labels.begin(), labels.end(), [](const FieldLabel& label) {
+            return label.text.starts_with("Your shortcuts file can't be read");
+        });
+    };
+    app.show_settings();
+    require(has(app.view(), "shortcuts") && noted(), "Settings notes the unreadable file");
+    app.back();
+    click(app, "shortcuts-toggle");
+    open_editor(app);
+    require(app.view().shortcut_editor && !app.view().shortcut_editor->notice.empty(),
+            "so does the editor");
+    tap_control(app, "shortcuts-new-bar");
+    tap_key(app, "Escape");
+    tap_control(app, "shortcuts-save");
+    require(saved_shortcuts(app).bars.size() == 1, "✓ saves the new bar");
+    app.tick(950);
+    app.show_settings();
+    require(has(app.view(), "shortcuts") && !noted(), "the save that worked ends the note");
+}
 ShortcutModel editor_model() {
     ShortcutModel model;
     model.bars.push_back({"one",
@@ -4488,6 +4535,7 @@ int main() {
         shortcut_bar_settings();
         shortcut_buttons();
         shortcut_press_bar_change();
+        shortcut_invalid_note();
         shortcut_editor_settings();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
