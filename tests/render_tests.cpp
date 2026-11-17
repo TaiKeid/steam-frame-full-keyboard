@@ -2098,6 +2098,13 @@ void carry_view(bool narrow) {
     const auto phase = [&](const char* what) { return name + ": " + what; };
     Comparison compare;
     compare.frame(app.view(), phase("the editor").c_str());
+    // Every control the editor draws by name is drawn: New profile too.
+    for (const char* id :
+         {"shortcuts-new-profile", "shortcuts-row-0", "shortcuts-button-0", "shortcuts-add"}) {
+        if (flat(compare.full, control_named(app.view(), id).bounds)) {
+            throw std::runtime_error(phase("") + id + " is not drawn");
+        }
+    }
     const auto from = control_named(app.view(), "shortcuts-button-0").bounds;
     const auto to = control_named(app.view(), "shortcuts-row-1").bounds;
     const double x0 = from.x + from.width / 2, y0 = from.y + from.height / 2;

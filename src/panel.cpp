@@ -4072,7 +4072,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                 cairo_fill(cr);
             }
             draw_icon(cr, Icon::Close, c.bounds, t.legend, 14);
-        } else if (c.id == "shortcuts-new-bar") {
+        } else if (c.id == "shortcuts-new-profile") {
             if (hovered(c)) {
                 rounded(cr, c.bounds, t.radius);
                 source(cr, t.hover);
