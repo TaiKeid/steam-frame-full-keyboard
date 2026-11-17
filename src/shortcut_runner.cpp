@@ -5,6 +5,9 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace framekeyboard {
+bool QueuedShortcutOutput::admit(double now) {
+    return output_.admit(true, now);
+}
 bool QueuedShortcutOutput::can_queue(std::size_t entries) const {
     return output_.can_queue(entries);
 }
@@ -76,8 +79,9 @@ bool ShortcutRunner::start(const ShortcutAction& action, double now) {
         }
         steps.push_back({Step::Kind::Chord, chord});
     }
-    // The whole sequence must fit now, or none of it goes.
-    if (!output_.can_queue(steps.size())) {
+    // Admitted as a key press is, then the whole sequence must fit now, or
+    // none of it goes.
+    if (!output_.admit(now) || !output_.can_queue(steps.size())) {
         return false;
     }
     steps_ = std::move(steps);

@@ -41,7 +41,25 @@ struct Recorder : KeySink {
         done = false;
         return Delivery::Waiting;
     }
-    void cancel_delivery() override { waiting = false; }
+    void cancel_delivery() override { waiting = text_waiting = false; }
+    // Text, acknowledged later as keys are: `text_done`, then `text_ok`.
+    bool text_waiting{}, text_done{}, text_ok{true};
+    bool text_available() override { return true; }
+    bool commit_text(const std::string& text) override {
+        if (text_waiting) {
+            if (!text_done) {
+                return false;
+            }
+            text_waiting = false;
+            return text_ok;
+        }
+        events.emplace_back(-static_cast<int>(text.size()), 0);
+        text_waiting = true;
+        text_done = false;
+        return false;
+    }
+    bool text_pending() const override { return text_waiting; }
+    void cancel_text() override { text_waiting = false; }
     std::uint32_t focused_window() const override { return window; }
     int shortcut_code(xkb_keysym_t symbol, int fallback) override {
         asked.push_back(symbol);
@@ -171,14 +189,36 @@ void whole_or_refused() {
                 "two combinations into room for two start");
     }
     {
-        // After a failed delivery nothing is queued until the next deliberate press.
+        // A press is admitted as a key's: a failure with nothing to retry
+        // is cleared, and the shortcut goes.
         Rig rig;
         rig.sink.slow = true;
         rig.sink.succeed = false;
         rig.output.tap({KEY_X});
         rig.acknowledge(0);
         require(rig.output.failures() == 1, "a failure");
-        require(!rig.runner.start(shortcut({{{}, "KeyA"}}), 1), "failed output refuses a shortcut");
+        rig.sink.slow = false;
+        rig.sink.events.clear();
+        const auto letter = shortcut({{{}, "KeyA"}});
+        const bool started = rig.runner.start(letter, 1);
+        require(started && rig.sink.events == Events{{KEY_A, 1}, {KEY_A, 0}},
+                "after a failure with nothing to retry, a button press sends");
+    }
+    {
+        // Text still waiting for an explicit retry keeps it refused, with
+        // the status a key would get.
+        Rig rig;
+        require(rig.output.commit_text("ab"), "text queued");
+        rig.sink.text_done = true;
+        rig.sink.text_ok = false;
+        rig.tick(.1);
+        require(rig.output.retry_available(), "the text waits for a retry");
+        rig.output.take_status();
+        rig.sink.events.clear();
+        const auto letter = shortcut({{{}, "KeyA"}});
+        const bool started = rig.runner.start(letter, 1);
+        require(!started && rig.sink.events.empty() && rig.output.take_status().has_value(),
+                "a failure with text to retry refuses a button, with a status");
     }
     {
         Rig rig;

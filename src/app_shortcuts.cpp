@@ -481,9 +481,13 @@ void App::press_shortcut_button(std::size_t index, double now) {
     lose_word();
     if (shortcut_runner_.start(action, now)) {
         shortcut_run_ = ShortcutRun{bar_id, index};
-    } else if (output_.enabled()) {
-        // Without typing the status already says why nothing goes.
-        status_ = tr("output.queue-full");
+    } else {
+        // Refused as a key would be: its status, or a queue too full for
+        // the whole sequence. Without typing the status already says why.
+        update_output_status();
+        if (output_.enabled() && output_.can_queue(1)) {
+            status_ = tr("output.queue-full");
+        }
     }
     dirty = true;
 }

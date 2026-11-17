@@ -17,6 +17,10 @@ class OutputController;
 class ShortcutOutput {
   public:
     virtual ~ShortcutOutput() = default;
+    // A button press is admitted as a key press is (OutputController::admit):
+    // it clears a failure with nothing left to retry, and a refusal leaves
+    // the status a key's would.
+    virtual bool admit(double now) = 0;
     // Whether this many entries fit now, so a sequence is never cut short.
     virtual bool can_queue(std::size_t entries) const = 0;
     // One balanced chord: downs in order, then ups in reverse.
@@ -36,6 +40,7 @@ class QueuedShortcutOutput final : public ShortcutOutput {
   public:
     explicit QueuedShortcutOutput(OutputController& output, std::function<bool()> keymap_letters = {})
         : output_(output), keymap_letters_(std::move(keymap_letters)) {}
+    bool admit(double now) override;
     bool can_queue(std::size_t entries) const override;
     bool tap(const std::vector<int>& codes) override;
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
@@ -71,8 +76,8 @@ class ShortcutRunner {
     explicit ShortcutRunner(ShortcutOutput& output) : output_(output) {}
     // Starts `action` at `now`, ending a run under way as Stopped, and sends
     // what can go at once. False, with nothing sent, when it cannot go out
-    // whole now: output disabled, failed or too full, an unsendable action,
-    // or a kind not run here yet.
+    // whole now: the output refuses it as it would a key press, or is too
+    // full, the action can't be sent, or its kind isn't run here yet.
     bool start(const ShortcutAction& action, double now);
     // Sends nothing more; what was already queued finishes.
     void stop();
