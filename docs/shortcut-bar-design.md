@@ -171,7 +171,7 @@ Settings has one row for the feature, in the General card after Hide numpad. Und
 - Turning it on while there are no bars shows the empty bar once, so its picker, and through it the editor, can be reached.
 - When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (bar 2, button 5), never quoting the user's text.
 
-The editor is a screen of its own, opened from the picker's **Edit shortcuts** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad.
+The editor is a screen of its own, opened from the picker's **Edit shortcuts** (prefix `shortcuts-`), with ← and ✓ at its top left. It fills the case as it is, full width or with the numpad hidden, as the emoji picker does, so the keyboard never changes width around it; on a narrower case, such as the flick layout's, it takes the width of the keyboard without its numpad. While it is open a composing language's reading and candidates are out of sight and take no press, as in Settings, and come back when it closes.
 
 Its layout fits both widths. With the numpad hidden the bars column is 236 wide instead of 286, the label field 250 instead of 300, the strip shows 12 buttons instead of 15, the steps list is narrower, and the strip's hint is left out.
 
@@ -186,7 +186,7 @@ Its layout fits both widths. With the numpad hidden the bars column is 236 wide 
 
 Shortcut and Macro each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
 
-Everything in the editor is pending. ✓ saves it and returns to the keyboard. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
+Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the bar that was selected in the editor, as if it had been chosen in the picker: a free one becomes the free bar. So a first bar shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
 ### Typing and recording
 
