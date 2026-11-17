@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <glib.h>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -34,6 +35,31 @@ double chip_width(const std::string& text, double size, const std::string& famil
 }
 // The gap between chips, where a chevron goes, and one stick step's scroll.
 constexpr double chip_gap = 28, chip_step = 80;
+// A macro step's row in its well: 48 tall, 54 apart.
+constexpr double step_height = 48, step_pitch = 54;
+// A step's row, and where its parts go: a Keys step's chips run from
+// `content` to `remove`; a Wait step has its − and + around its time.
+struct StepGeometry {
+    Rect row, content, remove, minus, time, plus;
+};
+StepGeometry step_geometry(const Rect& well, double top, std::size_t index, double scroll) {
+    StepGeometry g;
+    g.row = {well.x + 8, top + static_cast<double>(index) * step_pitch - scroll, well.width - 26,
+             step_height};
+    const auto& r = g.row;
+    g.remove = {r.x + r.width - 44, r.y, 40, r.height};
+    g.content = {r.x + 88, r.y, g.remove.x - 8 - (r.x + 88), r.height};
+    g.minus = {r.x + 160, r.y + 6, 40, 36};
+    g.time = {r.x + 204, r.y, 76, r.height};
+    g.plus = {r.x + 284, r.y + 6, 40, 36};
+    return g;
+}
+// The time a wait shows: 0.5 s, 2.0 s.
+std::string wait_text(int ms) {
+    char text[16];
+    std::snprintf(text, sizeof text, "%.1f s", ms / 1000.0);
+    return text;
+}
 // Where the editor's parts go on a case of `body`.
 struct EditorLayout {
     bool wide{};
@@ -45,6 +71,10 @@ struct EditorLayout {
     // The Keys row: the chips' strip of fixed width, then Record and clear,
     // which stay in place whatever is recorded (R331).
     Rect chips, record, clear;
+    // The Macro view: the steps' well, + Keys and + Wait beside it, the
+    // Repeat row with its count, and the line saying what a press does.
+    Rect steps_well, add_keys, add_wait, repeat, count_minus, count_value, count_plus, sends;
+    double steps_top{};
     double keys_y{}, segments_x{};
     double button_width{}, button_height{}, button_top{}, pitch{}, gap{};
 };
@@ -79,6 +109,16 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     l.clear = {l.right - 60, l.keys_y, 60, 52};
     l.record = {l.clear.x - 12 - 160, l.keys_y, 160, 52};
     l.chips = {l.left + 100, l.keys_y, l.record.x - 16 - (l.left + 100), 52};
+    l.add_keys = {l.right - 170, 267, 170, 52};
+    l.add_wait = {l.right - 170, 329, 170, 52};
+    l.steps_well = {l.label.x, 267, l.add_keys.x - 18 - l.label.x, 226};
+    l.steps_top = l.steps_well.y + 7;
+    l.repeat = {l.label.x, 510, 3 * 117, 54};
+    l.count_minus = {l.repeat.x + l.repeat.width + 20, 511, 52, 52};
+    l.count_value = {l.count_minus.x + 60, 511, 70, 52};
+    l.count_plus = {l.count_value.x + 78, 511, 52, 52};
+    // One 26-pixel line, centered on the Repeat row.
+    l.sends = {l.count_plus.x + 72, 524, l.right - (l.count_plus.x + 72), 26};
     l.explanation = {l.left, 372, l.right - l.left, 60};
     return l;
 }
@@ -199,7 +239,8 @@ void App::close_shortcut_editor(bool save) {
     }
     end_popup(false);
     if (save) {
-        const auto& model = shortcut_editor_->model();
+        // Each button keeps only its chosen action's content.
+        const auto model = shortcut_editor_->saved();
         // The editor never builds a model past a limit; checked all the same.
         if (const auto problem = validate_shortcuts(model)) {
             status_ = tr("status.shortcuts-not-saved", {{"error", *problem}});
@@ -277,7 +318,8 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
             const Rect r{l.strip.x + static_cast<double>(i) * l.pitch - editor_strip_scroll_.shown,
                          l.button_top, l.button_width, l.button_height};
             if (r.x + r.width <= l.strip.x || r.x >= l.strip.x + l.strip.width ||
-                (i < count && lifted && !shortcut_drag_->row && shortcut_drag_->index == i)) {
+                (i < count && lifted && !shortcut_drag_->row && !shortcut_drag_->step &&
+                 shortcut_drag_->index == i)) {
                 continue;
             }
             if (i == count) {
@@ -309,15 +351,15 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
              {"shortcuts.editor.macro", ShortcutAction::Kind::Macro},
              {"shortcuts.editor.run", ShortcutAction::Kind::Run}}};
         for (std::size_t i = 0; i < kinds.size(); ++i) {
-            // Macros and Run come later: only a shortcut's own segment shows
-            // as usable, and a button keeps the action it has.
+            // Shortcut and Macro switch, each keeping its content; Run comes
+            // later, and a Run button keeps the action it has.
             Control segment{{},
                             tr(kinds[i].first),
                             {l.segments_x + 110 * static_cast<double>(i), l.label.y, 110, 56},
                             kind == kinds[i].second};
             segment.style = ControlStyle::Segment;
             segment.segments = 3;
-            segment.enabled = i == 0 && kind == ShortcutAction::Kind::Keys;
+            segment.enabled = i < 2 && kind != ShortcutAction::Kind::Run;
             add("shortcuts-kind-" + std::to_string(i), "kind", segment, static_cast<int>(i));
         }
         if (kind == ShortcutAction::Kind::Keys) {
@@ -325,6 +367,9 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
             Control clear{{}, {}, l.clear, false, Icon::Clear};
             clear.enabled = !button->action.chords.empty();
             add("shortcuts-clear", "clear", clear);
+        }
+        if (kind == ShortcutAction::Kind::Macro) {
+            append_macro_controls(result, l.steps_well, *button);
         }
     }
     if (popup_) {
@@ -343,6 +388,153 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
                           true});
         result.back().action = {ControlKind::ShortcutEditor, 0, "question-accept"};
     }
+}
+void App::append_macro_controls(std::vector<Control>& result, const Rect& well,
+                                const ShortcutButton& button) const {
+    const auto add = [&](std::string id, std::string value, Control control, int index = 0) {
+        control.id = std::move(id);
+        control.action = {ControlKind::ShortcutEditor, index, std::move(value)};
+        result.push_back(std::move(control));
+    };
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().bars.size());
+    const auto& steps = button.action.steps;
+    const bool lifted = shortcut_drag_ && shortcut_drag_->lifted && shortcut_drag_->step;
+    // The steps' rows, in the well, clipped to it; a lifted one follows the laser.
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        const auto g = step_geometry(well, l.steps_top, i, editor_steps_scroll_.shown);
+        if (g.row.y + g.row.height <= well.y || g.row.y >= well.y + well.height ||
+            (lifted && shortcut_drag_->index == i)) {
+            continue;
+        }
+        const auto index = static_cast<int>(i);
+        Control row{{}, {}, g.row};
+        row.clip = well;
+        add("shortcuts-step-" + std::to_string(i), "step", row, index);
+        if (steps[i].kind == MacroStep::Kind::Wait) {
+            Control minus{{}, "−", g.minus};
+            minus.clip = well;
+            minus.enabled = steps[i].wait_ms > shortcut_limits::wait_min_ms;
+            add("shortcuts-step-minus-" + std::to_string(i), "step-minus", minus, index);
+            Control plus{{}, "+", g.plus};
+            plus.clip = well;
+            plus.enabled = steps[i].wait_ms < shortcut_limits::wait_max_ms;
+            add("shortcuts-step-plus-" + std::to_string(i), "step-plus", plus, index);
+        }
+        Control remove{{}, {}, g.remove, false, Icon::Close};
+        remove.clip = well;
+        add("shortcuts-step-delete-" + std::to_string(i), "step-delete", remove, index);
+    }
+    const bool room = shortcut_editor_->can_add_step();
+    Control keys{{}, tr("shortcuts.editor.add-keys"), l.add_keys};
+    keys.enabled = room;
+    add("shortcuts-add-keys", "add-keys", keys);
+    Control wait{{}, tr("shortcuts.editor.add-wait"), l.add_wait};
+    wait.enabled = room;
+    add("shortcuts-add-wait", "add-wait", wait);
+    // Repeat: Once, Times with its count, While held.
+    const std::array<const char*, 3> modes{"shortcuts.editor.once", "shortcuts.editor.times",
+                                           "shortcuts.editor.while-held"};
+    const auto mode = static_cast<std::size_t>(button.action.repeat.mode);
+    for (std::size_t i = 0; i < modes.size(); ++i) {
+        Control segment{{},
+                        tr(modes[i]),
+                        {l.repeat.x + 117 * static_cast<double>(i), l.repeat.y, 117, l.repeat.height},
+                        mode == i};
+        segment.style = ControlStyle::Segment;
+        segment.segments = 3;
+        add("shortcuts-repeat-" + std::to_string(i), "repeat", segment, static_cast<int>(i));
+    }
+    if (button.action.repeat.mode == MacroRepeat::Mode::Times) {
+        Control minus{{}, "−", l.count_minus};
+        minus.enabled = button.action.repeat.count > shortcut_limits::repeat_min;
+        add("shortcuts-count-minus", "count-minus", minus);
+        Control plus{{}, "+", l.count_plus};
+        plus.enabled = button.action.repeat.count < shortcut_limits::repeat_max;
+        add("shortcuts-count-plus", "count-plus", plus);
+    }
+}
+namespace {
+// The macro's steps as rows in their well, scrolled; or the one row at
+// `only` (a lifted one), wherever the list would have it.
+std::vector<ShortcutStepView> steps_view(const EditorLayout& l, const ShortcutAction& action,
+                                         double scroll, const std::string& family,
+                                         std::optional<std::size_t> only = {}) {
+    std::vector<ShortcutStepView> rows;
+    for (std::size_t i = 0; i < action.steps.size(); ++i) {
+        if (only && *only != i) {
+            continue;
+        }
+        const auto& step = action.steps[i];
+        const auto g = step_geometry(l.steps_well, l.steps_top, i, scroll);
+        ShortcutStepView row;
+        row.bounds = g.row;
+        row.wait = step.kind == MacroStep::Kind::Wait;
+        if (row.wait) {
+            row.time = wait_text(step.wait_ms);
+            row.time_bounds = g.time;
+        } else {
+            // As many chips as fit, the rest an ellipsis.
+            const auto chips =
+                chip_row({g.content.x, g.row.y, 1e6, g.row.height}, 36, step.keys, {}, 0, family);
+            for (const auto& chip : chips.chips) {
+                if (chip.bounds.x + chip.bounds.width > g.content.x + g.content.width - 36) {
+                    row.more = true;
+                    break;
+                }
+                row.chips.push_back(chip);
+            }
+            if (row.more) {
+                const double end = row.chips.empty()
+                                       ? g.content.x
+                                       : row.chips.back().bounds.x + row.chips.back().bounds.width;
+                row.more_bounds = {end + 4, g.row.y, 32, g.row.height};
+            }
+        }
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+} // namespace
+double App::editor_steps_limit() const {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    if (!button || button->action.kind != ShortcutAction::Kind::Macro) {
+        return 0;
+    }
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().bars.size());
+    const double content =
+        static_cast<double>(button->action.steps.size()) * step_pitch + 14 - step_pitch + step_height;
+    return std::max(0.0, content - l.steps_well.height);
+}
+// What a press on a macro does, for the line beside its Repeat row.
+std::string App::macro_sends(const ShortcutAction& action) const {
+    if (action.steps.empty()) {
+        return tr("shortcuts.editor.macro-empty");
+    }
+    std::string keys;
+    for (const auto& step : action.steps) {
+        if (!keys.empty()) {
+            keys += tr("shortcuts.editor.then");
+        }
+        if (step.kind == MacroStep::Kind::Wait) {
+            keys += tr("shortcuts.editor.wait-for", {{"time", wait_text(step.wait_ms)}});
+            continue;
+        }
+        for (std::size_t i = 0; i < step.keys.size(); ++i) {
+            keys += (i ? " " : "") + chord_text(step.keys[i]);
+        }
+    }
+    switch (action.repeat.mode) {
+    case MacroRepeat::Mode::Times:
+        return tr("shortcuts.editor.macro-times",
+                  {{"keys", keys}, {"count", static_cast<long long>(action.repeat.count)}});
+    case MacroRepeat::Mode::WhileHeld:
+        return tr("shortcuts.editor.macro-held", {{"keys", keys}});
+    case MacroRepeat::Mode::Once:
+        break;
+    }
+    return tr("shortcuts.editor.macro-once", {{"keys", keys}});
 }
 void App::append_shortcut_editor(PanelView& v) const {
     const auto body = panel_case_bounds(v);
@@ -425,9 +617,31 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.explanation.push_back(tr("shortcuts.editor.record-hint"));
             break;
         }
-        case ShortcutAction::Kind::Macro:
-            e.explanation.push_back(tr("shortcuts.editor.macro-later"));
+        case ShortcutAction::Kind::Macro: {
+            const auto& action = button->action;
+            e.steps_caption = tr("shortcuts.editor.steps");
+            e.repeat_caption = tr("shortcuts.editor.repeat");
+            e.wait_caption = tr("shortcuts.editor.wait");
+            e.steps_well = l.steps_well;
+            e.steps = steps_view(l, action, editor_steps_scroll_.shown, localization_.fonts());
+            const double limit = editor_steps_limit();
+            if (limit > 0) {
+                const auto& well = l.steps_well;
+                const double length = well.height * well.height / (well.height + limit);
+                e.steps_thumb =
+                    Rect{well.x + well.width - 10,
+                         well.y + 6 + editor_steps_scroll_.shown / limit * (well.height - 12 - length),
+                         3, length};
+            }
+            if (action.repeat.mode == MacroRepeat::Mode::Times) {
+                e.count = std::to_string(action.repeat.count);
+                e.count_bounds = l.count_value;
+            }
+            // What a press does, beside Repeat, ending in an ellipsis.
+            e.explanation_bounds = l.sends;
+            e.explanation.push_back(macro_sends(action));
             break;
+        }
         case ShortcutAction::Kind::Run:
             e.explanation.push_back(tr("shortcuts.editor.run-later"));
             break;
@@ -440,8 +654,22 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.lifted_row =
                 ShortcutChip{model.bars[d.index].name,
                              {l.column.x, d.py - row_height / 2, l.column_width, row_height - 4}};
+        } else if (const auto* button = shortcut_editor_->selected_button();
+                   d.step && button && d.index < button->action.steps.size()) {
+            // The row the laser carries, drawn where it holds it.
+            auto rows = steps_view(l, button->action, editor_steps_scroll_.shown, localization_.fonts(),
+                                   d.index);
+            if (!rows.empty()) {
+                auto lifted = rows.front();
+                const double dy = d.py - step_height / 2 - lifted.bounds.y;
+                lifted.bounds.y += dy;
+                for (auto& chip : lifted.chips) {
+                    chip.bounds.y += dy;
+                }
+                e.lifted_step = lifted;
+            }
         } else if (const auto* selected = shortcut_editor_->selected_bar();
-                   !d.row && selected && d.index < selected->buttons.size()) {
+                   !d.row && !d.step && selected && d.index < selected->buttons.size()) {
             e.lifted_button = ShortcutChip{selected->buttons[d.index].label,
                                            {d.px - l.button_width / 2, d.py - l.button_height / 2,
                                             l.button_width, l.button_height}};
@@ -494,7 +722,7 @@ void App::editor_action(const ControlAction& command) {
     } else if (value == "row") {
         shortcut_editor_->select_bar(index);
         editor_strip_scroll_ = {};
-        editor_chips_scroll_ = {};
+        editor_chips_scroll_ = editor_steps_scroll_ = {};
     } else if (value == "rename") {
         open_popup(PopupKind::Name);
     } else if (value == "delete") {
@@ -520,7 +748,7 @@ void App::editor_action(const ControlAction& command) {
         shortcut_editor_->remove_tie(index);
     } else if (value == "button") {
         shortcut_editor_->select_button(index);
-        editor_chips_scroll_ = {};
+        editor_chips_scroll_ = editor_steps_scroll_ = {};
     } else if (value == "add") {
         shortcut_editor_->add_button();
         editor_chips_scroll_ = {};
@@ -538,6 +766,49 @@ void App::editor_action(const ControlAction& command) {
     } else if (value == "clear") {
         shortcut_editor_->set_chords({});
         editor_chips_scroll_ = {};
+    } else if (value == "kind") {
+        shortcut_editor_->set_kind(command.index == 1 ? ShortcutAction::Kind::Macro
+                                                      : ShortcutAction::Kind::Keys);
+        editor_chips_scroll_ = editor_steps_scroll_ = {};
+    } else if (value == "step") {
+        // A Keys step's row opens the recorder for it.
+        const auto* button = shortcut_editor_->selected_button();
+        if (button && index < button->action.steps.size() &&
+            button->action.steps[index].kind == MacroStep::Kind::Keys) {
+            open_popup(PopupKind::Recording, index);
+        }
+    } else if (value == "step-delete") {
+        shortcut_editor_->delete_step(index);
+    } else if (value == "step-minus" || value == "step-plus") {
+        const auto* button = shortcut_editor_->selected_button();
+        if (button && index < button->action.steps.size()) {
+            constexpr int step_ms = 100;
+            const int ms = button->action.steps[index].wait_ms;
+            shortcut_editor_->set_wait(index, value == "step-plus" ? ms + step_ms : ms - step_ms);
+        }
+    } else if (value == "add-keys") {
+        open_popup(PopupKind::Recording, std::nullopt, true);
+    } else if (value == "add-wait") {
+        MacroStep wait;
+        wait.kind = MacroStep::Kind::Wait;
+        wait.wait_ms = 500;
+        shortcut_editor_->add_step(wait);
+        editor_steps_scroll_.target = editor_steps_limit(); // the new step in view
+    } else if (value == "repeat" || value == "count-minus" || value == "count-plus") {
+        const auto* button = shortcut_editor_->selected_button();
+        if (button && button->action.kind == ShortcutAction::Kind::Macro) {
+            auto repeat = button->action.repeat;
+            if (value == "repeat") {
+                repeat.mode = static_cast<MacroRepeat::Mode>(std::clamp(command.index, 0, 2));
+                if (repeat.mode == MacroRepeat::Mode::Times &&
+                    repeat.count < shortcut_limits::repeat_min) {
+                    repeat.count = shortcut_limits::repeat_min;
+                }
+            } else {
+                repeat.count += value == "count-plus" ? 1 : -1;
+            }
+            shortcut_editor_->set_repeat(repeat);
+        }
     }
     dirty = true;
 }
@@ -546,11 +817,15 @@ void App::editor_press(unsigned pointer, const std::string& id, double x, double
         return;
     }
     const bool row = id.starts_with("shortcuts-row-");
-    if (!row && !id.starts_with("shortcuts-button-")) {
+    // A step's own row, not its − + or ✕: shortcuts-step-<digits>.
+    constexpr std::string_view step_prefix = "shortcuts-step-";
+    const bool step = id.starts_with(step_prefix) &&
+                      id.find_first_not_of("0123456789", step_prefix.size()) == std::string::npos;
+    if (!row && !step && !id.starts_with("shortcuts-button-")) {
         return;
     }
-    const auto index = static_cast<std::size_t>(std::stoul(id.substr(row ? 14 : 17)));
-    shortcut_drag_ = ShortcutDrag{pointer, row, index, x, y, x, y, false, false};
+    const auto index = static_cast<std::size_t>(std::stoul(id.substr(row ? 14 : step ? 15 : 17)));
+    shortcut_drag_ = ShortcutDrag{pointer, row, index, x, y, x, y, false, false, step};
 }
 bool App::editor_drag_move(unsigned pointer, double x, double y) {
     if (!editor_screen() || !shortcut_drag_ || shortcut_drag_->pointer != pointer) {
@@ -560,8 +835,8 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
     d.px = x;
     d.py = y;
     if (!d.lifted) {
-        // A row lifts going up or down, a button going sideways.
-        if (std::abs(d.row ? y - d.y : x - d.x) <= dead_zone) {
+        // A row or step lifts going up or down, a button going sideways.
+        if (std::abs(d.row || d.step ? y - d.y : x - d.x) <= dead_zone) {
             return false;
         }
         d.lifted = true;
@@ -569,13 +844,22 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
         if (d.row) {
             shortcut_editor_->select_bar(d.index);
             editor_strip_scroll_ = {};
-        } else {
+        } else if (!d.step) {
             shortcut_editor_->select_button(d.index);
         }
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().bars.size());
-    if (d.row) {
+    if (d.step) {
+        const auto* button = shortcut_editor_->selected_button();
+        const auto count = button ? button->action.steps.size() : 0;
+        const double at = std::floor((y - l.steps_top + editor_steps_scroll_.shown) / step_pitch);
+        const auto to = static_cast<std::size_t>(std::clamp(at, 0.0, static_cast<double>(count) - 1));
+        if (count > 0 && to != d.index) {
+            shortcut_editor_->move_step(d.index, to);
+            d.index = to;
+        }
+    } else if (d.row) {
         const auto count = shortcut_editor_->model().bars.size();
         const double at = std::floor((y - l.list_top + editor_rows_scroll_.shown) / row_height);
         const auto to = static_cast<std::size_t>(std::clamp(at, 0.0, static_cast<double>(count - 1)));
@@ -609,7 +893,7 @@ bool App::editor_drag_up(unsigned pointer) {
     if (!d.lifted) {
         return false; // a click: the control acts
     }
-    if (shortcut_editor_ && !d.row && d.outside) {
+    if (shortcut_editor_ && !d.row && !d.step && d.outside) {
         shortcut_editor_->delete_button(d.index);
     }
     dirty = true;
@@ -635,6 +919,8 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
         }
     } else if (l.chips.contains(x, y)) {
         moved = step_scroll(editor_chips_scroll_, delta, chip_step, editor_chips_limit());
+    } else if (l.steps_well.contains(x, y)) {
+        moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
     } else if (l.bars_list.contains(x, y)) {
         const double limit =
             std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
@@ -670,6 +956,9 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
     if (l.chips.contains(x, y)) {
         return room(editor_chips_scroll_, editor_chips_limit());
     }
+    if (l.steps_well.contains(x, y)) {
+        return room(editor_steps_scroll_, editor_steps_limit());
+    }
     if (l.bars_list.contains(x, y)) {
         const double limit =
             std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
@@ -695,6 +984,16 @@ void App::tick_shortcut_editor(double now) {
         return;
     }
     tick_popup(now);
+    // A held − or + steps on, as a held key repeats.
+    if (value_repeat_) {
+        const auto held = pressed_controls_.find(value_repeat_->pointer);
+        if (held == pressed_controls_.end() || held->second.id != value_repeat_->id || popup_) {
+            value_repeat_.reset();
+        } else if (now >= value_repeat_->next) {
+            value_repeat_->next = now + .1;
+            editor_action(value_repeat_->action);
+        }
+    }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().bars.size());
     const double rows =
@@ -707,18 +1006,21 @@ void App::tick_shortcut_editor(double now) {
     for (auto [scroll, limit] :
          {std::pair{&editor_rows_scroll_, rows}, std::pair{&editor_strip_scroll_, strip},
           std::pair{&editor_chips_scroll_, editor_chips_limit()},
+          std::pair{&editor_steps_scroll_, editor_steps_limit()},
           std::pair{&popup_chips_scroll_, popup_chips_limit()}}) {
         scroll->target = std::min(scroll->target, limit);
         dirty |= ease_scroll(scroll->shown, scroll->target, elapsed);
     }
 }
 
-void App::open_popup(PopupKind kind) {
+void App::open_popup(PopupKind kind, std::optional<std::size_t> step, bool new_step) {
     if (!shortcut_editor_ || popup_) {
         return;
     }
     EditorPopup popup;
     popup.kind = kind;
+    popup.step = step;
+    popup.new_step = new_step;
     if (kind == PopupKind::Name) {
         if (!shortcut_editor_->selected_bar()) {
             return;
@@ -726,8 +1028,9 @@ void App::open_popup(PopupKind kind) {
         popup.text = shortcut_editor_->selected_bar()->name;
     } else {
         const auto* button = shortcut_editor_->selected_button();
-        if (!button ||
-            (kind == PopupKind::Recording && button->action.kind != ShortcutAction::Kind::Keys)) {
+        // A shortcut records its combinations; a macro one of its Keys steps.
+        const auto wanted = step || new_step ? ShortcutAction::Kind::Macro : ShortcutAction::Kind::Keys;
+        if (!button || (kind == PopupKind::Recording && button->action.kind != wanted)) {
             return;
         }
         if (kind == PopupKind::Label) {
@@ -768,8 +1071,21 @@ void App::end_popup(bool save) {
             shortcut_editor_->rename_bar(popup.text);
             break;
         case PopupKind::Recording:
-            shortcut_editor_->set_chords(popup.chords); // Done replaces
-            editor_chips_scroll_ = {};
+            // Done replaces: a shortcut's combinations, or a step's. A new
+            // step is added only with something in it; an existing one keeps
+            // its keys when nothing was recorded, as a step holds at least one.
+            if (popup.new_step) {
+                MacroStep step;
+                step.kind = MacroStep::Kind::Keys;
+                step.keys = popup.chords;
+                shortcut_editor_->add_step(std::move(step));
+                editor_steps_scroll_.target = editor_steps_limit();
+            } else if (popup.step) {
+                shortcut_editor_->set_step_keys(*popup.step, popup.chords);
+            } else {
+                shortcut_editor_->set_chords(popup.chords);
+                editor_chips_scroll_ = {};
+            }
             break;
         }
     }
@@ -937,7 +1253,7 @@ void App::popup_record(const std::string& key) {
     auto& p = *popup_;
     const auto modifiers = std::exchange(p.latched, {});
     // A shortcut stops at four combinations (a macro's Keys step at 32).
-    if (p.chords.size() >= shortcut_limits::chords || (key.empty() && modifiers.empty())) {
+    if (p.chords.size() >= popup_limit() || (key.empty() && modifiers.empty())) {
         return;
     }
     p.chords.push_back({modifiers, key});
@@ -1018,7 +1334,7 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
     };
     add("done", "popup-done", {{}, tr("shortcuts.popup.done"), take(120), true, Icon::Apply});
     add("cancel", "popup-cancel", {{}, tr("button.cancel"), take(104)});
-    const bool room = p.chords.size() < shortcut_limits::chords;
+    const bool room = p.chords.size() < popup_limit();
     if (p.kind == PopupKind::Recording) {
         Control remove{{}, tr("shortcuts.popup.remove-last"), take(146)};
         remove.enabled = !p.chords.empty();
@@ -1093,7 +1409,7 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     view.text = p.text;
     view.cursor = p.cursor;
     if (p.kind == PopupKind::Recording) {
-        const bool room = p.chords.size() < shortcut_limits::chords;
+        const bool room = p.chords.size() < popup_limit();
         const auto strip = popup_chips_strip(pl.well);
         const auto row = chip_row(strip, 34, p.chords, pending_text(p.latched, room),
                                   popup_chips_scroll_.shown, localization_.fonts());
@@ -1103,14 +1419,14 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
         const double after = row.end + 20, room_left = strip.x + strip.width - after;
         if (!room && room_left >= 160) {
             // Where the chips leave room for it.
-            view.full = tr("shortcuts.popup.full");
+            view.full = tr(p.step || p.new_step ? "shortcuts.popup.full-step" : "shortcuts.popup.full");
             view.full_bounds = {after, pl.well.y, room_left, pl.well.height};
         } else if (p.chords.empty() && p.latched.empty()) {
             view.full = tr("shortcuts.popup.recording-hint");
             view.full_bounds = {pl.well.x + 16, pl.well.y, pl.well.width - 32, pl.well.height};
         }
     }
-    if (p.fkeys && p.kind == PopupKind::Recording && p.chords.size() < shortcut_limits::chords) {
+    if (p.fkeys && p.kind == PopupKind::Recording && p.chords.size() < popup_limit()) {
         // Its button is row 1's fourth from the right.
         const double fkeys_right = pl.row.x + pl.row.width - (120 + 104 + 146 + 3 * 8);
         constexpr double size = 70, height = 46, gap = 8, pad = 8;
@@ -1142,6 +1458,11 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     e.popup = std::move(view);
 }
 
+std::size_t App::popup_limit() const {
+    // A shortcut stops at four combinations, a macro's Keys step at 32.
+    return popup_ && (popup_->step || popup_->new_step) ? shortcut_limits::step_chords
+                                                        : shortcut_limits::chords;
+}
 double App::editor_chips_limit() const {
     const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
     if (!button || button->action.kind != ShortcutAction::Kind::Keys) {
@@ -1160,7 +1481,7 @@ double App::popup_chips_limit() const {
         editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
     const auto pl = popup_layout(body, l.strip_well, mini_layout_);
     const auto& p = *popup_;
-    const bool room = p.chords.size() < shortcut_limits::chords;
+    const bool room = p.chords.size() < popup_limit();
     return chip_row(popup_chips_strip(pl.well), 34, p.chords, pending_text(p.latched, room), 0,
                     localization_.fonts())
         .limit;

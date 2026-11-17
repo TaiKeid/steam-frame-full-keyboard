@@ -3701,6 +3701,118 @@ void editor_button(cairo_t* cr, const PanelView& view, const Control& c, double 
         interface_label(cr, c.label, c.bounds, size, view.interface_font, ink);
     }
 }
+// A macro step's kind, small, before its content: a keyboard for Keys, a
+// clock for Wait.
+void step_icon(cairo_t* cr, bool wait, double cx, double cy, Color color) {
+    cairo_new_path(cr);
+    source(cr, color);
+    cairo_set_line_width(cr, 1.6);
+    if (wait) {
+        cairo_arc(cr, cx, cy, 9, 0, 2 * 3.141592653589793);
+        cairo_move_to(cr, cx, cy - 5);
+        cairo_line_to(cr, cx, cy);
+        cairo_line_to(cr, cx + 4, cy + 3);
+        cairo_stroke(cr);
+        return;
+    }
+    rounded(cr, {cx - 11, cy - 7, 22, 14}, 3);
+    cairo_stroke(cr);
+    for (int i = 0; i < 4; ++i) {
+        cairo_rectangle(cr, cx - 7.5 + 4.5 * i, cy - 3.5, 2, 2);
+    }
+    cairo_rectangle(cr, cx - 5, cy + 1.5, 10, 2);
+    cairo_fill(cr);
+}
+// A row's handle: two columns of three dots, where a drag takes it.
+void grip_dots(cairo_t* cr, double cx, double cy, Color color) {
+    cairo_new_path(cr);
+    source(cr, color);
+    for (int column = 0; column < 2; ++column) {
+        for (int row = 0; row < 3; ++row) {
+            cairo_arc(cr, cx - 3 + 6 * column, cy - 6 + 6 * row, 1.4, 0, 2 * 3.141592653589793);
+            cairo_fill(cr);
+        }
+    }
+}
+// One step's row: its body, handle and kind, then a Keys step's chips or a
+// Wait step's caption and time; its − + and ✕ are controls drawn after.
+void draw_step_row(cairo_t* cr, const PanelView& view, const ShortcutStepView& step, bool hovered) {
+    const auto& t = *view.theme;
+    const auto& e = *view.shortcut_editor;
+    const Color quiet = disabled_legend(t);
+    const auto& r = step.bounds;
+    rounded(cr, r, t.radius);
+    source(cr, hovered ? t.hover : mix(t.bottom, t.surface, .45));
+    cairo_fill(cr);
+    grip_dots(cr, r.x + 22, r.y + r.height / 2, quiet);
+    step_icon(cr, step.wait, r.x + 60, r.y + r.height / 2, mix(t.legend, t.surface, .3));
+    if (step.wait) {
+        interface_label(cr, e.wait_caption, {r.x + 88, r.y, 70, r.height}, 20, view.interface_font,
+                        t.legend, false, PANGO_ALIGN_LEFT);
+        interface_label(cr, step.time, step.time_bounds, 20, view.interface_font, t.legend);
+        return;
+    }
+    draw_chord_chips(cr, view, step.chips);
+    if (step.more) {
+        interface_label(cr, "…", step.more_bounds, 20, view.interface_font, t.legend);
+    }
+}
+// The Macro view's steps (design, Settings and the editor): rows in a well
+// that scrolls, a lifted one over them where the laser holds it.
+void draw_macro_steps(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& t = *view.theme;
+    const auto hovered = [&](const std::string& id) { return view.hovered_controls.contains(id); };
+    interface_label(cr, e.steps_caption, {e.divider + 16, e.steps_well.y, 96, 52}, 22,
+                    view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+    draw_well(cr, t, e.steps_well);
+    cairo_save(cr);
+    cairo_rectangle(cr, e.steps_well.x, e.steps_well.y + 2, e.steps_well.width, e.steps_well.height - 4);
+    cairo_clip(cr);
+    for (std::size_t i = 0; i < e.steps.size(); ++i) {
+        // A lifted step leaves its place empty.
+        const auto id = "shortcuts-step-" + std::to_string(i);
+        if (std::none_of(view.controls.begin(), view.controls.end(),
+                         [&](const Control& c) { return c.id == id; })) {
+            continue;
+        }
+        draw_step_row(cr, view, e.steps[i], hovered(id));
+    }
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-step-minus-") || c.id.starts_with("shortcuts-step-plus-")) {
+            editor_button(cr, view, c, 22);
+        } else if (c.id.starts_with("shortcuts-step-delete-")) {
+            if (hovered(c.id)) {
+                cairo_new_path(cr);
+                cairo_arc(cr, c.bounds.x + c.bounds.width / 2, c.bounds.y + c.bounds.height / 2, 15, 0,
+                          2 * 3.141592653589793);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            draw_icon(cr, Icon::Close, c.bounds, t.legend, 14);
+        }
+    }
+    cairo_restore(cr);
+    if (e.steps_thumb) {
+        rounded(cr, *e.steps_thumb, 1.5);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    if (e.lifted_step) {
+        soft_shadow(cr, e.lifted_step->bounds, t.radius + 2, tone_shadow);
+        draw_step_row(cr, view, *e.lifted_step, true);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-add-keys" || c.id == "shortcuts-add-wait" ||
+            c.id == "shortcuts-count-minus" || c.id == "shortcuts-count-plus") {
+            editor_button(cr, view, c, 22);
+        }
+    }
+    if (!e.count.empty()) {
+        draw_well(cr, t, e.count_bounds);
+        interface_label(cr, e.count, e.count_bounds, 22, view.interface_font, t.legend);
+    }
+}
 // A recorder's red dot.
 void record_dot(cairo_t* cr, const Theme& t, double x, double y, bool on) {
     cairo_new_path(cr);
@@ -4057,10 +4169,13 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             interface_label(cr, shown,
                             {c.bounds.x + 18, c.bounds.y, c.bounds.width - 36, c.bounds.height}, 22,
                             view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
-        } else if (c.id.starts_with("shortcuts-kind-")) {
+        } else if (c.id.starts_with("shortcuts-kind-") || c.id.starts_with("shortcuts-repeat-")) {
             const auto& r = c.bounds;
-            if (c.action.index == 0) {
+            if (c.action.index == 0 && c.id.starts_with("shortcuts-kind-")) {
                 interface_label(cr, e.action_caption, {r.x - 120, r.y, 112, r.height}, 22,
+                                view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+            } else if (c.action.index == 0) {
+                interface_label(cr, e.repeat_caption, {e.divider + 16, r.y, 96, r.height}, 22,
                                 view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             }
             // Each segment paints its slice of the shared well.
@@ -4094,6 +4209,9 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     }
     faded_strip(cr, e.chords_strip, e.chords_before, e.chords_after,
                 [&] { draw_chord_chips(cr, view, e.chords); });
+    if (e.steps_well.width > 0) {
+        draw_macro_steps(cr, view);
+    }
     for (std::size_t i = 0; i < e.explanation.size(); ++i) {
         const auto& r = e.explanation_bounds;
         const Rect line{r.x, r.y + 26 * static_cast<double>(i), r.width, 26};

@@ -3878,12 +3878,12 @@ void shortcut_bar_settings() {
         return;
 #endif
         app.back();
-        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 6,
+        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 8,
                 "the sample bar shows");
     }
     App app(options, sink);
     auto view = app.view();
-    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 6 &&
+    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 8 &&
                 view.shortcut_bar->buttons[0].label == "Undo" &&
                 view.shortcut_bar->buttons[4].label == "Select\nall",
             "a restart loads the bars; the free bar shows");
@@ -4021,9 +4021,9 @@ void shortcut_buttons() {
     app.tick(900);
     auto view = app.view();
     const auto& buttons = view.shortcut_bar->buttons;
-    require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && !buttons[2].enabled &&
+    require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && buttons[2].enabled &&
                 !buttons[3].enabled,
-            "an empty action, and macros and Run for now, are disabled");
+            "a macro is enabled; an empty action, and Run for now, are disabled");
     const auto press = middle(buttons[0].bounds);
     app.move(0, press.x, press.y);
     require(app.down(0, press.x, press.y, 900.1), "a button's press feels like a key's");
@@ -4429,6 +4429,237 @@ void long_combinations() {
                 newest.x >= p.well.x && newest.x + newest.width <= p.well.x + p.well.width,
             "the popup's row shows the newest chip");
 }
+// The Macro view's steps as their rows show them: "keys:Ctrl + A" or "wait:0.5 s".
+std::vector<std::string> step_rows(const PanelView& view) {
+    std::vector<std::string> rows;
+    for (const auto& step : view.shortcut_editor->steps) {
+        if (step.wait) {
+            rows.push_back("wait:" + step.time);
+            continue;
+        }
+        std::string keys;
+        for (const auto& chip : step.chips) {
+            keys += (keys.empty() ? "" : " ") + chip.text;
+        }
+        rows.push_back("keys:" + keys + (step.more ? " …" : ""));
+    }
+    return rows;
+}
+// The Macro view (design, Settings and the editor): switching to it and
+// back, every flow of its steps, Repeat and the limits, at both widths.
+void shortcut_macro_view() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(directory.path, settings);
+        write_shortcuts(directory.path, editor_model());
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        // Shortcut to Macro: its combinations become one Keys step.
+        tap_control(app, "shortcuts-kind-1");
+        auto view = app.view();
+        require(control(view, "shortcuts-kind-1").selected &&
+                    step_rows(view) == std::vector<std::string>{"keys:Ctrl + A"} &&
+                    has(view, "shortcuts-add-keys") && has(view, "shortcuts-add-wait") &&
+                    control(view, "shortcuts-repeat-0").selected && !has(view, "shortcuts-record") &&
+                    view.shortcut_editor->explanation[0] == "Sends Ctrl + A, once per press.",
+                "a shortcut turned into a macro starts as one Keys step holding its combinations");
+        // And back: each keeps what it was given.
+        tap_control(app, "shortcuts-kind-0");
+        view = app.view();
+        require(view.shortcut_editor->chords.size() == 1 && view.shortcut_editor->steps.empty(),
+                "back to Shortcut, its combinations are there");
+        tap_control(app, "shortcuts-kind-1");
+        tap_control(app, "shortcuts-add-wait");
+        require(step_rows(app.view()) == std::vector<std::string>{"keys:Ctrl + A", "wait:0.5 s"},
+                "+ Wait adds half a second");
+        tap_control(app, "shortcuts-kind-0");
+        tap_control(app, "shortcuts-kind-1");
+        require(step_rows(app.view()).size() == 2, "switching loses none of the steps");
+        // A wait's − and +, a tenth of a second each; held, + goes on.
+        tap_control(app, "shortcuts-step-plus-1");
+        tap_control(app, "shortcuts-step-minus-1");
+        tap_control(app, "shortcuts-step-minus-1");
+        require(step_rows(app.view())[1] == "wait:0.4 s", "− and + change a wait by 0.1 s");
+        {
+            const auto plus = middle(control(app.view(), "shortcuts-step-plus-1").bounds);
+            app.move(0, plus.x, plus.y);
+            app.down(0, plus.x, plus.y, 1000);
+            for (double now = 1000; now < 1001; now += .02) {
+                app.tick(now);
+            }
+            app.up(0, plus.x, plus.y);
+            const auto held = step_rows(app.view())[1];
+            require(held != "wait:0.5 s" && held != "wait:0.4 s", "a held + goes on");
+        }
+        // + Keys opens the recorder for a new step, added on Done.
+        tap_control(app, "shortcuts-add-keys");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording,
+                "+ Keys opens the recorder");
+        tap_mini(app, "KeyL");
+        tap_mini(app, "KeyS");
+        tap_mini(app, "Enter");
+        tap_control(app, "shortcuts-popup-done");
+        view = app.view();
+        require(view.shortcut_editor->steps.size() == 3 && step_rows(view)[2] == "keys:L S Enter",
+                "Done adds the recorded step");
+        tap_control(app, "shortcuts-add-keys");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(app.view().shortcut_editor->steps.size() == 3, "Cancel adds nothing");
+        // A Keys step's row opens the recorder for it, from nothing; Done replaces.
+        tap_control(app, "shortcuts-step-0");
+        require(popup_chips(app.view()).empty(), "a step's recording starts from nothing");
+        tap_mini(app, "F5");
+        tap_control(app, "shortcuts-popup-done");
+        require(step_rows(app.view())[0] == "keys:F5", "Done replaces a step's keys");
+        tap_control(app, "shortcuts-step-0");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(step_rows(app.view())[0] == "keys:F5", "Cancel keeps them");
+        // A step's recording takes up to 32 combinations.
+        tap_control(app, "shortcuts-step-2");
+        for (int i = 0; i < 33; ++i) {
+            tap_mini(app, i % 2 ? "KeyA" : "KeyB");
+        }
+        require(popup_chips(app.view()).size() == 32 &&
+                    !control(app.view(), "shortcuts-popup-fkeys").enabled,
+                "a Keys step stops at 32 combinations");
+        tap_control(app, "shortcuts-popup-done");
+        require(step_rows(app.view())[2].ends_with(" …"), "a long step ends its row in an ellipsis");
+        // A drag moves a step; ✕ deletes one.
+        drag(app, control(app.view(), "shortcuts-step-2").bounds, 0, -2 * 54);
+        view = app.view();
+        require(step_rows(view)[1] == "keys:F5" && step_rows(view)[2].starts_with("wait:"),
+                "a step dragged up moves");
+        tap_control(app, "shortcuts-step-delete-0");
+        require(step_rows(app.view()).size() == 2 && step_rows(app.view())[0] == "keys:F5",
+                "✕ deletes a step");
+        // Repeat: Times with its count, While held, Once.
+        tap_control(app, "shortcuts-repeat-1");
+        view = app.view();
+        require(control(view, "shortcuts-repeat-1").selected && view.shortcut_editor->count == "2" &&
+                    !control(view, "shortcuts-count-minus").enabled,
+                "Times starts at 2, its least");
+        tap_control(app, "shortcuts-count-plus");
+        tap_control(app, "shortcuts-count-plus");
+        require(app.view().shortcut_editor->count == "4" &&
+                    app.view().shortcut_editor->explanation[0].ends_with("4 times per press."),
+                "+ counts up, and the line says so");
+        tap_control(app, "shortcuts-repeat-2");
+        require(!has(app.view(), "shortcuts-count-plus") &&
+                    app.view().shortcut_editor->explanation[0].ends_with("again and again while held."),
+                "While held has no count");
+        // 32 steps: + Keys and + Wait are disabled; the list scrolls.
+        while (control(app.view(), "shortcuts-add-wait").enabled) {
+            tap_control(app, "shortcuts-add-wait");
+        }
+        view = app.view();
+        require(view.shortcut_editor->steps.size() == 32 &&
+                    !control(view, "shortcuts-add-keys").enabled &&
+                    view.shortcut_editor->steps_thumb.has_value(),
+                "32 steps: + Keys and + Wait are disabled, and the list scrolls");
+        // ✓ saves only the chosen action: the macro, and no shortcut beside it.
+        tap_control(app, "shortcuts-save");
+        const auto saved = saved_shortcuts(app);
+        const auto& action = saved.bars[0].buttons[0].action;
+        require(action.kind == ShortcutAction::Kind::Macro && action.steps.size() == 32 &&
+                    action.chords.empty() && action.repeat.mode == MacroRepeat::Mode::WhileHeld &&
+                    saved.bars[0].buttons[1] == editor_model().bars[0].buttons[1],
+                "✓ saves the macro alone; other buttons as they were");
+    }
+}
+// Macro buttons on the bar (design, Macro): Times runs its passes; a While
+// held one starts on press, keeps running as the laser drifts, never drags
+// the bar, and lets go with the trigger, its pass finishing.
+void macro_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton twice;
+    twice.label = "Twice";
+    twice.action.kind = ShortcutAction::Kind::Macro;
+    twice.action.steps.push_back({MacroStep::Kind::Keys, {{{}, "KeyA"}}, 0});
+    twice.action.repeat = {MacroRepeat::Mode::Times, 2};
+    ShortcutButton held = twice;
+    held.label = "Held";
+    held.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyB"}}, 0}, {MacroStep::Kind::Wait, {}, 100}};
+    held.action.repeat = {MacroRepeat::Mode::WhileHeld, 0};
+    std::vector<ShortcutButton> buttons{twice, held};
+    for (int i = 0; i < 20; ++i) {
+        buttons.push_back(shortcut_button("K", {{{}, "KeyK"}})); // enough to scroll
+    }
+    model.bars.push_back({"b", "Bar", buttons});
+    model.free_bar = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    app.tick(900);
+    const auto count = [&](int code) {
+        return std::count(sink.events.begin(), sink.events.end(), std::pair{code, 1});
+    };
+    auto view = app.view();
+    require(view.shortcut_bar->buttons[0].enabled && view.shortcut_bar->buttons[1].enabled,
+            "macro buttons are enabled where keys can go");
+    const auto first = middle(view.shortcut_bar->buttons[0].bounds);
+    app.move(0, first.x, first.y);
+    app.down(0, first.x, first.y, 900.1);
+    app.up(0, first.x, first.y);
+    for (double now = 900.1; now < 900.6; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_A) == 2, "Times runs its passes from one press");
+    // While held: on press, before any release.
+    const auto second = middle(view.shortcut_bar->buttons[1].bounds);
+    const double scrolled = view.shortcut_bar->buttons[0].bounds.x;
+    app.move(0, second.x, second.y);
+    require(app.down(0, second.x, second.y, 901), "a held macro's press feels like a key's");
+    require(count(KEY_B) == 1 && app.view().shortcut_bar->buttons[1].running, "it starts on press, lit");
+    require(app.holds_repeat(0), "a held macro is held as a repeating key is");
+    // Drifting sideways off the button: no drag of the bar, and it runs on.
+    app.move(0, second.x + 200, second.y);
+    app.move(0, second.x + 300, second.y + 300);
+    for (double now = 901; now < 901.6; now += .01) {
+        app.tick(now);
+    }
+    require(app.view().shortcut_bar->buttons[0].bounds.x == scrolled,
+            "a held macro's press drags nothing");
+    require(count(KEY_B) >= 3 && app.view().shortcut_bar->buttons[1].running,
+            "it keeps running while held, the laser off the button");
+    app.up(0, second.x + 300, second.y + 300);
+    const auto after = count(KEY_B);
+    for (double now = 901.6; now < 902.5; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_B) == after && !app.view().shortcut_bar->buttons[1].running,
+            "the trigger let go: the pass under way finishes and no other starts");
+    // A cancel ends a hold too (the laser left, or the hold's own limit).
+    app.move(0, second.x, second.y);
+    app.down(0, second.x, second.y, 903);
+    app.cancel_pointer(0);
+    const auto canceled = count(KEY_B);
+    for (double now = 903; now < 904; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
+            "a cancel lets it go");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -4474,9 +4705,9 @@ void shortcut_editor_settings() {
         require(view.shortcut_editor->ties.size() == 1 && view.shortcut_editor->ties[0].text == "Kate",
                 "Used for shows the bar's apps");
         require(control(view, "shortcuts-kind-0").selected &&
-                    !control(view, "shortcuts-kind-1").enabled &&
+                    control(view, "shortcuts-kind-1").enabled &&
                     !control(view, "shortcuts-kind-2").enabled,
-                "Shortcut is the action; Macro and Run wait for their versions");
+                "Shortcut is the action; Macro can be chosen, Run waits for its version");
         require(view.shortcut_editor->chords.size() == 1 &&
                     view.shortcut_editor->chords[0].text == "Ctrl + A",
                 "the recorded combinations as chips");
@@ -4809,6 +5040,8 @@ int main() {
         shortcut_editor_settings();
         shortcut_popup_flick();
         long_combinations();
+        shortcut_macro_view();
+        macro_buttons();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

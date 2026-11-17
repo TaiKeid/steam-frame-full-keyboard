@@ -102,6 +102,7 @@ std::string chord_text(const ShortcutChord& chord) {
 
 ShortcutEditor::ShortcutEditor(ShortcutModel model, const std::string* showing)
     : model_(std::move(model)), original_(model_) {
+    original_ = saved(); // as a save would write it, so an untouched copy is unchanged
     for (std::size_t i = 0; showing && i < model_.bars.size(); ++i) {
         if (model_.bars[i].id == *showing) {
             bar_ = i;
@@ -112,6 +113,102 @@ ShortcutEditor::ShortcutEditor(ShortcutModel model, const std::string* showing)
     }
     select_button(selected_bar() && !selected_bar()->buttons.empty() ? std::optional<std::size_t>(0)
                                                                      : std::nullopt);
+}
+ShortcutModel ShortcutEditor::saved() const {
+    auto model = model_;
+    for (auto& bar : model.bars) {
+        for (auto& button : bar.buttons) {
+            auto& action = button.action;
+            if (action.kind != ShortcutAction::Kind::Keys) {
+                action.chords.clear();
+            }
+            if (action.kind != ShortcutAction::Kind::Macro) {
+                action.steps.clear();
+                action.repeat = {};
+            }
+        }
+    }
+    return model;
+}
+ShortcutAction* ShortcutEditor::macro() {
+    const auto* button = selected_button();
+    if (!button || button->action.kind != ShortcutAction::Kind::Macro) {
+        return nullptr;
+    }
+    return &model_.bars[*bar_].buttons[*button_].action;
+}
+void ShortcutEditor::set_kind(ShortcutAction::Kind kind) {
+    const auto* button = selected_button();
+    if (!button || kind == ShortcutAction::Kind::Run ||
+        button->action.kind == ShortcutAction::Kind::Run) {
+        return;
+    }
+    auto& action = model_.bars[*bar_].buttons[*button_].action;
+    if (kind == ShortcutAction::Kind::Macro && action.kind == ShortcutAction::Kind::Keys &&
+        action.steps.empty() && !action.chords.empty()) {
+        MacroStep step;
+        step.kind = MacroStep::Kind::Keys;
+        step.keys = action.chords;
+        action.steps.push_back(std::move(step));
+    }
+    action.kind = kind;
+}
+bool ShortcutEditor::can_add_step() const {
+    const auto* button = selected_button();
+    return button && button->action.kind == ShortcutAction::Kind::Macro &&
+           button->action.steps.size() < limits::steps;
+}
+void ShortcutEditor::add_step(MacroStep step) {
+    if (!can_add_step()) {
+        return;
+    }
+    if (step.kind == MacroStep::Kind::Keys &&
+        (step.keys.empty() || step.keys.size() > limits::step_chords)) {
+        return;
+    }
+    if (step.kind == MacroStep::Kind::Wait) {
+        step.wait_ms = std::clamp(step.wait_ms, limits::wait_min_ms, limits::wait_max_ms);
+    }
+    macro()->steps.push_back(std::move(step));
+}
+void ShortcutEditor::set_step_keys(std::size_t index, std::vector<ShortcutChord> keys) {
+    auto* action = macro();
+    if (!action || index >= action->steps.size() || action->steps[index].kind != MacroStep::Kind::Keys ||
+        keys.empty() || keys.size() > limits::step_chords) {
+        return;
+    }
+    action->steps[index].keys = std::move(keys);
+}
+void ShortcutEditor::set_wait(std::size_t index, int ms) {
+    auto* action = macro();
+    if (action && index < action->steps.size() && action->steps[index].kind == MacroStep::Kind::Wait) {
+        action->steps[index].wait_ms = std::clamp(ms, limits::wait_min_ms, limits::wait_max_ms);
+    }
+}
+void ShortcutEditor::delete_step(std::size_t index) {
+    auto* action = macro();
+    if (action && index < action->steps.size()) {
+        action->steps.erase(action->steps.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+}
+void ShortcutEditor::move_step(std::size_t from, std::size_t to) {
+    auto* action = macro();
+    if (!action || from >= action->steps.size() || to >= action->steps.size() || from == to) {
+        return;
+    }
+    auto moved = std::move(action->steps[from]);
+    action->steps.erase(action->steps.begin() + static_cast<std::ptrdiff_t>(from));
+    action->steps.insert(action->steps.begin() + static_cast<std::ptrdiff_t>(to), std::move(moved));
+}
+void ShortcutEditor::set_repeat(MacroRepeat repeat) {
+    if (auto* action = macro()) {
+        if (repeat.mode == MacroRepeat::Mode::Times) {
+            repeat.count = std::clamp(repeat.count, limits::repeat_min, limits::repeat_max);
+        } else {
+            repeat.count = 0;
+        }
+        action->repeat = repeat;
+    }
 }
 const ShortcutBar* ShortcutEditor::selected_bar() const {
     return bar_ && *bar_ < model_.bars.size() ? &model_.bars[*bar_] : nullptr;

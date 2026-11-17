@@ -32,6 +32,26 @@ ShortcutButton keys(std::string label, std::vector<ShortcutChord> chords) {
     button.action.chords = std::move(chords);
     return button;
 }
+MacroStep keys_step(std::vector<ShortcutChord> chords) {
+    MacroStep step;
+    step.kind = MacroStep::Kind::Keys;
+    step.keys = std::move(chords);
+    return step;
+}
+MacroStep wait_step(int ms) {
+    MacroStep step;
+    step.kind = MacroStep::Kind::Wait;
+    step.wait_ms = ms;
+    return step;
+}
+ShortcutButton macro(std::string label, std::vector<MacroStep> steps, MacroRepeat repeat) {
+    ShortcutButton button;
+    button.label = std::move(label);
+    button.action.kind = ShortcutAction::Kind::Macro;
+    button.action.steps = std::move(steps);
+    button.action.repeat = repeat;
+    return button;
+}
 } // namespace
 
 bool App::bar_shown() const {
@@ -90,10 +110,12 @@ void App::apply_bar_changes(const ShortcutBarChoice::Changes& changes) {
     dirty = true;
 }
 bool App::shortcut_button_enabled(const ShortcutButton& button) const {
-    // Macros and Run come in later phases; a Steam field takes only a few
-    // named keys, so no combination can go there (design, Where actions can go).
-    return button.action.kind == ShortcutAction::Kind::Keys && !shortcut_action_empty(button.action) &&
-           !output_.steam_field_target();
+    // Shortcuts and macros press keys; Run comes in a later phase. A Steam
+    // field takes only a few named keys, so no combination can go there
+    // (design, Where actions can go).
+    return (button.action.kind == ShortcutAction::Kind::Keys ||
+            button.action.kind == ShortcutAction::Kind::Macro) &&
+           !shortcut_action_empty(button.action) && !output_.steam_field_target();
 }
 ShortcutBarGeometry App::bar_geometry(std::size_t buttons) const {
     // From the keyboard's own keys: the emoji picker keeps its case and
@@ -272,16 +294,25 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         }
         const auto scrolled = bar_scroll_.find(bar->id);
         const double scroll = scrolled == bar_scroll_.end() ? 0 : scrolled->second.target;
-        bar_press_ = BarPress{pointer, target, x, scroll, now, false, stopped, bar->id};
+        const auto& button = bar->buttons[*index];
+        const bool enabled = shortcut_button_enabled(button);
+        // A While held macro starts on press and runs while this press holds;
+        // its release only lets it go.
+        const bool held = enabled && !stopped && button.action.kind == ShortcutAction::Kind::Macro &&
+                          button.action.repeat.mode == MacroRepeat::Mode::WhileHeld;
+        bar_press_ = BarPress{pointer, target, x, scroll, now, false, stopped || held, bar->id, held};
+        if (held) {
+            press_shortcut_button(*index, std::max(now, mozc_clock_));
+        }
         dirty = true;
         // A key's press haptic and pop, for a button that can act.
-        return shortcut_button_enabled(bar->buttons[*index]);
+        return enabled;
     }
     if (target.starts_with("assign-")) {
         // Disabled until apps can be identified. The press goes nowhere else.
         return false;
     }
-    bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}};
+    bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}, false};
     dirty = true;
     return false;
 }
@@ -294,6 +325,9 @@ bool App::bar_move(unsigned pointer, double x) {
         return false;
     }
     auto& press = *bar_press_;
+    if (press.held) {
+        return false; // A held macro's press never drags the bar.
+    }
     const auto g = bar_geometry(bar->buttons.size());
     if (!press.dragging) {
         // Only a bar that overflows scrolls; a button released elsewhere
@@ -315,6 +349,9 @@ bool App::bar_move(unsigned pointer, double x) {
 bool App::bar_up(unsigned pointer) {
     const auto press = *std::exchange(bar_press_, std::nullopt);
     dirty = true;
+    if (press.held) {
+        shortcut_runner_.release(); // the pass under way finishes
+    }
     const auto index = target_index(press.target, "button-");
     const auto* bar = shown_bar();
     // Only on the bar it began on: another that showed meanwhile has other
@@ -441,6 +478,12 @@ std::optional<ScrollRoom> App::bar_scroll_room(double x, double y) const {
 void App::tick_shortcut_bar(double now) {
     const double elapsed = bar_tick_ < 0 ? 0 : now - bar_tick_;
     bar_tick_ = now;
+    // A While held macro runs only while a press holds it: whatever ended
+    // the press (a release, a cancel, the hold's limit, another bar), the
+    // pass under way finishes and no other starts.
+    if (!bar_press_ || !bar_press_->held) {
+        shortcut_runner_.release();
+    }
     if (shortcut_runner_.tick(now)) {
         dirty = true; // Its button goes dark.
     }
@@ -558,15 +601,21 @@ void App::add_sample_shortcuts() {
     if (!shortcuts_.bars.empty()) {
         return;
     }
-    // Two bars to try the bar with before the editor exists: everyday
-    // editing, and enough keys to scroll.
+    // Two bars to try the bar with: everyday editing with two macros, and
+    // enough keys to scroll.
     ShortcutBar editing{
         "sample-editing",
         "Sample editing",
         {keys("Undo", {chord({"ControlLeft"}, "KeyZ")}), keys("Redo", {chord({"ControlLeft"}, "KeyY")}),
          keys("Save", {chord({"ControlLeft"}, "KeyS")}), keys("Find", {chord({"ControlLeft"}, "KeyF")}),
          keys("Select\nall", {chord({"ControlLeft"}, "KeyA")}),
-         keys("Close\ntab", {chord({"ControlLeft"}, "KeyW")})}};
+         keys("Close\ntab", {chord({"ControlLeft"}, "KeyW")}),
+         // Two macros: one repeated three times, one while held.
+         macro("Line end,\ndown ×3",
+               {keys_step({chord({}, "End")}), wait_step(200), keys_step({chord({}, "ArrowDown")})},
+               {MacroRepeat::Mode::Times, 3}),
+         macro("Page down\nheld", {keys_step({chord({}, "PageDown")}), wait_step(300)},
+               {MacroRepeat::Mode::WhileHeld, 0})}};
     ShortcutBar many{
         "sample-keys",
         "Sample keys",

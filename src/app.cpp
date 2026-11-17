@@ -1964,6 +1964,16 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             if (editor_screen()) {
                 editor_press(pointer, control->id, x, y); // a row or button may be dragged
             }
+            if (control->id.starts_with("shortcuts-step-minus-") ||
+                control->id.starts_with("shortcuts-step-plus-") ||
+                control->id == "shortcuts-count-minus" || control->id == "shortcuts-count-plus") {
+                // A wait's or Repeat's − and + step on press, and on while
+                // held, as a key repeats.
+                pressed_controls_[pointer].action = {};
+                action(control->action);
+                value_repeat_ = ValueRepeat{pointer, control->id, control->action, now + .4};
+                return false;
+            }
             if (control->id.starts_with("shortcuts-popup-key-")) {
                 // The mini keyboard's keys act on press, as keys do, and feel
                 // like them; the release only ends the press.

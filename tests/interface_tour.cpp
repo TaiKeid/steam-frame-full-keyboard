@@ -230,9 +230,16 @@ int main(int argc, char** argv) {
                     shot(app, "shortcut-editor-record" + suffix);
                     click(app, "shortcuts-popup-cancel");
                 };
+                // The Macro view: the sample editing bar's macro.
+                const auto macro_view = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-row-0");
+                    click(app, "shortcuts-button-6");
+                    shot(app, "shortcut-editor-macro" + suffix);
+                };
                 open_editor(bars);
                 shot(bars, "shortcut-editor");
                 popups(bars, "");
+                macro_view(bars, "");
                 click(bars, "shortcuts-back");
                 bars.flush_settings();
                 Settings narrow = settings;
@@ -243,6 +250,7 @@ int main(int argc, char** argv) {
                 open_editor(small);
                 shot(small, "shortcut-editor-no-numpad");
                 popups(small, "-no-numpad");
+                macro_view(small, "-no-numpad");
             } else {
                 bars.back();
             }

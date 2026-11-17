@@ -1973,12 +1973,105 @@ void long_combinations_drawn() {
     }
     outside("the popup recording long combinations");
 }
+// The Macro view as the App builds it: its repaints match a full repaint,
+// and 32 steps with one of 32 combinations draw nothing outside the case.
+void macro_view(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutButton button;
+    button.label = "Macro";
+    button.action.kind = ShortcutAction::Kind::Macro;
+    MacroStep keys;
+    keys.kind = MacroStep::Kind::Keys;
+    for (int i = 0; i < 32; ++i) {
+        keys.keys.push_back({all, "Key" + std::string(1, static_cast<char>('A' + i % 26))});
+    }
+    button.action.steps.push_back(keys);
+    for (int i = 1; i < 32; ++i) {
+        MacroStep wait;
+        wait.kind = MacroStep::Kind::Wait;
+        wait.wait_ms = 100 * i;
+        button.action.steps.push_back(wait);
+    }
+    button.action.repeat = {MacroRepeat::Mode::Times, 3};
+    ShortcutModel model;
+    model.bars.push_back({"b", "Bar", {button}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+        app.move(0, 5, 590);
+    };
+    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->menu->edit);
+    const std::string name = narrow ? "the macro view without the numpad" : "the macro view";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("32 steps").c_str());
+    const auto inside = [&](const char* what) {
+        const auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (int y = 0; y < static_cast<int>(body.height); ++y) {
+            for (const int x :
+                 {static_cast<int>(body.x) - 3, static_cast<int>(body.x + body.width) + 2}) {
+                // A full-width case has no texture beside it.
+                if (x >= 0 && x < panel_width && alpha_at(compare.full, x, y) != 0) {
+                    throw std::runtime_error(phase(what) + ": drawn outside the case");
+                }
+            }
+        }
+    };
+    inside("32 steps");
+    const auto row = control_named(app.view(), "shortcuts-step-1").bounds;
+    app.move(0, row.x + 200, row.y + row.height / 2);
+    compare.frame(app.view(), phase("a step under the laser").c_str());
+    const auto plus = control_named(app.view(), "shortcuts-step-plus-1").bounds;
+    app.move(0, plus.x + plus.width / 2, plus.y + plus.height / 2);
+    compare.frame(app.view(), phase("+ under the laser").c_str());
+    tap(plus);
+    compare.frame(app.view(), phase("a wait changed").c_str());
+    const auto well = app.view().shortcut_editor->steps_well;
+    app.move(0, well.x + 300, well.y + 100);
+    app.scroll(0, 0, 3);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += .05);
+        compare.frame(app.view(), phase("the list scrolling").c_str());
+    }
+    // A step carried by a drag.
+    const auto carried = control_named(app.view(), "shortcuts-step-4").bounds;
+    const double x = carried.x + 200, y = carried.y + carried.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, now += .1);
+    app.move(0, x, y + 20);
+    app.move(0, x, y + 40);
+    compare.frame(app.view(), phase("a step lifted").c_str());
+    app.up(0, x, y + 40);
+    compare.frame(app.view(), phase("a step put down").c_str());
+    tap(control_named(app.view(), "shortcuts-repeat-2").bounds);
+    compare.frame(app.view(), phase("While held").c_str());
+    inside("While held");
+}
 int main() {
     try {
         app_controls_drawn();
         shortcut_popup(false);
         shortcut_popup(true);
         long_combinations_drawn();
+        macro_view(false);
+        macro_view(true);
         shortcut_editor("graphite", true);
         shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);

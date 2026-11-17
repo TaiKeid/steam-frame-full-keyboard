@@ -177,6 +177,11 @@ class App {
     // Tests: whether the conversion worker's thread was ever started.
     bool japanese_worker_started() const { return japanese_worker_.started(); }
     bool holds_repeat(unsigned pointer) const {
+        // A held While held macro keeps running off the panel, as a key repeats.
+        if (bar_press_ && bar_press_->pointer == pointer && bar_press_->held &&
+            shortcut_runner_.running()) {
+            return true;
+        }
         return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer) ||
                (address_repeat_ && address_repeat_->pointer == pointer) ||
                (reading_repeat_ && reading_repeat_->pointer == pointer);
@@ -1807,6 +1812,7 @@ class App {
         bool dragging{}, stopped{};
         // The bar a button press began on: it never acts on another (R321).
         std::string bar;
+        bool held{}; // runs a While held macro, from its press to its release
     };
     std::optional<BarPress> bar_press_;
     bool bar_menu_{};
@@ -1869,6 +1875,7 @@ class App {
         double x{}, y{};     // the press
         double px{}, py{};   // the laser now
         bool lifted{}, outside{};
+        bool step{}; // a macro step's row, moved up or down its list
     };
     std::optional<ShortcutDrag> shortcut_drag_;
     // The editor's screen shows: open, with no field over it, outside Settings.
@@ -1888,6 +1895,21 @@ class App {
     bool editor_scroll(unsigned pointer, double dx, double dy);
     std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
     void tick_shortcut_editor(double now);
+    // The Macro view (design, Settings and the editor): its steps' list
+    // scrolls; a held − or + of a wait or of Repeat's count steps on.
+    BarScroll editor_steps_scroll_;
+    struct ValueRepeat {
+        unsigned pointer{};
+        std::string id; // the control held
+        ControlAction action;
+        double next{};
+    };
+    std::optional<ValueRepeat> value_repeat_;
+    void append_macro_controls(std::vector<Control>& result, const Rect& well,
+                               const ShortcutButton& button) const;
+    // What a press on the macro does, as the line beside Repeat says it.
+    std::string macro_sends(const ShortcutAction& action) const;
+    double editor_steps_limit() const;
 
     // The editor's popup (design, Typing and recording): a fixed US mini
     // keyboard whose keys are the editor's own controls, acting on press.
@@ -1903,6 +1925,10 @@ class App {
         std::vector<std::string> latched;
         bool caps{};  // Caps Lock, for text
         bool fkeys{}; // the F13–F24 menu is open
+        // Recording a macro's Keys step, `step` or a new one added on Done,
+        // rather than the shortcut.
+        std::optional<std::size_t> step;
+        bool new_step{};
     };
     std::optional<EditorPopup> popup_;
     // A held Backspace, Delete or arrow repeats, as on the keyboard.
@@ -1933,7 +1959,10 @@ class App {
     // are in use; the keymap gives its keys their US characters and legends.
     Layout mini_layout_;
     std::unique_ptr<LanguageMap> mini_keymap_;
-    void open_popup(ShortcutPopupView::Kind kind);
+    void open_popup(ShortcutPopupView::Kind kind, std::optional<std::size_t> step = std::nullopt,
+                    bool new_step = false);
+    // How many combinations the recording takes: 4 for a shortcut, 32 for a step.
+    std::size_t popup_limit() const;
     // Ends the popup, keeping what it holds when `save`, as Enter or Done.
     void end_popup(bool save);
     // A mini key pressed: it acts at once; Backspace, Delete and the arrows

@@ -547,6 +547,16 @@ void shortcut_editor() {
     }
     require(named && simulator.field().text().empty() && !view.shortcut_editor->popup,
             "the popup takes clicks: its name is typed into the editor, not the field");
+    // The Macro view opens and takes clicks.
+    click_rect(simulator, control_bounds(simulator, "shortcuts-add"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-kind-1"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-add-wait"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-step-plus-0"));
+    const auto macro = simulator.app().view();
+    require(control_bounds(simulator, "shortcuts-kind-1").width > 0 &&
+                macro.shortcut_editor->steps.size() == 1 &&
+                macro.shortcut_editor->steps[0].time == "0.6 s",
+            "the Macro view takes clicks: a wait added and changed");
     simulator.shutdown();
 }
 int main() {

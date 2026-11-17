@@ -357,6 +357,19 @@ struct ShortcutPopupView {
     std::set<std::string> pressed;  // key IDs held down
     std::set<std::string> disabled; // key IDs that do nothing here: the locks
 };
+// A macro step's row in the editor's Macro view: a Keys step's chips (as
+// many as fit, then an ellipsis), or a Wait step's time between its − and
+// +, which are controls with its ✕ and the row itself.
+struct ShortcutStepView {
+    bool operator==(const ShortcutStepView&) const = default;
+    Rect bounds;
+    bool wait{};
+    std::vector<ShortcutChip> chips;
+    bool more{};
+    Rect more_bounds;
+    std::string time;
+    Rect time_bounds;
+};
 // The shortcut editor's screen, over the case in place of the keys. Its
 // pressable parts are controls named shortcuts-…, which it draws; this holds
 // the rest. Panel coordinates.
@@ -386,6 +399,15 @@ struct ShortcutEditorView {
     bool chords_before{}, chords_after{};
     std::vector<std::string> explanation;
     Rect explanation_bounds;
+    // The Macro view: its steps in a well that scrolls, a lifted one where
+    // the laser holds it, and Repeat's count for Times.
+    std::string steps_caption, repeat_caption, wait_caption;
+    Rect steps_well;
+    std::vector<ShortcutStepView> steps;
+    std::optional<Rect> steps_thumb;
+    std::optional<ShortcutStepView> lifted_step;
+    std::string count;
+    Rect count_bounds;
     // Typing or recording; under it the editor is dimmed but the strip.
     std::optional<ShortcutPopupView> popup;
 };

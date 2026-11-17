@@ -16,9 +16,13 @@ class ShortcutEditor {
   public:
     // Opens on `showing` when it names a bar, else on the first bar.
     ShortcutEditor(ShortcutModel model, const std::string* showing);
+    // The pending copy. A button's Shortcut and Macro content both stay in
+    // it while the editor is open, whichever is chosen (design, Settings and
+    // the editor); saved() keeps only the chosen one.
     const ShortcutModel& model() const { return model_; }
-    // Something differs from the copy the editor opened with.
-    bool changed() const { return model_ != original_; }
+    ShortcutModel saved() const;
+    // Something the save would change, from the copy the editor opened with.
+    bool changed() const { return saved() != original_; }
 
     std::optional<std::size_t> bar() const { return bar_; }
     std::optional<std::size_t> button() const { return button_; }
@@ -46,11 +50,27 @@ class ShortcutEditor {
     // whose action is a macro or Run is left as it is.
     void set_chords(std::vector<ShortcutChord> chords);
 
+    // Shortcut or Macro for the selected button; Run buttons wait for their
+    // version. A shortcut turned into a macro with no steps yet starts as
+    // one Keys step holding its combinations.
+    void set_kind(ShortcutAction::Kind kind);
+    // The selected button's macro: steps added, changed, moved, deleted, at
+    // most 32, each valid as it is set.
+    bool can_add_step() const;
+    void add_step(MacroStep step);
+    void set_step_keys(std::size_t index, std::vector<ShortcutChord> keys);
+    void set_wait(std::size_t index, int ms);
+    void delete_step(std::size_t index);
+    void move_step(std::size_t from, std::size_t to);
+    void set_repeat(MacroRepeat repeat);
+
     // The model's ties to the selected bar, as indices into model().apps.
     std::vector<std::size_t> ties() const;
     void remove_tie(std::size_t app_index);
 
   private:
+    // The selected button's macro, when it is one.
+    ShortcutAction* macro();
     ShortcutModel model_, original_;
     std::optional<std::size_t> bar_, button_;
 };
