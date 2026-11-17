@@ -203,6 +203,8 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 - Its geometry is the full US layout's without the side column (emoji, Cut, Copy, Paste and the mic, which can't be recorded), with the gaps between its blocks closed to 12 layout units, 4 under the function row and none between the other rows. At a scale of 0.771 a letter key is 42 × 48.
 - Its keys are the editor's own controls, drawn as keys, not the keyboard's keys: nothing goes through the key state, the output queue or a typing language, so nothing can reach the app, and there is no composition, no candidates, no swipe and no suggestions.
 - Modifiers latch on a tap and show lit; a second tap lets one go.
+- Num Lock and Caps Lock can't be recorded and are drawn disabled while recording. On the real keyboard they are the keyboard's own switches and are never sent to an app, so a recorded one would flip the app's lock behind the keyboard's back. While text is typed, Caps Lock works as a switch for capitals and Num Lock stays disabled.
+- Numpad keys always record as numpad keys (Num 7), never as the navigation keys printed under their digits; those have keys of their own. Whether an app then sees a digit depends on its own Num Lock, which a [probe](#frame-probes) has to measure.
 
 | Editing | A key press | Ends with |
 | --- | --- | --- |
@@ -338,6 +340,7 @@ Facts to measure on the Frame before the parts that depend on them:
 | What Gamescope reports for a game streamed from a PC, a streamed desktop and Moonlight | The stream row under [Apps](#apps) |
 | Combinations sent back to back into a private receiver, with gaps from 0 to 50 ms | `shortcut_key_gap` |
 | A program started by the keyboard: its environment, and that it survives a keyboard restart | Run |
+| A numpad digit key sent into a private receiver under Gamescope, in SteamOS's Desktop and into a stream from a PC: whether it arrives as the digit or as the navigation key | Whether numpad digits are offered for local apps |
 | F13–F24 sent into a private receiver under Gamescope and in SteamOS's Desktop: the key seen and any system action. The default keymap turns F13 into Tools, F14–F18 into launcher keys, F20 into mic mute and F21–F23 into touchpad keys | Whether the recorder offers F13–F24 for local apps, or only for streams from a PC |
 
 ## Not in this version
