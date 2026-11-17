@@ -1861,10 +1861,12 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     active_at_ = mozc_clock_;
     move(pointer, x, y);
     // While one hand presses a row, a button, a step or recorded chips, as
-    // soon as the press, before it lifts, the editor waits for it: another
-    // hand's press could change the selection the drag acts on (R335).
+    // soon as the press, before it lifts, or holds a wait's or Repeat's − or
+    // +, the editor waits for it: another hand's press could change the
+    // selection the drag or the repeat acts on (R335).
     if (editor_screen() && ((shortcut_drag_ && shortcut_drag_->pointer != pointer) ||
-                            (chips_drag_ && chips_drag_->pointer != pointer))) {
+                            (chips_drag_ && chips_drag_->pointer != pointer) ||
+                            (value_repeat_ && value_repeat_->pointer != pointer))) {
         return false;
     }
     const auto v = input_view();

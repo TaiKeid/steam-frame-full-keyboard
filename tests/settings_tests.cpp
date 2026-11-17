@@ -4722,6 +4722,20 @@ void pending_drag_two_lasers() {
             "the drag deletes its own bar's button, no other");
     tap_control(app, "shortcuts-row-1");
     require(strip_labels(app.view()).empty(), "the other bar keeps what it had");
+    // The Macro view: a held + waits for no other laser's press either.
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-kind-1");
+    tap_control(app, "shortcuts-add-wait");
+    const auto plus = middle(control(app.view(), "shortcuts-step-plus-1").bounds);
+    app.move(0, plus.x, plus.y);
+    app.down(0, plus.x, plus.y, 1200);
+    const auto other = middle(control(app.view(), "shortcuts-button-1").bounds);
+    app.move(1, other.x, other.y);
+    app.down(1, other.x, other.y, 1200.1);
+    app.up(1, other.x, other.y);
+    require(control(app.view(), "shortcuts-button-0").selected,
+            "while a + is held, another laser selects nothing");
+    app.up(0, plus.x, plus.y);
 }
 // R336: a save whose folder sync failed put the file in place: the status
 // says it was saved but isn't yet safe on disk, and the note that the old
