@@ -201,6 +201,38 @@ int main(int argc, char** argv) {
                 bars.move(0, plate.x + plate.width / 2, plate.y + plate.height / 2);
                 bars.scroll(0, 3, 0);
                 shot(bars, "shortcut-bar-scrolled");
+                // The editor at both widths, its Label field and the recording strip.
+                const auto open_editor = [](App& app) {
+                    const auto picker = app.view().shortcut_bar->picker_button;
+                    const double px = picker.x + picker.width / 2, py = picker.y + picker.height / 2;
+                    app.move(0, px, py);
+                    app.down(0, px, py, 1);
+                    app.up(0, px, py);
+                    settle(app, 10);
+                    const auto edit = app.view().shortcut_bar->menu->edit;
+                    const double ex = edit.x + edit.width / 2, ey = edit.y + edit.height / 2;
+                    app.move(0, ex, ey);
+                    app.down(0, ex, ey, 1);
+                    app.up(0, ex, ey);
+                    settle(app, 10);
+                };
+                open_editor(bars);
+                shot(bars, "shortcut-editor");
+                click(bars, "shortcuts-label");
+                shot(bars, "shortcut-editor-label");
+                click(bars, "field-cancel");
+                click(bars, "shortcuts-record");
+                shot(bars, "shortcut-editor-record");
+                click(bars, "field-cancel");
+                click(bars, "shortcuts-back");
+                bars.flush_settings();
+                Settings narrow = settings;
+                narrow.hide_numpad = true;
+                save_settings(bar_options.config_dir, narrow);
+                App small(bar_options, sink);
+                choose_language(small, language);
+                open_editor(small);
+                shot(small, "shortcut-editor-no-numpad");
             } else {
                 bars.back();
             }

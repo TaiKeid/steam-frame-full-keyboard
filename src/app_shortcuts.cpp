@@ -35,17 +35,27 @@ ShortcutButton keys(std::string label, std::vector<ShortcutChord> chords) {
 } // namespace
 
 bool App::bar_shown() const {
-    return shortcuts_enabled() && !settings_open_ && !dictation_open_ &&
+    // The editor's screen takes the keys' place, and its fields show the
+    // editor's own bar (append_field_bar).
+    return shortcuts_enabled() && !settings_open_ && !dictation_open_ && !shortcut_editor_ &&
            (bar_choice_.shown() || bar_choice_.empty_bar());
 }
 const ShortcutBar* App::shown_bar() const {
     const auto* id = bar_choice_.shown();
     return id ? shortcuts_.bar(*id) : nullptr;
 }
-void App::load_shortcuts() {
+void App::load_shortcuts(bool reloading) {
     auto loaded = settings_writer_.load_shortcuts();
-    shortcuts_ = std::move(loaded.model);
     shortcuts_invalid_ = loaded.state == ShortcutsLoad::State::Invalid ? loaded.reason : "";
+    if (reloading && loaded.state == ShortcutsLoad::State::Invalid) {
+        // A hand edit with a fault: the bars already loaded stay, and the
+        // next save keeps the file as shortcuts.json.bad.
+        // Reload's status shows its errors.
+        profiles_.errors.push_back(tr("status.shortcuts-invalid", {{"reason", shortcuts_invalid_}}));
+        dirty = true;
+        return;
+    }
+    shortcuts_ = std::move(loaded.model);
     // A file loaded anew may lack the bar a run or a press was on.
     stop_shortcut_run();
     bar_press_.reset();
@@ -100,6 +110,10 @@ Rect App::bar_button_bounds(const ShortcutBarGeometry& bar, std::size_t count, s
     return {x, bar.button_top, bar.button_width, bar.button_height};
 }
 void App::append_shortcut_bar(PanelView& v) const {
+    if (field_) {
+        append_field_bar(v); // the editor's bar, over a field or a recording
+        return;
+    }
     if (!bar_shown()) {
         return;
     }
@@ -180,9 +194,9 @@ void App::append_shortcut_bar(PanelView& v) const {
                               3, length};
         }
         menu.edit_label = tr("shortcuts.menu.edit");
-        // The editor comes with its own screen (design, Settings and the
-        // editor); until then the row waits, disabled.
-        menu.edit_enabled = false;
+        menu.edit_enabled = true;
+        menu.edit_hovered = hovered("edit");
+        menu.edit_pressed = pressed("edit");
         view.menu = std::move(menu);
     }
     if (view.picker_hovered && !bar_menu_) {
@@ -192,7 +206,8 @@ void App::append_shortcut_bar(PanelView& v) const {
     v.shortcut_bar = std::move(view);
 }
 std::optional<std::string> App::bar_hit(const PanelView& view, double x, double y) const {
-    if (!view.shortcut_bar || view.settings) {
+    // Over a field or a recording the bar only shows what is being edited.
+    if (!view.shortcut_bar || view.settings || field_) {
         return {};
     }
     const auto& bar = *view.shortcut_bar;
@@ -260,9 +275,8 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
         // A key's press haptic and pop, for a button that can act.
         return shortcut_button_enabled(bar->buttons[*index]);
     }
-    if (target.starts_with("assign-") || target == "edit") {
-        // Disabled: assigning until apps can be identified, editing until
-        // the editor exists. The press goes nowhere else.
+    if (target.starts_with("assign-")) {
+        // Disabled until apps can be identified. The press goes nowhere else.
         return false;
     }
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false};
@@ -340,6 +354,9 @@ void App::bar_action(const std::string& target) {
         bar_menu_ = false;
         const auto changes = bar_choice_.pick(shortcuts_, shortcuts_.bars[*row].id);
         apply_bar_changes(changes);
+    } else if (target == "edit") {
+        bar_menu_ = false;
+        open_shortcut_editor(); // on the bar showing
     }
     dirty = true;
 }

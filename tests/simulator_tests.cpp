@@ -502,6 +502,51 @@ void shortcut_bar() {
     require(simulator.field().text() == "xhi", "a click on the bar's button sends its key to the field");
     simulator.shutdown();
 }
+// The shortcut editor opens in the simulator from the picker and takes its
+// clicks; a bar's name is typed on the keyboard, reaching nothing else.
+void click_rect(Simulator& simulator, const Rect& r) {
+    const double x = r.x + r.width / 2, y = r.y + r.height / 2 + popup_margin;
+    simulator.pointer_move(Simulator::mouse, x, y);
+    simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+    wait(simulator, .03);
+    simulator.pointer_up(Simulator::mouse, x, y);
+    wait(simulator);
+}
+Rect control_bounds(Simulator& simulator, const std::string& id) {
+    for (const auto& control : simulator.app().view().controls) {
+        if (control.id == id) {
+            return control.bounds;
+        }
+    }
+    throw std::runtime_error("no control " + id);
+}
+void shortcut_editor() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    model.bars.push_back({"b", "Bar", {}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->menu->edit);
+    require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
+    click_rect(simulator, control_bounds(simulator, "shortcuts-new-bar"));
+    require(simulator.app().view().shortcut_field.has_value(), "New bar opens its name on the keyboard");
+    press(simulator, "KeyQ");
+    click_rect(simulator, control_bounds(simulator, "field-done"));
+    const auto view = simulator.app().view();
+    bool named = false;
+    for (const auto& control : view.controls) {
+        named |= control.id.starts_with("shortcuts-row-") && control.label == "Bar 2q";
+    }
+    require(named && simulator.field().text().empty(),
+            "its name is typed into the editor, not the field");
+    simulator.shutdown();
+}
 int main() {
     try {
         injected_converter();
@@ -515,6 +560,7 @@ int main() {
         typing_suggestions();
         bad_selection();
         shortcut_bar();
+        shortcut_editor();
         std::cout << "simulator tests passed\n";
         return 0;
     } catch (const std::exception& error) {

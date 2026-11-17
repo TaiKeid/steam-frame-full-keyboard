@@ -4,6 +4,7 @@
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/session_environment.hpp"
 #include "framekeyboard/shell_protocol.hpp"
+#include "framekeyboard/shortcut_editor.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/stream_support.hpp"
 #include "framekeyboard/updates.hpp"
@@ -289,10 +290,17 @@ int main(int argc, char** argv) {
                         std::cout << "theme " << id << ": " << p.name << '\n';
                     }
                 }
+                // shortcuts.json beside the profiles; its reason never quotes it.
+                bool shortcuts_ok = true;
+                if (options.mode == fk::Mode::Check) {
+                    const auto shortcuts = fk::check_shortcuts(options.config_dir);
+                    std::cout << shortcuts.line << '\n';
+                    shortcuts_ok = shortcuts.ok;
+                }
                 for (const auto& error : profiles.errors) {
                     std::cerr << error << '\n';
                 }
-                return profiles.errors.empty() ? 0 : 1;
+                return profiles.errors.empty() && shortcuts_ok ? 0 : 1;
             }
             std::unique_ptr<fk::KeySink> sink;
             if (options.input != fk::InputBackend::None && !options.target_language.empty()) {

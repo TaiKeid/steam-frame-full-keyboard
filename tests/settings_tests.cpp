@@ -3937,13 +3937,13 @@ void shortcut_bar_settings() {
     const auto back = app.view().shortcut_bar->menu->rows[0].bounds;
     tap_at(app, back.x + 30, back.y + back.height / 2);
     require(app.view().shortcut_bar->buttons[0].label == "Undo", "the other bar from its start");
-    // Edit shortcuts waits, disabled, for the editor: a press there does nothing.
+    // Edit shortcuts opens the editor, and ← without changes returns.
     tap_rect(app, app.view().shortcut_bar->picker_button);
-    require(!app.view().shortcut_bar->menu->edit_enabled, "Edit shortcuts is disabled for now");
     tap_rect(app, app.view().shortcut_bar->menu->edit);
-    require(!app.view().settings && app.view().shortcut_bar->menu, "a press on it does nothing");
-    tap_rect(app, app.view().shortcut_bar->picker_button);
-    require(!app.view().shortcut_bar->menu, "the picker closes its menu");
+    require(app.view().shortcut_editor && !app.view().settings, "Edit shortcuts opens the editor");
+    tap_rect(app, control(app.view(), "shortcuts-back").bounds);
+    require(!app.view().shortcut_editor && app.view().shortcut_bar && !app.view().shortcut_bar->menu,
+            "← returns to the keyboard, the menu closed");
     // Nothing shows and a bar is due: that bar.
     click(app, "shortcuts-toggle");
     require(!app.view().shortcut_bar, "hidden by hand");
@@ -4061,6 +4061,311 @@ void shortcut_buttons() {
     require(std::none_of(shown.begin(), shown.end(), [](const auto& b) { return b.enabled; }),
             "buttons are disabled in a Steam field");
 }
+// The shortcut editor (docs/shortcut-bar-design.md, Settings and the
+// editor): opened from the picker, its bars column and strip with drags,
+// the Label and bar name fields and recording on the keyboard, the limits,
+// ✓ and ← with its question, at both widths.
+void tap_control(App& app, const std::string& id) {
+    tap_rect(app, control(app.view(), id).bounds);
+}
+void tap_key(App& app, const std::string& action) {
+    const auto [x, y] = key_point(app, action);
+    tap_at(app, x, y);
+}
+void open_editor(App& app) {
+    tap_rect(app, app.view().shortcut_bar->picker_button);
+    tap_rect(app, app.view().shortcut_bar->menu->edit);
+}
+std::vector<std::string> row_names(const PanelView& view) {
+    std::vector<std::string> names;
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-row-")) {
+            names.push_back(c.label);
+        }
+    }
+    return names;
+}
+std::vector<std::string> strip_labels(const PanelView& view) {
+    std::vector<std::string> labels;
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-button-")) {
+            labels.push_back(c.label);
+        }
+    }
+    return labels;
+}
+void drag(App& app, const Rect& from, double dx, double dy, unsigned pointer = 0) {
+    static double now = 950;
+    const auto start = middle(from);
+    app.move(pointer, start.x, start.y);
+    app.down(pointer, start.x, start.y, now += .1);
+    for (int step = 1; step <= 6; ++step) {
+        app.move(pointer, start.x + dx * step / 6, start.y + dy * step / 6);
+    }
+    app.up(pointer, start.x + dx, start.y + dy);
+    app.tick(now += .05);
+}
+ShortcutModel editor_model() {
+    ShortcutModel model;
+    model.bars.push_back({"one",
+                          "One",
+                          {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}}),
+                           shortcut_button("B", {{{}, "KeyB"}}), shortcut_button("C", {{{}, "KeyC"}})}});
+    model.bars.push_back({"two", "Two", {}});
+    model.apps.push_back({{AppIdentity::Kind::Program, "kate"}, "Kate", "one"});
+    model.free_bar = "two";
+    return model;
+}
+void shortcut_editor_settings() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(directory.path, settings);
+        write_shortcuts(directory.path, editor_model());
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(),
+                "the free bar, empty");
+        tap_rect(app, app.view().shortcut_bar->picker_button);
+        require(app.view().shortcut_bar->menu->edit_enabled, "Edit shortcuts is enabled");
+        tap_rect(app, app.view().shortcut_bar->menu->edit);
+        auto view = app.view();
+        require(view.shortcut_editor && !view.shortcut_bar && has(view, "shortcuts-back") &&
+                    has(view, "shortcuts-save") && !has(view, "settings"),
+                "Edit shortcuts opens the editor, its own screen, in place of the toolbar and bar");
+        require(view.shortcut_editor->wide == !narrow &&
+                    panel_case_bounds(view).width == (narrow ? 1326 : panel_width),
+                "the editor keeps the keyboard's width, full or without the numpad");
+        require(control(view, "shortcuts-row-1").selected && view.shortcut_editor->strip.width > 0 &&
+                    strip_labels(view).empty() && !view.shortcut_editor->empty_hint.empty(),
+                "it opens on the bar showing: Two, without buttons");
+        require(!app.renderer.hit_key(view, 300, 300), "no key takes a press under the editor");
+        require(control(view, "shortcuts-row-0").bounds.width == (narrow ? 236 : 286),
+                "the bars column is 286 wide, 236 without the numpad");
+        tap_control(app, "shortcuts-row-0");
+        view = app.view();
+        require(strip_labels(view) == std::vector<std::string>{"A", "B", "C"} &&
+                    control(view, "shortcuts-button-0").selected &&
+                    control(view, "shortcuts-label").label == "A" &&
+                    control(view, "shortcuts-label").bounds.width == (narrow ? 250 : 300),
+                "a row selects its bar; its first button is selected");
+        require(view.shortcut_editor->ties.size() == 1 && view.shortcut_editor->ties[0].text == "Kate",
+                "Used for shows the bar's apps");
+        require(control(view, "shortcuts-kind-0").selected &&
+                    !control(view, "shortcuts-kind-1").enabled &&
+                    !control(view, "shortcuts-kind-2").enabled,
+                "Shortcut is the action; Macro and Run wait for their versions");
+        require(view.shortcut_editor->chords.size() == 1 &&
+                    view.shortcut_editor->chords[0].text == "Ctrl + A",
+                "the recorded combinations as chips");
+        // A row dragged down the list moves its bar; another hand meanwhile changes nothing.
+        {
+            const auto row = control(app.view(), "shortcuts-row-0").bounds;
+            const auto start = middle(row);
+            app.move(0, start.x, start.y);
+            app.down(0, start.x, start.y, 960);
+            app.move(0, start.x, start.y + 20);
+            app.move(0, start.x, start.y + 56);
+            const auto save = middle(control(app.view(), "shortcuts-save").bounds);
+            app.move(1, save.x, save.y);
+            app.down(1, save.x, save.y, 960.1);
+            app.up(1, save.x, save.y);
+            require(app.view().shortcut_editor.has_value(), "the other hand's press waits for the drag");
+            app.up(0, start.x, start.y + 56);
+            app.tick(960.2);
+        }
+        require(row_names(app.view()) == std::vector<std::string>{"Two", "One"} &&
+                    control(app.view(), "shortcuts-row-1").selected,
+                "a row dragged down moves its bar, selected");
+        drag(app, control(app.view(), "shortcuts-row-1").bounds, 0, -56);
+        require(row_names(app.view()) == std::vector<std::string>{"One", "Two"}, "and back up");
+        // Buttons: dragged sideways along the strip, off it to delete.
+        const double pitch = control(app.view(), "shortcuts-button-1").bounds.x -
+                             control(app.view(), "shortcuts-button-0").bounds.x;
+        drag(app, control(app.view(), "shortcuts-button-0").bounds, 2 * pitch, 0);
+        require(strip_labels(app.view()) == std::vector<std::string>{"B", "C", "A"},
+                "a button dragged sideways moves along the strip");
+        drag(app, control(app.view(), "shortcuts-button-0").bounds, 20, 220);
+        require(strip_labels(app.view()) == std::vector<std::string>{"C", "A"},
+                "dropped off the strip, it goes");
+        tap_control(app, "shortcuts-add");
+        view = app.view();
+        require(strip_labels(view) == std::vector<std::string>{"C", "A", ""} &&
+                    control(view, "shortcuts-button-2").selected &&
+                    control(view, "shortcuts-label").label.empty() &&
+                    view.shortcut_editor->chords.empty(),
+                "+ adds a button with an empty label and action, selected");
+        // The Label field, on the bar above the keys.
+        tap_control(app, "shortcuts-label");
+        view = app.view();
+        require(!view.shortcut_editor && view.shortcut_field &&
+                    view.shortcut_field->kind == ShortcutFieldView::Kind::Label && view.shortcut_bar &&
+                    view.shortcut_bar->field && !has(view, "settings") && has(view, "field-done"),
+                "Label: the keyboard comes back, its toolbar a strip, the label a field on the bar");
+        tap_key(app, "KeyH");
+        tap_key(app, "KeyI");
+        tap_key(app, "ShiftLeft");
+        tap_key(app, "Enter");
+        tap_key(app, "ShiftLeft");
+        tap_key(app, "Enter");
+        tap_key(app, "KeyX");
+        require(app.view().shortcut_bar->field_text == "hi\nx" && sink.events.empty(),
+                "Shift+Enter starts a second line, once; nothing reaches the app");
+        tap_key(app, "Enter");
+        require(app.view().shortcut_editor && control(app.view(), "shortcuts-label").label == "hi\nx",
+                "Enter saves the label");
+        tap_control(app, "shortcuts-label");
+        tap_key(app, "KeyQ");
+        tap_key(app, "Escape");
+        require(control(app.view(), "shortcuts-label").label == "hi\nx", "Esc cancels");
+        tap_control(app, "shortcuts-label");
+        tap_key(app, "Backspace");
+        tap_key(app, "KeyZ");
+        tap_control(app, "field-done");
+        require(control(app.view(), "shortcuts-label").label == "hi\nz",
+                "Done saves, and Backspace edits");
+        // Recording on the keyboard.
+        tap_control(app, "shortcuts-record");
+        view = app.view();
+        require(view.shortcut_field && view.shortcut_field->kind == ShortcutFieldView::Kind::Keys &&
+                    has(view, "field-fkeys") && has(view, "field-remove-last") &&
+                    !has(view, "field-pending"),
+                "Record: the strip with F13–F24, Remove last, Cancel and Done");
+        tap_key(app, "ControlLeft");
+        require(has(app.view(), "field-pending") &&
+                    control(app.view(), "field-pending").label == "Ctrl +",
+                "a latched modifier shows as a pending chip");
+        tap_key(app, "KeyK");
+        tap_key(app, "KeyS");
+        tap_key(app, "ShiftLeft");
+        tap_control(app, "field-pending");
+        tap_control(app, "field-fkeys");
+        tap_control(app, "field-fkey-13");
+        view = app.view();
+        require(view.shortcut_field->chords.size() == 4 &&
+                    view.shortcut_field->chords[0].text == "Ctrl + K" &&
+                    view.shortcut_field->chords[1].text == "S" &&
+                    view.shortcut_field->chords[2].text == "Shift" &&
+                    view.shortcut_field->chords[3].text == "F13" &&
+                    !control(view, "field-fkeys").enabled,
+                "combinations, modifiers alone and F13, four at most");
+        tap_key(app, "KeyA");
+        require(app.view().shortcut_field->chords.size() == 4 && sink.events.empty(),
+                "a fifth is not recorded, and nothing is sent");
+        tap_control(app, "field-remove-last");
+        tap_control(app, "field-done");
+        view = app.view();
+        require(view.shortcut_editor && view.shortcut_editor->chords.size() == 3 &&
+                    view.shortcut_editor->chords[2].text == "Shift",
+                "Done keeps what was recorded");
+        tap_control(app, "shortcuts-record");
+        tap_key(app, "KeyQ");
+        tap_control(app, "field-cancel");
+        require(app.view().shortcut_editor->chords.size() == 3, "Cancel keeps the shortcut as it was");
+        tap_control(app, "shortcuts-record");
+        tap_key(app, "ControlLeft");
+        app.set_interaction_active(false);
+        app.set_interaction_active(true);
+        require(app.view().shortcut_editor && app.view().shortcut_editor->chords.size() == 3,
+                "hiding the keyboard ends a recording as Cancel");
+        tap_control(app, "shortcuts-clear");
+        require(app.view().shortcut_editor->chords.empty(), "clear empties the shortcut");
+        // The bar's name, typed in the strip.
+        tap_control(app, "shortcuts-rename");
+        require(app.view().shortcut_field && app.view().shortcut_field->text == "One",
+                "rename opens its name");
+        tap_key(app, "KeyX");
+        tap_key(app, "Enter");
+        require(row_names(app.view())[0] == "Onex", "Enter saves the name");
+        tap_control(app, "shortcuts-new-bar");
+        require(app.view().shortcut_field && app.view().shortcut_field->text == "Bar 3",
+                "New bar names itself");
+        tap_key(app, "Escape");
+        require(row_names(app.view()).size() == 3 && row_names(app.view())[2] == "Bar 3" &&
+                    control(app.view(), "shortcuts-row-2").selected,
+                "the new bar stays with its name when the field is canceled");
+        tap_control(app, "shortcuts-delete");
+        require(row_names(app.view()).size() == 2 && !app.view().confirm,
+                "an empty bar is deleted at once");
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-tie-0");
+        require(app.view().shortcut_editor->ties.empty(), "a tie's ✕ removes it");
+        tap_control(app, "shortcuts-delete");
+        require(app.view().confirm.has_value(), "a bar with buttons asks first");
+        tap_control(app, "confirm-cancel");
+        require(row_names(app.view()).size() == 2, "Cancel keeps it");
+        // ← with changes asks: Discard leaves the file as it was.
+        tap_control(app, "shortcuts-back");
+        require(app.view().confirm.has_value() && app.view().shortcut_editor, "← with changes asks");
+        tap_control(app, "confirm-cancel");
+        require(!app.view().shortcut_editor && saved_shortcuts(app) == editor_model(),
+                "Discard leaves without saving");
+        // ✓ saves.
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-add");
+        tap_control(app, "shortcuts-save");
+        const auto stored = saved_shortcuts(app);
+        require(!app.view().shortcut_editor && stored.bars[0].buttons.size() == 4 &&
+                    stored.bars[0].buttons[3].label.empty() &&
+                    stored.bars[0].buttons[3].action.chords.empty(),
+                "✓ saves the editor's copy");
+        // ← without changes leaves at once; with changes, Save saves.
+        open_editor(app);
+        tap_control(app, "shortcuts-back");
+        require(!app.view().shortcut_editor, "← without changes leaves at once");
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-delete");
+        require(app.view().confirm.has_value(), "deleting a bar with buttons asks");
+        tap_control(app, "confirm-accept");
+        tap_control(app, "shortcuts-back");
+        tap_control(app, "confirm-accept");
+        require(saved_shortcuts(app).bars.size() == 1, "Save from the question saves");
+    }
+    // The limits: the control that would exceed one is disabled.
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel full;
+    for (int i = 0; i < 32; ++i) {
+        full.bars.push_back({"b" + std::to_string(i), "Bar", {}});
+    }
+    full.bars[0].buttons.assign(64, shortcut_button("abcdefghijklmnopqrstuvwx", {{{}, "KeyA"}}));
+    full.free_bar = "b0";
+    write_shortcuts(directory.path, full);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    auto view = app.view();
+    require(!control(view, "shortcuts-new-bar").enabled, "32 bars: New bar is disabled");
+    require(view.shortcut_editor->bars_thumb.has_value(), "a long list of bars scrolls");
+    tap_control(app, "shortcuts-label");
+    tap_key(app, "KeyY");
+    tap_key(app, "Enter");
+    require(control(app.view(), "shortcuts-label").label == "abcdefghijklmnopqrstuvwx",
+            "a label at 24 characters takes no more");
+    // The strip scrolls to its end, where + is disabled at 64 buttons.
+    const auto well = app.view().shortcut_editor->strip_well;
+    app.move(0, well.x + well.width / 2, well.y + well.height / 2);
+    for (int i = 0; i < 80; ++i) {
+        app.scroll(0, 1, 0);
+    }
+    for (double now = 990; now < 992; now += .05) {
+        app.tick(now);
+    }
+    require(has(app.view(), "shortcuts-add") && !control(app.view(), "shortcuts-add").enabled,
+            "64 buttons: + is disabled");
+}
 int main() {
     // Theme pictures the tests draw go to a folder of their own, never to the
     // user's cache (R290).
@@ -4117,6 +4422,7 @@ int main() {
         scroll_cards();
         shortcut_bar_settings();
         shortcut_buttons();
+        shortcut_editor_settings();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

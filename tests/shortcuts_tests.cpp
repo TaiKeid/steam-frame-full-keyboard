@@ -1,3 +1,5 @@
+#include "framekeyboard/app.hpp"
+#include "framekeyboard/shortcut_editor.hpp"
 #include "framekeyboard/shortcuts.hpp"
 
 #include <algorithm>
@@ -9,7 +11,6 @@
 #include <unistd.h>
 
 using namespace framekeyboard;
-namespace fs = std::filesystem;
 namespace {
 void require(bool ok, const std::string& message) {
     if (!ok) {
@@ -531,6 +532,48 @@ void hand_edits() {
     require(!store.save(model) && !fs::exists(old), "its own last save is simply replaced");
 }
 
+// Reload config rereads shortcuts.json: a valid hand edit shows, an invalid
+// one keeps the bars already loaded and says so; --check reports the file.
+void reload_and_check() {
+    TemporaryDirectory directory;
+    const auto path = shortcuts_path(directory.path);
+    require(check_shortcuts(directory.path).ok &&
+                check_shortcuts(directory.path).line == "shortcuts: none",
+            "--check: no file is fine");
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    auto model = sample();
+    model.free_bar = "b1";
+    write(path, serialize_shortcuts(model));
+    require(check_shortcuts(directory.path).line == "shortcuts: 2 bars, 1 buttons, 0 assigned apps",
+            "--check counts a valid file's bars, buttons and apps");
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string("(none)");
+    };
+    require(label() == "Copy", "the bar loads");
+    model.bars[0].buttons[0].label = "Edited";
+    write(path, serialize_shortcuts(model));
+    app.reload();
+    require(label() == "Edited", "Reload shows a valid hand edit");
+    write(path, "{\"schema_version\":1,\"bars\":[{\"id\":\"b1\",\"name\":\"SecretName\"}]}");
+    app.reload();
+    require(label() == "Edited" && app.view().status.find("can't be read") != std::string::npos &&
+                app.view().status.find("SecretName") == std::string::npos,
+            "Reload of an invalid file keeps the bars and says so, quoting nothing");
+    const auto check = check_shortcuts(directory.path);
+    require(!check.ok && check.line.starts_with("shortcuts: invalid: ") &&
+                check.line.find("SecretName") == std::string::npos,
+            "--check reports an invalid file, quoting nothing");
+}
 AppIdentity program(std::string id) {
     return {AppIdentity::Kind::Program, std::move(id)};
 }
@@ -713,6 +756,7 @@ int main() {
         store();
         bad_file_rule();
         hand_edits();
+        reload_and_check();
         which_bar_shows();
         toolbar_button();
         picker();

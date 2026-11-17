@@ -21,6 +21,7 @@
 #include "settings_writer.hpp"
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
+#include "shortcut_editor.hpp"
 #include "shortcut_runner.hpp"
 #include "shortcuts.hpp"
 #include "stream_support.hpp"
@@ -467,7 +468,10 @@ class App {
     // without the shell's text sink.
     bool preview_input() const { return options_.input == InputBackend::None && !sink_on(); }
     // Nothing leaves the keyboard, but the editor still takes text: it is local.
-    bool preview_output() const { return preview_input() && !dictation_open_; }
+    bool preview_output() const { return preview_input() && !dictation_open_ && !field_typing(); }
+    // Text goes to a local editor, not the target: dictation's, or a
+    // shortcut editor field typed on the keyboard.
+    bool local_text() const { return dictation_open_ || field_typing(); }
     // What the context's purpose rules out (docs/integration.md, Hints).
     bool hint_private() const {
         return host_.context && (host_.hints.purpose == "password" || host_.hints.purpose == "pin");
@@ -1809,7 +1813,9 @@ class App {
     bool bar_shown() const;
     // The bar showing, or null for the empty bar and for none.
     const ShortcutBar* shown_bar() const;
-    void load_shortcuts();
+    // At startup, and again for Reload config: a reload that finds the file
+    // invalid keeps the bars already loaded and reports it.
+    void load_shortcuts(bool reloading = false);
     void configure_bar();
     // Saves the model on the preference worker.
     void save_shortcuts();
@@ -1835,6 +1841,93 @@ class App {
     void stop_shortcut_run();
     // The Debug card's sample bars, while there are none.
     void add_sample_shortcuts();
+
+    // The shortcut editor (docs/shortcut-bar-design.md, Settings and the
+    // editor), in app_shortcut_editor.cpp: a screen of its own over the
+    // case, working on its own copy until ✓, and the fields typed and keys
+    // recorded on the real keyboard, which then shows with a strip in place
+    // of its toolbar and sends nothing to the app.
+    std::optional<ShortcutEditor> shortcut_editor_;
+    enum class EditorQuestion { None, Leave, DeleteBar };
+    EditorQuestion editor_question_{EditorQuestion::None};
+    BarScroll editor_rows_scroll_, editor_strip_scroll_;
+    double editor_tick_{-1};
+    // A press on a bar row or a strip button, which a drag past the dead zone
+    // lifts: a row moves up or down the list, a button along the strip, or
+    // off it to be deleted. Its release then clicks nothing.
+    struct ShortcutDrag {
+        unsigned pointer{};
+        bool row{};
+        std::size_t index{}; // where it is now: it moves as it passes others
+        double x{}, y{};     // the press
+        double px{}, py{};   // the laser now
+        bool lifted{}, outside{};
+    };
+    std::optional<ShortcutDrag> shortcut_drag_;
+    // A field typed on the keyboard, or keys being recorded. The editor's
+    // screen waits behind it.
+    struct ShortcutField {
+        ShortcutFieldView::Kind kind{ShortcutFieldView::Kind::Label};
+        std::string text;     // never logged
+        std::size_t cursor{}; // a byte offset into text
+        std::vector<ShortcutChord> chords;
+        bool fkeys{}; // the F13–F24 menu is open
+    };
+    std::optional<ShortcutField> field_;
+    // Typed text, composed, swiped or flicked, goes into the field: whole,
+    // or not at all where the label or name would grow past its limit.
+    class FieldOutput : public TextOutput {
+      public:
+        explicit FieldOutput(App& app) : app_(app) {}
+        bool text_press(unsigned, const std::string& text, double) override {
+            return app_.field_insert(text);
+        }
+        bool commit_text(const std::string& text) override { return app_.field_insert(text); }
+        bool replaces_text() override { return true; }
+        bool replace_text(std::size_t delete_before, const std::string& text) override {
+            return app_.field_replace(delete_before, text);
+        }
+        bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+
+      private:
+        App& app_;
+    };
+    FieldOutput field_output_{*this};
+    bool field_typing() const { return field_ && field_->kind != ShortcutFieldView::Kind::Keys; }
+    // The editor's screen shows: open, with no field over it, outside Settings.
+    bool editor_screen() const { return shortcut_editor_ && !field_ && !settings_open_; }
+    // Full width, or the keyboard's width without its numpad on a narrower case.
+    double editor_width(const PanelView& keyboard) const;
+    void open_shortcut_editor();
+    void close_shortcut_editor(bool save);
+    void append_editor_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_shortcut_editor(PanelView& view) const;
+    void editor_action(const ControlAction& action);
+    // Starts a drag candidate for a press on a row or strip button.
+    void editor_press(unsigned pointer, const std::string& id, double x, double y);
+    // True while a lifted drag takes the laser.
+    bool editor_drag_move(unsigned pointer, double x, double y);
+    bool editor_drag_up(unsigned pointer);
+    bool editor_scroll(unsigned pointer, double dx, double dy);
+    std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
+    void tick_shortcut_editor(double now);
+    // Fields and recording.
+    void open_field(ShortcutFieldView::Kind kind);
+    // Ends the field, keeping what it holds when `save`, as Enter or Done.
+    void end_field(bool save);
+    bool field_insert(const std::string& text);
+    bool field_replace(std::size_t delete_before, const std::string& text);
+    bool field_down(unsigned pointer, const Key& key, double x, double y, double now, bool gap);
+    bool record_down(unsigned pointer, const Key& key, double now);
+    // The key a combination records: a letter as the Latin letter the key
+    // shows, as App::native_code takes it with modifiers; others by name.
+    std::string recorded_key(const Key& key) const;
+    // Records the modifiers held or latched with `key`, or alone when empty.
+    void record_chord(std::string key);
+    void field_action(const ControlAction& action);
+    void append_field_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_field_view(PanelView& view) const;
+    void append_field_bar(PanelView& view) const;
 };
 
 double monotonic_seconds();
