@@ -2090,21 +2090,14 @@ class VrPanel {
             mask_areas_.push_back(bounds);
             ++count;
         };
-        if (view.popup) {
-            rectangle(*view.popup);
-        }
-        // A flick may leave the case over its preview; keep tracking the laser there.
-        if (const auto preview = flick_preview_bounds(view)) {
-            rectangle(*preview);
-        }
         if (const auto handle = panel_move_handle_bounds(view)) {
             rectangle(*handle);
         }
-        // The shortcut bar's plates and its open menu, above or over the case.
-        for (const auto& area : shortcut_bar_bounds(view)) {
+        // The case, an open menu, the flick preview a flick may leave the
+        // case over, and the shortcut bar's plates and menu above the case.
+        for (const auto& area : pointer_bounds(view)) {
             rectangle(area);
         }
-        rectangle(panel_case_bounds(view));
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
@@ -2943,21 +2936,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             suspend_headset_input();
         }
     };
-    // The texture areas that take a pointer: the case, an open menu and the
-    // flick preview, which can reach past the case.
-    auto pointer_areas = [&](const PanelView& view) {
-        std::vector<Rect> areas{panel_case_bounds(view)};
-        if (view.popup) {
-            areas.push_back(*view.popup);
-        }
-        if (const auto preview = flick_preview_bounds(view)) {
-            areas.push_back(*preview);
-        }
-        for (const auto& area : shortcut_bar_bounds(view)) {
-            areas.push_back(area);
-        }
-        return areas;
-    };
     auto forward = [&](json_object* body, double now) {
         detect_headset_suspend();
         json_object* value = nullptr;
@@ -2993,9 +2971,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             return;
         }
         const auto [x, y] = uv_to_panel(number("u"), number("v"));
-        const auto areas = pointer_areas(app.input_view());
-        const bool inside =
-            std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+        const bool inside = takes_pointer(app.input_view(), x, y);
         detect_headset_suspend();
         if (headset_input.blocked()) {
             return;
@@ -3880,7 +3856,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return;
             }
             if (device < hovered_devices.size()) {
-                hovered_devices[device] = panel_case_bounds(app.geometry()).contains(x, y);
+                // The last mask: pointer_bounds() and the move handle, so a
+                // laser on the shortcut bar or an open menu counts as on the
+                // keyboard for the click watch and grabbing (R319).
+                const auto& areas = panel.mask_areas();
+                hovered_devices[device] = std::any_of(
+                    areas.begin(), areas.end(), [&](const Rect& area) { return area.contains(x, y); });
             }
             if (!drag.active()) {
                 if (app.move(pointer, x, y) && controller) {
@@ -5036,7 +5017,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // The areas a forwarded pointer may use, whenever they change.
             if (app.forwarded() && lifecycle.visible()) {
                 auto* rects = json_object_new_array();
-                for (const auto& area : pointer_areas(app.input_view())) {
+                for (const auto& area : pointer_bounds(app.input_view())) {
                     json_object_array_add(rects, rect_uv(area));
                 }
                 const std::string text = json_object_to_json_string_ext(rects, JSON_C_TO_STRING_PLAIN);

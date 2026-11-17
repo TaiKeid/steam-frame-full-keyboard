@@ -637,6 +637,13 @@ Rect panel_rect(const PanelView& view, Rect layout_rect);
 // The rectangles of the shortcut bar the laser may hit: both plates and the
 // open menu. The VR mask and the passthrough pointer add them to the case's.
 std::vector<Rect> shortcut_bar_bounds(const PanelView& view);
+// Everything that takes a pointer: the case, an open menu, the flick
+// preview past the case, and the shortcut bar's plates and open menu. The
+// VR mask, the passthrough pointer and the laser's hover, which the click
+// watch and grabbing read, all use these, so a pull on any of them counts
+// as one on the keyboard (R319). The move handle is the mask's own.
+std::vector<Rect> pointer_bounds(const PanelView& view);
+bool takes_pointer(const PanelView& view, double x, double y);
 // What the bar repaints when only its buttons' or the picker's states
 // changed (hover, press, enabled, running) or its buttons scrolled; empty
 // when the bar did not change, or when anything else in it did, the open

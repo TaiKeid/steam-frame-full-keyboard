@@ -3893,6 +3893,20 @@ void shortcut_bar_settings() {
                 view.shortcut_bar->menu->edit_label == "Edit shortcuts" &&
                 !view.shortcut_bar->menu->rows[0].assign_enabled,
             "the picker opens its menu: the bar showing filled, assigning off for now");
+    // R319: the bar's plate, the picker's plate and the menu above the case
+    // take the pointer, as the case does; the margin above the plate doesn't.
+    {
+        const auto body = panel_case_bounds(view);
+        const auto& bar = *view.shortcut_bar;
+        const auto plate = middle(bar.plate), picker_plate = middle(bar.picker);
+        const auto menu = bar.menu->bounds;
+        require(menu.y == body.y - 4 && !body.contains(menu.x + 10, body.y - 2) &&
+                    takes_pointer(view, menu.x + 10, body.y - 2) &&
+                    takes_pointer(view, plate.x, plate.y) &&
+                    takes_pointer(view, picker_plate.x, picker_plate.y) &&
+                    !takes_pointer(view, plate.x, bar.plate.y - 20),
+                "the bar's plates and its menu take the pointer, above the case");
+    }
     // A click outside the menu closes it and goes nowhere else.
     const auto [kx, ky] = key_point(app, "Space");
     tap_at(app, kx, ky);

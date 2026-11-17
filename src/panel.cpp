@@ -2185,6 +2185,23 @@ std::vector<Rect> shortcut_bar_bounds(const PanelView& view) {
     }
     return areas;
 }
+std::vector<Rect> pointer_bounds(const PanelView& view) {
+    std::vector<Rect> areas{panel_case_bounds(view)};
+    if (view.popup) {
+        areas.push_back(*view.popup);
+    }
+    if (const auto preview = flick_preview_bounds(view)) {
+        areas.push_back(*preview);
+    }
+    for (const auto& area : shortcut_bar_bounds(view)) {
+        areas.push_back(area);
+    }
+    return areas;
+}
+bool takes_pointer(const PanelView& view, double x, double y) {
+    const auto areas = pointer_bounds(view);
+    return std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+}
 std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now) {
     if (!before.shortcut_bar || !now.shortcut_bar || before.shortcut_bar == now.shortcut_bar ||
         before.settings || now.settings) {
