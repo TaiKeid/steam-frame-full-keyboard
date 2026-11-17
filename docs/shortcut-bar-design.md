@@ -122,7 +122,7 @@ Up to 32 steps, run in order. A macro presses keys; it does not type text.
 | --- | --- |
 | Once | One pass per press |
 | Times | 2 to 99 passes |
-| While held | Starts on press and runs passes until the trigger lets go; the pass under way finishes |
+| While held | Starts on press and runs passes until the trigger lets go, as a held key repeats, also when the laser drifts off the button; the pass under way finishes |
 
 `ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run stops, sending nothing more and retrying nothing, when:
 
@@ -181,8 +181,10 @@ Its layout fits both widths. With the numpad hidden the bars column is 236 wide 
 | Strip | The selected bar's buttons as they look on the bar, then **+**. Press selects; a sideways drag lifts a button to reorder it; dropped outside the strip it is deleted. It scrolls as the bar does |
 | Label and Action | The selected button's label field, and Shortcut, Macro or Run |
 | Shortcut | The recorded combinations as chips in a strip of fixed width, then **Record** and clear, which stay in place whatever is recorded. A strip too short for its chips scrolls sideways, as the bar does, and fades at a clipped side |
-| Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete, press to edit. **+ Keys**, which opens the recorder, and **+ Wait**. Repeat: Once, Times with a count, While held |
+| Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete. A Keys step shows its combinations as chips and a press on it opens the recorder; a Wait step has − and + beside its time, in steps of 0.1 s. **+ Keys** opens the recorder for a new step and **+ Wait** adds half a second. Repeat: Once, Times with a count, While held |
 | Run | Script or Command; a list of the script files, or the command field |
+
+Shortcut and Macro each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
 
 Everything in the editor is pending. ✓ saves it and returns to the keyboard. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
