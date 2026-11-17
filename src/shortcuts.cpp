@@ -691,8 +691,15 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
         }
     }
     // Written on the preference worker, so synced as config.json is.
-    if (!write_private_file(path_, text, true, true)) {
-        return "the file could not be written";
+    bool renamed = false;
+    if (!write_private_file(path_, text, true, true, &renamed)) {
+        if (!renamed) {
+            return "the file could not be written";
+        }
+        // Only the folder's sync failed: the new file is in place, so it is
+        // what the next save compares, not a hand edit to keep (R326).
+        known_ = text;
+        return "the file could not be synced to disk";
     }
     known_ = text;
     return {};

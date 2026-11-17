@@ -530,6 +530,20 @@ void hand_edits() {
     fs::remove(old);
     model.bars[0].name = "Third";
     require(!store.save(model) && !fs::exists(old), "its own last save is simply replaced");
+    // R326: the folder's sync after the rename fails (a folder that can't be
+    // opened for reading can still take the file). The new file is in place,
+    // so the next save takes it for this store's own, not a hand edit.
+    if (geteuid() != 0) {
+        fs::permissions(directory.path, fs::perms::owner_write | fs::perms::owner_exec);
+        model.bars[0].name = "Unsynced";
+        const auto problem = store.save(model);
+        fs::permissions(directory.path, fs::perms::owner_all);
+        require(problem && parse_shortcuts(read(path)) == model,
+                "a failed folder sync is reported, the new file in place");
+        model.bars[0].name = "Fourth";
+        require(!store.save(model) && !fs::exists(old) && parse_shortcuts(read(path)) == model,
+                "and the next save replaces it without keeping it as .old");
+    }
 }
 
 // Reload config rereads shortcuts.json: a valid hand edit shows, an invalid

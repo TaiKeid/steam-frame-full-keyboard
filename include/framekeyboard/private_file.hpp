@@ -9,9 +9,11 @@ namespace framekeyboard {
 // folder is made, the owner's alone, when `make_folder` is set. No fsync
 // unless `sync`: most saves run on the VR thread, where a sync could stall a
 // frame. With it, the file and then its folder are synced before and after
-// the rename, for callers on a worker, as config.json is.
+// the rename, for callers on a worker, as config.json is. `renamed`, when
+// given, says whether the new file took the old one's place, as it has when
+// only the folder's sync after the rename failed.
 bool write_private_file(const std::filesystem::path& file, const std::string& text,
-                        bool make_folder = false, bool sync = false);
+                        bool make_folder = false, bool sync = false, bool* renamed = nullptr);
 // Removes it, and what a save cut short left beside it.
 void remove_private_file(const std::filesystem::path& file);
 } // namespace framekeyboard

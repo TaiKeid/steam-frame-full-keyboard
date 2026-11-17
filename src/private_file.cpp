@@ -31,7 +31,11 @@ bool write_all(int fd, const std::string& data) {
 }
 } // namespace
 
-bool write_private_file(const fs::path& file, const std::string& text, bool make_folder, bool sync) {
+bool write_private_file(const fs::path& file, const std::string& text, bool make_folder, bool sync,
+                        bool* renamed) {
+    if (renamed) {
+        *renamed = false;
+    }
     std::error_code error;
     const auto folder = file.parent_path();
     if (make_folder && !folder.empty() && !fs::exists(folder, error) &&
@@ -55,6 +59,9 @@ bool write_private_file(const fs::path& file, const std::string& text, bool make
     if (error) {
         unlink(temporary.c_str());
         return false;
+    }
+    if (renamed) {
+        *renamed = true;
     }
     if (sync) {
         // The rename itself lives in the folder.
