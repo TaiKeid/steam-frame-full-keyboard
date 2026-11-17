@@ -130,12 +130,10 @@ enum class ControlKind {
     ShortcutsToggle,
     Shortcuts,
     DebugSampleShortcuts,
-    // The shortcut editor's controls (shortcuts-…; value says which), and
-    // the keyboard's strip while one of its fields is typed or keys are
-    // recorded: its items at the left, where candidates start after them,
-    // and its buttons at the right, where they end before them.
+    // The shortcut editor's controls (shortcuts-…; value says which), its
+    // popup's included, and the keyboard's strip while a label is renamed
+    // in place: its buttons at the right, where they end before them.
     ShortcutEditor,
-    FieldStrip,
     FieldAction
 };
 struct ControlAction {
@@ -315,6 +313,48 @@ struct ShortcutChip {
 // no other control may: while the editor shows, the normal drawing pass
 // leaves them to draw_shortcut_editor (R328).
 inline constexpr std::string_view shortcut_editor_prefix = "shortcuts-";
+// The modifiers and locks a key's face shows (KeyboardState's own, unless a
+// view gives its own, as the shortcut editor's mini keyboard does).
+struct KeyMarks {
+    bool operator==(const KeyMarks&) const = default;
+    std::set<int> modifiers, locked;
+    bool caps{}, num{};
+};
+// The shortcut editor's mini keyboard (design, Typing and recording): the
+// keys of the full US layout `us` that press a key, without its side column,
+// the gaps between its blocks closed to 12 layout units, 4 under the
+// function row and none between the other rows. In its own units from
+// (0, 0). Rows touch, so each key's face leaves its side (`depth`) and a
+// unit under it.
+Layout mini_keyboard_layout(const Layout& us, double depth);
+// The editor's popup for typing a label or a bar name, or recording keys,
+// under the strip. Its buttons and its keys are controls named
+// shortcuts-popup-… (the keys shortcuts-popup-key-<key id>); this holds the
+// rest. Panel coordinates, but `layout`, whose keys are drawn at `keys`
+// scaled by `scale`.
+struct ShortcutPopupView {
+    bool operator==(const ShortcutPopupView&) const = default;
+    enum class Kind { Label, Name, Recording };
+    Kind kind{Kind::Label};
+    Rect panel, well;        // the popup, and row 2's recessed strip
+    std::string title, hint; // row 1; the hint after the title, when it fits
+    Rect title_bounds, hint_bounds;
+    std::string text; // Label, Name: never logged
+    std::size_t cursor{};
+    std::vector<ShortcutChip> chords; // Recording, scrolled so the newest shows
+    // Recording: a quiet note in the strip, what to press while it is
+    // empty, or after the chips why no more go.
+    std::string full;
+    Rect full_bounds;
+    std::optional<Rect> fkeys; // the F13–F24 menu's panel, open
+    const Layout* layout{};    // the mini keyboard
+    const Language* language{};
+    const LanguageMap* keymap{}; // US legends, whatever language types
+    Rect keys;                   // where its (0, 0) and its size land
+    double scale{1};
+    KeyMarks marks;                // the popup's own latches and Caps Lock
+    std::set<std::string> pressed; // key IDs held down
+};
 // The shortcut editor's screen, over the case in place of the keys. Its
 // pressable parts are controls named shortcuts-…, which it draws; this holds
 // the rest. Panel coordinates.
@@ -340,23 +380,18 @@ struct ShortcutEditorView {
     std::vector<ShortcutChip> chords;
     std::vector<std::string> explanation;
     Rect explanation_bounds;
+    // Typing or recording; under it the editor is dimmed but the strip.
+    std::optional<ShortcutPopupView> popup;
 };
-// The keyboard's toolbar row while a shortcut editor field is typed or keys
-// are recorded: nothing typed there reaches the app. Its buttons are
-// controls (field-…); the bar above shows a Label field (ShortcutBarView).
+// The keyboard's toolbar row while a label is renamed in place on the bar
+// (design, Renaming in place): nothing typed there reaches the app. Its
+// buttons are controls (field-…); the bar above shows the field
+// (ShortcutBarView).
 struct ShortcutFieldView {
     bool operator==(const ShortcutFieldView&) const = default;
-    enum class Kind { Label, Name, Keys };
-    Kind kind{Kind::Label};
     Rect strip;
     std::string title, hint;
-    Rect hint_bounds;                 // where the hint fits, after the chips; empty: left out
-    std::vector<ShortcutChip> chords; // Keys: recorded so far
-    // Name: the one-line field, its text and the caret's byte offset.
-    Rect field;
-    std::string text; // never logged
-    std::size_t cursor{};
-    std::optional<Rect> fkeys; // the F13–F24 menu, open
+    Rect hint_bounds; // where the hint fits; empty: left out
 };
 // Where the bar's parts go for `buttons` buttons on the case `view` shows.
 // Sizes follow the layout's scale (design, The bar on the keyboard).
@@ -390,6 +425,9 @@ struct PanelView {
     std::string composition_hint;
     const LanguageMap* keymap{};
     const KeyboardState* keyboard{};
+    // In place of `keyboard`'s modifiers and locks, for keys no key state
+    // stands behind (key_marks()).
+    std::optional<KeyMarks> key_marks;
     std::vector<Control> controls;
     std::vector<CardView> cards;
     std::vector<FieldLabel> field_labels;
@@ -598,11 +636,12 @@ struct PanelView {
     // The prefix of the open modal's controls; nothing else responds. A
     // question asked from the languages popup sits over it.
     std::string modal_prefix() const {
-        return address     ? "address-"
-               : confirm   ? "confirm-"
-               : languages ? "languages-"
-               : themes    ? "themes-"
-                           : "";
+        return address                                     ? "address-"
+               : confirm                                   ? "confirm-"
+               : languages                                 ? "languages-"
+               : themes                                    ? "themes-"
+               : shortcut_editor && shortcut_editor->popup ? "shortcuts-popup-"
+                                                           : "";
     }
 };
 

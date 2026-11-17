@@ -535,16 +535,18 @@ void shortcut_editor() {
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->edit);
     require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
     click_rect(simulator, control_bounds(simulator, "shortcuts-new-bar"));
-    require(simulator.app().view().shortcut_field.has_value(), "New bar opens its name on the keyboard");
-    press(simulator, "KeyQ");
-    click_rect(simulator, control_bounds(simulator, "field-done"));
+    require(simulator.app().view().shortcut_editor->popup.has_value() &&
+                !simulator.app().view().shortcut_field,
+            "New bar opens its name in the editor's popup");
+    click_rect(simulator, control_bounds(simulator, "shortcuts-popup-key-KeyQ"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-popup-done"));
     const auto view = simulator.app().view();
     bool named = false;
     for (const auto& control : view.controls) {
         named |= control.id.starts_with("shortcuts-row-") && control.label == "Bar 2q";
     }
-    require(named && simulator.field().text().empty(),
-            "its name is typed into the editor, not the field");
+    require(named && simulator.field().text().empty() && !view.shortcut_editor->popup,
+            "the popup takes clicks: its name is typed into the editor, not the field");
     simulator.shutdown();
 }
 int main() {

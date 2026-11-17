@@ -1652,25 +1652,18 @@ void shortcut_editor(const char* theme_id, bool wide) {
     view.shortcut_editor->lifted_button.reset();
     view.shortcut_editor->lifted_row = ShortcutChip{"Bar 0", {e.column.x, 140, e.column.width, 48}};
     compare.frame(view, phase("a lifted row").c_str());
-    // The keyboard with the recording strip, then the Label field on the bar.
+    // The keyboard with the strip of renaming in place and its field on the bar.
     view.shortcut_editor.reset();
     view.hovered_controls.clear();
     const auto body = panel_case_bounds(view);
     ShortcutFieldView field;
-    field.kind = ShortcutFieldView::Kind::Keys;
     field.strip = {body.x + 18, 12, body.width - 36, 42};
-    field.title = "Recording";
-    field.chords = {{"Ctrl + K", {body.x + 192, 12, 120, 42}}};
-    field.hint = "Press the next key, or Done";
-    field.hint_bounds = {body.x + 340, 12, 300, 42};
-    field.fkeys = Rect{body.x + body.width - 650, 62, 476, 116};
+    field.title = "Label";
+    field.hint = "Type the label; nothing reaches the app";
+    field.hint_bounds = {body.x + 186, 12, 500, 42};
     view.shortcut_field = field;
     view.controls = {{"field-done", "Done", {body.x + body.width - 168, 12, 150, 42}, true},
-                     {"field-cancel", "Cancel", {body.x + body.width - 308, 12, 130, 42}},
-                     {"field-fkey-13", "F13", {body.x + body.width - 642, 70, 70, 46}}};
-    compare.frame(view, phase("the recording strip").c_str());
-    view.shortcut_field->chords.push_back({"S", {body.x + 340, 12, 50, 42}});
-    compare.frame(view, phase("a combination recorded").c_str());
+                     {"field-cancel", "Cancel", {body.x + body.width - 308, 12, 130, 42}}};
     const auto bar_geometry = shortcut_bar_geometry(view, 3);
     ShortcutBarView bar;
     bar.plate = bar_geometry.plate;
@@ -1687,21 +1680,12 @@ void shortcut_editor(const char* theme_id, bool wide) {
     bar.field_text = "Save\nal";
     bar.field_cursor = 8;
     view.shortcut_bar = bar;
-    view.shortcut_field->kind = ShortcutFieldView::Kind::Label;
-    view.shortcut_field->chords.clear();
-    view.shortcut_field->fkeys.reset();
     view.bar_tooltip = "Enter saves · Esc cancels · Shift+Enter starts a second line";
     view.bar_tooltip_at = bar.buttons[1].bounds;
     compare.frame(view, phase("the Label field").c_str());
     view.shortcut_bar->field_text = "Save\nall";
     view.shortcut_bar->field_cursor = 9;
     compare.frame(view, phase("a letter typed").c_str());
-    view.shortcut_field->kind = ShortcutFieldView::Kind::Name;
-    view.shortcut_field->field = {body.x + 192, 12, 600, 42};
-    view.shortcut_field->text = "Editor";
-    view.shortcut_field->cursor = 6;
-    view.shortcut_bar.reset();
-    compare.frame(view, phase("the bar name").c_str());
 }
 // R328: what the App puts outside the shortcut editor is drawn. The bar's
 // toolbar button, with the bar shown and hidden, and the note that
@@ -1832,9 +1816,81 @@ void app_controls_drawn() {
     }
     throw std::runtime_error("the note that shortcuts.json can't be read never came into view");
 }
+// The editor's popup as the App builds it (design, Typing and recording):
+// each change repaints as a full repaint draws it, and the mini keyboard's
+// keys are drawn, not only listed.
+void shortcut_popup(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutButton save;
+    save.label = "Save";
+    save.action.chords = {{{"ControlLeft"}, "KeyS"}};
+    model.bars.push_back({"b", "Editor", {save}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+        app.move(0, 5, 590);
+    };
+    const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
+    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->menu->edit);
+    tap_control("shortcuts-label");
+    const std::string name = narrow ? "the popup without the numpad" : "the popup";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("Label").c_str());
+    for (const char* key : {"KeyQ", "Space", "Enter", "F12", "Numpad1", "ArrowUp", "MetaRight"}) {
+        const auto r = control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds;
+        if (flat(compare.full, r)) {
+            throw std::runtime_error(phase("the mini key ") + key + " is not drawn");
+        }
+    }
+    const auto q = control_named(app.view(), "shortcuts-popup-key-KeyQ").bounds;
+    const double qx = q.x + q.width / 2, qy = q.y + q.height / 2;
+    app.move(0, qx, qy);
+    compare.frame(app.view(), phase("a key under the laser").c_str());
+    app.down(0, qx, qy, now += .1);
+    compare.frame(app.view(), phase("a key held down").c_str());
+    app.up(0, qx, qy);
+    compare.frame(app.view(), phase("a letter typed").c_str());
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    compare.frame(app.view(), phase("Shift latched").c_str());
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    tap_control("shortcuts-popup-key-Enter");
+    compare.frame(app.view(), phase("saved").c_str());
+    tap_control("shortcuts-record");
+    compare.frame(app.view(), phase("Recording").c_str());
+    tap_control("shortcuts-popup-key-ControlLeft");
+    compare.frame(app.view(), phase("a pending modifier").c_str());
+    tap_control("shortcuts-popup-key-KeyK");
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    compare.frame(app.view(), phase("a combination recorded").c_str());
+    tap_control("shortcuts-popup-fkeys");
+    compare.frame(app.view(), phase("the F13–F24 menu").c_str());
+    tap_control("shortcuts-popup-fkey-13");
+    compare.frame(app.view(), phase("F13 recorded").c_str());
+    tap_control("shortcuts-popup-cancel");
+    compare.frame(app.view(), phase("canceled").c_str());
+}
 int main() {
     try {
         app_controls_drawn();
+        shortcut_popup(false);
+        shortcut_popup(true);
         shortcut_editor("graphite", true);
         shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);

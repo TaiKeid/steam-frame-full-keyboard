@@ -1852,9 +1852,8 @@ class App {
 
     // The shortcut editor (docs/shortcut-bar-design.md, Settings and the
     // editor), in app_shortcut_editor.cpp: a screen of its own over the
-    // case, working on its own copy until ✓, and the fields typed and keys
-    // recorded on the real keyboard, which then shows with a strip in place
-    // of its toolbar and sends nothing to the app.
+    // case, working on its own copy until ✓, with a popup over it for
+    // typing labels and bar names and recording keys on a mini keyboard.
     std::optional<ShortcutEditor> shortcut_editor_;
     enum class EditorQuestion { None, Leave, DeleteBar };
     EditorQuestion editor_question_{EditorQuestion::None};
@@ -1872,36 +1871,6 @@ class App {
         bool lifted{}, outside{};
     };
     std::optional<ShortcutDrag> shortcut_drag_;
-    // A field typed on the keyboard, or keys being recorded. The editor's
-    // screen waits behind it.
-    struct ShortcutField {
-        ShortcutFieldView::Kind kind{ShortcutFieldView::Kind::Label};
-        std::string text;     // never logged
-        std::size_t cursor{}; // a byte offset into text
-        std::vector<ShortcutChord> chords;
-        bool fkeys{}; // the F13–F24 menu is open
-    };
-    std::optional<ShortcutField> field_;
-    // Typed text, composed, swiped or flicked, goes into the field: whole,
-    // or not at all where the label or name would grow past its limit.
-    class FieldOutput : public TextOutput {
-      public:
-        explicit FieldOutput(App& app) : app_(app) {}
-        bool text_press(unsigned, const std::string& text, double) override {
-            return app_.field_insert(text);
-        }
-        bool commit_text(const std::string& text) override { return app_.field_insert(text); }
-        bool replaces_text() override { return true; }
-        bool replace_text(std::size_t delete_before, const std::string& text) override {
-            return app_.field_replace(delete_before, text);
-        }
-        bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
-
-      private:
-        App& app_;
-    };
-    FieldOutput field_output_{*this};
-    bool field_typing() const { return field_ && field_->kind != ShortcutFieldView::Kind::Keys; }
     // The editor's screen shows: open, with no field over it, outside Settings.
     bool editor_screen() const { return shortcut_editor_ && !field_ && !settings_open_; }
     // Full width, or the keyboard's width without its numpad on a narrower case.
@@ -1919,19 +1888,84 @@ class App {
     bool editor_scroll(unsigned pointer, double dx, double dy);
     std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
     void tick_shortcut_editor(double now);
-    // Fields and recording.
-    void open_field(ShortcutFieldView::Kind kind);
+
+    // The editor's popup (design, Typing and recording): a fixed US mini
+    // keyboard whose keys are the editor's own controls, acting on press.
+    // Nothing it does goes through the key state, the output queue, a
+    // TextOutput or a typing language, so nothing reaches the app.
+    struct EditorPopup {
+        ShortcutPopupView::Kind kind{ShortcutPopupView::Kind::Label};
+        std::string text;                  // Label, Name: never logged
+        std::size_t cursor{};              // a byte offset into text
+        std::vector<ShortcutChord> chords; // Recording, from nothing
+        // Modifier keys latched by a tap, in the order tapped; a second tap
+        // lets one go, a key takes them all.
+        std::vector<std::string> latched;
+        bool caps{};  // Caps Lock, for text
+        bool fkeys{}; // the F13–F24 menu is open
+    };
+    std::optional<EditorPopup> popup_;
+    // A held Backspace, Delete or arrow repeats, as on the keyboard.
+    struct PopupRepeat {
+        unsigned pointer{};
+        std::string key; // the mini key's ID
+        double next{};
+    };
+    std::optional<PopupRepeat> popup_repeat_;
+    // Made from en-us-full as the popup opens, whatever layout and language
+    // are in use; the keymap gives its keys their US characters and legends.
+    Layout mini_layout_;
+    std::unique_ptr<LanguageMap> mini_keymap_;
+    void open_popup(ShortcutPopupView::Kind kind);
+    // Ends the popup, keeping what it holds when `save`, as Enter or Done.
+    void end_popup(bool save);
+    // A mini key pressed: it acts at once; Backspace, Delete and the arrows
+    // repeat while held.
+    void popup_key(const std::string& id, unsigned pointer, double now);
+    void popup_text_key(const Key& key);
+    // Records the latched modifiers with `key`, or alone when it is empty,
+    // as one combination; the latch ends.
+    void popup_record(const std::string& key);
+    void popup_action(const std::string& value, int index);
+    void append_popup_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_popup_view(ShortcutEditorView& view, const Rect& body) const;
+    void tick_popup(double now);
+
+    // Renaming in place (design, Renaming in place): a label typed on the
+    // real keyboard as a field on the bar. Kept for that phase; nothing opens
+    // it yet. The editor's screen waits behind it.
+    struct ShortcutField {
+        std::string text;     // never logged
+        std::size_t cursor{}; // a byte offset into text
+    };
+    std::optional<ShortcutField> field_;
+    // Typed text, composed, swiped or flicked, goes into the field: whole,
+    // or not at all where the label would grow past its limit.
+    class FieldOutput : public TextOutput {
+      public:
+        explicit FieldOutput(App& app) : app_(app) {}
+        bool text_press(unsigned, const std::string& text, double) override {
+            return app_.field_insert(text);
+        }
+        bool commit_text(const std::string& text) override { return app_.field_insert(text); }
+        bool replaces_text() override { return true; }
+        bool replace_text(std::size_t delete_before, const std::string& text) override {
+            return app_.field_replace(delete_before, text);
+        }
+        bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+
+      private:
+        App& app_;
+    };
+    FieldOutput field_output_{*this};
+    bool field_typing() const { return field_.has_value(); }
+    // The selected button's label, typed on the keyboard.
+    void open_field();
     // Ends the field, keeping what it holds when `save`, as Enter or Done.
     void end_field(bool save);
     bool field_insert(const std::string& text);
     bool field_replace(std::size_t delete_before, const std::string& text);
     bool field_down(unsigned pointer, const Key& key, double x, double y, double now, bool gap);
-    bool record_down(unsigned pointer, const Key& key, double now);
-    // The key a combination records: a letter as the Latin letter the key
-    // shows, as App::native_code takes it with modifiers; others by name.
-    std::string recorded_key(const Key& key) const;
-    // Records the modifiers held or latched with `key`, or alone when empty.
-    void record_chord(std::string key);
     void field_action(const ControlAction& action);
     void append_field_controls(std::vector<Control>& result, const Rect& body) const;
     void append_field_view(PanelView& view) const;

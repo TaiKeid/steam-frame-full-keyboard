@@ -4168,6 +4168,48 @@ void open_editor(App& app) {
     tap_rect(app, app.view().shortcut_bar->picker_button);
     tap_rect(app, app.view().shortcut_bar->menu->edit);
 }
+// A press on one of the editor popup's mini keys, by the US key's ID.
+void tap_mini(App& app, const std::string& key) {
+    tap_rect(app, control(app.view(), "shortcuts-popup-key-" + key).bounds);
+}
+std::string popup_text(App& app) {
+    return app.view().shortcut_editor->popup->text;
+}
+std::vector<std::string> popup_chips(const PanelView& view) {
+    std::vector<std::string> chips;
+    for (const auto& chip : view.shortcut_editor->popup->chords) {
+        chips.push_back(chip.text);
+    }
+    return chips;
+}
+// The popup sits under the strip, centered, 1051 × 396 at either width, its
+// keys inside it; a letter key is 42 × 48 with its side.
+void popup_fits(const PanelView& view, bool narrow) {
+    const auto& p = *view.shortcut_editor->popup;
+    const auto body = panel_case_bounds(view);
+    const auto& well = view.shortcut_editor->strip_well;
+    require(std::abs(p.panel.width - 1051) < 1 && p.panel.height == 396 &&
+                std::abs(p.panel.x + p.panel.width / 2 - (body.x + body.width / 2)) < .5 &&
+                p.panel.y >= well.y + well.height && p.panel.y + p.panel.height <= body.y + body.height,
+            narrow ? "the popup without the numpad: under the strip, centered, 1051 × 396, in the case"
+                   : "the popup: under the strip, centered, 1051 × 396, in the case");
+    require(std::abs(p.scale - .771) < .001, "the mini keyboard's scale is 0.771");
+    const auto letter = control(view, "shortcuts-popup-key-KeyQ").bounds;
+    require(std::abs(letter.width - 42) < .5 && std::abs(letter.height - 48) < .5,
+            "a letter key is 42 × 48");
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-popup-key-")) {
+            require(p.keys.x - .5 <= c.bounds.x &&
+                        c.bounds.x + c.bounds.width <= p.keys.x + p.keys.width + .5 &&
+                        c.bounds.y + c.bounds.height <= p.panel.y + p.panel.height,
+                    (c.id + " lies in the popup").c_str());
+        }
+    }
+    require(has(view, "shortcuts-popup-key-Numpad1") && has(view, "shortcuts-popup-key-F12") &&
+                !has(view, "shortcuts-popup-key-Emoji") && !has(view, "shortcuts-popup-key-Copy") &&
+                !has(view, "shortcuts-popup-key-Dictation"),
+            "the numpad stays, the side column goes");
+}
 std::vector<std::string> row_names(const PanelView& view) {
     std::vector<std::string> names;
     for (const auto& c : view.controls) {
@@ -4237,7 +4279,7 @@ void shortcut_invalid_note() {
     require(app.view().shortcut_editor && !app.view().shortcut_editor->notice.empty(),
             "so does the editor");
     tap_control(app, "shortcuts-new-bar");
-    tap_key(app, "Escape");
+    tap_mini(app, "Escape");
     tap_control(app, "shortcuts-save");
     require(saved_shortcuts(app).bars.size() == 1, "✓ saves the new bar");
     app.tick(950);
@@ -4254,6 +4296,53 @@ ShortcutModel editor_model() {
     model.apps.push_back({{AppIdentity::Kind::Program, "kate"}, "Kate", "one"});
     model.free_bar = "two";
     return model;
+}
+// The popup is the same whatever types: with the flick layout in use its
+// keyboard is still the US one, numpad included, in the no-numpad width's
+// editor; typing and recording there reach neither keys nor text.
+void shortcut_popup_flick() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.active = {"ja-flick-12", "ja-flick", "graphite"};
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct TextCapture : CaptureSink {
+        std::vector<std::string> texts;
+        bool text_available() override { return true; }
+        bool commit_text(const std::string& text) override {
+            texts.push_back(text);
+            return true;
+        }
+    } sink;
+    App app(options, sink);
+    app.tick(990);
+    require(app.view().layout->id == "ja-flick-12", "the flick layout is in use");
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-label");
+    const auto view = app.view();
+    require(panel_case_bounds(view).width == 1326, "the editor takes the no-numpad width");
+    popup_fits(view, true);
+    tap_mini(app, "KeyH");
+    tap_mini(app, "KeyI");
+    tap_mini(app, "Enter");
+    require(control(app.view(), "shortcuts-label").label == "Ahi", "US letters, whatever the language");
+    tap_control(app, "shortcuts-record");
+    tap_mini(app, "ControlLeft");
+    tap_mini(app, "KeyS");
+    tap_control(app, "shortcuts-popup-done");
+    require(app.view().shortcut_editor->chords.size() == 1 &&
+                app.view().shortcut_editor->chords[0].text == "Ctrl + S",
+            "recorded by the key's name");
+    require(sink.events.empty() && sink.texts.empty(),
+            "nothing reaches the app while the popup is open");
 }
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
@@ -4339,95 +4428,148 @@ void shortcut_editor_settings() {
                     control(view, "shortcuts-label").label.empty() &&
                     view.shortcut_editor->chords.empty(),
                 "+ adds a button with an empty label and action, selected");
-        // The Label field, on the bar above the keys.
+        // The Label popup: the mini keyboard under the strip, the editor
+        // dimmed behind it, the label growing on its button as it is typed.
         tap_control(app, "shortcuts-label");
         view = app.view();
-        require(!view.shortcut_editor && view.shortcut_field &&
-                    view.shortcut_field->kind == ShortcutFieldView::Kind::Label && view.shortcut_bar &&
-                    view.shortcut_bar->field && !has(view, "settings") && has(view, "field-done"),
-                "Label: the keyboard comes back, its toolbar a strip, the label a field on the bar");
-        tap_key(app, "KeyH");
-        tap_key(app, "KeyI");
-        tap_key(app, "ShiftLeft");
-        tap_key(app, "Enter");
-        tap_key(app, "ShiftLeft");
-        tap_key(app, "Enter");
-        tap_key(app, "KeyX");
-        require(app.view().shortcut_bar->field_text == "hi\nx" && sink.events.empty(),
-                "Shift+Enter starts a second line, once; nothing reaches the app");
-        tap_key(app, "Enter");
-        require(app.view().shortcut_editor && control(app.view(), "shortcuts-label").label == "hi\nx",
-                "Enter saves the label");
+        require(view.shortcut_editor && view.shortcut_editor->popup &&
+                    view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Label &&
+                    !view.shortcut_field && !view.shortcut_bar,
+                "Label opens the popup over the editor; the real keyboard stays away");
+        popup_fits(view, narrow);
+        require(view.modal_prefix() == "shortcuts-popup-" && has(view, "shortcuts-popup-done") &&
+                    has(view, "shortcuts-popup-cancel") && !has(view, "shortcuts-popup-fkeys"),
+                "row 1: Cancel and Done; the popup is modal");
+        // ← under the dimmed editor takes no press.
+        tap_control(app, "shortcuts-back");
+        require(app.view().shortcut_editor && app.view().shortcut_editor->popup && !app.view().confirm,
+                "← under the popup does nothing");
+        tap_mini(app, "ShiftLeft");
+        require(app.view().shortcut_editor->popup->marks.modifiers.contains(KEY_LEFTSHIFT),
+                "a modifier latches on a tap and shows lit");
+        tap_mini(app, "KeyH");
+        tap_mini(app, "KeyI");
+        require(popup_text(app) == "Hi" && app.view().shortcut_editor->popup->marks.modifiers.empty(),
+                "a latched Shift capitalizes one key, then lets go");
+        require(control(app.view(), "shortcuts-button-2").label == "Hi",
+                "the selected button shows the label as it is typed");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Digit1");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        require(popup_text(app) == "Hi\n!", "Shift+Enter starts a second line, once; Shift+1 is !");
+        tap_mini(app, "CapsLock");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "CapsLock");
+        tap_mini(app, "KeyX");
+        require(popup_text(app) == "Hi\n!Xx", "Caps Lock toggles capitals");
+        tap_mini(app, "ArrowLeft");
+        tap_mini(app, "ArrowLeft");
+        tap_mini(app, "Backspace");
+        tap_mini(app, "Minus");
+        tap_mini(app, "ArrowUp");
+        tap_mini(app, "End");
+        tap_mini(app, "Space");
+        require(popup_text(app) == "Hi \n-Xx" && sink.events.empty(),
+                "the caret moves with the arrows and Home and End; nothing reaches the app");
+        // A held Backspace repeats.
+        {
+            const auto key = middle(control(app.view(), "shortcuts-popup-key-Backspace").bounds);
+            app.move(0, key.x, key.y);
+            require(app.down(0, key.x, key.y, 970), "a mini key's press feels like a key's");
+            for (double now = 970; now < 970.7; now += .02) {
+                app.tick(now);
+            }
+            require(app.up(0, key.x, key.y), "and its release too");
+            require(popup_text(app).size() < 5, "a held Backspace repeats");
+        }
+        tap_mini(app, "Escape");
+        require(!app.view().shortcut_editor->popup &&
+                    control(app.view(), "shortcuts-label").label.empty(),
+                "Esc cancels: the label stays as it was");
         tap_control(app, "shortcuts-label");
-        tap_key(app, "KeyQ");
-        tap_key(app, "Escape");
-        require(control(app.view(), "shortcuts-label").label == "hi\nx", "Esc cancels");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(control(app.view(), "shortcuts-label").label.empty(), "Cancel cancels");
         tap_control(app, "shortcuts-label");
-        tap_key(app, "Backspace");
-        tap_key(app, "KeyZ");
-        tap_control(app, "field-done");
-        require(control(app.view(), "shortcuts-label").label == "hi\nz",
-                "Done saves, and Backspace edits");
-        // Recording on the keyboard.
+        tap_mini(app, "KeyH");
+        tap_mini(app, "KeyI");
+        tap_mini(app, "Enter");
+        require(control(app.view(), "shortcuts-label").label == "hi", "Enter saves the label");
+        tap_control(app, "shortcuts-label");
+        tap_mini(app, "Backspace");
+        tap_mini(app, "KeyZ");
+        tap_control(app, "shortcuts-popup-done");
+        require(control(app.view(), "shortcuts-label").label == "hz", "Done saves, and Backspace edits");
+        // Recording in the popup.
         tap_control(app, "shortcuts-record");
         view = app.view();
-        require(view.shortcut_field && view.shortcut_field->kind == ShortcutFieldView::Kind::Keys &&
-                    has(view, "field-fkeys") && has(view, "field-remove-last") &&
-                    !has(view, "field-pending"),
-                "Record: the strip with F13–F24, Remove last, Cancel and Done");
-        tap_key(app, "ControlLeft");
-        require(has(app.view(), "field-pending") &&
-                    control(app.view(), "field-pending").label == "Ctrl +",
-                "a latched modifier shows as a pending chip");
-        tap_key(app, "KeyK");
-        tap_key(app, "KeyS");
-        tap_key(app, "ShiftLeft");
-        tap_control(app, "field-pending");
-        tap_control(app, "field-fkeys");
-        tap_control(app, "field-fkey-13");
+        require(view.shortcut_editor->popup &&
+                    view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording &&
+                    has(view, "shortcuts-popup-fkeys") && has(view, "shortcuts-popup-remove-last") &&
+                    !has(view, "shortcuts-popup-pending"),
+                "Record: F13–F24, Remove last, Cancel and Done");
+        popup_fits(view, narrow);
+        tap_mini(app, "ControlLeft");
+        tap_mini(app, "ShiftLeft");
+        require(has(app.view(), "shortcuts-popup-pending") &&
+                    control(app.view(), "shortcuts-popup-pending").label == "Ctrl + Shift + …",
+                "latched modifiers show as a pending chip");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "KeyK");
+        tap_mini(app, "Numpad1");
+        tap_mini(app, "AltLeft");
+        tap_control(app, "shortcuts-popup-pending");
+        tap_control(app, "shortcuts-popup-fkeys");
+        tap_control(app, "shortcuts-popup-fkey-13");
         view = app.view();
-        require(view.shortcut_field->chords.size() == 4 &&
-                    view.shortcut_field->chords[0].text == "Ctrl + K" &&
-                    view.shortcut_field->chords[1].text == "S" &&
-                    view.shortcut_field->chords[2].text == "Shift" &&
-                    view.shortcut_field->chords[3].text == "F13" &&
-                    !control(view, "field-fkeys").enabled,
-                "combinations, modifiers alone and F13, four at most");
-        tap_key(app, "KeyA");
-        require(app.view().shortcut_field->chords.size() == 4 && sink.events.empty(),
+        require(
+            popup_chips(view) == std::vector<std::string>{"Ctrl + K", "Num 1", "Alt", "F13"} &&
+                !control(view, "shortcuts-popup-fkeys").enabled,
+            "a second tap lets a latch go; keys, numpad keys, modifiers alone and F13, four at most");
+        tap_mini(app, "KeyA");
+        require(popup_chips(app.view()).size() == 4 && sink.events.empty(),
                 "a fifth is not recorded, and nothing is sent");
-        tap_control(app, "field-remove-last");
-        tap_control(app, "field-done");
+        tap_control(app, "shortcuts-popup-remove-last");
+        tap_mini(app, "MetaLeft");
+        tap_control(app, "shortcuts-popup-done");
         view = app.view();
-        require(view.shortcut_editor && view.shortcut_editor->chords.size() == 3 &&
-                    view.shortcut_editor->chords[2].text == "Shift",
-                "Done keeps what was recorded");
+        require(!view.shortcut_editor->popup && view.shortcut_editor->chords.size() == 4 &&
+                    view.shortcut_editor->chords[3].text == "Super",
+                "Done records the pending modifiers alone and keeps what was recorded");
         tap_control(app, "shortcuts-record");
-        tap_key(app, "KeyQ");
-        tap_control(app, "field-cancel");
-        require(app.view().shortcut_editor->chords.size() == 3, "Cancel keeps the shortcut as it was");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(app.view().shortcut_editor->chords.size() == 4, "Cancel keeps the shortcut as it was");
         tap_control(app, "shortcuts-record");
-        tap_key(app, "ControlLeft");
+        tap_mini(app, "KeyQ");
+        require(popup_chips(app.view()) == std::vector<std::string>{"Q"},
+                "a recording starts from nothing");
         app.set_interaction_active(false);
         app.set_interaction_active(true);
-        require(app.view().shortcut_editor && app.view().shortcut_editor->chords.size() == 3,
+        require(app.view().shortcut_editor && !app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->chords.size() == 4,
                 "hiding the keyboard ends a recording as Cancel");
         tap_control(app, "shortcuts-clear");
         require(app.view().shortcut_editor->chords.empty(), "clear empties the shortcut");
-        // The bar's name, typed in the strip.
+        // The bar's name.
         tap_control(app, "shortcuts-rename");
-        require(app.view().shortcut_field && app.view().shortcut_field->text == "One",
-                "rename opens its name");
-        tap_key(app, "KeyX");
-        tap_key(app, "Enter");
-        require(row_names(app.view())[0] == "Onex", "Enter saves the name");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->kind == ShortcutPopupView::Kind::Name &&
+                    popup_text(app) == "One",
+                "rename opens the popup with its name");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        require(row_names(app.view())[0] == "Onex", "Enter saves the name; Shift+Enter too, one line");
         tap_control(app, "shortcuts-new-bar");
-        require(app.view().shortcut_field && app.view().shortcut_field->text == "Bar 3",
-                "New bar names itself");
-        tap_key(app, "Escape");
+        require(app.view().shortcut_editor->popup && popup_text(app) == "Bar 3", "New bar names itself");
+        tap_mini(app, "Escape");
         require(row_names(app.view()).size() == 3 && row_names(app.view())[2] == "Bar 3" &&
                     control(app.view(), "shortcuts-row-2").selected,
-                "the new bar stays with its name when the field is canceled");
+                "the new bar stays with its name when the popup is canceled");
         tap_control(app, "shortcuts-delete");
         require(row_names(app.view()).size() == 2 && !app.view().confirm,
                 "an empty bar is deleted at once");
@@ -4489,8 +4631,8 @@ void shortcut_editor_settings() {
     require(!control(view, "shortcuts-new-bar").enabled, "32 bars: New bar is disabled");
     require(view.shortcut_editor->bars_thumb.has_value(), "a long list of bars scrolls");
     tap_control(app, "shortcuts-label");
-    tap_key(app, "KeyY");
-    tap_key(app, "Enter");
+    tap_mini(app, "KeyY");
+    tap_mini(app, "Enter");
     require(control(app.view(), "shortcuts-label").label == "abcdefghijklmnopqrstuvwx",
             "a label at 24 characters takes no more");
     // The strip scrolls to its end, where + is disabled at 64 buttons.
@@ -4564,6 +4706,7 @@ int main() {
         shortcut_press_bar_change();
         shortcut_invalid_note();
         shortcut_editor_settings();
+        shortcut_popup_flick();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

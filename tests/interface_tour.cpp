@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
                 bars.move(0, plate.x + plate.width / 2, plate.y + plate.height / 2);
                 bars.scroll(0, 3, 0);
                 shot(bars, "shortcut-bar-scrolled");
-                // The editor at both widths, its Label field and the recording strip.
+                // The editor at both widths, with its popup for a label and for recording.
                 const auto open_editor = [](App& app) {
                     const auto picker = app.view().shortcut_bar->picker_button;
                     const double px = picker.x + picker.width / 2, py = picker.y + picker.height / 2;
@@ -216,14 +216,23 @@ int main(int argc, char** argv) {
                     app.up(0, ex, ey);
                     settle(app, 10);
                 };
+                // A label part typed, Shift latched; Ctrl + K recorded, Ctrl latched.
+                const auto popups = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-label");
+                    click(app, "shortcuts-popup-key-Backspace");
+                    click(app, "shortcuts-popup-key-ShiftLeft");
+                    shot(app, "shortcut-editor-label" + suffix);
+                    click(app, "shortcuts-popup-cancel");
+                    click(app, "shortcuts-record");
+                    click(app, "shortcuts-popup-key-ControlLeft");
+                    click(app, "shortcuts-popup-key-KeyK");
+                    click(app, "shortcuts-popup-key-ControlLeft");
+                    shot(app, "shortcut-editor-record" + suffix);
+                    click(app, "shortcuts-popup-cancel");
+                };
                 open_editor(bars);
                 shot(bars, "shortcut-editor");
-                click(bars, "shortcuts-label");
-                shot(bars, "shortcut-editor-label");
-                click(bars, "field-cancel");
-                click(bars, "shortcuts-record");
-                shot(bars, "shortcut-editor-record");
-                click(bars, "field-cancel");
+                popups(bars, "");
                 click(bars, "shortcuts-back");
                 bars.flush_settings();
                 Settings narrow = settings;
@@ -233,6 +242,7 @@ int main(int argc, char** argv) {
                 choose_language(small, language);
                 open_editor(small);
                 shot(small, "shortcut-editor-no-numpad");
+                popups(small, "-no-numpad");
             } else {
                 bars.back();
             }

@@ -1838,6 +1838,9 @@ bool App::move(unsigned pointer, double x, double y) {
             const auto index = static_cast<std::size_t>(std::stoul(target.id.substr(7)));
             return bar && index < bar->buttons.size() && shortcut_button_enabled(bar->buttons[index]);
         }
+        if (target.kind == HoverTarget::Kind::Control && target.id.starts_with("shortcuts-popup-key-")) {
+            return !pointer_pressed(pointer); // a mini key the laser enters ticks as a key does
+        }
         return target.kind == HoverTarget::Kind::Key && !dragging_ &&
                !keyboard_.pointer_pressed(pointer) && !v.disabled_keys.contains(target.id);
     }
@@ -1944,9 +1947,23 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             std::find_if(v.controls.rbegin(), v.controls.rend(),
                          [&](const Control& item) { return item.id == hovered_[pointer].id; });
         if (control != v.controls.rend()) {
+            // The F13–F24 menu closes on a press anywhere but its keys, taking it.
+            if (popup_ && popup_->fkeys && !control->id.starts_with("shortcuts-popup-fkey")) {
+                popup_->fkeys = false;
+                dirty = true;
+                return false;
+            }
             pressed_controls_[pointer] = {control->id, control->action};
             if (editor_screen()) {
                 editor_press(pointer, control->id, x, y); // a row or button may be dragged
+            }
+            if (control->id.starts_with("shortcuts-popup-key-")) {
+                // The mini keyboard's keys act on press, as keys do, and feel
+                // like them; the release only ends the press.
+                pressed_controls_[pointer].action = {};
+                popup_key(control->id.substr(std::string_view("shortcuts-popup-key-").size()), pointer,
+                          now);
+                return true;
             }
             if (control->id.starts_with("address-")) {
                 // The popup's keys act on press, Enter included; the release
@@ -1962,8 +1979,8 @@ bool App::down(unsigned pointer, double x, double y, double now) {
         return false;
     }
     // The F13–F24 menu over the keys closes on a press elsewhere, taking it.
-    if (field_ && field_->fkeys) {
-        field_->fkeys = false;
+    if (popup_ && popup_->fkeys) {
+        popup_->fkeys = false;
         dirty = true;
         return false;
     }
@@ -2278,8 +2295,19 @@ bool App::up(unsigned pointer, double x, double y) {
     if (reading_repeat_ && reading_repeat_->pointer == pointer) {
         reading_repeat_.reset();
     }
+    if (popup_repeat_ && popup_repeat_->pointer == pointer) {
+        popup_repeat_.reset();
+    }
     if (!interaction_active_) {
         return false;
+    }
+    // A mini key's release: it acted on press; this is its release haptic and pop.
+    if (const auto pressed = pressed_controls_.find(pointer);
+        pressed != pressed_controls_.end() && pressed->second.id.starts_with("shortcuts-popup-key-")) {
+        pressed_controls_.erase(pressed);
+        move(pointer, x, y);
+        dirty = true;
+        return true;
     }
     if (bar_press_ && bar_press_->pointer == pointer) {
         move(pointer, x, y); // Where it was let go: over the same part, it acts.
@@ -2557,6 +2585,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
 }
 void App::suspend_input(bool asleep) {
     end_field(false); // asleep or taken off: a shortcut editor field ends as Cancel
+    end_popup(false); // and so does the editor's popup
     const char* reason = asleep ? "dictation.stopped-asleep" : "dictation.stopped-taken-off";
     // stop_send needs the existing retry suffix before cancel clears it. An
     // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
@@ -2774,6 +2803,7 @@ void App::set_interaction_active(bool active) {
     // (docs/integration.md, Presentation).
     // A field typed or keys recorded for the shortcut editor end as Cancel.
     end_field(false);
+    end_popup(false); // hiding ends the editor's popup as Cancel
     if (!hosted()) {
         close_emoji();
         // Reopened, it likely types into another field: quotes open again (R144).
@@ -5469,7 +5499,7 @@ void App::action(const ControlAction& command) {
         update_settings_ui();
     } else if (kind == ControlKind::ShortcutEditor) {
         editor_action(command);
-    } else if (kind == ControlKind::FieldAction || kind == ControlKind::FieldStrip) {
+    } else if (kind == ControlKind::FieldAction) {
         field_action(command);
     } else if (kind == ControlKind::DebugSampleShortcuts) {
         add_sample_shortcuts();
@@ -5673,6 +5703,11 @@ bool App::band_more() const {
     return ime_band_shown();
 }
 double App::reading_room() const {
+    // The shortcut editor shows no reading line: it takes the case's whole
+    // height, which its popup needs on a composing layout too.
+    if (editor_screen()) {
+        return 0;
+    }
     return reading_case_room(
         profiles_.layouts.at(settings_.active.layout), profiles_.themes.at(settings_.active.theme),
         profiles_.languages.at(settings_.active.language).input_method == "japanese-flick");

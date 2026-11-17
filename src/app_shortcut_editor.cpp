@@ -1,7 +1,8 @@
 // The shortcut editor (docs/shortcut-bar-design.md, Settings and the editor):
 // a screen of its own over the case, on its own copy of the bars until ✓,
-// and the fields typed and keys recorded on the real keyboard, which then
-// shows with a strip in place of its toolbar and sends nothing to the app.
+// with a popup over it where labels and bar names are typed and keys
+// recorded on a mini keyboard of its own (Typing and recording). The label
+// field typed on the real keyboard waits for renaming in place.
 #include "framekeyboard/app.hpp"
 
 #include <algorithm>
@@ -13,7 +14,8 @@
 
 namespace framekeyboard {
 namespace {
-using Kind = ShortcutFieldView::Kind;
+using PopupKind = ShortcutPopupView::Kind;
+constexpr std::string_view key_prefix = "shortcuts-popup-key-";
 // A drag past this many pixels lifts a row or a button.
 constexpr double dead_zone = 12;
 constexpr double row_height = 52;
@@ -84,20 +86,67 @@ template <class Scroll> bool step_scroll(Scroll& scroll, double delta, double si
     }
     return scroll.target != old;
 }
-std::vector<std::string> modifier_names(const std::set<int>& codes) {
-    std::vector<std::string> names;
-    for (const int code : codes) {
-        if (is_modifier(code)) {
-            names.push_back(key_name(code));
-        }
+// Where the popup's parts go (design, Typing and recording): under the
+// strip, centered on the case, 396 tall whatever the width. Row 1 holds what
+// is edited and the buttons, row 2 the recessed strip, and the keys take the
+// rest at a scale that fits the mini layout's height into it.
+struct PopupLayout {
+    Rect panel, row, well, keys;
+    double scale{};
+};
+PopupLayout popup_layout(const Rect& body, const Rect& strip_well, const Layout& mini) {
+    constexpr double height = 396, pad = 10, margin = 12, row = 40, well = 44;
+    constexpr double keys_top = pad + row + 8 + well + 8; // 110
+    PopupLayout l;
+    l.scale = mini.height > 0 ? (height - keys_top - pad) / mini.height : 1;
+    const double width = mini.width * l.scale + 2 * margin;
+    l.panel = {body.x + (body.width - width) / 2, strip_well.y + strip_well.height + 8, width, height};
+    l.row = {l.panel.x + margin, l.panel.y + pad, width - 2 * margin, row};
+    l.well = {l.panel.x + margin, l.panel.y + pad + row + 8, width - 2 * margin, well};
+    l.keys = {l.panel.x + margin, l.panel.y + keys_top, mini.width * l.scale, mini.height * l.scale};
+    return l;
+}
+// The chips of the combinations recorded so far, and where the pending
+// modifiers' chip goes after them; scrolled so the newest shows.
+struct ChipRow {
+    std::vector<ShortcutChip> chips;
+    Rect pending;
+    double end{};
+};
+ChipRow chip_row(const Rect& well, const std::vector<ShortcutChord>& chords,
+                 const std::string& pending) {
+    constexpr double gap = 28, height = 34;
+    ChipRow row;
+    double x = well.x + 10;
+    for (const auto& chord : chords) {
+        const auto text = chord_text(chord);
+        row.chips.push_back(
+            {text, {x, well.y + (well.height - height) / 2, chip_width(text, 20), height}});
+        x += chip_width(text, 20) + gap;
     }
-    return names;
+    if (!pending.empty()) {
+        row.pending = {x, well.y + (well.height - height) / 2, chip_width(pending, 20), height};
+        x += row.pending.width + gap;
+    }
+    row.end = x - gap;
+    // The newest in view: everything moves left by what overflows.
+    const double over = row.end - (well.x + well.width - 10);
+    if (over > 0) {
+        for (auto& chip : row.chips) {
+            chip.bounds.x -= over;
+        }
+        row.pending.x -= over;
+        row.end -= over;
+    }
+    return row;
 }
 } // namespace
 
 double App::editor_width(const PanelView& keyboard) const {
+    // Only a full-width case keeps its width; any narrower one, the flick
+    // layout's (1509) included, takes the width without the numpad.
     const double width = panel_case_bounds(keyboard).width;
-    return width >= 1500 ? width : std::max(width, narrow_width);
+    return width >= panel_width - .5 ? width : narrow_width;
 }
 void App::open_shortcut_editor() {
     if (settings_open_ || dictation_open_ || shortcut_editor_) {
@@ -123,6 +172,7 @@ void App::close_shortcut_editor(bool save) {
     if (field_) {
         end_field(false);
     }
+    end_popup(false);
     if (save) {
         const auto& model = shortcut_editor_->model();
         // The editor never builds a model past a limit; checked all the same.
@@ -210,14 +260,21 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
                 plus.enabled = shortcut_editor_->can_add_button();
                 add("shortcuts-add", "add", plus);
             } else {
-                Control button{{}, selected->buttons[i].label, r, shortcut_editor_->button() == i};
+                // A label being typed shows on its button as it grows.
+                const bool typing =
+                    popup_ && popup_->kind == PopupKind::Label && shortcut_editor_->button() == i;
+                Control button{{},
+                               typing ? popup_->text : selected->buttons[i].label,
+                               r,
+                               shortcut_editor_->button() == i};
                 button.clip = l.strip;
                 add("shortcuts-button-" + std::to_string(i), "button", button, static_cast<int>(i));
             }
         }
     }
     if (const auto* button = shortcut_editor_->selected_button()) {
-        Control label{{}, button->label, l.label};
+        const bool typing = popup_ && popup_->kind == PopupKind::Label;
+        Control label{{}, typing ? popup_->text : button->label, l.label};
         label.style = ControlStyle::TextField;
         add("shortcuts-label", "label", label);
         const auto kind = button->action.kind;
@@ -251,6 +308,9 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
             clear.enabled = !button->action.chords.empty();
             add("shortcuts-clear", "clear", clear);
         }
+    }
+    if (popup_) {
+        append_popup_controls(result, body);
     }
     if (editor_question_ != EditorQuestion::None) {
         const Rect panel = confirm_popup_bounds;
@@ -367,6 +427,9 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.lifted_removing = d.outside;
         }
     }
+    if (popup_) {
+        append_popup_view(e, body);
+    }
     if (editor_question_ == EditorQuestion::Leave) {
         v.confirm = PanelView::ConfirmView{confirm_popup_bounds, tr("shortcuts.question.leave-title"),
                                            tr("shortcuts.question.leave-body")};
@@ -382,6 +445,10 @@ void App::editor_action(const ControlAction& command) {
     }
     const auto& value = command.value;
     const auto index = static_cast<std::size_t>(std::max(0, command.index));
+    if (value.starts_with("popup-")) {
+        popup_action(value, command.index);
+        return;
+    }
     if (value == "question-cancel" || value == "question-accept") {
         const auto question = std::exchange(editor_question_, EditorQuestion::None);
         const bool accept = value == "question-accept";
@@ -407,7 +474,7 @@ void App::editor_action(const ControlAction& command) {
         shortcut_editor_->select_bar(index);
         editor_strip_scroll_ = {};
     } else if (value == "rename") {
-        open_field(Kind::Name);
+        open_popup(PopupKind::Name);
     } else if (value == "delete") {
         if (const auto* bar = shortcut_editor_->selected_bar(); bar && !bar->buttons.empty()) {
             editor_question_ = EditorQuestion::DeleteBar; // its buttons would go too
@@ -426,7 +493,7 @@ void App::editor_action(const ControlAction& command) {
             std::max(0.0, static_cast<double>(shortcut_editor_->model().bars.size()) * row_height -
                               l.bars_list.height);
         editor_rows_scroll_.shown = editor_rows_scroll_.target = limit;
-        open_field(Kind::Name);
+        open_popup(PopupKind::Name);
     } else if (value == "tie") {
         shortcut_editor_->remove_tie(index);
     } else if (value == "button") {
@@ -441,16 +508,16 @@ void App::editor_action(const ControlAction& command) {
             std::max(0.0, static_cast<double>(count + 1) * l.pitch - l.gap - l.strip.width);
         editor_strip_scroll_.target = limit;
     } else if (value == "label") {
-        open_field(Kind::Label);
+        open_popup(PopupKind::Label);
     } else if (value == "record") {
-        open_field(Kind::Keys);
+        open_popup(PopupKind::Recording);
     } else if (value == "clear") {
         shortcut_editor_->set_chords({});
     }
     dirty = true;
 }
 void App::editor_press(unsigned pointer, const std::string& id, double x, double y) {
-    if (shortcut_drag_ || editor_question_ != EditorQuestion::None) {
+    if (shortcut_drag_ || editor_question_ != EditorQuestion::None || popup_) {
         return;
     }
     const bool row = id.starts_with("shortcuts-row-");
@@ -526,7 +593,7 @@ bool App::editor_drag_up(unsigned pointer) {
 bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     const auto position = pointer_positions_.find(pointer);
     if (!editor_screen() || position == pointer_positions_.end() ||
-        editor_question_ != EditorQuestion::None) {
+        editor_question_ != EditorQuestion::None || popup_) {
         return false;
     }
     const auto [x, y] = position->second;
@@ -549,7 +616,7 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     return moved;
 }
 std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
-    if (!editor_screen() || editor_question_ != EditorQuestion::None) {
+    if (!editor_screen() || editor_question_ != EditorQuestion::None || popup_) {
         return {};
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
@@ -578,6 +645,7 @@ void App::tick_shortcut_editor(double now) {
     if (!shortcut_editor_) {
         return;
     }
+    tick_popup(now);
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().bars.size());
     const double rows =
@@ -594,35 +662,426 @@ void App::tick_shortcut_editor(double now) {
     }
 }
 
-void App::open_field(Kind kind) {
-    if (!shortcut_editor_) {
+void App::open_popup(PopupKind kind) {
+    if (!shortcut_editor_ || popup_) {
         return;
     }
-    ShortcutField field;
-    field.kind = kind;
-    if (kind == Kind::Name) {
+    EditorPopup popup;
+    popup.kind = kind;
+    if (kind == PopupKind::Name) {
         if (!shortcut_editor_->selected_bar()) {
             return;
         }
-        field.text = shortcut_editor_->selected_bar()->name;
+        popup.text = shortcut_editor_->selected_bar()->name;
     } else {
         const auto* button = shortcut_editor_->selected_button();
-        if (!button || (kind == Kind::Keys && button->action.kind != ShortcutAction::Kind::Keys)) {
+        if (!button ||
+            (kind == PopupKind::Recording && button->action.kind != ShortcutAction::Kind::Keys)) {
             return;
         }
-        if (kind == Kind::Label) {
-            field.text = button->label;
+        if (kind == PopupKind::Label) {
+            popup.text = button->label;
         }
     }
+    popup.cursor = popup.text.size();
+    // The US keyboard, whatever is in use: its keys and their characters.
+    const auto us = profiles_.layouts.find("en-us-full");
+    const auto english = profiles_.languages.find("en-us");
+    if (us == profiles_.layouts.end() || english == profiles_.languages.end()) {
+        return;
+    }
+    mini_layout_ = mini_keyboard_layout(us->second, shown_theme().depth);
+    if (!mini_keymap_) {
+        mini_keymap_ = std::make_unique<LanguageMap>(english->second);
+    }
+    popup_ = std::move(popup);
+    popup_repeat_.reset();
+    shortcut_drag_.reset();
+    hovered_.clear();
+    pressed_controls_.clear();
+    dirty = true;
+}
+void App::end_popup(bool save) {
+    if (!popup_) {
+        return;
+    }
+    const auto popup = *std::exchange(popup_, std::nullopt);
+    if (save && shortcut_editor_) {
+        switch (popup.kind) {
+        case PopupKind::Label:
+            shortcut_editor_->set_label(popup.text);
+            break;
+        case PopupKind::Name:
+            shortcut_editor_->rename_bar(popup.text);
+            break;
+        case PopupKind::Recording:
+            shortcut_editor_->set_chords(popup.chords); // Done replaces
+            break;
+        }
+    }
+    popup_repeat_.reset();
+    hovered_.clear();
+    pressed_controls_.clear();
+    dirty = true;
+}
+void App::popup_key(const std::string& id, unsigned pointer, double now) {
+    if (!popup_) {
+        return;
+    }
+    const auto found = std::find_if(mini_layout_.keys.begin(), mini_layout_.keys.end(),
+                                    [&](const Key& key) { return key.id == id; });
+    if (found == mini_layout_.keys.end()) {
+        return;
+    }
+    const Key& key = *found;
+    auto& p = *popup_;
+    p.fkeys = false;
+    dirty = true;
+    // A modifier latches on a tap and shows lit; a second tap lets it go.
+    if (is_modifier(key_code(key.action))) {
+        const auto latched = std::find(p.latched.begin(), p.latched.end(), key.action);
+        if (latched != p.latched.end()) {
+            p.latched.erase(latched);
+        } else {
+            p.latched.push_back(key.action);
+        }
+        return;
+    }
+    if (p.kind == PopupKind::Recording) {
+        popup_record(key.action);
+        return;
+    }
+    popup_text_key(key);
+    if (popup_ &&
+        (key.action == "Backspace" || key.action == "Delete" || key.action.starts_with("Arrow"))) {
+        popup_repeat_ = PopupRepeat{pointer, key.id, now + .5};
+    }
+}
+void App::popup_text_key(const Key& key) {
+    auto& p = *popup_;
+    const auto& action = key.action;
+    const auto latched = [&](std::initializer_list<const char*> names) {
+        return std::any_of(names.begin(), names.end(), [&](const char* name) {
+            return std::find(p.latched.begin(), p.latched.end(), name) != p.latched.end();
+        });
+    };
+    const bool shift = latched({"ShiftLeft", "ShiftRight"});
+    // Ctrl, Alt or Super latched would make a key a shortcut, which types nothing.
+    const bool command =
+        latched({"ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"});
+    // Any key but a modifier takes the latches with it.
+    const auto modifiers = std::exchange(p.latched, {});
+    if (action == "CapsLock") {
+        p.caps = !p.caps;
+        p.latched = modifiers; // a lock, not a key: the latches wait
+        return;
+    }
+    if (action == "Escape") {
+        end_popup(false);
+        return;
+    }
+    const bool label = p.kind == PopupKind::Label;
+    const auto fits = [&](const std::string& text) {
+        return label ? fits_label(text) : fits_bar_name(text);
+    };
+    auto& text = p.text;
+    const auto at = std::min(p.cursor, text.size());
+    const auto previous = [&](std::size_t from) {
+        return from == 0 ? std::size_t{0}
+                         : static_cast<std::size_t>(
+                               g_utf8_find_prev_char(text.c_str(), text.c_str() + from) - text.c_str());
+    };
+    const auto next = [&](std::size_t from) {
+        return from >= text.size()
+                   ? text.size()
+                   : static_cast<std::size_t>(g_utf8_next_char(text.c_str() + from) - text.c_str());
+    };
+    // The line the caret is on: [start, end), and where it is along it.
+    const auto line_start = [&](std::size_t from) {
+        const auto found = from == 0 ? std::string::npos : text.rfind('\n', from - 1);
+        return found == std::string::npos ? std::size_t{0} : found + 1;
+    };
+    const auto line_end = [&](std::size_t from) {
+        const auto found = text.find('\n', from);
+        return found == std::string::npos ? text.size() : found;
+    };
+    const auto column = [&](std::size_t from) {
+        return static_cast<std::size_t>(g_utf8_strlen(text.c_str() + line_start(from),
+                                                      static_cast<gssize>(from - line_start(from))));
+    };
+    const auto along = [&](std::size_t start, std::size_t end, std::size_t characters) {
+        auto place = start;
+        for (std::size_t i = 0; i < characters && place < end; ++i) {
+            place = next(place);
+        }
+        return place;
+    };
+    if (action == "Enter" || action == "NumpadEnter") {
+        // In a label Shift+Enter starts a second line, once; otherwise saves.
+        if (label && shift) {
+            auto broken = text;
+            broken.insert(at, "\n");
+            if (fits(broken)) {
+                text = std::move(broken);
+                p.cursor = at + 1;
+            }
+            return;
+        }
+        end_popup(true);
+        return;
+    }
+    if (action == "Backspace") {
+        const auto from = previous(at);
+        text.erase(from, at - from);
+        p.cursor = from;
+    } else if (action == "Delete") {
+        text.erase(at, next(at) - at);
+    } else if (action == "ArrowLeft") {
+        p.cursor = previous(at);
+    } else if (action == "ArrowRight") {
+        p.cursor = next(at);
+    } else if (action == "ArrowUp") {
+        // The other line at the same place along it, or the start.
+        const auto start = line_start(at);
+        p.cursor = start == 0 ? 0 : along(line_start(start - 1), start - 1, column(at));
+    } else if (action == "ArrowDown") {
+        const auto end = line_end(at);
+        p.cursor = end == text.size() ? text.size() : along(end + 1, line_end(end + 1), column(at));
+    } else if (action == "Home") {
+        p.cursor = line_start(at);
+    } else if (action == "End") {
+        p.cursor = line_end(at);
+    } else if (!command) {
+        // The key's US character, with Shift or Caps Lock.
+        std::set<int> held;
+        if (shift) {
+            held.insert(key_code("ShiftLeft"));
+        }
+        const auto symbol = mini_keymap_->symbol(key, held, p.caps, true);
+        const auto codepoint = xkb_keysym_to_utf32(symbol);
+        if (!LanguageMap::printable(symbol) || codepoint == 0 || g_unichar_iscntrl(codepoint)) {
+            return;
+        }
+        char bytes[8]{};
+        const auto length = g_unichar_to_utf8(codepoint, bytes);
+        auto typed = text;
+        typed.insert(at, bytes, static_cast<std::size_t>(length));
+        if (fits(typed)) {
+            text = std::move(typed);
+            p.cursor = at + static_cast<std::size_t>(length);
+        }
+    }
+}
+void App::popup_record(const std::string& key) {
+    auto& p = *popup_;
+    const auto modifiers = std::exchange(p.latched, {});
+    // A shortcut stops at four combinations (a macro's Keys step at 32).
+    if (p.chords.size() >= shortcut_limits::chords || (key.empty() && modifiers.empty())) {
+        return;
+    }
+    p.chords.push_back({modifiers, key});
+    dirty = true;
+}
+void App::popup_action(const std::string& value, int index) {
+    if (!popup_) {
+        return;
+    }
+    auto& p = *popup_;
+    if (value == "popup-done") {
+        if (p.kind == PopupKind::Recording && !p.latched.empty()) {
+            popup_record({}); // pending modifiers record alone
+        }
+        end_popup(true);
+        return;
+    }
+    if (value == "popup-cancel") {
+        end_popup(false);
+        return;
+    }
+    if (value == "popup-remove-last") {
+        if (!p.chords.empty()) {
+            p.chords.pop_back();
+        }
+        p.fkeys = false;
+    } else if (value == "popup-fkeys") {
+        p.fkeys = !p.fkeys;
+    } else if (value == "popup-fkey") {
+        p.fkeys = false;
+        popup_record("F" + std::to_string(index));
+    } else if (value == "popup-pending") {
+        popup_record({});
+    }
+    dirty = true;
+}
+void App::tick_popup(double now) {
+    if (!popup_repeat_) {
+        return;
+    }
+    const auto held = pressed_controls_.find(popup_repeat_->pointer);
+    if (!popup_ || held == pressed_controls_.end() ||
+        held->second.id != std::string(key_prefix) + popup_repeat_->key) {
+        popup_repeat_.reset();
+        return;
+    }
+    if (now >= popup_repeat_->next) {
+        const auto key = popup_repeat_->key;
+        popup_repeat_->next = now + .04; // no catching up, as the address popup's keys
+        const auto found = std::find_if(mini_layout_.keys.begin(), mini_layout_.keys.end(),
+                                        [&](const Key& k) { return k.id == key; });
+        if (found != mini_layout_.keys.end()) {
+            popup_text_key(*found);
+        }
+        dirty = true;
+    }
+}
+void App::append_popup_controls(std::vector<Control>& result, const Rect& body) const {
+    const auto& p = *popup_;
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto pl = popup_layout(body, l.strip_well, mini_layout_);
+    const auto add = [&](std::string id, std::string value, Control control, int index = 0) {
+        control.id = "shortcuts-popup-" + std::move(id);
+        control.action = {ControlKind::ShortcutEditor, index, std::move(value)};
+        result.push_back(std::move(control));
+    };
+    // Row 1's buttons, from the right: Done, Cancel, and while recording
+    // Remove last and F13–F24.
+    double right = pl.row.x + pl.row.width;
+    const auto take = [&](double width) {
+        right -= width;
+        const Rect r{right, pl.row.y, width, pl.row.height};
+        right -= 8;
+        return r;
+    };
+    add("done", "popup-done", {{}, tr("shortcuts.popup.done"), take(120), true, Icon::Apply});
+    add("cancel", "popup-cancel", {{}, tr("button.cancel"), take(104)});
+    const bool room = p.chords.size() < shortcut_limits::chords;
+    if (p.kind == PopupKind::Recording) {
+        Control remove{{}, tr("shortcuts.popup.remove-last"), take(146)};
+        remove.enabled = !p.chords.empty();
+        add("remove-last", "popup-remove-last", remove);
+        Control fkeys{{}, tr("shortcuts.popup.fkeys"), take(130), p.fkeys};
+        fkeys.enabled = room;
+        const auto menu_at = fkeys.bounds;
+        add("fkeys", "popup-fkeys", fkeys);
+        if (const auto row = chip_row(pl.well, p.chords,
+                                      p.latched.empty() || !room ? std::string()
+                                                                 : chord_text({p.latched, {}}) + " + …");
+            !p.latched.empty() && room) {
+            add("pending", "popup-pending", {{}, chord_text({p.latched, {}}) + " + …", row.pending});
+        }
+        if (p.fkeys && room) {
+            // Six across, two down, under their button, right-aligned with it.
+            constexpr double size = 70, height = 46, gap = 8, pad = 8;
+            const double left = menu_at.x + menu_at.width - (6 * size + 5 * gap + 2 * pad);
+            for (int n = 13; n <= 24; ++n) {
+                const int i = n - 13;
+                add("fkey-" + std::to_string(n), "popup-fkey",
+                    {{},
+                     "F" + std::to_string(n),
+                     {left + pad + (i % 6) * (size + gap),
+                      menu_at.y + menu_at.height + 6 + pad + (i / 6) * (height + gap), size, height}},
+                    n);
+            }
+        }
+    }
+    // The keys: each takes its row's whole height, side included, so a
+    // press between rows still lands on one.
+    const double depth = shown_theme().depth;
+    for (const auto& key : mini_layout_.keys) {
+        const auto& r = key.bounds;
+        Control control{{},
+                        key.label,
+                        {pl.keys.x + r.x * pl.scale, pl.keys.y + r.y * pl.scale, r.width * pl.scale,
+                         (r.height + depth + 1) * pl.scale}};
+        add("key-" + key.id, "key", control);
+    }
+}
+void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
+    const auto& p = *popup_;
+    const auto l =
+        editor_layout(body, bar_geometry(0), shown_theme().depth, shortcut_editor_->model().bars.size());
+    const auto pl = popup_layout(body, l.strip_well, mini_layout_);
+    ShortcutPopupView view;
+    view.kind = p.kind;
+    view.panel = pl.panel;
+    view.well = pl.well;
+    switch (p.kind) {
+    case PopupKind::Label:
+        view.title = tr("shortcuts.popup.label");
+        view.hint = tr("shortcuts.popup.label-hint");
+        break;
+    case PopupKind::Name:
+        view.title = tr("shortcuts.popup.name");
+        view.hint = tr("shortcuts.popup.name-hint");
+        break;
+    case PopupKind::Recording:
+        view.title = tr("shortcuts.popup.recording");
+        break;
+    }
+    view.title_bounds = {pl.row.x + 6, pl.row.y, 300, pl.row.height};
+    // The hint runs up to the first of row 1's buttons.
+    const double buttons =
+        p.kind == PopupKind::Recording ? 120 + 104 + 146 + 130 + 4 * 8 : 120 + 104 + 2 * 8;
+    view.hint_bounds = {pl.row.x + 6, pl.row.y, pl.row.width - 6 - buttons - 8, pl.row.height};
+    view.text = p.text;
+    view.cursor = p.cursor;
+    if (p.kind == PopupKind::Recording) {
+        const bool room = p.chords.size() < shortcut_limits::chords;
+        const auto row =
+            chip_row(pl.well, p.chords,
+                     p.latched.empty() || !room ? std::string() : chord_text({p.latched, {}}) + " + …");
+        view.chords = row.chips;
+        if (!room) {
+            view.full = tr("shortcuts.popup.full");
+            view.full_bounds = {row.end + 20, pl.well.y, pl.well.x + pl.well.width - row.end - 30,
+                                pl.well.height};
+        } else if (p.chords.empty() && p.latched.empty()) {
+            view.full = tr("shortcuts.popup.recording-hint");
+            view.full_bounds = {pl.well.x + 16, pl.well.y, pl.well.width - 32, pl.well.height};
+        }
+    }
+    if (p.fkeys && p.kind == PopupKind::Recording && p.chords.size() < shortcut_limits::chords) {
+        // Its button is row 1's fourth from the right.
+        const double fkeys_right = pl.row.x + pl.row.width - (120 + 104 + 146 + 3 * 8);
+        constexpr double size = 70, height = 46, gap = 8, pad = 8;
+        const double width = 6 * size + 5 * gap + 2 * pad;
+        view.fkeys =
+            Rect{fkeys_right - width, pl.row.y + pl.row.height + 6, width, 2 * height + gap + 2 * pad};
+    }
+    view.layout = &mini_layout_;
+    view.language = &profiles_.languages.at("en-us");
+    view.keymap = mini_keymap_.get();
+    view.keys = pl.keys;
+    view.scale = pl.scale;
+    for (const auto& name : p.latched) {
+        view.marks.modifiers.insert(key_code(name));
+    }
+    view.marks.caps = p.caps;
+    view.marks.num = true; // the numpad types its digits
+    for (const auto& [pointer, pressed] : pressed_controls_) {
+        (void)pointer;
+        if (pressed.id.starts_with(key_prefix)) {
+            view.pressed.insert(pressed.id.substr(key_prefix.size()));
+        }
+    }
+    e.popup = std::move(view);
+}
+
+void App::open_field() {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    if (!button) {
+        return;
+    }
+    ShortcutField field;
+    field.text = button->label;
     field.cursor = field.text.size();
     // Nothing held, latched or composing carries into the field.
     release_input(true);
     keyboard_.cancel_all();
     field_ = std::move(field);
-    if (field_typing()) {
-        // Typed text, composed, swiped or flicked, goes into the field.
-        text_output_ = &field_output_;
-    }
+    // Typed text, composed, swiped or flicked, goes into the field.
+    text_output_ = &field_output_;
     hovered_.clear();
     pressed_controls_.clear();
     dirty = true;
@@ -631,28 +1090,16 @@ void App::end_field(bool save) {
     if (!field_) {
         return;
     }
-    if (field_typing()) {
-        // A held tap or flick types as if let go, a reading or a swiped word
-        // still pending goes in, all into the field; a cancel drops them.
-        release_input(!save);
-        if (save) {
-            commit_composition();
-            finish_swipe(true);
-        }
+    // A held tap or flick types as if let go, a reading or a swiped word
+    // still pending goes in, all into the field; a cancel drops them.
+    release_input(!save);
+    if (save) {
+        commit_composition();
+        finish_swipe(true);
     }
     const auto field = *field_;
     if (save && shortcut_editor_) {
-        switch (field.kind) {
-        case Kind::Label:
-            shortcut_editor_->set_label(field.text);
-            break;
-        case Kind::Name:
-            shortcut_editor_->rename_bar(field.text);
-            break;
-        case Kind::Keys:
-            shortcut_editor_->set_chords(field.chords);
-            break;
-        }
+        shortcut_editor_->set_label(field.text);
     }
     discard_swipe();
     composition_.cancel();
@@ -676,7 +1123,7 @@ bool App::field_insert(const std::string& text) {
     auto& f = *field_;
     auto next = f.text;
     next.insert(std::min(f.cursor, next.size()), text);
-    if (!(f.kind == Kind::Label ? fits_label(next) : fits_bar_name(next))) {
+    if (!fits_label(next)) {
         return false;
     }
     f.text = std::move(next);
@@ -696,7 +1143,7 @@ bool App::field_replace(std::size_t delete_before, const std::string& text) {
     }
     auto next = f.text;
     next.replace(start, std::min(f.cursor, f.text.size()) - start, text);
-    if (!(f.kind == Kind::Label ? fits_label(next) : fits_bar_name(next))) {
+    if (!fits_label(next)) {
         return false;
     }
     f.text = std::move(next);
@@ -704,61 +1151,9 @@ bool App::field_replace(std::size_t delete_before, const std::string& text) {
     dirty = true;
     return true;
 }
-std::string App::recorded_key(const Key& key) const {
-    // As native_code takes a letter typed with modifiers: the Latin letter
-    // the key shows (AZERTY's A is KeyA), or for a non-Latin script the
-    // letter of its place.
-    const auto symbol = xkb_keysym_to_lower(keymap_->symbol(key, {}, false, false));
-    const bool latin = symbol >= XKB_KEY_a && symbol <= XKB_KEY_z;
-    if (key.action.starts_with("Key") || latin) {
-        const char letter = latin ? static_cast<char>(symbol - XKB_KEY_a + 'a') : key.action.back();
-        return "Key" + std::string(1, static_cast<char>(g_ascii_toupper(letter)));
-    }
-    return key.action;
-}
-void App::record_chord(std::string key) {
-    if (!field_ || field_->chords.size() >= shortcut_limits::chords) {
-        return;
-    }
-    auto modifiers = modifier_names(keyboard_.modifiers());
-    if (key.empty() && modifiers.empty()) {
-        return;
-    }
-    field_->chords.push_back({std::move(modifiers), std::move(key)});
-    keyboard_.use_modifiers(); // the latches went into it
-    dirty = true;
-}
-bool App::record_down(unsigned pointer, const Key& key, double now) {
-    if (key.action_kind != ActionKind::Key && key.action_kind != ActionKind::Shortcut) {
-        return false; // flick, emoji and mic keys record nothing
-    }
-    // Before down(), which takes a latched modifier with the key.
-    const auto modifiers = keyboard_.modifiers();
-    if (!keyboard_.down(pointer, key, now, true, 0)) {
-        return false;
-    }
-    dirty = true;
-    if (key.action_kind == ActionKind::Key && is_modifier(key_code(key.action))) {
-        return true; // latched or held: a pending chip until the next key
-    }
-    auto& f = *field_;
-    if (f.chords.size() < shortcut_limits::chords) {
-        if (key.action_kind == ActionKind::Shortcut) {
-            // Cut, Copy and Paste record what they press: Ctrl and the letter.
-            f.chords.push_back({{"ControlLeft"}, shortcut_key(key.action)});
-        } else {
-            f.chords.push_back({modifier_names(modifiers), recorded_key(key)});
-        }
-    }
-    keyboard_.use_modifiers();
-    return true;
-}
 bool App::field_down(unsigned pointer, const Key& key, double x, double y, double now, bool gap) {
     if (keyboard_.pointer_pressed(pointer)) {
         return false;
-    }
-    if (field_->kind == Kind::Keys) {
-        return !gap && record_down(pointer, key, now);
     }
     // As in dictation's editor: another hand's flick or tap types first.
     if (flick_track_ && flick_track_->pointer != pointer) {
@@ -845,7 +1240,7 @@ bool App::field_down(unsigned pointer, const Key& key, double x, double y, doubl
     };
     const bool shift = modifiers.contains(KEY_LEFTSHIFT) || modifiers.contains(KEY_RIGHTSHIFT);
     if (key.action == "Enter" || key.action == "NumpadEnter") {
-        if (f.kind == Kind::Label && shift) {
+        if (shift) {
             field_insert("\n"); // a second line, once
         } else {
             end_field(true);
@@ -888,34 +1283,14 @@ void App::field_action(const ControlAction& command) {
     if (!field_) {
         return;
     }
-    const auto& value = command.value;
-    if (value == "done") {
-        if (field_->kind == Kind::Keys && !keyboard_.modifiers().empty()) {
-            record_chord({}); // pending modifiers record alone
-        }
+    if (command.value == "done") {
         end_field(true);
-    } else if (value == "cancel") {
+    } else if (command.value == "cancel") {
         end_field(false);
-    } else if (value == "remove-last" && !field_->chords.empty()) {
-        field_->chords.pop_back();
-    } else if (value == "fkeys") {
-        field_->fkeys = !field_->fkeys;
-    } else if (value == "fkey") {
-        record_chord("F" + std::to_string(command.index));
-        field_->fkeys = false;
-    } else if (value == "pending") {
-        record_chord({});
     }
     dirty = true;
 }
 void App::append_field_controls(std::vector<Control>& result, const Rect& body) const {
-    const auto& f = *field_;
-    const auto add = [&](std::string id, ControlKind kind, std::string value, Control control,
-                         int index = 0) {
-        control.id = std::move(id);
-        control.action = {kind, index, std::move(value)};
-        result.push_back(std::move(control));
-    };
     double right = body.x + body.width - 18;
     const auto take = [&](double width) {
         right -= width;
@@ -923,51 +1298,16 @@ void App::append_field_controls(std::vector<Control>& result, const Rect& body) 
         right -= 10;
         return r;
     };
-    add("field-done", ControlKind::FieldAction, "done",
-        {{}, tr("shortcuts.field.done"), take(150), true});
-    add("field-cancel", ControlKind::FieldAction, "cancel", {{}, tr("button.cancel"), take(130)});
-    if (f.kind != Kind::Keys) {
-        return;
-    }
-    const bool room = f.chords.size() < shortcut_limits::chords;
-    Control remove{{}, tr("shortcuts.field.remove-last"), take(170)};
-    remove.enabled = !f.chords.empty();
-    add("field-remove-last", ControlKind::FieldAction, "remove-last", remove);
-    Control fkeys{{}, tr("shortcuts.field.fkeys"), take(140), f.fkeys};
-    fkeys.enabled = room;
-    const auto menu_at = fkeys.bounds;
-    add("field-fkeys", ControlKind::FieldAction, "fkeys", fkeys);
-    if (f.fkeys && room) {
-        // Six across, two down, under their button, right-aligned with it.
-        constexpr double size = 70, height = 46, gap = 8, pad = 8;
-        const double left = menu_at.x + menu_at.width - (6 * size + 5 * gap + 2 * pad);
-        for (int n = 13; n <= 24; ++n) {
-            const int i = n - 13;
-            add("field-fkey-" + std::to_string(n), ControlKind::FieldAction, "fkey",
-                {{},
-                 "F" + std::to_string(n),
-                 {left + pad + (i % 6) * (size + gap), 62 + pad + (i / 6) * (height + gap), size,
-                  height}},
-                n);
-        }
-    }
-    // The modifiers latched or held so far, a chip that records them alone.
-    const auto held = modifier_names(keyboard_.modifiers());
-    if (!held.empty() && room) {
-        double x = body.x + 18 + 24 + 150;
-        for (const auto& chord : f.chords) {
-            x += chip_width(chord_text(chord), 20) + 28;
-        }
-        const auto text = chord_text({held, {}}) + " +";
-        add("field-pending", ControlKind::FieldStrip, "pending",
-            {{}, text, {x, 12, chip_width(text, 20), 42}});
-    }
+    Control done{"field-done", tr("shortcuts.field.done"), take(150), true};
+    done.action = {ControlKind::FieldAction, 0, "done"};
+    result.push_back(std::move(done));
+    Control cancel{"field-cancel", tr("button.cancel"), take(130)};
+    cancel.action = {ControlKind::FieldAction, 0, "cancel"};
+    result.push_back(std::move(cancel));
 }
 void App::append_field_view(PanelView& v) const {
-    const auto& f = *field_;
     const auto body = panel_case_bounds(v);
     ShortcutFieldView view;
-    view.kind = f.kind;
     view.strip = {body.x + 18, 12, body.width - 36, 42};
     double right = body.x + body.width - 18;
     for (const auto& c : v.controls) {
@@ -975,54 +1315,18 @@ void App::append_field_view(PanelView& v) const {
             right = std::min(right, c.bounds.x);
         }
     }
-    double x = body.x + 18 + (f.kind == Kind::Keys ? 24 : 0) + 150;
-    switch (f.kind) {
-    case Kind::Keys: {
-        view.title = tr("shortcuts.field.recording");
-        for (const auto& chord : f.chords) {
-            const auto text = chord_text(chord);
-            view.chords.push_back({text, {x, 12, chip_width(text, 20), 42}});
-            x += chip_width(text, 20) + 28;
-        }
-        for (const auto& c : v.controls) {
-            if (c.id == "field-pending") {
-                x = c.bounds.x + c.bounds.width + 16;
-            }
-        }
-        view.hint = tr(f.chords.size() < shortcut_limits::chords ? "shortcuts.field.recording-hint"
-                                                                 : "shortcuts.field.recording-full");
-        for (const auto& c : v.controls) {
-            if (c.id.starts_with("field-fkey-") && c.id != "field-fkeys") {
-                const Rect panel{c.bounds.x - 8, c.bounds.y - 8, 0, 0};
-                if (!view.fkeys) {
-                    view.fkeys = Rect{panel.x, panel.y, 6 * 70 + 5 * 8 + 16, 2 * 46 + 8 + 16};
-                }
-            }
-        }
-        break;
-    }
-    case Kind::Label:
-        view.title = tr("shortcuts.field.label");
-        view.hint = tr("shortcuts.field.label-hint");
-        break;
-    case Kind::Name:
-        view.title = tr("shortcuts.field.name");
-        view.field = {x, 12, std::max(120.0, right - 16 - x), 42};
-        view.text = f.text;
-        view.cursor = f.cursor;
-        break;
-    }
-    // A narrow keyboard drops the hint first.
-    if (f.kind != Kind::Name && right - 16 - x >= 220) {
+    const double x = body.x + 18 + 150;
+    view.title = tr("shortcuts.field.label");
+    view.hint = tr("shortcuts.field.label-hint");
+    // A narrow keyboard drops the hint.
+    if (right - 16 - x >= 220) {
         view.hint_bounds = {x, 12, right - 16 - x, 42};
     }
     v.shortcut_field = std::move(view);
-    // The mic and the emoji key wait, and so do Cut, Copy and Paste in a
-    // text field; recording takes those three as what they press.
+    // The mic, the emoji key, and Cut, Copy and Paste wait in a text field.
     for (const auto& key : v.layout->keys) {
         if (key.action_kind == ActionKind::Dictation || key.action_kind == ActionKind::Emoji ||
-            (key.action_kind == ActionKind::Flick && f.kind == Kind::Keys) ||
-            (key.action_kind == ActionKind::Shortcut && f.kind != Kind::Keys)) {
+            key.action_kind == ActionKind::Shortcut) {
             v.disabled_keys.insert(key.id);
         }
     }
@@ -1053,7 +1357,7 @@ void App::append_field_bar(PanelView& v) const {
         shown.label = bar.buttons[i].label;
         shown.bounds = r;
         shown.running = i == selected && shortcut_editor_->button(); // lit, as in the editor's strip
-        if (i == selected && field_->kind == Kind::Label) {
+        if (i == selected) {
             view.field = view.buttons.size();
             view.field_text = field_->text;
             view.field_cursor = field_->cursor;
@@ -1064,12 +1368,9 @@ void App::append_field_bar(PanelView& v) const {
     view.more_after = scroll < g.scroll_limit - .5;
     view.picker = g.picker;
     view.picker_button = g.picker_button;
-    if (field_->kind == Kind::Label && view.field) {
+    if (view.field) {
         v.bar_tooltip = tr("shortcuts.field.label-tooltip");
         v.bar_tooltip_at = view.buttons[*view.field].bounds;
-    } else if (field_->kind == Kind::Keys) {
-        v.bar_tooltip = tr("shortcuts.field.recording-tooltip");
-        v.bar_tooltip_at = g.plate;
     }
     v.shortcut_bar = std::move(view);
 }

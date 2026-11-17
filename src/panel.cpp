@@ -7,10 +7,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
 #include <limits>
 #include <linux/input-event-codes.h>
 #include <memory>
 #include <pango/pangocairo.h>
+#include <set>
 #include <stdexcept>
 #include <sys/mman.h>
 #include <tuple>
@@ -1454,15 +1456,23 @@ void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color
     cairo_restore(cr);
 }
 // A latched modifier or lock, or the mic key while it listens: drawn in the latched color.
-bool latched_key(const PanelView& view, const Key& key, const std::set<int>& modifiers) {
+// What a key's face shows of the modifiers and locks: the keyboard's, or a
+// view's own marks where no key state stands behind the keys.
+KeyMarks key_marks(const PanelView& view) {
+    if (view.key_marks) {
+        return *view.key_marks;
+    }
+    return {view.keyboard->modifiers(), view.keyboard->locked_modifiers(), view.keyboard->caps(),
+            view.keyboard->num()};
+}
+bool latched_key(const PanelView& view, const Key& key, const KeyMarks& marks) {
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
     // A key pulled into a flick fills, as a latched one does: release types its Shift character.
     if (view.key_flick && view.key_flick->key == key.id && view.key_flick->pull >= 1) {
         return true;
     }
-    return modifiers.contains(code) || (key.action == "CapsLock" && view.keyboard->caps()) ||
-           (key.action == "NumLock" && view.keyboard->num()) ||
-           (view.dictation_capturing && key.icon == Icon::Mic);
+    return marks.modifiers.contains(code) || (key.action == "CapsLock" && marks.caps) ||
+           (key.action == "NumLock" && marks.num) || (view.dictation_capturing && key.icon == Icon::Mic);
 }
 // How a key's face is filled: as it rests or the laser lights it, latched,
 // in the theme's pressed color, or disabled.
@@ -1588,16 +1598,16 @@ Rect atlas_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Key& k
 // `lock`: how long the key's lock ring has run, negative while none shows.
 void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
                  double phase, double ring, double lock) {
-    const auto modifiers = view.keyboard->modifiers();
+    const auto marks = key_marks(view);
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
         const int code = key_code(name);
-        if (modifiers.contains(code)) {
+        if (marks.modifiers.contains(code)) {
             legend_modifiers.insert(code);
         }
     }
     const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
-    const bool latched = latched_key(view, key, modifiers) && !listening;
+    const bool latched = latched_key(view, key, marks) && !listening;
     const bool disabled = view.disabled_keys.contains(key.id);
     // A theme with a pressed color fills a key held halfway down or more.
     const bool pressing = view.theme->pressed && amount >= .5 && !latched && !listening && !disabled;
@@ -1640,7 +1650,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     if (!disabled && !listening) {
         if (lock_shown) {
             draw_lock_ring(cr, t, face, ring_progress, ring_alpha);
-        } else if (key.action_kind == ActionKind::Key && view.keyboard->locked(key_code(key.action))) {
+        } else if (key.action_kind == ActionKind::Key && marks.locked.contains(key_code(key.action))) {
             draw_lock_ring(cr, t, face, 1, 1);
         }
     }
@@ -1778,7 +1788,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
         label(cr, center, middle, t.font_size, view.language->font, t.legend, true);
         return;
     }
-    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
+    auto text = view.keymap->legend(key, legend_modifiers, marks.caps, marks.num);
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
     }
@@ -1798,14 +1808,14 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
                text.size() < 5) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, marks.caps, marks.num);
         if (secondary == text) {
             secondary.clear();
         }
     } else if (!key.secondary_label.empty()) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, marks.caps, marks.num);
         if (secondary == text) {
             secondary.clear();
         }
@@ -1841,7 +1851,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
         const double width = text_width(cr, text, size, view.language->font);
         const double x = std::round(face.x + (face.width - arrow - gap - width) / 2);
         shift_arrow(cr, x, std::round(face.y + face.height / 2 + arrow * .55), arrow, legend,
-                    view.keyboard->locked(shift));
+                    marks.locked.contains(shift));
         label(cr, text, {x + arrow + gap - 4, face.y, width + 8, face.height}, size, view.language->font,
               legend, true, PANGO_ALIGN_CENTER, false, right_to_left(text));
         return;
@@ -2186,6 +2196,82 @@ std::vector<Rect> shortcut_bar_bounds(const PanelView& view) {
         areas.push_back(bar.menu->bounds);
     }
     return areas;
+}
+Layout mini_keyboard_layout(const Layout& us, double depth) {
+    Layout mini;
+    mini.id = us.id;
+    mini.name = us.name;
+    mini.language = us.language;
+    // Only keys that press a key: the side column's emoji, Cut, Copy, Paste
+    // and mic can't be recorded.
+    for (const auto& key : us.keys) {
+        if (key.action_kind == ActionKind::Key) {
+            mini.keys.push_back(key);
+        }
+    }
+    if (mini.keys.empty()) {
+        return mini;
+    }
+    // Rows. The function row is the topmost; the others keep their order and
+    // spans, at a pitch of their key height: the gaps between them close.
+    double top = mini.keys.front().bounds.y;
+    for (const auto& key : mini.keys) {
+        top = std::min(top, key.bounds.y);
+    }
+    double function_height = 0, first = 1e9, row_height = 1e9;
+    std::set<double> tops;
+    for (const auto& key : mini.keys) {
+        if (key.bounds.y == top) {
+            function_height = std::max(function_height, key.bounds.height);
+        } else {
+            first = std::min(first, key.bounds.y);
+            row_height = std::min(row_height, key.bounds.height);
+            tops.insert(key.bounds.y);
+        }
+    }
+    // The second row's top less the first's; one row alone keeps its height.
+    const double pitch = tops.size() > 1 ? *std::next(tops.begin()) - first : row_height;
+    const double per_unit = row_height / pitch;
+    constexpr double under_function_row = 4;
+    // Blocks: the keys' spans along x, all rows together; a gap wider than
+    // within a block (the 26 units between the main keys, the navigation
+    // keys and the numpad) closes to 12.
+    constexpr double within_block = 20, block_gap = 12;
+    std::vector<std::pair<double, double>> spans;
+    for (const auto& key : mini.keys) {
+        spans.emplace_back(key.bounds.x, key.bounds.x + key.bounds.width);
+    }
+    std::sort(spans.begin(), spans.end());
+    // Each block's start and how far it moves left.
+    std::vector<std::pair<double, double>> shifts{{spans.front().first, spans.front().first}};
+    double end = spans.front().second;
+    for (const auto& [from, to] : spans) {
+        if (from > end + within_block) {
+            shifts.emplace_back(from, shifts.back().second + (from - end) - block_gap);
+        }
+        end = std::max(end, to);
+    }
+    for (auto& key : mini.keys) {
+        auto& r = key.bounds;
+        double shift = 0;
+        for (const auto& [from, by] : shifts) {
+            if (r.x >= from) {
+                shift = by;
+            }
+        }
+        r.x -= shift;
+        double height = r.height;
+        if (r.y == top) {
+            r.y = 0;
+        } else {
+            r.y = function_height + under_function_row + (r.y - first) * per_unit;
+            height = (r.height + pitch - row_height) * per_unit; // whole rows, no gaps
+        }
+        r.height = std::max(1.0, height - depth - 1);
+        mini.width = std::max(mini.width, r.x + r.width);
+        mini.height = std::max(mini.height, r.y + height);
+    }
+    return mini;
 }
 std::vector<Rect> pointer_bounds(const PanelView& view) {
     std::vector<Rect> areas{panel_case_bounds(view)};
@@ -3535,34 +3621,16 @@ void draw_chord_chips(cairo_t* cr, const PanelView& view, const std::vector<Shor
         }
     }
 }
-// The keyboard's strip while a shortcut editor field is typed or keys are
-// recorded (ShortcutFieldView); its buttons are drawn as controls after it.
+// The keyboard's strip while a label is renamed in place (ShortcutFieldView);
+// its buttons are drawn as controls after it.
 void draw_shortcut_field(cairo_t* cr, const PanelView& view) {
     const auto& f = *view.shortcut_field;
     const auto& t = *view.theme;
-    const Color quiet = disabled_legend(t);
-    double x = f.strip.x;
-    if (f.kind == ShortcutFieldView::Kind::Keys) {
-        // A red dot, as a recorder's.
-        cairo_new_path(cr);
-        cairo_arc(cr, x + 10, f.strip.y + f.strip.height / 2, 6, 0, 2 * 3.141592653589793);
-        source(cr, t.error);
-        cairo_fill(cr);
-        x += 24;
-    }
-    interface_label(cr, f.title, {x, f.strip.y, 150, f.strip.height}, 21, view.interface_font, t.legend,
-                    false, PANGO_ALIGN_LEFT);
-    draw_chord_chips(cr, view, f.chords);
+    interface_label(cr, f.title, {f.strip.x, f.strip.y, 150, f.strip.height}, 21, view.interface_font,
+                    t.legend, false, PANGO_ALIGN_LEFT);
     if (f.hint_bounds.width > 0) {
-        interface_label(cr, f.hint, f.hint_bounds, 18, view.interface_font, quiet, false,
+        interface_label(cr, f.hint, f.hint_bounds, 18, view.interface_font, disabled_legend(t), false,
                         PANGO_ALIGN_LEFT);
-    }
-    if (f.kind == ShortcutFieldView::Kind::Name) {
-        draw_well(cr, t, f.field);
-        draw_typed(cr, view, f.field, f.text, f.cursor, 21, false);
-    }
-    if (f.fkeys) {
-        raised_panel(cr, t, *f.fkeys);
     }
 }
 // A keycap button of the editor: its label or icon, lit under the laser.
@@ -3579,6 +3647,143 @@ void editor_button(cairo_t* cr, const PanelView& view, const Control& c, double 
                         size, view.interface_font, ink, false, PANGO_ALIGN_LEFT);
     } else {
         interface_label(cr, c.label, c.bounds, size, view.interface_font, ink);
+    }
+}
+// A recorder's red dot.
+void record_dot(cairo_t* cr, const Theme& t, double x, double y, bool on) {
+    cairo_new_path(cr);
+    cairo_arc(cr, x, y, 6, 0, 2 * 3.141592653589793);
+    source(cr, on ? t.error : disabled_legend(t));
+    cairo_fill(cr);
+}
+// The editor's popup (design, Typing and recording): the editor dimmed but
+// its strip, where a label shows as it is typed; a raised panel with what is
+// edited and its buttons, the text or the combinations in a recessed strip,
+// and the mini keyboard: the keyboard's own keys, drawn at the popup's scale
+// with US legends and the popup's own latches. Its controls are drawn here.
+void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& p = *e.popup;
+    const auto& t = *view.theme;
+    const Color quiet = disabled_legend(t);
+    const auto body = panel_case_bounds(view);
+    cairo_save(cr);
+    cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_new_path(cr);
+    rounded(cr, body, t.surface_radius);
+    if (e.strip_well.width > 0) {
+        rounded(cr, e.strip_well, t.radius + 2);
+    }
+    cairo_set_source_rgba(cr, 0, 0, 0, .45);
+    cairo_fill(cr);
+    cairo_restore(cr);
+    raised_panel(cr, t, p.panel);
+    // Row 1: what is edited, a hint after it where it fits, and the buttons.
+    double x = p.title_bounds.x;
+    const double middle = p.title_bounds.y + p.title_bounds.height / 2;
+    if (p.kind == ShortcutPopupView::Kind::Recording) {
+        record_dot(cr, t, x + 8, middle, true);
+        x += 26;
+    }
+    interface_label(cr, p.title, {x, p.title_bounds.y, p.title_bounds.width, p.title_bounds.height}, 20,
+                    view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+    const double after = x + text_width(cr, p.title, 20, view.interface_font) + 16;
+    const double right = p.hint_bounds.x + p.hint_bounds.width;
+    if (!p.hint.empty() && right - after > 120) {
+        interface_label(cr, p.hint, {after, p.hint_bounds.y, right - after, p.hint_bounds.height}, 16,
+                        view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-popup-done" || c.id == "shortcuts-popup-cancel" ||
+            c.id == "shortcuts-popup-remove-last") {
+            editor_button(cr, view, c, 20);
+        } else if (c.id == "shortcuts-popup-fkeys") {
+            Control shown = c;
+            shown.bounds.width -= 26;
+            draw_cap(cr, t, c.bounds, c.enabled && view.hovered_controls.contains(c.id), c.selected,
+                     c.enabled);
+            const Color ink = !c.enabled ? quiet : c.selected ? t.latched_legend : t.legend;
+            interface_label(cr, c.label, shown.bounds, 20, view.interface_font, ink);
+            draw_icon(cr, Icon::ChevronDown,
+                      {c.bounds.x + c.bounds.width - 38, c.bounds.y, 30, c.bounds.height}, ink, 14);
+        }
+    }
+    // Row 2: the text with its caret, or the combinations so far.
+    draw_well(cr, t, p.well);
+    cairo_save(cr);
+    cairo_rectangle(cr, p.well.x + 2, p.well.y, p.well.width - 4, p.well.height);
+    cairo_clip(cr);
+    if (p.kind == ShortcutPopupView::Kind::Recording) {
+        draw_chord_chips(cr, view, p.chords);
+        for (const auto& c : view.controls) {
+            if (c.id == "shortcuts-popup-pending") {
+                // The modifiers latched so far, after the chips' chevron: a
+                // press records them alone.
+                if (!p.chords.empty()) {
+                    const auto& last = p.chords.back().bounds;
+                    draw_icon(cr, Icon::ChevronRight,
+                              {last.x + last.width, c.bounds.y, c.bounds.x - last.x - last.width,
+                               c.bounds.height},
+                              quiet, 14);
+                }
+                const bool lit = view.hovered_controls.contains(c.id);
+                draw_cap(cr, t, c.bounds, lit, false, true);
+                interface_label(cr, c.label, c.bounds, 20, view.interface_font, t.legend);
+            }
+        }
+        if (!p.full.empty()) {
+            interface_label(cr, p.full, p.full_bounds, 16, view.interface_font, quiet, false,
+                            PANGO_ALIGN_LEFT);
+        }
+    } else {
+        // A line break shows as ↵ between spaces; the caret keeps its place.
+        std::string shown;
+        std::size_t caret = 0;
+        for (std::size_t i = 0; i <= p.text.size(); ++i) {
+            if (i == p.cursor) {
+                caret = shown.size();
+            }
+            if (i < p.text.size()) {
+                shown += p.text[i] == '\n' ? std::string(" ↵ ") : std::string(1, p.text[i]);
+            }
+        }
+        draw_typed(cr, view, {p.well.x + 4, p.well.y, p.well.width - 8, p.well.height}, shown, caret, 20,
+                   false);
+    }
+    cairo_restore(cr);
+    // The keys, as the keyboard draws its own, at the popup's scale.
+    if (p.layout && p.keymap && p.language) {
+        PanelView mini;
+        mini.layout = p.layout;
+        mini.theme = view.theme;
+        mini.language = p.language;
+        mini.keymap = p.keymap;
+        mini.keyboard = view.keyboard;
+        mini.key_marks = p.marks;
+        mini.interface_font = view.interface_font;
+        constexpr std::string_view prefix = "shortcuts-popup-key-";
+        for (const auto& id : view.hovered_controls) {
+            if (id.starts_with(prefix)) {
+                mini.hovered_keys.insert(id.substr(prefix.size()));
+            }
+        }
+        cairo_save(cr);
+        cairo_translate(cr, p.keys.x, p.keys.y);
+        cairo_scale(cr, p.scale, p.scale);
+        for (const auto& key : p.layout->keys) {
+            draw_key(cr, mini, key, p.pressed.contains(key.id) ? 1 : 0,
+                     mini.hovered_keys.contains(key.id) ? 1 : 0);
+        }
+        cairo_restore(cr);
+    }
+    // The F13–F24 menu over the keys.
+    if (p.fkeys) {
+        raised_panel(cr, t, *p.fkeys);
+        for (const auto& c : view.controls) {
+            if (c.id.starts_with("shortcuts-popup-fkey-")) {
+                editor_button(cr, view, c, 19);
+            }
+        }
     }
 }
 // The shortcut editor's screen (docs/shortcut-bar-design.md, Settings and
@@ -3846,6 +4051,9 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
         draw_bar_button(cr, view, button, e.scale);
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, e.lifted_removing ? .4 : 1);
+    }
+    if (e.popup) {
+        draw_shortcut_popup(cr, view);
     }
 }
 // The picker's menu: a raised panel, as the Settings dropdowns are, over the
