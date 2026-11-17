@@ -247,11 +247,23 @@ void App::close_shortcut_editor(bool save) {
             dirty = true;
             return;
         }
+        // The bar selected in the editor shows, as if chosen in the picker,
+        // and a free one becomes the free bar: a first bar shows as soon as
+        // it is saved (R332).
+        const auto* selected = shortcut_editor_->selected_bar();
+        const std::string shown = selected ? selected->id : std::string();
         shortcuts_ = model;
+        auto changes = bar_choice_.model_changed(shortcuts_);
+        if (!shown.empty()) {
+            const auto picked = bar_choice_.pick(shortcuts_, shown);
+            changes.shortcuts_switch |= picked.shortcuts_switch;
+        }
         // The worker keeps an unreadable file as shortcuts.json.bad; the
-        // note goes once its result says the save worked.
+        // note goes once its result says the save worked. The free bar goes
+        // in the same save.
         save_shortcuts();
-        apply_bar_changes(bar_choice_.model_changed(shortcuts_));
+        changes.free_bar = false;
+        apply_bar_changes(changes);
     }
     shortcut_editor_.reset();
     editor_question_ = EditorQuestion::None;

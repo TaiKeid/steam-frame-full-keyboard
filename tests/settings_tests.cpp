@@ -4660,6 +4660,31 @@ void macro_buttons() {
     require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
             "a cancel lets it go");
 }
+// R332: a new user's first bar shows as soon as ✓ saves it, and becomes
+// the free bar.
+void first_bar_shows() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    click(app, "bar-toggle");
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(), "the empty bar");
+    open_editor(app);
+    tap_control(app, "shortcuts-new-bar");
+    tap_mini(app, "Escape");
+    tap_control(app, "shortcuts-add");
+    tap_control(app, "shortcuts-save");
+    const auto view = app.view();
+    const auto saved = saved_shortcuts(app);
+    require(!view.shortcut_editor && view.shortcut_bar && view.shortcut_bar->buttons.size() == 1 &&
+                saved.bars.size() == 1 && saved.free_bar == saved.bars[0].id,
+            "✓ shows the bar selected in the editor, saved as the free bar");
+}
 void shortcut_editor_settings() {
     for (const bool narrow : {false, true}) {
         TemporaryDirectory directory;
@@ -5042,6 +5067,7 @@ int main() {
         long_combinations();
         shortcut_macro_view();
         macro_buttons();
+        first_bar_shows();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {
