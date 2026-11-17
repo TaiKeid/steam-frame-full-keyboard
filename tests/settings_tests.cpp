@@ -4909,6 +4909,52 @@ void shortcut_apps() {
         require(moved[1].assigned && moved[0].assign_enabled, "a tied app's tie can still move");
     }
 }
+// R339: over a macro's steps, the first row scrolls the list too; the
+// Shortcut view's chip strip, which lies there, is asked only for a shortcut.
+void macro_first_row_scrolls() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    const auto chips = app.view().shortcut_editor->chords_strip;
+    tap_control(app, "shortcuts-kind-1");
+    for (int i = 0; i < 5; ++i) {
+        tap_control(app, "shortcuts-add-wait");
+    }
+    for (double now = 1500; now < 1501; now += .05) {
+        app.tick(now);
+    }
+    auto view = app.view();
+    require(view.shortcut_editor->steps.size() == 6, "six steps");
+    // The top visible row, where it overlaps the Shortcut view's chip strip.
+    const auto well = view.shortcut_editor->steps_well;
+    Rect top{};
+    for (const auto& step : view.shortcut_editor->steps) {
+        if (step.bounds.y >= well.y - .5 && (top.height == 0 || step.bounds.y < top.y)) {
+            top = step.bounds;
+        }
+    }
+    const double x = std::max(chips.x, top.x) + 20, y = top.y + top.height / 2;
+    require(top.height > 0 && chips.contains(x, y) && well.contains(x, y),
+            "the point lies in the first row and in the chip strip's place");
+    app.move(0, x, y);
+    const auto room = app.scroll_room(0);
+    require(room && room->back, "the first row reports room to scroll back");
+    const double was = view.shortcut_editor->steps[0].bounds.y;
+    require(app.scroll(0, 0, -1), "a scroll there moves the list");
+    for (double now = 1501; now < 1502; now += .05) {
+        app.tick(now);
+    }
+    require(app.view().shortcut_editor->steps[0].bounds.y > was + 1, "the list moved down");
+}
 // R338: VR reads the stick for the bar, its menu and the editor too.
 void stick_scrolls_bar() {
     TemporaryDirectory directory;
@@ -5561,6 +5607,7 @@ int main() {
         first_bar_shows();
         shortcut_apps();
         stick_scrolls_bar();
+        macro_first_row_scrolls();
         pending_drag_two_lasers();
         carry_buttons();
         lifted_step_moves_whole();

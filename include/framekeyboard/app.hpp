@@ -1943,6 +1943,8 @@ class App {
     // True while a lifted drag takes the laser.
     bool editor_drag_move(unsigned pointer, double x, double y);
     bool editor_drag_up(unsigned pointer);
+    // The selected button is a macro: the Macro view shows, not the Shortcut view.
+    bool editing_macro() const;
     bool editor_scroll(unsigned pointer, double dx, double dy);
     std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
     void tick_shortcut_editor(double now);

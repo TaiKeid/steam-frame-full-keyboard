@@ -1004,6 +1004,10 @@ bool App::editor_drag_up(unsigned pointer) {
     dirty = true;
     return true;
 }
+bool App::editing_macro() const {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    return button && button->action.kind == ShortcutAction::Kind::Macro;
+}
 bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     const auto position = pointer_positions_.find(pointer);
     if (!editor_screen() || position == pointer_positions_.end() ||
@@ -1022,9 +1026,9 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
             popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
             moved = step_scroll(popup_chips_scroll_, delta, chip_step, popup_chips_limit());
         }
-    } else if (l.chips.contains(x, y)) {
+    } else if (!editing_macro() && l.chips.contains(x, y)) {
         moved = step_scroll(editor_chips_scroll_, delta, chip_step, editor_chips_limit());
-    } else if (l.steps_well.contains(x, y)) {
+    } else if (editing_macro() && l.steps_well.contains(x, y)) {
         moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
     } else if (l.profiles_list.contains(x, y)) {
         const double limit =
@@ -1058,10 +1062,12 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
         }
         return {};
     }
-    if (l.chips.contains(x, y)) {
+    // The Shortcut view's chip strip lies where a macro's first step row is:
+    // each is asked only for its own kind of button (R339).
+    if (!editing_macro() && l.chips.contains(x, y)) {
         return room(editor_chips_scroll_, editor_chips_limit());
     }
-    if (l.steps_well.contains(x, y)) {
+    if (editing_macro() && l.steps_well.contains(x, y)) {
         return room(editor_steps_scroll_, editor_steps_limit());
     }
     if (l.profiles_list.contains(x, y)) {
