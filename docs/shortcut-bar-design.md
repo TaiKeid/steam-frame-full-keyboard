@@ -2,7 +2,7 @@
 
 Status: design, not implemented. The owner settled the behavior on 2026-11-17; open facts are listed under [Frame probes](#frame-probes). Milestones are in the [roadmap](plan.md#shortcut-bar).
 
-With **Shortcuts and macros** on, a bar of the user's own buttons sits above the keyboard, like a dock. A button sends a shortcut, runs a macro, or starts a script or command. Buttons are grouped into bars; a bar can be chosen by hand or tied to an app, and then shows whenever that app has the keys.
+With **Shortcut bar** on in Settings, a bar of the user's own buttons sits above the keyboard, like a dock. A button sends a shortcut, runs a macro, or starts a script or command. Buttons are grouped into bars; a bar can be chosen by hand or tied to an app, and then shows whenever that app has the keys.
 
 ## Terms
 
@@ -45,7 +45,7 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 
 ## Toolbar button
 
-A new icon button, shown while **Shortcuts and macros** is on, after Pull for Shift and before the language. On a narrow case it is the fourth button of the second row; it hides in dictation mode, so the editor keeps its width. On the full keyboard with all nine buttons, five suggestions still fit at 143 px each (157 px before).
+A new icon button, shown while **Shortcut bar** is on, after Pull for Shift and before the language. On a narrow case it is the fourth button of the second row; it hides in dictation mode, so the editor keeps its width. On the full keyboard with all nine buttons, five suggestions still fit at 143 px each (157 px before).
 
 The button is the user's switch for the bar, saved as `shortcuts_switch`. Its icon is crossed while nothing shows.
 
@@ -75,7 +75,7 @@ The picker's button opens a menu that drops over the case from the picker, right
 | --- | --- |
 | Header | "Bars" at the left; the focused app's name and a window icon at the right |
 | One per bar, in the bars' order | The name, filled while it is the bar showing, and an assign button at its right |
-| Last | **Edit shortcuts**, which opens Settings with the editor on the bar showing |
+| Last | **Edit shortcuts**, which opens the editor on the bar showing |
 
 - A press on a name switches to that bar and does nothing else.
 - A press on an assign button ties the focused app to that bar, lights the button, and clears any other bar's tie to that app. A press on a lit button removes the tie. Both are saved at once.
@@ -102,6 +102,8 @@ The picker's button opens a menu that drops over the case from the picker, right
 One to four key combinations sent in order, once per press: Ctrl+K, then S. A combination is any modifiers plus one key, or modifiers alone (a tap of Super). Every key of the keyboard can be recorded, including F1–F12, Tab, Delete, Home, Page Up and the modifiers, plus F13–F24, which the keyboard has no keys for.
 
 - Each combination is one `OutputController::tap()`: modifiers down, key down, then up in reverse. `can_queue()` is checked for the whole sequence first, so it is sent whole or refused.
+- The runner ends a shortcut before its next combination when another window has taken the keys since it started: between combinations the output queue is empty and can't notice.
+- A press is admitted as a key press is, so a refusal shows the same status and an earlier failure with nothing to retry is cleared.
 - Combinations are spaced by `shortcut_key_gap` (30 ms until the [probe](#frame-probes) says otherwise), and by the stream gap where that is longer.
 - Only the button's own modifiers are sent. Latched modifiers are cleared, not added; held or locked ones are let up first, as Cut, Copy and Paste do, and a lock stays locked.
 - An unfinished reading or a pending swiped word goes out first, as before any raw shortcut. The word being typed is forgotten, as after any key that may move the cursor.
@@ -136,7 +138,7 @@ Starts a program on the Frame. Nothing is typed, so it works without a typing ta
 
 | Kind | What runs |
 | --- | --- |
-| Script | A file in `scripts/` in the config folder (`~/.config/framekeyboard/scripts/`), chosen from a list. Run directly when executable, else with `/bin/sh` |
+| Script | A file in `scripts/` in the config folder (`~/.config/framekeyboard/scripts/`), chosen from a list. Run directly when executable, else with `/bin/sh`. The name is checked again at each press: still a plain file name, still a regular file in that folder |
 | Command | One line the user typed, run with `/bin/sh -c` |
 
 - The child gets its own session, `/dev/null` for input and output, no other open files, the home folder as its working directory and the session environment the keyboard runs in.
@@ -159,14 +161,16 @@ Buttons that can't be sent are drawn disabled; a press on one shakes or reports 
 
 ## Settings and the editor
 
-A sixth card, **Shortcuts and macros**, follows Dictation. It is inserted by position, since Integration must stay last. Under a shell it is left out.
+Settings has one row for the feature, in the General card after Hide numpad. Under a shell it is left out.
 
 | Row | Control |
 | --- | --- |
-| Shortcuts and macros, with a second line saying what it adds | Switch, saved as `shortcuts`, off by default |
-| Edit shortcuts | Button across the card; opens the editor; disabled while the switch is off |
+| Shortcut bar, with the second line "Your own buttons above the keyboard: shortcuts, macros and scripts" | Switch, saved as `shortcuts`, off by default; pending until ✓ like the rows around it |
 
-The editor covers Settings as Additional languages and the theme picker do (prefix `shortcuts-`).
+- Turning it on while there are no bars shows the empty bar once, so its picker, and through it the editor, can be reached.
+- When `shortcuts.json` can't be read, a note under the switch says so and where the fault is, by position (bar 2, button 5), never quoting the user's text.
+
+The editor is a screen of its own, opened from the picker's **Edit shortcuts**. It covers the keyboard as Settings does (prefix `shortcuts-`), with ← and ✓ at its top left.
 
 | Area | Content |
 | --- | --- |
@@ -177,7 +181,7 @@ The editor covers Settings as Additional languages and the theme picker do (pref
 | Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete, press to edit. **+ Keys**, **+ Text**, **+ Wait**. Repeat: Once, Times with a count, While held |
 | Run | Script or Command; a list of the script files, or the command field |
 
-Everything in the editor is pending, like other settings: ✓ saves it, and Settings' ← discards it. Leaving Settings with editor changes asks first, Discard or Save, as it does for language changes. Deleting a bar that has buttons asks too.
+Everything in the editor is pending. ✓ saves it and returns to the keyboard. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a bar that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
 ### Typing and recording
 
@@ -266,8 +270,10 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 - Key names are the logical names of `key_codes`; a chord without `key` is modifiers alone. An unknown name, kind or field value makes the file invalid as a whole.
 - An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
 - Labels, names, text and commands are valid UTF-8 without control characters; a label's one line break is the exception.
-- An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the first save moves it to `shortcuts.json.bad`.
-- What saves when: ✓ writes the editor's pending copy; a tie made in the picker, a rename in place and the free bar are written at once.
+- An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
+- What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and the free bar are written at once.
+- Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. The file is synced to disk before it replaces the old one.
+- Reload config rereads and rechecks the file, so a hand edit shows without a restart; a reload that finds it invalid keeps the bars already loaded and reports. `framekeyboard --check` reports the file's state beside the profiles.
 - The installer and updates leave the file alone, as they do other user files.
 
 `key_codes` gains `F13` to `F24`, and the stream key table their scancodes.
@@ -298,7 +304,7 @@ The model knows nothing of drawing or output. The runner and the launcher are th
 
 - `shortcuts`: the file's parsing, limits, invalid files and the `.bad` rule; which bar shows for each focus change; the toolbar button's three cases.
 - `shortcut-runner`: order and spacing against a recording sink, whole-or-refused sequences, every stop rule, a focus change mid-run, text on a route without text.
-- `settings`: the card, the editor's flows (bars, strip drags, steps), pending and the save question, fields and recording.
+- `settings`: the General row, the editor's flows (bars, strip drags, steps), ✓ and ← with the question, fields and recording.
 - `rendering`: bar hover, press and scroll repaints compared with a full repaint; the bar with the tooltip and the status card.
 - `locales` and the interface tour: new strings in every language, labels fit, pictures of the bar, the menu and the editor.
 - The uinput smoke test's receiver takes a recorded shortcut and a macro, never the focused app.
@@ -313,6 +319,7 @@ Facts to measure on the Frame before the parts that depend on them:
 | What Gamescope reports for a game streamed from a PC, a streamed desktop and Moonlight | The stream row under [Apps](#apps) |
 | Combinations sent back to back into a private receiver, with gaps from 0 to 50 ms | `shortcut_key_gap` |
 | A program started by the keyboard: its environment, and that it survives a keyboard restart | Run |
+| F13–F24 sent into a private receiver under Gamescope and in SteamOS's Desktop: the key seen and any system action. The default keymap turns F13 into Tools, F14–F18 into launcher keys, F20 into mic mute and F21–F23 into touchpad keys | Whether the recorder offers F13–F24 for local apps, or only for streams from a PC |
 
 ## Not in this version
 

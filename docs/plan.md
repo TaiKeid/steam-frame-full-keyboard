@@ -55,7 +55,7 @@ A bar of the user's own buttons above the keyboard: shortcuts, macros, and scrip
 - [ ] Frame probes: the stick press, what Gamescope reports for streams, key spacing, and a program started by the keyboard.
 - [ ] The shortcuts file with its validation, and sending shortcuts into a private receiver.
 - [ ] The bar on the keyboard: drawing, laser areas, the toolbar button and sideways scrolling.
-- [ ] The picker menu with manual switching, and the Settings card.
+- [ ] The picker menu with manual switching, and the Settings switch.
 - [ ] The editor: bars, buttons, and labels and key recording typed on the keyboard.
 - [ ] Apps: assigning a bar and switching to it when the app has the keys.
 - [ ] Macros: keys, text and waits, repeated a number of times or while held.
