@@ -5022,6 +5022,51 @@ void macro_first_row_scrolls() {
     }
     require(app.view().shortcut_editor->steps[0].bounds.y > was + 1, "the list moved down");
 }
+// R341: scrolling the profiles column closes the Move/Copy popover, and the
+// button goes back.
+void carry_closes_on_scroll() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"one", "One", {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}})}});
+    for (int i = 2; i <= 10; ++i) {
+        model.profiles.push_back({"p" + std::to_string(i), "Profile " + std::to_string(i), {}});
+    }
+    model.free_profile = "one";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    const auto start = middle(control(app.view(), "shortcuts-button-0").bounds);
+    const auto target = middle(control(app.view(), "shortcuts-row-1").bounds);
+    app.move(0, start.x, start.y);
+    app.down(0, start.x, start.y, 1600);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, start.x + (target.x - start.x) * step / 8,
+                 start.y + (target.y - start.y) * step / 8);
+    }
+    app.up(0, target.x, target.y);
+    require(has(app.view(), "shortcuts-carry-move") &&
+                strip_labels(app.view()) == std::vector<std::string>{"B"},
+            "dropped on Profile 2: the popover");
+    app.scroll(0, 0, 1);
+    for (double now = 1601; now < 1602; now += .05) {
+        app.tick(now);
+    }
+    require(!has(app.view(), "shortcuts-carry-move") && !app.view().shortcut_editor->carry_panel &&
+                strip_labels(app.view()) == std::vector<std::string>{"A", "B"},
+            "a scroll over the column closes it, the button back in its place");
+    tap_control(app, "shortcuts-save");
+    const auto saved = saved_shortcuts(app);
+    require(saved.profiles[0].buttons.size() == 2 && saved.profiles[1].buttons.empty(),
+            "nothing changed");
+}
 // R338: VR reads the stick for the bar, its menu and the editor too.
 void stick_scrolls_bar() {
     TemporaryDirectory directory;
@@ -5675,6 +5720,7 @@ int main() {
         shortcut_apps();
         stick_scrolls_bar();
         macro_first_row_scrolls();
+        carry_closes_on_scroll();
         bar_presses_and_holds();
         pending_drag_two_lasers();
         carry_buttons();

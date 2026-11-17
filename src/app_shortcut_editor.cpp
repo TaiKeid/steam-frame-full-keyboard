@@ -1031,6 +1031,12 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     } else if (editing_macro() && l.steps_well.contains(x, y)) {
         moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
     } else if (l.profiles_list.contains(x, y)) {
+        // The Move/Copy popover hangs off a row: the column scrolling under
+        // it closes it, and the button goes back, as a press elsewhere does (R341).
+        if (carry_) {
+            carry_.reset();
+            dirty = true;
+        }
         const double limit =
             std::max(0.0, static_cast<double>(shortcut_editor_->model().profiles.size()) * row_height -
                               l.profiles_list.height);
