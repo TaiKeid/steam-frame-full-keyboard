@@ -311,6 +311,10 @@ struct ShortcutChip {
     std::string text;
     Rect bounds;
 };
+// Every control of the shortcut editor's screen carries this prefix, and
+// no other control may: while the editor shows, the normal drawing pass
+// leaves them to draw_shortcut_editor (R328).
+inline constexpr std::string_view shortcut_editor_prefix = "shortcuts-";
 // The shortcut editor's screen, over the case in place of the keys. Its
 // pressable parts are controls named shortcuts-…, which it draws; this holds
 // the rest. Panel coordinates.

@@ -3821,7 +3821,7 @@ void shortcut_bar_settings() {
     CaptureSink sink;
     {
         App app(options, sink);
-        require(!has(app.view(), "shortcuts-toggle") && !app.view().shortcut_bar,
+        require(!has(app.view(), "bar-toggle") && !app.view().shortcut_bar,
                 "Shortcuts and macros starts off: no button and no bar");
         app.show_settings();
         click(app, "shortcuts");
@@ -3835,7 +3835,7 @@ void shortcut_bar_settings() {
                 "Apply saves it; the toolbar's own switch is on");
         // The toolbar button after Pull for Shift's place, before the language.
         auto view = app.view();
-        const auto toggle = control(view, "shortcuts-toggle");
+        const auto toggle = control(view, "bar-toggle");
         require(toggle.bounds.y == 12 && toggle.bounds.x == control(view, "passthrough").bounds.x + 70,
                 "the button follows the toolbar's switches on a full case");
         // Turned on with no bars, the empty bar shows once.
@@ -3847,13 +3847,13 @@ void shortcut_bar_settings() {
         require(plate.y + plate.height == body.y - 10 && plate.height == 90,
                 "the plate stands 10 px above the case, 90 tall");
         // A bar shows: it hides, and the switch is saved off.
-        click(app, "shortcuts-toggle");
+        click(app, "bar-toggle");
         require(!app.view().shortcut_bar && !saved(app).shortcuts_switch &&
-                    control(app.view(), "shortcuts-toggle").icon == Icon::ShortcutBarOff &&
-                    control(app.view(), "shortcuts-toggle").label == "Show shortcut bar",
+                    control(app.view(), "bar-toggle").icon == Icon::ShortcutBarOff &&
+                    control(app.view(), "bar-toggle").label == "Show shortcut bar",
                 "pressed while a bar shows, it hides, crossed, and stays off");
         // Nothing shows and no bar is due: the empty bar with two slots.
-        click(app, "shortcuts-toggle");
+        click(app, "bar-toggle");
         view = app.view();
         require(view.shortcut_bar && view.shortcut_bar->slots && saved(app).shortcuts_switch,
                 "pressed with no bar due, the empty bar shows");
@@ -3965,9 +3965,9 @@ void shortcut_bar_settings() {
     require(!app.view().shortcut_editor && app.view().shortcut_bar && !app.view().shortcut_bar->menu,
             "← returns to the keyboard, the menu closed");
     // Nothing shows and a bar is due: that bar.
-    click(app, "shortcuts-toggle");
+    click(app, "bar-toggle");
     require(!app.view().shortcut_bar, "hidden by hand");
-    click(app, "shortcuts-toggle");
+    click(app, "bar-toggle");
     require(app.view().shortcut_bar && app.view().shortcut_bar->buttons[0].label == "Undo",
             "pressed with a bar due, that bar shows");
     // A compact case: the button on the second row.
@@ -3980,8 +3980,8 @@ void shortcut_bar_settings() {
         compact.config_dir = narrow.path;
         App small(compact, sink);
         const auto v = small.view();
-        require(control(v, "shortcuts-toggle").bounds.y == second_row_top &&
-                    control(v, "shortcuts-toggle").bounds.x == control(v, "passthrough").bounds.x + 70,
+        require(control(v, "bar-toggle").bounds.y == second_row_top &&
+                    control(v, "bar-toggle").bounds.x == control(v, "passthrough").bounds.x + 70,
                 "on a narrow case the button joins the second row");
         const auto b = shortcut_bar_geometry(v, 30);
         require(b.slots == 15 && b.picker.x + b.picker.width - b.plate.x <= panel_case_bounds(v).width,
@@ -4232,7 +4232,7 @@ void shortcut_invalid_note() {
     app.show_settings();
     require(has(app.view(), "shortcuts") && noted(), "Settings notes the unreadable file");
     app.back();
-    click(app, "shortcuts-toggle");
+    click(app, "bar-toggle");
     open_editor(app);
     require(app.view().shortcut_editor && !app.view().shortcut_editor->notice.empty(),
             "so does the editor");

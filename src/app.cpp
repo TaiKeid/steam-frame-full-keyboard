@@ -171,9 +171,9 @@ JapaneseComposer::Factory japanese_factory(const Options& options) {
 // is on them. Buttons with words, such as the language's, need none.
 bool toolbar_icon_button(const Control& control) {
     static const std::set<std::string, std::less<>> ids{
-        "settings",         "apply",     "reload",       "recenter",      "pin",
-        "passthrough",      "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle",
-        "shortcuts-toggle", "close",     "quit"};
+        "settings",    "apply",     "reload",       "recenter",      "pin",
+        "passthrough", "keep-open", "swipe-toggle", "sounds-toggle", "key-flicks-toggle",
+        "bar-toggle",  "close",     "quit"};
     return control.icon != Icon::None && ids.contains(control.id);
 }
 // The Debug card and what it switches on: only in debug builds, and there
@@ -670,7 +670,7 @@ std::vector<Control> App::controls() const {
     if (shortcuts_enabled() && !dictation_open_) {
         const bool on = bar_choice_.button_on();
         add({ControlKind::ShortcutsToggle},
-            {"shortcuts-toggle", tr(on ? "tooltip.shortcuts-hide" : "tooltip.shortcuts-show"),
+            {"bar-toggle", tr(on ? "tooltip.shortcuts-hide" : "tooltip.shortcuts-show"),
              compact ? button(next_slot, next_column++, 1) : button(next_slot, 0, 0), false,
              on ? Icon::ShortcutBar : Icon::ShortcutBarOff});
         ++next_slot;
@@ -1015,7 +1015,7 @@ void App::update_settings_ui() {
                                              true, tr("setting.shortcuts.note")))};
         if (!shortcuts_invalid_.empty()) {
             rows.push_back(SettingField{
-                "shortcuts-invalid", tr("setting.shortcuts.invalid", {{"reason", shortcuts_invalid_}}),
+                "invalid-shortcuts", tr("setting.shortcuts.invalid", {{"reason", shortcuts_invalid_}}),
                 "", ControlStyle::Note});
         }
         general_fields.insert(at == general_fields.end() ? at : at + 1, rows.begin(), rows.end());

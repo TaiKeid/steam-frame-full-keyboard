@@ -1,3 +1,5 @@
+#include "framekeyboard/app.hpp"
+#include "framekeyboard/config.hpp"
 #include "framekeyboard/panel.hpp"
 
 #include <algorithm>
@@ -5,9 +7,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <unistd.h>
 #include <vector>
 
 using namespace framekeyboard;
@@ -1698,8 +1703,138 @@ void shortcut_editor(const char* theme_id, bool wide) {
     view.shortcut_bar.reset();
     compare.frame(view, phase("the bar name").c_str());
 }
+// R328: what the App puts outside the shortcut editor is drawn. The bar's
+// toolbar button, with the bar shown and hidden, and the note that
+// shortcuts.json can't be read; no control outside the editor carries its
+// prefix, which the drawing pass leaves to the editor.
+struct ConfigFolder {
+    std::filesystem::path path;
+    ConfigFolder() {
+        std::string name = "/tmp/framekeyboard-render-tests-XXXXXX";
+        if (!mkdtemp(name.data())) {
+            throw std::runtime_error("temporary directory");
+        }
+        path = name;
+    }
+    ~ConfigFolder() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
+// Whether a rectangle of the painted panel is one flat color: nothing drawn.
+bool flat(const PanelRenderer& renderer, Rect r) {
+    auto* surface = renderer.surface();
+    const int stride = cairo_image_surface_get_stride(surface);
+    const auto* data = cairo_image_surface_get_data(surface);
+    const auto at = [&](int x, int y) {
+        return reinterpret_cast<const std::uint32_t*>(data + (y + popup_margin) * stride)[x];
+    };
+    const int x0 = static_cast<int>(std::ceil(r.x)) + 2, y0 = static_cast<int>(std::ceil(r.y)) + 2;
+    const int x1 = static_cast<int>(r.x + r.width) - 2, y1 = static_cast<int>(r.y + r.height) - 2;
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            if (at(x, y) != at(x0, y0)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+void outside_editor(const PanelView& view, const std::string& what) {
+    if (view.shortcut_editor) {
+        return;
+    }
+    for (const auto& control : view.controls) {
+        if (control.id.starts_with(shortcut_editor_prefix)) {
+            throw std::runtime_error(what + ": " + control.id + " carries the shortcut editor's prefix");
+        }
+    }
+}
+const Control& control_named(const PanelView& view, const std::string& id) {
+    for (const auto& control : view.controls) {
+        if (control.id == id) {
+            return control;
+        }
+    }
+    throw std::runtime_error("missing control " + id);
+}
+void app_controls_drawn() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutButton copy;
+    copy.label = "Copy";
+    copy.action.chords = {{{"ControlLeft"}, "KeyC"}};
+    model.bars.push_back({"b", "Bar", {copy}});
+    model.free_bar = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    const auto drawn = [&](const std::string& what) {
+        const auto view = app.view();
+        outside_editor(view, what);
+        PanelRenderer renderer;
+        renderer.paint(view, 1);
+        if (flat(renderer, control_named(view, "bar-toggle").bounds)) {
+            throw std::runtime_error(what + ": the shortcut bar's toolbar button is not drawn");
+        }
+    };
+    if (!app.view().shortcut_bar) {
+        throw std::runtime_error("the bar shows");
+    }
+    drawn("bar shown");
+    const auto toggle = control_named(app.view(), "bar-toggle").bounds;
+    const double x = toggle.x + toggle.width / 2, y = toggle.y + toggle.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    app.move(0, 5, 600);
+    if (app.view().shortcut_bar) {
+        throw std::runtime_error("the toolbar button hides the bar");
+    }
+    drawn("bar hidden");
+    // Settings with an unreadable file: its note under the switch, below
+    // the General card's fold until the card scrolls.
+    std::ofstream(shortcuts_path(folder.path)) << R"({"schema_version":1,"bars":[{}]})";
+    App invalid(options, sink);
+    invalid.show_settings();
+    for (int step = 0; step < 40; ++step) {
+        const auto view = invalid.view();
+        outside_editor(view, "Settings");
+        const auto card = std::find_if(view.cards.begin(), view.cards.end(),
+                                       [](const auto& c) { return c.title == "General"; });
+        if (card == view.cards.end()) {
+            throw std::runtime_error("the General card is in view");
+        }
+        const auto note =
+            std::find_if(view.field_labels.begin(), view.field_labels.end(), [](const auto& l) {
+                return l.text.starts_with("Your shortcuts file can't be read");
+            });
+        if (note != view.field_labels.end() && note->bounds.y >= note->clip.y &&
+            note->bounds.y + 22 <= note->clip.y + note->clip.height) {
+            PanelRenderer renderer;
+            renderer.paint(view, 1);
+            if (flat(renderer, {note->bounds.x, note->bounds.y, 200, 22})) {
+                throw std::runtime_error("the note that shortcuts.json can't be read is not drawn");
+            }
+            return;
+        }
+        invalid.move(0, std::max(card->bounds.x, 0.0) + 40, 300);
+        invalid.scroll(0, 0, 1);
+        for (int i = 0; i < 10; ++i) {
+            invalid.tick(10 + step + i * .05);
+        }
+    }
+    throw std::runtime_error("the note that shortcuts.json can't be read never came into view");
+}
 int main() {
     try {
+        app_controls_drawn();
         shortcut_editor("graphite", true);
         shortcut_editor("porcelain", false);
         shortcut_bar("graphite", 1);

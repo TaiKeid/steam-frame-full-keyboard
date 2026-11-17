@@ -1913,10 +1913,12 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     cairo_restore(cr);
 }
 // A popup's own controls, drawn with it over Settings rather than with
-// Settings' controls under it.
-bool popup_control(const std::string& id) {
-    for (const std::string_view prefix :
-         {"address-", "confirm-", "languages-", "themes-", "shortcuts-"}) {
+// Settings' controls under it; the shortcut editor's, while it shows.
+bool popup_control(const PanelView& view, const std::string& id) {
+    if (view.shortcut_editor && id.starts_with(shortcut_editor_prefix)) {
+        return true;
+    }
+    for (const std::string_view prefix : {"address-", "confirm-", "languages-", "themes-"}) {
         if (id.starts_with(prefix)) {
             return true;
         }
@@ -5565,7 +5567,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
-                !popup_control(control.id) && !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
+                !popup_control(view, control.id) &&
+                !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
                 draw_control(control);
             }
         }
