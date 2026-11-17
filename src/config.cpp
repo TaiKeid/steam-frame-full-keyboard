@@ -954,6 +954,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         });
         optional_boolean("dictation_send_paste", settings.dictation_send_paste);
         optional_boolean("dictation_direct", settings.dictation_direct);
+        optional_boolean("shortcuts", settings.shortcuts);
+        optional_boolean("shortcuts_switch", settings.shortcuts_switch);
         optional_field("dictation_recent_servers", [&] {
             // Only a convenience list: unusable entries are skipped quietly.
             if (auto* recent =
@@ -1110,6 +1112,10 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->key_flicks_switch));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "shortcuts",
+                               json_object_new_boolean(settings->shortcuts));
+        json_object_object_add(document.get(), "shortcuts_switch",
+                               json_object_new_boolean(settings->shortcuts_switch));
         json_object_object_add(document.get(), "extended_key_collision",
                                json_object_new_boolean(settings->extended_key_collision));
         // Learning is always on now; the old switch goes.

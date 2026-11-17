@@ -683,6 +683,34 @@ void profile_tests(const fk::Profiles& defaults) {
     std::ifstream file(directory.path / "config.json");
     const std::string content((std::istreambuf_iterator<char>(file)), {});
     require(content.find("custom") != std::string::npos, "preserve unrelated settings");
+    {
+        // Shortcuts and macros: off by default, its toolbar switch on.
+        TemporaryDirectory shortcuts;
+        std::vector<std::string> problems;
+        auto loaded_settings = fk::load_settings(shortcuts.path, problems);
+        require(!loaded_settings.shortcuts && loaded_settings.shortcuts_switch,
+                "Shortcuts and macros off, its toolbar switch on, by default");
+        loaded_settings.shortcuts = true;
+        loaded_settings.shortcuts_switch = false;
+        fk::save_settings(shortcuts.path, loaded_settings);
+        const auto again = fk::load_settings(shortcuts.path, problems);
+        require(again.shortcuts && !again.shortcuts_switch && problems.empty(),
+                "both shortcut switches are saved and read back");
+        write(shortcuts.path / "config.json",
+              R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+              R"("theme":"graphite"},)"
+              R"("shortcuts":"yes","shortcuts_switch":false,"pinned":true})");
+        std::vector<std::string> field_problems;
+        const auto bad = fk::load_settings(shortcuts.path, problems, &field_problems);
+        require(!bad.shortcuts && !bad.shortcuts_switch && bad.pinned && problems.empty() &&
+                    field_problems.size() == 1,
+                "a bad shortcuts value falls back on its own");
+    }
+    for (int n = 13; n <= 24; ++n) {
+        const auto name = "F" + std::to_string(n);
+        require(fk::key_code(name) == KEY_F13 + n - 13 && fk::key_name(KEY_F13 + n - 13) == name,
+                "F13 to F24 are keys by name");
+    }
     write(directory.path / "config.json", "{broken");
     rejects([&] { fk::save_selection(directory.path, {}); }, "do not overwrite malformed settings");
     rejects([] { fk::parse_layout(R"({"schema_version":2})"); }, "reject future schema");

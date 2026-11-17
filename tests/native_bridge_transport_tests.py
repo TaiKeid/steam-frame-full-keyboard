@@ -1368,6 +1368,12 @@ class Lifecycle(unittest.TestCase):
                 worker.join(2)
             self.assertFalse(worker.is_alive())
 
+    def test_stream_scancodes_cover_f13_to_f24(self):
+        # Linux KEY_F13 to KEY_F24 are SDL's F13 to F24, which shortcut buttons send.
+        self.assertEqual([bridge.STREAM_SCANCODES[code] for code in range(183, 195)], list(range(104, 116)))
+        self.assertEqual(len(set(bridge.STREAM_SCANCODES.values())), len(bridge.STREAM_SCANCODES),
+                         "no two Linux keys share a scancode")
+
     def test_only_the_streaming_client_may_connect_and_the_newest_one_types(self):
         def connect(directory):
             library = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)

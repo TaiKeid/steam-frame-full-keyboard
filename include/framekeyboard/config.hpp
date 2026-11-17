@@ -165,6 +165,11 @@ struct Settings {
     bool key_flicks_switch{true};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
+    // Shortcuts and macros (docs/shortcut-bar-design.md): the Settings
+    // switch, off by default, and the toolbar button's own switch for the
+    // bar, on until the user turns the bar off. The bars are in shortcuts.json.
+    bool shortcuts{};
+    bool shortcuts_switch{true};
     // A press between keys reaches the nearest key, across gaps between keys
     // of a block (key_areas.hpp); flick pages keep their gaps.
     bool extended_key_collision{true};
