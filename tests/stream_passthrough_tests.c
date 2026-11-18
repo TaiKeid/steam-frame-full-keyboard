@@ -952,6 +952,98 @@ int main(int argc, char** argv) {
     idle_pump();
 #undef NEXT_EVENT
 
+    // R370: a session that types only key events and ASCII commits changes nothing of what SDL gets:
+    // for any overlay events, around the click that opens the keyboard in each of its shapes, polled
+    // for one overlay or two, the events are the old library's, byte for byte, in order, as many.
+    {
+        keyboard = accept_keyboard(server);
+        check(keyboard >= 0, "library reconnected for the comparison");
+        clock_ahead_ms += 5000;
+        uint32_t seed = 12345;
+        bool same = true;
+        int compared = 0;
+        static const uint32_t types[] = {300, 301, 302, 303, 304, 305, 306, 309, 1201, 700};
+        static const char* const opening[3][4] = {
+            {"301", "302", NULL, NULL}, // down, up
+            {"301", "304", NULL, NULL}, // down, leave, no up
+            {"301", "304", "300", "302"}, // down, leave, a move, a late up
+        };
+        for (int round = 0; round < 300 && same; ++round) {
+            pushed_count = 0; // what the keyboard types is not compared here
+            seed = seed * 1103515245u + 12345u;
+            // The script: the opening click's shape first in some rounds, then random events.
+            unsigned char expected[24][kEventBytes];
+            int count = 0;
+            reset();
+            if (round % 4 == 0) {
+                for (int i = 0; i < 4 && opening[(round / 4) % 3][i]; ++i) {
+                    const uint32_t type = (uint32_t)atoi(opening[(round / 4) % 3][i]);
+                    const char mark[2] = {(char)('A' + count), 0};
+                    add(type, mark, 1);
+                    memset(expected[count], 0, kEventBytes);
+                    memcpy(expected[count], &type, sizeof type);
+                    expected[count][12] = (unsigned char)mark[0];
+                    ++count;
+                }
+            }
+            const int more = (int)(seed >> 16) % 12;
+            for (int i = 0; i < more && count < 24; ++i) {
+                seed = seed * 1103515245u + 12345u;
+                const uint32_t type = types[(seed >> 16) % (sizeof types / sizeof types[0])];
+                const char mark[2] = {(char)('a' + (count % 26)), 0};
+                add(type, mark, 1);
+                memset(expected[count], 0, kEventBytes);
+                memcpy(expected[count], &type, sizeof type);
+                expected[count][12] = (unsigned char)mark[0];
+                ++count;
+            }
+            // Meanwhile the keyboard types: key events and ASCII commits, now and then a session's end.
+            seed = seed * 1103515245u + 12345u;
+            switch ((seed >> 16) % 5) {
+            case 0: {
+                const unsigned char key_down[6] = {'K', 42, 0, 0, 0, 1}, key_up[6] = {'K', 42, 0, 0, 0, 0};
+                send(keyboard, key_down, sizeof key_down, MSG_NOSIGNAL);
+                send(keyboard, key_up, sizeof key_up, MSG_NOSIGNAL);
+                break;
+            }
+            case 1:
+                send(keyboard, "Thello world", 12, MSG_NOSIGNAL);
+                break;
+            case 2:
+                send(keyboard, "TA!b\n", 5, MSG_NOSIGNAL);
+                break;
+            case 3:
+                send(keyboard, "R", 1, MSG_NOSIGNAL);
+                break;
+            default:
+                break;
+            }
+            // Polled as SDL does, a pump at a time, for one overlay or two.
+            int got = 0;
+            for (int pump = 0; pump < 6 && same; ++pump) {
+                const uint64_t overlay = 1 + (uint64_t)((round + pump) % 2);
+                while (poll_overlay(overlay, event, sizeof event)) {
+                    if (got >= count || memcmp(event, expected[got], kEventBytes) != 0) {
+                        same = false;
+                        break;
+                    }
+                    ++got;
+                }
+                if ((seed >> 20) % 3 == 0) {
+                    clock_ahead_ms += 400;
+                }
+            }
+            same = same && got == count;
+            compared += got;
+            recv(keyboard, told, sizeof told, MSG_DONTWAIT);
+            while (recv(keyboard, told, sizeof told, MSG_DONTWAIT) > 0) {
+            }
+        }
+        check(same && compared > 1000, "with key events and ASCII only, SDL gets the old library's events");
+        close(keyboard);
+        idle_pump();
+    }
+
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
                                              "off", "unicode-keys", NULL};
