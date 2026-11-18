@@ -6472,19 +6472,25 @@ void shortcut_editor_settings() {
                     view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording &&
                     has(view, "shortcuts-popup-remove-last") && !has(view, "shortcuts-popup-pending"),
                 "Record: Remove last, Cancel and Done");
-        // R313: F13–F24 aren't offered; Remove last, Cancel and Done keep
-        // their places from the right.
+        // R313: F13–F24 aren't offered. Cancel and Done stand at row 1's
+        // right; Remove last is an icon button at the right end of the
+        // combinations' well, below Done.
         {
             const auto done = control(view, "shortcuts-popup-done").bounds,
-                       cancel = control(view, "shortcuts-popup-cancel").bounds,
-                       remove = control(view, "shortcuts-popup-remove-last").bounds;
+                       cancel = control(view, "shortcuts-popup-cancel").bounds;
+            const auto remove = control(view, "shortcuts-popup-remove-last");
+            const auto& well = view.shortcut_editor->popup->well;
             require(std::none_of(
                         view.controls.begin(), view.controls.end(),
                         [](const Control& c) { return c.id.starts_with("shortcuts-popup-fkey"); }) &&
-                        cancel.x + cancel.width + 8 == done.x &&
-                        remove.x + remove.width + 8 == cancel.x && done.width == 120 &&
-                        cancel.width == 104 && remove.width == 146,
+                        cancel.x + cancel.width + 8 == done.x && done.width == 120 &&
+                        cancel.width == 104,
                     "no F13–F24 button or menu while recording");
+            require(remove.icon == Icon::DeleteLeft && remove.label.empty() && !remove.enabled &&
+                        remove.bounds.x + remove.bounds.width + 4 == well.x + well.width &&
+                        remove.bounds.y > well.y &&
+                        remove.bounds.y + remove.bounds.height < well.y + well.height,
+                    "Remove last is an icon at the well's right end, disabled with nothing recorded");
         }
         popup_fits(view, narrow);
         // R330: the locks are the keyboard's own switches, never recorded.
@@ -6510,6 +6516,16 @@ void shortcut_editor_settings() {
         view = app.view();
         require(popup_chips(view) == std::vector<std::string>{"Ctrl + K", "Num 1", "Alt", "F5"},
                 "a second tap lets a latch go; keys, numpad keys and modifiers alone, four at most");
+        {
+            const auto remove = control(view, "shortcuts-popup-remove-last").bounds;
+            const auto& chips = view.shortcut_editor->popup->chords;
+            require(remove.x > 0 && control(view, "shortcuts-popup-remove-last").enabled &&
+                        std::all_of(chips.begin(), chips.end(),
+                                    [&](const ShortcutChip& chip) {
+                                        return chip.bounds.x + chip.bounds.width < remove.x;
+                                    }),
+                    "the combinations stop short of Remove last");
+        }
         tap_mini(app, "KeyA");
         require(popup_chips(app.view()).size() == 4 && sink.events.empty(),
                 "a fifth is not recorded, and nothing is sent");

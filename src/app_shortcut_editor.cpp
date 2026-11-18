@@ -236,8 +236,16 @@ ChipRow chip_row(const Rect& strip, double height, const std::vector<ShortcutCho
     return row;
 }
 // The popup's row 2 inside its well: where its chips go.
+// Remove last, an icon button at the right end of the recording's well,
+// beside the combinations it takes back.
+constexpr double remove_last_width = 52, remove_last_height = 36;
+Rect popup_remove_last(const Rect& well) {
+    return {well.x + well.width - 4 - remove_last_width, well.y + (well.height - remove_last_height) / 2,
+            remove_last_width, remove_last_height};
+}
+// The combinations' strip in the well, short of Remove last.
 Rect popup_chips_strip(const Rect& well) {
-    return {well.x + 10, well.y, well.width - 20, well.height};
+    return {well.x + 10, well.y, well.width - 20 - remove_last_width - 4, well.height};
 }
 // The pending modifiers' chip, while recording has room for it.
 std::string pending_text(const std::vector<std::string>& latched, bool room) {
@@ -1673,9 +1681,10 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
         control.action = {ControlKind::ShortcutEditor, index, std::move(value)};
         result.push_back(std::move(control));
     };
-    // Row 1's buttons, from the right: Done, Cancel, and while recording
-    // Remove last. F13–F24 aren't offered: many targets map them to their
-    // own functions (R313); a file's still load and send.
+    // Row 1's buttons, from the right: Done and Cancel. While recording,
+    // Remove last is an icon at the well's right end. F13–F24 aren't
+    // offered: many targets map them to their own functions (R313); a
+    // file's still load and send.
     double right = pl.row.x + pl.row.width;
     const auto take = [&](double width) {
         right -= width;
@@ -1687,7 +1696,7 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
     add("cancel", "popup-cancel", {{}, tr("button.cancel"), take(104)});
     const bool room = p.chords.size() < popup_limit();
     if (p.kind == PopupKind::Recording) {
-        Control remove{{}, tr("shortcuts.popup.remove-last"), take(146)};
+        Control remove{{}, {}, popup_remove_last(pl.well), false, Icon::DeleteLeft};
         remove.enabled = !p.chords.empty();
         add("remove-last", "popup-remove-last", remove);
         if (const auto pending = pending_text(p.latched, room); !pending.empty()) {
@@ -1740,7 +1749,7 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     }
     view.title_bounds = {pl.row.x + 6, pl.row.y, 300, pl.row.height};
     // The hint runs up to the first of row 1's buttons.
-    const double buttons = p.kind == PopupKind::Recording ? 120 + 104 + 146 + 3 * 8 : 120 + 104 + 2 * 8;
+    const double buttons = 120 + 104 + 2 * 8;
     view.hint_bounds = {pl.row.x + 6, pl.row.y, pl.row.width - 6 - buttons - 8, pl.row.height};
     view.text = p.text;
     view.cursor = p.cursor;
@@ -1759,7 +1768,8 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
             view.full_bounds = {after, pl.well.y, room_left, pl.well.height};
         } else if (p.chords.empty() && p.latched.empty()) {
             view.full = tr("shortcuts.popup.recording-hint");
-            view.full_bounds = {pl.well.x + 16, pl.well.y, pl.well.width - 32, pl.well.height};
+            const auto strip = popup_chips_strip(pl.well);
+            view.full_bounds = {strip.x + 6, pl.well.y, strip.width - 6, pl.well.height};
         }
     }
     view.layout = &mini_layout_;
@@ -1826,8 +1836,9 @@ bool App::chips_press(unsigned pointer, double x, double y) {
     const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().profiles.size());
     if (popup_) {
-        if (popup_->kind != PopupKind::Recording ||
-            !popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
+        const auto well = popup_layout(body, l.strip_well, mini_layout_).well;
+        if (popup_->kind != PopupKind::Recording || !well.contains(x, y) ||
+            popup_remove_last(well).contains(x, y)) {
             return false;
         }
         chips_drag_ = ChipsDrag{pointer, true, x, popup_chips_scroll_.shown};

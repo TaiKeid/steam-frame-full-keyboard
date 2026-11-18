@@ -4013,8 +4013,7 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
                         view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
     }
     for (const auto& c : view.controls) {
-        if (c.id == "shortcuts-popup-done" || c.id == "shortcuts-popup-cancel" ||
-            c.id == "shortcuts-popup-remove-last") {
+        if (c.id == "shortcuts-popup-done" || c.id == "shortcuts-popup-cancel") {
             editor_button(cr, view, c, 20);
         }
     }
@@ -4023,9 +4022,15 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
     cairo_save(cr);
     cairo_rectangle(cr, p.well.x + 2, p.well.y, p.well.width - 4, p.well.height);
     cairo_clip(cr);
+    // Remove last at the well's right end: the combinations fade short of it.
+    const auto remove_last =
+        std::find_if(view.controls.begin(), view.controls.end(),
+                     [](const Control& c) { return c.id == "shortcuts-popup-remove-last"; });
     if (p.kind == ShortcutPopupView::Kind::Recording) {
-        faded_strip(cr, {p.well.x + 4, p.well.y, p.well.width - 8, p.well.height}, p.chords_before,
-                    p.chords_after, [&] {
+        const double strip_right =
+            remove_last != view.controls.end() ? remove_last->bounds.x - 6 : p.well.x + p.well.width - 4;
+        faded_strip(cr, {p.well.x + 4, p.well.y, strip_right - p.well.x - 4, p.well.height},
+                    p.chords_before, p.chords_after, [&] {
                         draw_chord_chips(cr, view, p.chords);
                         for (const auto& c : view.controls) {
                             if (c.id != "shortcuts-popup-pending") {
@@ -4065,6 +4070,9 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
                    false);
     }
     cairo_restore(cr);
+    if (remove_last != view.controls.end()) {
+        editor_button(cr, view, *remove_last);
+    }
     // The keys, as the keyboard draws its own, at the popup's scale.
     if (p.layout && p.keymap && p.language) {
         PanelView mini;

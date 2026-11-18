@@ -467,7 +467,6 @@
         "shortcuts.popup.recording": "Recording",
         "shortcuts.popup.recording-hint":
             "Tap modifiers, then a key: each combination is recorded in turn",
-        "shortcuts.popup.remove-last": "Remove last",
         "shortcuts.question.delete": "Delete",
         "shortcuts.question.delete-body": {
             "by": "count",
