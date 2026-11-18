@@ -442,7 +442,7 @@
         "shortcuts.editor.title": "Edit shortcuts",
         "shortcuts.editor.type-command": "Type a command for /bin/sh to run.",
         "shortcuts.editor.used": "Used for",
-        "shortcuts.editor.used-hint": "Shows when one of these apps has the keys.",
+        "shortcuts.editor.used-hint": "Shows when one of these apps is in front.",
         "shortcuts.editor.used-none": "No app uses this profile yet.",
         "shortcuts.editor.wait": "Wait",
         "shortcuts.editor.wait-for": "wait {time}",
@@ -584,14 +584,15 @@
         "tooltip.reload": "Reload config",
         "tooltip.settings": "Settings",
         "tooltip.settings-back": "Back (Esc)",
-        "tooltip.shortcuts-assign": "Show {profile} whenever {app} has the keys",
+        "tooltip.shortcuts-assign": "Show {profile} whenever {app} is in front",
         "tooltip.shortcuts-assign-dashboard":
-            "Steam's dashboard has the keys, so there is no app to assign",
+            "Can't assign here: Steam's dashboard is in front, not an app",
         "tooltip.shortcuts-assign-full":
             "128 apps have a profile already. Remove one in the editor first",
         "tooltip.shortcuts-assign-steam-field":
-            "A Steam text field has the keys, so there is no app to assign",
-        "tooltip.shortcuts-assign-unknown": "The app that has the keys can't be told",
+            "Can't assign here: this is one of Steam's own text fields, not an app",
+        "tooltip.shortcuts-assign-unknown":
+            "Can't assign here: Full Keyboard can't see which app is in front",
         "tooltip.shortcuts-hide": "Hide shortcut bar",
         "tooltip.shortcuts-manage": "Edit profiles and buttons",
         "tooltip.shortcuts-picker": "Choose a profile",

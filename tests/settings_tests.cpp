@@ -4140,7 +4140,8 @@ void shortcut_buttons() {
         on.move(0, at.x, at.y);
         return on.view().bar_tooltip;
     };
-    require(assign_tooltip(steam) == "A Steam text field has the keys, so there is no app to assign",
+    require(assign_tooltip(steam) ==
+                "Can't assign here: this is one of Steam's own text fields, not an app",
             "in a Steam field the assign buttons say so");
     // R357: a game or app streamed from a PC with Streaming support takes the
     // keyboard's own key presses, so its Shortcut and Macro buttons work. It
@@ -4167,7 +4168,7 @@ void shortcut_buttons() {
             std::vector<std::pair<int, int>>{
                 {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
         "a press in a stream sends its combinations' downs and ups in order");
-    require(assign_tooltip(stream) == "The app that has the keys can't be told",
+    require(assign_tooltip(stream) == "Can't assign here: Full Keyboard can't see which app is in front",
             "a stream reports no app; it is no Steam field");
 }
 // R321: a button's press belongs to the bar it began on. Another window
@@ -4927,16 +4928,16 @@ void shortcut_apps() {
     // The tooltips name the app: its own name until the lookup lands, then
     // the one found. The menu itself names no app.
     tap_rect(app, app.view().shortcut_bar->picker);
-    require(hover(0) == "Show Free whenever Notes has the keys" ||
-                hover(0) == "Show Free whenever Example Notes has the keys",
+    require(hover(0) == "Show Free whenever Notes is in front" ||
+                hover(0) == "Show Free whenever Example Notes is in front",
             "first the last part of its ID");
-    require(wait_for([&] { return hover(0) == "Show Free whenever Example Notes has the keys"; }),
+    require(wait_for([&] { return hover(0) == "Show Free whenever Example Notes is in front"; }),
             "the name looked up arrives on a tick");
     const auto rows = menu().rows;
     require(std::all_of(rows.begin(), rows.end(),
                         [](const auto& row) { return row.assign_enabled && !row.assigned; }),
             "every assign button can tie the app; none is lit");
-    require(hover(1) == "Show Tied whenever Example Notes has the keys",
+    require(hover(1) == "Show Tied whenever Example Notes is in front",
             "the tooltip says what the press will do, naming the profile and the app");
     tap_rect(app, menu().rows[1].assign);
     require(app.view().shortcut_bar->menu && menu().rows[1].assigned && !menu().rows[2].assigned &&
@@ -4990,7 +4991,7 @@ void shortcut_apps() {
     require(label() == "U", "Steam's dashboard has no profile: the free one picked last, Other");
     tap_rect(app, app.view().shortcut_bar->picker);
     require(!menu().rows[0].assign_enabled && !menu().rows[1].assigned, "the buttons disabled");
-    require(hover(0) == "Steam's dashboard has the keys, so there is no app to assign",
+    require(hover(0) == "Can't assign here: Steam's dashboard is in front, not an app",
             "a disabled button's tooltip names the cause");
     tap_rect(app, menu().rows[0].assign);
     require(app.view().shortcut_bar->menu && saved_shortcuts(app).apps.size() == 1,
@@ -4998,20 +4999,21 @@ void shortcut_apps() {
     app.set_dashboard_focus(false);
     sink.focus = {10, std::nullopt, ""};
     app.tick(now += .1);
-    require(hover(0) == "The app that has the keys can't be told", "an app that can't be told");
+    require(hover(0) == "Can't assign here: Full Keyboard can't see which app is in front",
+            "an app that can't be told");
 
     // Assigned before its name arrives: saved with the program's name, then
     // the name found, once.
     sink.focus = {8, game, "game.x86_64"};
     app.tick(now += .1);
-    require(hover(0) == "Show Free whenever game.x86_64 has the keys",
+    require(hover(0) == "Show Free whenever game.x86_64 is in front",
             "a Steam game's program name until its lookup lands");
     tap_rect(app, menu().rows[2].assign);
     const auto first_save = saved_shortcuts(app);
     require(first_save.tie(game) && first_save.tie(game)->name == "game.x86_64",
             "saved with that name at once");
     game_named = true;
-    require(wait_for([&] { return hover(1) == "Show Tied whenever Example Game has the keys"; }),
+    require(wait_for([&] { return hover(1) == "Show Tied whenever Example Game is in front"; }),
             "the name arrives");
     const auto named = saved_shortcuts(app);
     require(named.tie(game) && named.tie(game)->name == "Example Game", "the tie takes it, saved");

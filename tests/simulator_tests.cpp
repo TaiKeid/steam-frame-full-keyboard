@@ -599,11 +599,11 @@ void app_button() {
         simulator.pointer_move(Simulator::mouse, r.x + r.width / 2, r.y + r.height / 2 + popup_margin);
         return simulator.app().view().bar_tooltip;
     };
-    for (int i = 0; i < 500 && tip() != "Show Game keys whenever Game has the keys"; ++i) {
+    for (int i = 0; i < 500 && tip() != "Show Game keys whenever Game is in front"; ++i) {
         usleep(2000);
         wait(simulator, .01);
     }
-    require(tip() == "Show Game keys whenever Game has the keys",
+    require(tip() == "Show Game keys whenever Game is in front",
             "the tooltip names it with the simulator's own name");
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->rows[1].assign);
     require(label() == "End", "Game keys, assigned, shows at once");

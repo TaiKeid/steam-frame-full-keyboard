@@ -1676,7 +1676,7 @@ void shortcut_editor(const char* theme_id, bool wide) {
     e.divider = e.column.x + e.column.width + 16;
     e.used = {e.column.x + 12, 420, e.column.width - 12, 150};
     e.used_caption = "Used for";
-    e.used_hint = "Shows when one of these apps has the keys.";
+    e.used_hint = "Shows when one of these apps is in front.";
     e.ties = {{"Kate", {e.used.x, 454, 110, 40}}};
     const double left = e.divider + 16, right = x0 + width - 18;
     e.strip_well = {left, 70, right - left, 102};
