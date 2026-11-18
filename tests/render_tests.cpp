@@ -1168,7 +1168,7 @@ void theme_cards() {
         // with or without its cards, labels and rows the picture is the same
         // (R293).
         auto covered = view;
-        covered.cards = {{"General", {18, 78, 760, 476}}, {"Typing", {800, 78, 760, 476}}};
+        covered.cards = {{"General", {18, 62, 760, 476}}, {"Typing", {800, 62, 760, 476}}};
         FieldLabel label;
         label.text = "Theme";
         label.bounds = {48, 140, 300, 52};

@@ -4210,17 +4210,17 @@ std::vector<std::string> popup_chips(const PanelView& view) {
     }
     return chips;
 }
-// The popup sits under the strip, centered, 1051 × 396 at either width, its
+// The popup sits under the strip, centered, 1051 × 380 at either width, its
 // keys inside it; a letter key is 42 × 48 with its side.
 void popup_fits(const PanelView& view, bool narrow) {
     const auto& p = *view.shortcut_editor->popup;
     const auto body = panel_case_bounds(view);
     const auto& well = view.shortcut_editor->strip_well;
-    require(std::abs(p.panel.width - 1051) < 1 && p.panel.height == 396 &&
+    require(std::abs(p.panel.width - 1051) < 1 && p.panel.height == 380 &&
                 std::abs(p.panel.x + p.panel.width / 2 - (body.x + body.width / 2)) < .5 &&
                 p.panel.y >= well.y + well.height && p.panel.y + p.panel.height <= body.y + body.height,
-            narrow ? "the popup without the numpad: under the strip, centered, 1051 × 396, in the case"
-                   : "the popup: under the strip, centered, 1051 × 396, in the case");
+            narrow ? "the popup without the numpad: under the strip, centered, 1051 × 380, in the case"
+                   : "the popup: under the strip, centered, 1051 × 380, in the case");
     require(std::abs(p.scale - .771) < .001, "the mini keyboard's scale is 0.771");
     const auto letter = control(view, "shortcuts-popup-key-KeyQ").bounds;
     require(std::abs(letter.width - 42) < .5 && std::abs(letter.height - 48) < .5,
@@ -5063,7 +5063,10 @@ void macro_first_row_scrolls() {
             top = step.bounds;
         }
     }
-    const double x = std::max(chips.x, top.x) + 20, y = top.y + top.height / 2;
+    // Where the two overlap: the row's top and the strip's foot.
+    const double x = std::max(chips.x, top.x) + 20,
+                 y = (std::max(top.y, chips.y) + std::min(top.y + top.height, chips.y + chips.height)) /
+                     2;
     require(top.height > 0 && chips.contains(x, y) && well.contains(x, y),
             "the point lies in the first row and in the chip strip's place");
     app.move(0, x, y);

@@ -272,7 +272,7 @@ void layout_tests() {
     require(bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "ControlLeft") &&
                 bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "MetaLeft") &&
                 bounds_in(mode.layout, "Dictation-paste") == bounds_in(main, "AltLeft") &&
-                bounds_in(mode.layout, "Dictation-undo") == Rect{0, 186, 79, 110},
+                bounds_in(mode.layout, "Dictation-undo") == Rect{0, 182, 79, 106},
             "Cut, Copy and Paste take the left modifiers' slots; Undo sits above the mic key, as tall");
     const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Numpad0"; });

@@ -833,11 +833,11 @@ void key_area_tests(const fk::Profiles& defaults) {
     auto at = [&](double x, double y) { return area_key(us, areas, x, y); };
     // Keys of a block split the gaps between them in the middle.
     require(at(266.5, 170) == "KeyQ" && at(269.5, 170) == "KeyW", "Q and W share their gap");
-    require(at(250, 202) == "KeyQ" && at(250, 208) == "KeyA", "rows share the gap between them");
-    require(at(267, 203) == "KeyQ" && at(269, 207) == "KeyA", "and the corners where gaps cross");
+    require(at(250, 197) == "KeyQ" && at(250, 201) == "KeyA", "rows share the gap between them");
+    require(at(267, 198) == "KeyQ" && at(269, 200) == "KeyA", "and the corners where gaps cross");
     require(at(221, 240) == "CapsLock" && at(224, 240) == "KeyA", "Caps Lock and A share theirs");
-    require(at(130, 275) == "CapsLock" && at(130, 279) == "ShiftLeft", "so do Caps Lock and Shift");
-    require(at(298, 20) == "F1" && at(1438, 131) == "NumpadSubtract",
+    require(at(130, 266) == "CapsLock" && at(130, 268) == "ShiftLeft", "so do Caps Lock and Shift");
+    require(at(298, 20) == "F1" && at(1438, 130) == "NumpadSubtract",
             "within the function keys and numpad");
     // Wider gaps separate blocks and stay empty, and blocks don't grow outward.
     require(at(260, 55).empty(), "nothing between the number row and the function keys");
@@ -850,7 +850,7 @@ void key_area_tests(const fk::Profiles& defaults) {
     for (std::size_t k = 0; k < us.keys.size(); ++k) {
         absent[k] = us.keys[k].id == "Dictation";
     }
-    require(at(40, 299) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 299).empty(),
+    require(at(40, 290) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 290).empty(),
             "Paste reaches toward the mic key only while it shows");
     // ISO and JIS Enter: the pocket beside it is split with ].
     for (const char* id : {"en-gb-full", "ja-jis-full"}) {
@@ -859,7 +859,7 @@ void key_area_tests(const fk::Profiles& defaults) {
         require(area_key(layout, pocket, 935, 170) == "BracketRight" &&
                     area_key(layout, pocket, 945, 170) == "Enter" &&
                     area_key(layout, pocket, 945, 135) == "Enter" &&
-                    area_key(layout, pocket, 935, 204) == "BracketRight",
+                    area_key(layout, pocket, 935, 198) == "BracketRight",
                 "the pocket beside a tall Enter is split between ] and Enter");
         require(std::count_if(
                     pocket.begin(), pocket.end(),
