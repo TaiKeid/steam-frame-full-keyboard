@@ -228,8 +228,8 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 
 | Row | Content |
 | --- | --- |
-| 1 | What is edited (Label, Profile name, Recording), then **Remove last** while recording, **Cancel** and **Done** |
-| 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. When they don't fit it scrolls sideways, with the stick or a drag, and follows the newest chip while recording |
+| 1 | What is edited (Label, Profile name, Recording), then **Cancel** and **Done** |
+| 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. When they don't fit it scrolls sideways, with the stick or a drag, and follows the newest chip while recording. While recording, a delete-left icon at the strip's right end takes back the last combination (Remove last); the chips stop short of it |
 | Keys | The mini keyboard |
 
 **The mini keyboard** is a fixed US keyboard, whatever layout and typing language are active, flick layouts included, and with the numpad whether or not Hide numpad is on.
