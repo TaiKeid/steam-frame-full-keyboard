@@ -379,11 +379,13 @@ class App {
     bool emoji_open() const { return emoji_open_; }
     bool dictation_open() const { return dictation_open_; }
     // Something under a hand ray may scroll with the stick: the emoji picker,
-    // dictation, the shortcut bar (its menu included) or the shortcut
-    // editor. Outside the dashboard SteamVR sends no scroll events, so VR
+    // dictation, the shortcut bar (its menu included), the shortcut editor,
+    // or a candidate row with more than fits, with or without the bar
+    // (R345). Outside the dashboard SteamVR sends no scroll events, so VR
     // reads the stick only then (R338); scroll_room() says what is under the ray.
     bool stick_scrolls() const {
-        return emoji_open_ || dictation_open_ || bar_shown() || shortcut_editor_.has_value();
+        return emoji_open_ || dictation_open_ || bar_shown() || shortcut_editor_.has_value() ||
+               (candidates_.shown() && candidates_.scroll_limit() > 0);
     }
     // For image exports: dictation mode with sample text, whatever the settings.
     void show_dictation();
