@@ -120,8 +120,10 @@ bool App::shortcut_button_enabled(const ShortcutButton& button) const {
     if (button.action.kind == ShortcutAction::Kind::Run) {
         return true;
     }
-    // A Steam field takes only a few named keys, so no combination can go there.
-    return !output_.steam_field_target();
+    // A Steam field takes only a few named keys, so no combination can go
+    // there. A stream from a PC takes the keyboard's own key presses, so
+    // its combinations go as theirs do (R357).
+    return !output_.steam_field_target() || output_.stream_session_target();
 }
 ShortcutBarGeometry App::bar_geometry(std::size_t buttons) const {
     // From the keyboard's own keys: the emoji picker keeps its case and
@@ -658,7 +660,8 @@ std::string App::assign_unavailable() const {
     if (dashboard_focus_) {
         return tr("tooltip.shortcuts-assign-dashboard");
     }
-    if (output_.steam_field_target()) {
+    // A stream is no Steam field; with no app reported for it, it is unknown (R357).
+    if (output_.steam_field_target() && !output_.stream_session_target()) {
         return tr("tooltip.shortcuts-assign-steam-field");
     }
     if (!bar_focus_.app) {

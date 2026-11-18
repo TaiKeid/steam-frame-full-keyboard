@@ -4132,6 +4132,43 @@ void shortcut_buttons() {
     require(std::none_of(shown.begin(), shown.end() - 1, [](const auto& b) { return b.enabled; }) &&
                 shown.back().enabled,
             "key buttons are disabled in a Steam field; Run, which types nothing, is not");
+    // What an assign button says, hovered in the picker menu.
+    const auto assign_tooltip = [](App& on) {
+        on.tick(905);
+        tap_rect(on, on.view().shortcut_bar->picker);
+        const auto at = middle(on.view().shortcut_bar->menu->rows[0].assign);
+        on.move(0, at.x, at.y);
+        return on.view().bar_tooltip;
+    };
+    require(assign_tooltip(steam) == "A Steam text field has the keys, so there is no app to assign",
+            "in a Steam field the assign buttons say so");
+    // R357: a game or app streamed from a PC with Streaming support takes the
+    // keyboard's own key presses, so its Shortcut and Macro buttons work. It
+    // is still reached through Steam (steam_field_target), with no window
+    // and no app reported.
+    struct StreamSession : CaptureSink {
+        bool steam_field_target() const override { return true; }
+        bool stream_session_target() const override { return true; }
+    } stream_sink;
+    App stream(options, stream_sink);
+    stream.tick(904);
+    const auto streamed = stream.view().shortcut_bar->buttons;
+    require(streamed[0].enabled && !streamed[1].enabled && streamed[2].enabled && streamed[3].enabled,
+            "in a stream Shortcut, Macro and Run buttons are enabled; an empty one is not");
+    const auto at = middle(streamed[0].bounds);
+    stream.move(0, at.x, at.y);
+    stream.down(0, at.x, at.y, 904.1);
+    stream.up(0, at.x, at.y);
+    for (double now = 904.2; now < 904.5; now += .01) {
+        stream.tick(now);
+    }
+    require(
+        stream_sink.events ==
+            std::vector<std::pair<int, int>>{
+                {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
+        "a press in a stream sends its combinations' downs and ups in order");
+    require(assign_tooltip(stream) == "The app that has the keys can't be told",
+            "a stream reports no app; it is no Steam field");
 }
 // R321: a button's press belongs to the bar it began on. Another window
 // takes the keys while it is held and the free bar comes back: letting go in

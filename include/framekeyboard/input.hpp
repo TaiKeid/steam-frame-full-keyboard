@@ -69,6 +69,11 @@ class KeySink {
     // The target is a Steam field reached through Steam itself, not the
     // compositor's focused application, so the clipboard cannot reach it.
     virtual bool steam_field_target() const { return false; }
+    // Of those, a game or app streamed from a PC with Streaming support: the
+    // stream takes real key presses with their modifiers, so combinations
+    // reach it, though the clipboard still cannot (steam_field_target stays
+    // true for it). False for one of Steam's own fields.
+    virtual bool stream_session_target() const { return false; }
     // Gamescope's focused window, which typed text reaches; 0 when unknown or
     // when text goes elsewhere, such as a Steam field or the shell. Never blocks.
     virtual std::uint32_t focused_window() const { return 0; }

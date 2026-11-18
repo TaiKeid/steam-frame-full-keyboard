@@ -47,6 +47,9 @@ class NativeReplacement : public KeySink {
     void set_streaming_support(bool on) { streaming_support_ = on; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }
+    // The routed request is a stream session, whose keys go out as presses
+    // and releases (send's stream_key), not one of Steam's fields.
+    bool stream_session_target() const override { return remote_ && state_.active && state_.stream; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
     std::uint64_t focus_serial() const override { return remote_ ? 0 : local_.focus_serial(); }

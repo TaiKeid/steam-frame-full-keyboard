@@ -78,6 +78,7 @@ class ShellRouter : public KeySink {
     }
     bool single_line_target() const override { return !on_ && inner_.single_line_target(); }
     bool steam_field_target() const override { return !on_ && inner_.steam_field_target(); }
+    bool stream_session_target() const override { return !on_ && inner_.stream_session_target(); }
     std::uint32_t focused_window() const override { return on_ ? 0 : inner_.focused_window(); }
     std::uint64_t focus_serial() const override { return on_ ? 0 : inner_.focus_serial(); }
     // A shell's field is no app; the bar is off under a shell anyway.
