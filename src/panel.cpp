@@ -4434,14 +4434,14 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
 }
-bool PanelRenderer::drawn_by_itself(const PanelView& view, const Key& key) const {
+bool PanelRenderer::drawn_by_itself(const PanelView& view, const Key& key, const KeyMarks& marks) const {
     const auto amount = animations_.find(key.id), lift = hovers_.find(key.id);
     const auto ring = lock_rings_.find(key.id);
     return (amount != animations_.end() && amount->second.amount > 0) ||
            (lift != hovers_.end() && lift->second.amount > 0) || view.hovered_keys.contains(key.id) ||
            (ring != lock_rings_.end() && ring->second >= 0) || key.icon == Icon::Mic ||
            (view.key_flick && view.key_flick->key == key.id) ||
-           (key.action_kind == ActionKind::Key && key_marks(view).locked.contains(key_code(key.action)));
+           (key.action_kind == ActionKind::Key && marks.locked.contains(key_code(key.action)));
 }
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
@@ -5630,6 +5630,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_destroy(preview);
         cairo_surface_flush(preview_image.get());
     }
+    // Keys drawn by themselves, each drawn once into its image on its first
+    // pass of this paint and copied in every later one (R347). Nothing is
+    // kept past the paint: no per-key caches.
+    std::map<std::string, std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>>
+        alone_images;
+    const auto marks = key_marks(view);
     auto draw = [&](const std::vector<Rect>& pass) {
         // Clear and restore the case only inside the damaged pixels. Any neighboring
         // key intersecting that region is repainted in the original stacking order.
@@ -5660,26 +5666,35 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
-                if (intersects && drawn_by_itself(view, key)) {
+                if (intersects && drawn_by_itself(view, key, marks)) {
                     // Into an image at whole pixels, copied (drawn_by_itself).
-                    std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)> image(
-                        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(bounds.width),
-                                                   static_cast<int>(bounds.height)),
-                        cairo_surface_destroy);
-                    if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
-                        auto* alone = cairo_create(image.get());
-                        grey_text(alone);
-                        cairo_translate(alone, p.x - bounds.x, p.y - bounds.y);
-                        cairo_scale(alone, p.scale, p.scale);
-                        draw_key(alone, view, key, animations_.at(key.id).amount,
-                                 hovers_.at(key.id).amount, mic_phase_, ring_time_,
-                                 lock_rings_.at(key.id));
-                        cairo_destroy(alone);
-                        cairo_surface_flush(image.get());
+                    auto made = alone_images.find(key.id);
+                    if (made == alone_images.end()) {
+                        std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)> image(
+                            cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                                       static_cast<int>(bounds.width),
+                                                       static_cast<int>(bounds.height)),
+                            cairo_surface_destroy);
+                        if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
+                            auto* alone = cairo_create(image.get());
+                            grey_text(alone);
+                            cairo_translate(alone, p.x - bounds.x, p.y - bounds.y);
+                            cairo_scale(alone, p.scale, p.scale);
+                            draw_key(alone, view, key, animations_.at(key.id).amount,
+                                     hovers_.at(key.id).amount, mic_phase_, ring_time_,
+                                     lock_rings_.at(key.id));
+                            cairo_destroy(alone);
+                            cairo_surface_flush(image.get());
+                        } else {
+                            image.reset(); // drawn directly below, as before
+                        }
+                        made = alone_images.emplace(key.id, std::move(image)).first;
+                    }
+                    if (made->second) {
                         cairo_save(cr);
                         cairo_identity_matrix(cr);
                         cairo_translate(cr, 0, popup_margin);
-                        cairo_set_source_surface(cr, image.get(), bounds.x, bounds.y);
+                        cairo_set_source_surface(cr, made->second.get(), bounds.x, bounds.y);
                         cairo_paint(cr);
                         cairo_restore(cr);
                         continue;

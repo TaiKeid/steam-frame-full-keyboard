@@ -886,7 +886,8 @@ class PanelRenderer {
     // drawn once into an image at whole pixels, which every pass copies
     // exactly, as the flick preview is. Keys at rest copy their body from
     // the shared image already.
-    bool drawn_by_itself(const PanelView& view, const Key& key) const;
+    // `marks`: key_marks(view), computed once per paint.
+    bool drawn_by_itself(const PanelView& view, const Key& key, const KeyMarks& marks) const;
     Animation move_handle_;
     // The hovered dropdown choice, since when, and the whole-pixel offset its
     // name was last painted at, for scrolling a long name.
