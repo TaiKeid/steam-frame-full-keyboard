@@ -1455,9 +1455,9 @@ void shortcut_bar(const char* theme_id, double opacity) {
             menu.bounds = m.bounds;
             menu.header = m.header;
             menu.list = m.list;
-            menu.edit = m.edit;
+            menu.manage = m.manage;
             menu.title = "Profiles";
-            menu.edit_label = "Edit shortcuts";
+            menu.manage_label = "Manage";
             for (std::size_t i = 0; i < m.visible; ++i) {
                 const auto row = m.row(i, 0);
                 const int at = static_cast<int>(i);
@@ -1891,7 +1891,7 @@ void shortcut_popup(bool narrow) {
     };
     const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
     tap(app.view().shortcut_bar->picker);
-    tap(app.view().shortcut_bar->menu->edit);
+    tap(app.view().shortcut_bar->menu->manage);
     tap_control("shortcuts-label");
     const std::string name = narrow ? "the popup without the numpad" : "the popup";
     const auto phase = [&](const char* what) { return name + ": " + what; };
@@ -1973,7 +1973,7 @@ void long_combinations_drawn() {
         app.move(0, 800, 590);
     };
     tap(app.view().shortcut_bar->picker);
-    tap(app.view().shortcut_bar->menu->edit);
+    tap(app.view().shortcut_bar->menu->manage);
     const auto outside = [&](const char* what) {
         PanelRenderer renderer;
         const auto view = app.view();
@@ -2042,7 +2042,7 @@ void macro_view(bool narrow) {
         app.move(0, 5, 590);
     };
     tap(app.view().shortcut_bar->picker);
-    tap(app.view().shortcut_bar->menu->edit);
+    tap(app.view().shortcut_bar->menu->manage);
     const std::string name = narrow ? "the macro view without the numpad" : "the macro view";
     const auto phase = [&](const char* what) { return name + ": " + what; };
     Comparison compare;
@@ -2119,7 +2119,7 @@ void carry_view(bool narrow) {
         app.up(0, x, y);
     };
     tap(app.view().shortcut_bar->picker);
-    tap(app.view().shortcut_bar->menu->edit);
+    tap(app.view().shortcut_bar->menu->manage);
     const std::string name = narrow ? "carrying without the numpad" : "carrying";
     const auto phase = [&](const char* what) { return name + ": " + what; };
     Comparison compare;

@@ -532,7 +532,7 @@ void shortcut_editor() {
     Simulator simulator(setup(profile, "en-us-full", "en-us", false));
     wait(simulator);
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
-    click_rect(simulator, simulator.app().view().shortcut_bar->menu->edit);
+    click_rect(simulator, simulator.app().view().shortcut_bar->menu->manage);
     require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
     click_rect(simulator, control_bounds(simulator, "shortcuts-new-profile"));
     require(simulator.app().view().shortcut_editor->popup.has_value() &&
@@ -592,13 +592,19 @@ void app_button() {
     click_app();
     require(simulator.app_label() == "App: Game" && label() == "Home", "on to Game, without a profile");
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
-    // The name comes from the lookup's thread, on a tick.
-    for (int i = 0; i < 500 && simulator.app().view().shortcut_bar->menu->app != "Game"; ++i) {
+    // The name comes from the lookup's thread, on a tick; an assign button's
+    // tooltip names the app.
+    const auto tip = [&] {
+        const auto r = simulator.app().view().shortcut_bar->menu->rows[1].assign;
+        simulator.pointer_move(Simulator::mouse, r.x + r.width / 2, r.y + r.height / 2 + popup_margin);
+        return simulator.app().view().bar_tooltip;
+    };
+    for (int i = 0; i < 500 && tip() != "Show Game keys whenever Game has the keys"; ++i) {
         usleep(2000);
         wait(simulator, .01);
     }
-    require(simulator.app().view().shortcut_bar->menu->app == "Game",
-            "the menu names it with the simulator's own name");
+    require(tip() == "Show Game keys whenever Game has the keys",
+            "the tooltip names it with the simulator's own name");
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->rows[1].assign);
     require(label() == "End", "Game keys, assigned, shows at once");
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
@@ -608,8 +614,8 @@ void app_button() {
     click_app();
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     const auto menu = *simulator.app().view().shortcut_bar->menu;
-    require(simulator.app_label() == "App: Steam" && menu.app.empty() && !menu.rows[0].assign_enabled,
-            "Steam's dashboard: no app, the assign buttons disabled");
+    require(simulator.app_label() == "App: Steam" && !menu.rows[0].assign_enabled,
+            "Steam's dashboard: the assign buttons disabled");
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     click_app();
     click_app();

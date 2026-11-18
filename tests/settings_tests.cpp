@@ -3898,9 +3898,25 @@ void shortcut_bar_settings() {
     require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 3 &&
                 view.shortcut_bar->menu->rows[0].shown && !view.shortcut_bar->menu->rows[1].shown &&
                 view.shortcut_bar->menu->title == "Profiles" &&
-                view.shortcut_bar->menu->edit_label == "Edit shortcuts" &&
-                !view.shortcut_bar->menu->rows[0].assign_enabled && view.shortcut_bar->menu->app.empty(),
-            "the picker opens its menu: the profile showing filled; no app to assign");
+                view.shortcut_bar->menu->manage_label == "Manage" &&
+                !view.shortcut_bar->menu->rows[0].assign_enabled,
+            "the picker opens its menu: the profile showing filled, Manage in its header; no app to "
+            "assign");
+    {
+        // Manage sits in the header, as tall as an assign button; no Edit
+        // shortcuts row under the list.
+        const auto& m = *view.shortcut_bar->menu;
+        require(m.header.contains(m.manage.x + 1, m.manage.y + 1) &&
+                    m.manage.x + m.manage.width == m.header.x + m.header.width &&
+                    m.manage.height >= m.rows[0].assign.height &&
+                    m.bounds.y + m.bounds.height <= m.list.y + m.list.height + 8.5,
+                "Manage at the header's right; the menu ends with its last row");
+        const auto at = middle(m.manage);
+        app.move(0, at.x, at.y);
+        require(app.view().bar_tooltip == "Edit profiles and buttons" &&
+                    app.view().shortcut_bar->menu->manage_hovered,
+                "Manage's hover and tooltip");
+    }
     // R319: the bar's plate, the picker's tab and the menu above the case
     // take the pointer, as the case does; the margin above the plate doesn't,
     // nor the place right of the tab where the picker's own plate was.
@@ -3969,10 +3985,10 @@ void shortcut_bar_settings() {
     const auto back = app.view().shortcut_bar->menu->rows[0].bounds;
     tap_at(app, back.x + 30, back.y + back.height / 2);
     require(app.view().shortcut_bar->buttons[0].label == "Undo", "the other bar from its start");
-    // Edit shortcuts opens the editor, and ← without changes returns.
+    // Manage opens the editor, and ← without changes returns.
     tap_rect(app, app.view().shortcut_bar->picker);
-    tap_rect(app, app.view().shortcut_bar->menu->edit);
-    require(app.view().shortcut_editor && !app.view().settings, "Edit shortcuts opens the editor");
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
+    require(app.view().shortcut_editor && !app.view().settings, "Manage opens the editor");
     tap_rect(app, control(app.view(), "shortcuts-back").bounds);
     require(!app.view().shortcut_editor && app.view().shortcut_bar && !app.view().shortcut_bar->menu,
             "← returns to the keyboard, the menu closed");
@@ -4178,7 +4194,7 @@ void tap_key(App& app, const std::string& action) {
 }
 void open_editor(App& app) {
     tap_rect(app, app.view().shortcut_bar->picker);
-    tap_rect(app, app.view().shortcut_bar->menu->edit);
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
 }
 // A press on one of the editor popup's mini keys, by the US key's ID.
 void tap_mini(App& app, const std::string& key) {
@@ -4863,21 +4879,23 @@ void shortcut_apps() {
         return done();
     };
     require(label() == "A", "an app without a profile: the free profile");
-    // The menu: the app's own name until the lookup lands, then the one found.
-    tap_rect(app, app.view().shortcut_bar->picker);
-    require(menu().app == "Notes" || menu().app == "Example Notes",
-            "the header names the app: first the last part of its ID");
-    require(wait_for([&] { return menu().app == "Example Notes"; }),
-            "the name looked up arrives on a tick");
-    const auto rows = menu().rows;
-    require(std::all_of(rows.begin(), rows.end(),
-                        [](const auto& row) { return row.assign_enabled && !row.assigned; }),
-            "every assign button can tie the app; none is lit");
     const auto hover = [&](std::size_t row) {
         const auto at = middle(menu().rows[row].assign);
         app.move(0, at.x, at.y);
         return app.view().bar_tooltip;
     };
+    // The tooltips name the app: its own name until the lookup lands, then
+    // the one found. The menu itself names no app.
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(hover(0) == "Show Free whenever Notes has the keys" ||
+                hover(0) == "Show Free whenever Example Notes has the keys",
+            "first the last part of its ID");
+    require(wait_for([&] { return hover(0) == "Show Free whenever Example Notes has the keys"; }),
+            "the name looked up arrives on a tick");
+    const auto rows = menu().rows;
+    require(std::all_of(rows.begin(), rows.end(),
+                        [](const auto& row) { return row.assign_enabled && !row.assigned; }),
+            "every assign button can tie the app; none is lit");
     require(hover(1) == "Show Tied whenever Example Notes has the keys",
             "the tooltip says what the press will do, naming the profile and the app");
     tap_rect(app, menu().rows[1].assign);
@@ -4931,8 +4949,7 @@ void shortcut_apps() {
     app.tick(now += .1);
     require(label() == "U", "Steam's dashboard has no profile: the free one picked last, Other");
     tap_rect(app, app.view().shortcut_bar->picker);
-    require(menu().app.empty() && !menu().rows[0].assign_enabled && !menu().rows[1].assigned,
-            "no app in the header, the buttons disabled");
+    require(!menu().rows[0].assign_enabled && !menu().rows[1].assigned, "the buttons disabled");
     require(hover(0) == "Steam's dashboard has the keys, so there is no app to assign",
             "a disabled button's tooltip names the cause");
     tap_rect(app, menu().rows[0].assign);
@@ -4941,20 +4958,21 @@ void shortcut_apps() {
     app.set_dashboard_focus(false);
     sink.focus = {10, std::nullopt, ""};
     app.tick(now += .1);
-    require(hover(0) == "The app that has the keys can't be told" && menu().app.empty(),
-            "an app that can't be told");
+    require(hover(0) == "The app that has the keys can't be told", "an app that can't be told");
 
     // Assigned before its name arrives: saved with the program's name, then
     // the name found, once.
     sink.focus = {8, game, "game.x86_64"};
     app.tick(now += .1);
-    require(menu().app == "game.x86_64", "a Steam game's program name until its lookup lands");
+    require(hover(0) == "Show Free whenever game.x86_64 has the keys",
+            "a Steam game's program name until its lookup lands");
     tap_rect(app, menu().rows[2].assign);
     const auto first_save = saved_shortcuts(app);
     require(first_save.tie(game) && first_save.tie(game)->name == "game.x86_64",
             "saved with that name at once");
     game_named = true;
-    require(wait_for([&] { return menu().app == "Example Game"; }), "the name arrives");
+    require(wait_for([&] { return hover(1) == "Show Tied whenever Example Game has the keys"; }),
+            "the name arrives");
     const auto named = saved_shortcuts(app);
     require(named.tie(game) && named.tie(game)->name == "Example Game", "the tie takes it, saved");
     tap_rect(app, app.view().shortcut_bar->picker);
@@ -5126,7 +5144,7 @@ void stick_scrolls_bar() {
     require(app.view().shortcut_bar && app.stick_scrolls(), "the bar showing: the stick");
     tap_rect(app, app.view().shortcut_bar->picker);
     require(app.view().shortcut_bar->menu && app.stick_scrolls(), "the menu open: the stick");
-    tap_rect(app, app.view().shortcut_bar->menu->edit);
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
     require(app.view().shortcut_editor && !app.view().shortcut_bar && app.stick_scrolls(),
             "the editor open: the stick");
     tap_control(app, "shortcuts-back");
@@ -5368,14 +5386,14 @@ void shortcut_editor_settings() {
                 "the free bar, empty");
         const auto keyboard_case = panel_case_bounds(app.view());
         tap_rect(app, app.view().shortcut_bar->picker);
-        require(app.view().shortcut_bar->menu->edit_enabled, "Edit shortcuts is enabled");
-        tap_rect(app, app.view().shortcut_bar->menu->edit);
+        require(app.view().shortcut_bar->menu->manage_enabled, "Manage is enabled");
+        tap_rect(app, app.view().shortcut_bar->menu->manage);
         auto view = app.view();
         require(panel_case_bounds(view) == keyboard_case,
                 "R329: the editor's case is the keyboard's, its edge and handle in place");
         require(view.shortcut_editor && !view.shortcut_bar && has(view, "shortcuts-back") &&
                     has(view, "shortcuts-save") && !has(view, "settings"),
-                "Edit shortcuts opens the editor, its own screen, in place of the toolbar and bar");
+                "Manage opens the editor, its own screen, in place of the toolbar and bar");
         require(view.shortcut_editor->wide == !narrow &&
                     panel_case_bounds(view).width == keyboard_case.width &&
                     std::abs(keyboard_case.width - (narrow ? 1326 : panel_width)) < 1,

@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
                 };
                 const auto open_editor = [&](App& app) {
                     open_menu(app);
-                    const auto edit = app.view().shortcut_bar->menu->edit;
+                    const auto edit = app.view().shortcut_bar->menu->manage;
                     const double ex = edit.x + edit.width / 2, ey = edit.y + edit.height / 2;
                     app.move(0, ex, ey);
                     app.down(0, ex, ey, 1);
@@ -251,13 +251,21 @@ int main(int argc, char** argv) {
                 macro_view(bars, "");
                 click(bars, "shortcuts-back");
                 // The Desktop app the terminal profile is assigned to: its
-                // name in the menu's header and its button lit; Used for in
-                // the editor.
+                // profile shows, its assign button lit in the menu; Used for
+                // in the editor.
+                const auto assigned_app = [&](App& app, const std::string& suffix) {
+                    sink.focus = {
+                        3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, {}};
+                    settle(app);
+                    open_menu(app);
+                    shot(app, "shortcut-bar-menu-app" + suffix);
+                    open_menu(app);
+                    sink.focus = {1, {}, {}};
+                    settle(app);
+                };
+                assigned_app(bars, "");
                 sink.focus = {3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, {}};
                 settle(bars);
-                open_menu(bars);
-                shot(bars, "shortcut-bar-menu-app");
-                open_menu(bars);
                 open_editor(bars);
                 shot(bars, "shortcut-editor-used-for");
                 click(bars, "shortcuts-back");
@@ -268,6 +276,13 @@ int main(int argc, char** argv) {
                 save_settings(bar_options.config_dir, narrow);
                 App small(bar_options, sink);
                 choose_language(small, language);
+                settle(small);
+                // The bar and its menu without the numpad.
+                shot(small, "shortcut-bar-no-numpad");
+                open_menu(small);
+                shot(small, "shortcut-bar-menu-no-numpad");
+                open_menu(small);
+                assigned_app(small, "-no-numpad");
                 open_editor(small);
                 shot(small, "shortcut-editor-no-numpad");
                 popups(small, "-no-numpad");
@@ -275,6 +290,24 @@ int main(int argc, char** argv) {
             } else {
                 bars.back();
             }
+        }
+        // The empty two-slot bar the toolbar button opens with no profiles, at
+        // both widths: its tab too.
+        for (const bool numpad : {true, false}) {
+            Options empty_options = options;
+            empty_options.config_dir = fs::path(config) / (numpad ? "empty-bar" : "empty-bar-narrow");
+            fs::create_directories(empty_options.config_dir);
+            Settings settings;
+            settings.shortcuts = true;
+            settings.hide_numpad = !numpad;
+            save_settings(empty_options.config_dir, settings);
+            App empty(empty_options, sink);
+            choose_language(empty, language);
+            settle(empty);
+            if (!empty.view().shortcut_bar) {
+                click(empty, "bar-toggle");
+            }
+            shot(empty, numpad ? "shortcut-bar-empty" : "shortcut-bar-empty-no-numpad");
         }
         // The editor opens only in dictation's render mode, as for its image export.
         options.mode = Mode::RenderDictation;

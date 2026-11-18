@@ -2173,17 +2173,18 @@ Rect ShortcutMenuGeometry::assign(const Rect& row) const {
 }
 ShortcutMenuGeometry shortcut_menu_geometry(const ShortcutBarGeometry& bar, std::size_t rows) {
     // Under the bar, over the case, its right edge on the tab's.
-    constexpr double width = 380, pad = 8, header = 44, row = 52, edit = 56, rule = 9;
+    // The header holds Manage, as tall as an assign button.
+    constexpr double width = 380, pad = 8, header = 52, row = 52, manage_width = 150;
     ShortcutMenuGeometry g;
     g.row_height = row;
     g.visible = std::min(rows, shortcut_menu_rows);
     const double listed = static_cast<double>(g.visible) * row;
     const double right = bar.picker.x + bar.picker.width;
     g.bounds = {std::max(8.0, right - width), bar.plate.y + bar.plate.height + 6, width,
-                pad + header + listed + rule + edit + pad};
+                pad + header + listed + pad};
     g.header = {g.bounds.x + pad, g.bounds.y + pad, width - 2 * pad, header};
     g.list = {g.header.x, g.header.y + header, g.header.width, listed};
-    g.edit = {g.header.x, g.list.y + listed + rule, g.header.width, edit};
+    g.manage = {g.header.x + g.header.width - manage_width, g.header.y + 4, manage_width, header - 8};
     g.scroll_limit = std::max(0.0, static_cast<double>(rows) * row - listed);
     return g;
 }
@@ -4275,7 +4276,8 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     }
 }
 // The picker's menu: a raised panel, as the Settings dropdowns are, over the
-// case. A header, a row per bar with its assign button, and Edit shortcuts.
+// case. A header with Manage at its right, and a row per profile with its
+// assign button.
 void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
     const auto& menu = *view.shortcut_bar->menu;
     const auto& t = *view.theme;
@@ -4292,13 +4294,20 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
     cairo_stroke(cr);
     const Color quiet = disabled_legend(t);
     const auto& h = menu.header;
-    interface_label(cr, menu.title, {h.x + 8, h.y, h.width / 2, h.height}, 17, view.interface_font,
-                    quiet, false, PANGO_ALIGN_LEFT);
-    if (!menu.app.empty()) {
-        draw_icon(cr, Icon::AppWindow, {h.x + h.width - 40, h.y, 40, h.height}, quiet, 20);
-        interface_label(cr, menu.app, {h.x + h.width / 2, h.y, h.width / 2 - 40, h.height}, 17,
-                        view.interface_font, quiet, false, PANGO_ALIGN_RIGHT);
+    interface_label(cr, menu.title, {h.x + 8, h.y, menu.manage.x - h.x - 16, h.height}, 17,
+                    view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    // Manage: a button with the pencil, its hover and press as a row's.
+    const auto& e = menu.manage;
+    if (menu.manage_enabled && (menu.manage_hovered || menu.manage_pressed)) {
+        rounded(cr, e, t.radius);
+        source(cr, t.hover);
+        cairo_fill(cr);
     }
+    draw_edge(cr, t, e, t.radius, menu.manage_hovered, menu.manage_enabled);
+    const Color ink = menu.manage_enabled ? t.legend : quiet;
+    draw_icon(cr, Icon::Pencil, {e.x + 4, e.y, 36, e.height}, ink, 20);
+    interface_label(cr, menu.manage_label, {e.x + 40, e.y, e.width - 50, e.height}, 19,
+                    view.interface_font, ink, false, PANGO_ALIGN_LEFT);
     cairo_save(cr);
     cairo_rectangle(cr, menu.list.x, menu.list.y, menu.list.width, menu.list.height);
     cairo_clip(cr);
@@ -4339,23 +4348,6 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
         source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
         cairo_fill(cr);
     }
-    // A quiet rule over Edit shortcuts.
-    const double y = std::round(menu.edit.y - 5) + .5;
-    cairo_move_to(cr, menu.edit.x + 8, y);
-    cairo_line_to(cr, menu.edit.x + menu.edit.width - 8, y);
-    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
-    cairo_set_line_width(cr, 1);
-    cairo_stroke(cr);
-    const auto& e = menu.edit;
-    if (menu.edit_enabled && (menu.edit_hovered || menu.edit_pressed)) {
-        rounded(cr, {e.x, e.y + 2, e.width, e.height - 4}, t.radius);
-        source(cr, t.hover);
-        cairo_fill(cr);
-    }
-    const Color ink = menu.edit_enabled ? t.legend : quiet;
-    draw_icon(cr, Icon::Pencil, {e.x + 6, e.y, 40, e.height}, ink, 20);
-    interface_label(cr, menu.edit_label, {e.x + 50, e.y, e.width - 60, e.height}, 21,
-                    view.interface_font, ink, false, PANGO_ALIGN_LEFT);
 }
 } // namespace
 Rect dictation_status_bounds(const PanelView& view) {

@@ -1919,7 +1919,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (bar_menu_) {
         const auto& hit = hovered_[pointer];
         const bool inside = hit.kind == HoverTarget::Kind::Bar &&
-                            (hit.id == "menu" || hit.id == "edit" || hit.id == "picker" ||
+                            (hit.id == "menu" || hit.id == "manage" || hit.id == "picker" ||
                              hit.id.starts_with("row-") || hit.id.starts_with("assign-"));
         if (!inside) {
             bar_menu_ = false;

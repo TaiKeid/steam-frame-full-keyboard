@@ -643,7 +643,7 @@ void readings_out_of_the_editor() {
         f.tick(.01);
     };
     tap(view.shortcut_bar->picker);
-    tap(f.app->view().shortcut_bar->menu->edit);
+    tap(f.app->view().shortcut_bar->menu->manage);
     view = f.app->view();
     require(view.shortcut_editor && !view.candidates && !view.ime_band,
             "under the editor the reading and its candidates are out of sight");

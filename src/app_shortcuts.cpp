@@ -190,10 +190,11 @@ void App::append_shortcut_bar(PanelView& v) const {
         menu.bounds = m.bounds;
         menu.header = m.header;
         menu.list = m.list;
-        menu.edit = m.edit;
+        menu.manage = m.manage;
         menu.title = tr("shortcuts.menu.title");
-        // The focused app, when it can be assigned (design, Picker menu).
-        menu.app = focused_app_name();
+        // The menu doesn't name the focused app; the assign buttons' tooltips
+        // do (design, Picker menu).
+        const auto app_name = focused_app_name();
         const auto* tie = bar_focus_.app ? shortcuts_.tie(*bar_focus_.app) : nullptr;
         const bool assignable = assign_unavailable().empty();
         const auto* showing = profile_choice_.shown();
@@ -218,7 +219,7 @@ void App::append_shortcut_bar(PanelView& v) const {
                 // disabled button, why it is.
                 v.bar_tooltip = assignable ? tr(row.assigned ? "tooltip.shortcuts-unassign"
                                                              : "tooltip.shortcuts-assign",
-                                                {{"profile", listed.name}, {"app", menu.app}})
+                                                {{"profile", listed.name}, {"app", app_name}})
                                            : assign_unavailable();
                 v.bar_tooltip_at = row.assign;
             }
@@ -230,10 +231,14 @@ void App::append_shortcut_bar(PanelView& v) const {
                               m.list.y + menu_scroll_.shown / m.scroll_limit * (m.list.height - length),
                               3, length};
         }
-        menu.edit_label = tr("shortcuts.menu.edit");
-        menu.edit_enabled = true;
-        menu.edit_hovered = hovered("edit");
-        menu.edit_pressed = pressed("edit");
+        menu.manage_label = tr("shortcuts.menu.manage");
+        menu.manage_enabled = true;
+        menu.manage_hovered = hovered("manage");
+        menu.manage_pressed = pressed("manage");
+        if (menu.manage_hovered) {
+            v.bar_tooltip = tr("tooltip.shortcuts-manage");
+            v.bar_tooltip_at = menu.manage;
+        }
         view.menu = std::move(menu);
     }
     if (view.picker_hovered && !bar_menu_) {
@@ -260,8 +265,8 @@ std::optional<std::string> App::bar_hit(const PanelView& view, double x, double 
                 }
             }
         }
-        if (menu.edit.contains(x, y)) {
-            return "edit";
+        if (menu.manage.contains(x, y)) {
+            return "manage";
         }
         if (menu.bounds.contains(x, y)) {
             return "menu"; // Its margins take the laser too, choosing nothing.
@@ -334,7 +339,7 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
             return false;
         }
     }
-    // The picker, a menu row, an assign button or Edit shortcuts: any press
+    // The picker, a menu row, an assign button or Manage: any press
     // on the bar that acts stops a run, as a key does (R340).
     stop_shortcut_run();
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}, false};
@@ -425,7 +430,7 @@ void App::bar_action(const std::string& target) {
         bar_menu_ = false;
         const auto changes = profile_choice_.pick(shortcuts_, shortcuts_.profiles[*row].id);
         apply_bar_changes(changes);
-    } else if (target == "edit") {
+    } else if (target == "manage") {
         bar_menu_ = false;
         open_shortcut_editor(); // on the profile showing
     }

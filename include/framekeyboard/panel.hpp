@@ -289,14 +289,14 @@ struct ShortcutBarView {
         };
         bool operator==(const Menu&) const = default;
         Rect bounds, header, list; // `list` clips the rows
-        // "Profiles", and the focused app's name; empty while it can't be assigned.
-        std::string title, app;
+        std::string title;         // "Profiles", at the header's left
         std::vector<Row> rows;     // only those in view
         std::optional<Rect> thumb; // while more rows than six
-        Rect edit;
-        std::string edit_label;
-        // Edit shortcuts, which opens the editor on the profile showing.
-        bool edit_enabled{}, edit_hovered{}, edit_pressed{};
+        // Manage, at the header's right, which opens the editor on the
+        // profile showing.
+        Rect manage;
+        std::string manage_label;
+        bool manage_enabled{}, manage_hovered{}, manage_pressed{};
     };
     std::optional<Menu> menu;
     // A button whose label is being typed (the shortcut editor's Label
@@ -442,7 +442,7 @@ struct ShortcutBarGeometry {
 ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons);
 // The picker's menu for `rows` bars: six rows show, more scroll.
 struct ShortcutMenuGeometry {
-    Rect bounds, header, list, edit;
+    Rect bounds, header, list, manage; // Manage: in the header, at its right
     double row_height{};
     std::size_t visible{};
     double scroll_limit{};

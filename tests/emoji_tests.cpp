@@ -1544,7 +1544,8 @@ void shortcut_menu_over_grid() {
     settings.shortcuts = true;
     save_settings(directory.path, settings);
     ShortcutModel model;
-    model.profiles = {{"a", "A", {}}, {"b", "B", {}}};
+    // Enough rows to reach down over the grid.
+    model.profiles = {{"a", "A", {}}, {"b", "B", {}}, {"c", "C", {}}, {"d", "D", {}}};
     model.free_profile = "a";
     std::ofstream(shortcuts_path(directory.path)) << serialize_shortcuts(model);
     TextSink sink;
