@@ -214,7 +214,7 @@ Everything in the editor is pending. ✓ saves it and returns to the keyboard, s
 
 Labels are typed and keys are recorded without leaving the editor, on a mini keyboard in a popup. An earlier build switched to the real keyboard for this, and going back and forth lost the editor's context.
 
-**The popup** sits under the strip, centered, 1051 × 396, the same at the full and the no-numpad width, so the strip stays in view and the selected button shows a label as it is typed. What lies under it is dimmed and takes no press.
+**The popup** sits under the strip, centered, 1051 × 380, the same at the full and the no-numpad width, so the strip stays in view and the selected button shows a label as it is typed. What lies under it is dimmed and takes no press.
 
 | Row | Content |
 | --- | --- |
