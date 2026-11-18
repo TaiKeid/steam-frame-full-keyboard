@@ -4990,7 +4990,9 @@ void shortcut_apps() {
     // No identity: the assign buttons are disabled and say why.
     app.set_dashboard_focus(true);
     app.tick(now += .1);
-    require(label() == "U", "Steam's dashboard has no profile: the free one picked last, Other");
+    // U was picked while an app with its own profile had the keys: that pick
+    // stayed temporary (R350).
+    require(label() == "A", "Steam's dashboard has no profile: the one picked last for such apps");
     tap_rect(app, app.view().shortcut_bar->picker);
     require(!menu().rows[0].assign_enabled && !menu().rows[1].assigned, "the buttons disabled");
     require(hover(0) == "Can't assign here: Steam's dashboard is in front, not an app",
@@ -5310,6 +5312,81 @@ void shortcut_long_program_tie() {
             "the tie is the program's name alone now, saved at once");
     require(saved.tie({AppIdentity::Kind::Program, "browser-beta --flag=x"}),
             "another program's tie that only begins the same stays");
+}
+// R350: an app without a profile shows the last profile picked for such
+// apps; tied to an app, the one picked before it that no app is tied to;
+// with every pick tied, the last pick all the same.
+void shortcut_pick_history() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "First", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"b", "Second", {shortcut_button("B", {{{"ControlLeft"}, "KeyB"}})}});
+    model.profiles.push_back({"c", "Never", {shortcut_button("C", {{{"ControlLeft"}, "KeyC"}})}});
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    const auto app_named = [](std::uint32_t window, const char* id) {
+        return FocusedApp{window, AppIdentity{AppIdentity::Kind::Program, id}, id};
+    };
+    sink.focus = app_named(1, "one");
+    App app(options, sink);
+    double now = 1400;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto pick = [&](std::size_t row) {
+        if (!app.view().shortcut_bar) {
+            tap_rect(app, control(app.view(), "bar-toggle").bounds); // the empty bar, for its picker
+        }
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto r = menu().rows[row].bounds;
+        tap_at(app, r.x + 30, r.y + r.height / 2);
+    };
+    const auto assign = [&](std::size_t row) {
+        require(app.view().shortcut_bar.has_value(), "a bar shows to assign from");
+        tap_rect(app, app.view().shortcut_bar->picker);
+        tap_rect(app, menu().rows[row].assign);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    const auto focus = [&](std::uint32_t window, const char* id) {
+        sink.focus = app_named(window, id);
+        app.tick(now += .1);
+    };
+    // Second, then First, picked in apps without a profile.
+    pick(1);
+    focus(2, "two");
+    pick(0);
+    focus(3, "three");
+    require(label() == "A", "the last pick shows in another app without a profile");
+    const auto saved = saved_shortcuts(app);
+    require(saved.free_profile == "a" && saved.earlier_picks == std::vector<std::string>{"b"},
+            "the picks are saved, newest first");
+    // First is tied to this app: elsewhere, the one picked before it.
+    assign(0);
+    focus(4, "four");
+    require(label() == "B", "the last pick tied to an app: the one picked before it");
+    // Second is tied too: every pick tied, the last pick all the same; Never,
+    // never picked, isn't chosen.
+    assign(1);
+    focus(5, "five");
+    require(label() == "A", "every pick tied: the last pick stays");
 }
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
@@ -6450,6 +6527,7 @@ int main() {
         shortcut_apps();
         shortcut_stream_apps();
         shortcut_long_program_tie();
+        shortcut_pick_history();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

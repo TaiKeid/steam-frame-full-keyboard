@@ -640,11 +640,11 @@ void which_bar_shows() {
     require(shown(choice) == "free1", "Steam's dashboard and unknown apps count as apps without a bar");
     choice.focus(model, AppIdentity{AppIdentity::Kind::Steam, "620"});
     require(shown(choice) == "free1", "a Steam game without a bar");
-    // The free bar chosen last is tied to an app: no longer free.
+    // The free bar chosen last is tied to an app, and nothing else was ever
+    // picked: it shows all the same (R350).
     model.apps.push_back({program("term"), "Term", "free1"});
     choice.focus(model, program("other"));
-    require(!choice.shown() && !choice.empty_bar() && !choice.button_on() && choice.switch_on(),
-            "rule 3: nothing; the button reads off and the switch stays on");
+    require(shown(choice) == "free1", "every pick assigned: the last pick all the same");
     choice.focus(model, program("term"));
     require(shown(choice) == "free1", "a later app with a bar brings the bar back");
     model.apps.pop_back();
@@ -661,6 +661,90 @@ void which_bar_shows() {
     require(shown(choice) == "free2", "a Steam game's bar");
     choice.focus(model, program("620"));
     require(!choice.shown(), "a program of the same name is another app");
+}
+// R350: which profile an app without one shows, by the picks made for such
+// apps, newest first; kept in shortcuts.json beside free_profile.
+void pick_history() {
+    using Ids = std::vector<std::string>;
+    ShortcutModel model;
+    model.profiles = {{"a", "A", {}}, {"b", "B", {}}, {"c", "C", {}}, {"d", "D", {}}};
+    ShortcutProfileChoice choice;
+    choice.configure(model, true, true);
+    // 4: nothing ever picked: nothing.
+    choice.focus(model, program("other"));
+    require(!choice.shown(), "nothing picked ever: nothing shows");
+    for (const char* id : {"a", "b", "c"}) {
+        choice.focus(model, program("other"));
+        choice.pick(model, id);
+    }
+    require(model.free_profile == "c" && model.earlier_picks == Ids{"b", "a"},
+            "the picks, newest first");
+    // 1: the last pick, no app assigned to it.
+    choice.focus(model, program("new"));
+    require(shown(choice) == "c", "the last pick while no app is assigned to it");
+    // 2: it is assigned: the newest earlier pick that is not.
+    model.apps.push_back({program("x"), "X", "c"});
+    choice.focus(model, program("new"));
+    require(shown(choice) == "b", "the last pick assigned: the newest earlier pick that is not");
+    model.apps.push_back({program("y"), "Y", "b"});
+    choice.focus(model, program("new"));
+    require(shown(choice) == "a", "and the one before it");
+    // A profile never picked is never chosen for the user.
+    model.apps.push_back({program("z"), "Z", "a"});
+    choice.focus(model, program("new"));
+    // 3: every pick assigned: the last pick all the same; d, never picked, isn't chosen.
+    require(shown(choice) == "c", "every pick assigned: the last pick, never one not picked");
+    // Turned off by hand, nothing.
+    choice.toolbar(model);
+    choice.focus(model, program("new"));
+    require(!choice.shown(), "the switch off by hand overrides it all");
+    choice.toolbar(model);
+    // Deleting a profile drops it; the next takes the last pick's place.
+    model.apps.clear();
+    std::erase_if(model.profiles, [](const ShortcutProfile& p) { return p.id == "c"; });
+    auto changes = choice.model_changed(model);
+    require(changes.free_profile && model.free_profile == "b" && model.earlier_picks == Ids{"a"},
+            "a deleted profile leaves the picks");
+    std::erase_if(model.profiles, [](const ShortcutProfile& p) { return p.id == "a"; });
+    require(model.forget_missing_picks() && model.free_profile == "b" && model.earlier_picks.empty(),
+            "an earlier one too");
+    // Picked again, a profile moves to the front, once.
+    model.profiles.push_back({"a", "A", {}});
+    model.remember_pick("a");
+    model.remember_pick("d");
+    model.remember_pick("b");
+    require(model.free_profile == "b" && model.earlier_picks == Ids{"d", "a"},
+            "a pick again moves to the front");
+    accepted(model, "the picks");
+    // Bounded by the profile limit.
+    ShortcutModel many;
+    for (std::size_t i = 0; i < shortcut_limits::profiles; ++i) {
+        many.profiles.push_back({"p" + std::to_string(i), "P", {}});
+        many.remember_pick("p" + std::to_string(i));
+    }
+    many.remember_pick("p0");
+    require(many.free_profile == "p0" && many.earlier_picks.size() == shortcut_limits::profiles - 1 &&
+                std::find(many.earlier_picks.begin(), many.earlier_picks.end(), "p0") ==
+                    many.earlier_picks.end(),
+            "at most one pick per profile");
+    accepted(many, "picks of every profile");
+    // Bad picks make the file invalid, as a bad free_profile does.
+    auto bad = model;
+    bad.earlier_picks.push_back("gone");
+    refused(bad, "an earlier pick of no profile");
+    bad = model;
+    bad.earlier_picks.push_back("d");
+    refused(bad, "a profile picked twice");
+    bad = model;
+    bad.earlier_picks.push_back("b");
+    refused(bad, "the last pick also earlier");
+    bad = model;
+    bad.free_profile.clear();
+    refused(bad, "earlier picks without a last one");
+    // A file from before keeps its free_profile as a history of one.
+    const auto old = parse_shortcuts(
+        R"({"schema_version": 1, "profiles": [{"id": "a", "name": "A", "buttons": []}], "free_profile": "a"})");
+    require(old.free_profile == "a" && old.earlier_picks.empty(), "an old file: a history of one");
 }
 void toolbar_button() {
     ShortcutModel model;
@@ -721,9 +805,11 @@ void picker() {
     ShortcutProfileChoice choice;
     choice.configure(model, true, true);
     choice.focus(model, program("kate"));
+    // Picked while an app with its own bar has the keys: it shows, and
+    // stays temporary (R350).
     auto changes = choice.pick(model, "free2");
-    require(shown(choice) == "free2" && model.free_profile == "free2" && changes.free_profile,
-            "a free bar picked shows and becomes the free bar");
+    require(shown(choice) == "free2" && model.free_profile == "free1" && !changes.free_profile,
+            "a pick for an app with its own bar is not remembered");
     // Turned off and on in the same focus, the pick is still what is due.
     choice.toolbar(model);
     choice.toolbar(model);
@@ -731,17 +817,23 @@ void picker() {
     choice.focus(model, program("kate"));
     require(shown(choice) == "editor", "the pick lasts until the focus changes");
     choice.focus(model, program("other"));
-    require(shown(choice) == "free2", "rule 2 returns to the free bar picked last");
-    // A bar tied to an app shows but doesn't become the free bar.
-    changes = choice.pick(model, "editor");
-    require(shown(choice) == "editor" && model.free_profile == "free2" && !changes.free_profile,
-            "an assigned bar picked shows, and the free bar stays");
-    // The same free bar again changes nothing to save.
+    require(shown(choice) == "free1", "rule 2 returns to the bar picked last for apps without one");
+    // Picked while an app without a bar has the keys: first in the picks.
     changes = choice.pick(model, "free2");
-    require(shown(choice) == "free2" && !changes.free_profile,
-            "picking the free bar again saves nothing");
+    require(shown(choice) == "free2" && model.free_profile == "free2" &&
+                model.earlier_picks == std::vector<std::string>{"free1"} && changes.free_profile,
+            "a pick for an app without a bar goes first in the picks");
+    changes = choice.pick(model, "editor");
+    require(shown(choice) == "editor" && model.free_profile == "editor" &&
+                model.earlier_picks == std::vector<std::string>{"free2", "free1"} &&
+                changes.free_profile,
+            "an assigned bar picked for such an app is remembered too");
+    changes = choice.pick(model, "editor");
+    require(shown(choice) == "editor" && !changes.free_profile,
+            "picking the last pick again saves nothing");
     // Picking from the empty bar.
     model.free_profile.clear();
+    model.earlier_picks.clear();
     choice.focus(model, program("other"));
     choice.toolbar(model);
     require(choice.empty_bar(), "the empty bar");
@@ -1051,6 +1143,7 @@ int main() {
         hand_edits();
         reload_and_check();
         which_bar_shows();
+        pick_history();
         toolbar_button();
         picker();
         model_changes();

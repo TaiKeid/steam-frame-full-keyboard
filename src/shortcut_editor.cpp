@@ -277,9 +277,7 @@ void ShortcutEditor::delete_profile() {
     const auto id = model_.profiles[*profile_].id;
     model_.profiles.erase(model_.profiles.begin() + static_cast<std::ptrdiff_t>(*profile_));
     std::erase_if(model_.apps, [&](const AppTie& tie) { return tie.profile == id; });
-    if (model_.free_profile == id) {
-        model_.free_profile.clear();
-    }
+    model_.forget_missing_picks(); // the next pick takes its place (R350)
     if (model_.profiles.empty()) {
         profile_.reset();
         button_.reset();

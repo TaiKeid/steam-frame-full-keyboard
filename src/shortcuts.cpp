@@ -454,6 +454,36 @@ bool app_identity_valid(const AppIdentity& app) {
            (app.kind != AppIdentity::Kind::Program || app.id.find('/') == std::string::npos) &&
            (app.kind != AppIdentity::Kind::Stream || app.id == stream_id);
 }
+bool ShortcutModel::remember_pick(const std::string& id) {
+    if (free_profile == id || !profile(id)) {
+        return false;
+    }
+    std::erase(earlier_picks, id);
+    if (!free_profile.empty()) {
+        earlier_picks.insert(earlier_picks.begin(), free_profile);
+    }
+    free_profile = id;
+    if (earlier_picks.size() >= limits::profiles) {
+        earlier_picks.resize(limits::profiles - 1);
+    }
+    return true;
+}
+bool ShortcutModel::forget_missing_picks() {
+    const auto before = earlier_picks.size();
+    std::erase_if(earlier_picks, [&](const std::string& id) { return !profile(id); });
+    bool changed = earlier_picks.size() != before;
+    if (!free_profile.empty() && !profile(free_profile)) {
+        // The next pick takes the last one's place.
+        if (earlier_picks.empty()) {
+            free_profile.clear();
+        } else {
+            free_profile = earlier_picks.front();
+            earlier_picks.erase(earlier_picks.begin());
+        }
+        changed = true;
+    }
+    return changed;
+}
 const ShortcutProfile* ShortcutModel::profile(const std::string& id) const {
     const auto found = std::find_if(profiles.begin(), profiles.end(),
                                     [&](const ShortcutProfile& profile) { return profile.id == id; });
@@ -564,6 +594,24 @@ std::optional<std::string> validate_shortcuts(const ShortcutModel& model) {
     if (!model.free_profile.empty() && !model.profile(model.free_profile)) {
         return "free_profile names a profile that does not exist";
     }
+    if (!model.earlier_picks.empty() && model.free_profile.empty()) {
+        return "earlier_picks without free_profile";
+    }
+    if (model.earlier_picks.size() >= limits::profiles) {
+        return "more than 31 earlier picks";
+    }
+    for (std::size_t i = 0; i < model.earlier_picks.size(); ++i) {
+        const auto& id = model.earlier_picks[i];
+        if (!model.profile(id)) {
+            return "earlier_picks names a profile that does not exist";
+        }
+        if (id == model.free_profile ||
+            std::find(model.earlier_picks.begin(),
+                      model.earlier_picks.begin() + static_cast<std::ptrdiff_t>(i),
+                      id) != model.earlier_picks.begin() + static_cast<std::ptrdiff_t>(i)) {
+            return "a profile is in the picks twice";
+        }
+    }
     return {};
 }
 
@@ -598,6 +646,13 @@ std::string serialize_shortcuts(const ShortcutModel& model) {
     json_object_object_add(document.get(), "apps", apps);
     if (!model.free_profile.empty()) {
         json_object_object_add(document.get(), "free_profile", new_string(model.free_profile));
+    }
+    if (!model.earlier_picks.empty()) {
+        auto* earlier = json_object_new_array();
+        for (const auto& id : model.earlier_picks) {
+            json_object_array_add(earlier, new_string(id));
+        }
+        json_object_object_add(document.get(), "earlier_picks", earlier);
     }
     return std::string(json_object_to_json_string_ext(
                document.get(), JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE)) +
@@ -664,6 +719,16 @@ ShortcutModel parse_shortcuts(const std::string& json) {
         model.free_profile = string_of(free);
         if (model.free_profile.empty()) {
             invalid("", "free_profile is empty");
+        }
+    }
+    // A file from before R350 has none: its free_profile is a history of one.
+    if (auto* earlier = member(document.get(), "earlier_picks", json_type_array, "", true)) {
+        if (json_object_array_length(earlier) >= limits::profiles) {
+            invalid("", "more than 31 earlier picks");
+        }
+        for (std::size_t i = 0; i < json_object_array_length(earlier); ++i) {
+            const auto where = "earlier pick " + std::to_string(i + 1);
+            model.earlier_picks.push_back(string_of(item(earlier, i, json_type_string, where)));
         }
     }
     if (auto problem = validate_shortcuts(model)) {
@@ -786,12 +851,21 @@ std::optional<std::string> ShortcutProfileChoice::due(const ShortcutModel& model
             return profile->id;
         }
     }
-    // Rule 2: the free profile chosen last, while it exists and is still free.
-    if (!model.free_profile.empty() && model.profile(model.free_profile) &&
-        model.free(model.free_profile)) {
+    // Rule 2 (R350): the profile picked last for apps without one, while no
+    // app is assigned to it; else the newest earlier pick no app is assigned
+    // to; else, every pick being assigned, the last pick all the same.
+    if (!model.free_profile.empty() && model.profile(model.free_profile)) {
+        if (model.free(model.free_profile)) {
+            return model.free_profile;
+        }
+        for (const auto& id : model.earlier_picks) {
+            if (model.profile(id) && model.free(id)) {
+                return id;
+            }
+        }
         return model.free_profile;
     }
-    return {}; // Rule 3: nothing.
+    return {}; // Rule 3: nothing was ever picked.
 }
 void ShortcutProfileChoice::resolve(const ShortcutModel& model) {
     // Turned off by hand, the switch overrides every rule. Rule 3 leaves it
@@ -831,18 +905,15 @@ ShortcutProfileChoice::Changes ShortcutProfileChoice::pick(ShortcutModel& model,
     chosen_ = profile;
     shown_ = profile;
     empty_ = false;
-    if (model.free(profile) && model.free_profile != profile) {
-        model.free_profile = profile;
-        changes.free_profile = true;
+    // Only a pick for an app without a profile of its own is remembered.
+    if (!(app_ && model.profile_for(*app_))) {
+        changes.free_profile = model.remember_pick(profile);
     }
     return changes;
 }
 ShortcutProfileChoice::Changes ShortcutProfileChoice::model_changed(ShortcutModel& model) {
     Changes changes;
-    if (!model.free_profile.empty() && !model.profile(model.free_profile)) {
-        model.free_profile.clear();
-        changes.free_profile = true;
-    }
+    changes.free_profile = model.forget_missing_picks();
     if (chosen_ && !model.profile(*chosen_)) {
         chosen_.reset();
     }

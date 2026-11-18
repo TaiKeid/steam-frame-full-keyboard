@@ -99,9 +99,19 @@ struct AppTie {
 struct ShortcutModel {
     std::vector<ShortcutProfile> profiles;
     std::vector<AppTie> apps;
-    // The free profile rule 2 returns to; empty for none.
+    // The profiles picked by hand while an app without a profile of its own
+    // had the keys (R350): `free_profile` the last, empty for none, and
+    // `earlier_picks` those before it, newest first. Each exists, none
+    // twice; deleting a profile drops it (forget_missing_picks).
     std::string free_profile;
+    std::vector<std::string> earlier_picks;
     bool operator==(const ShortcutModel&) const = default;
+    // Puts `profile` first in the picks, bounded by the profile limit; true
+    // when the picks changed.
+    bool remember_pick(const std::string& profile);
+    // Drops picks of profiles that no longer exist, the next one taking the
+    // last pick's place; true when the picks changed.
+    bool forget_missing_picks();
 
     const ShortcutProfile* profile(const std::string& id) const;
     // The profile tied to this app, or null.
@@ -181,7 +191,7 @@ class ShortcutProfileChoice {
   public:
     // What the caller should save after a call.
     struct Changes {
-        bool free_profile{}, shortcuts_switch{};
+        bool free_profile{}, shortcuts_switch{}; // free_profile: the picks changed
     };
     // `enabled`: Shortcuts and macros is on and no shell runs the keyboard.
     // `on`: the saved toolbar switch.
@@ -191,11 +201,12 @@ class ShortcutProfileChoice {
     void focus(const ShortcutModel& model, std::optional<AppIdentity> app);
     // The toolbar button's three cases.
     Changes toolbar(const ShortcutModel& model);
-    // A profile chosen in the picker: it shows until the focus changes, and a
-    // free one becomes the free profile rule 2 returns to.
+    // A profile chosen in the picker: it shows until the focus changes. Chosen
+    // while an app without a profile of its own has the keys, it goes first
+    // in the model's picks (R350); for an app with one it stays temporary.
     Changes pick(ShortcutModel& model, const std::string& profile);
     // The model changed (an editor save, a tie): a profile that no longer exists
-    // stops showing, and a free_profile naming none is cleared.
+    // stops showing and leaves the picks.
     Changes model_changed(ShortcutModel& model);
 
     // The profile showing, or null. With the empty bar or nothing showing, null.
