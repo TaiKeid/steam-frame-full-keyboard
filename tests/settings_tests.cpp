@@ -5268,6 +5268,49 @@ void shortcut_stream_apps() {
                 label() == "A",
             "a Steam field still can't be assigned; the free profile shows");
 }
+// R361: a tie saved while a program's identity held its arguments is moved
+// to the program's name when it has the keys, and saved at once; another
+// program's that only begins the same is left alone.
+void shortcut_long_program_tie() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.profiles.push_back({"b", "Beta", {shortcut_button("B", {{{"ControlLeft"}, "KeyB"}})}});
+    const std::string line = "browser --enable-features=A,B --flag=x,y --mode=1";
+    model.apps.push_back({{AppIdentity::Kind::Program, line}, line, "t"});
+    model.apps.push_back(
+        {{AppIdentity::Kind::Program, "browser-beta --flag=x"}, "browser-beta --flag=x", "b"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, AppIdentity{AppIdentity::Kind::Program, "browser"}, "browser"};
+    App app(options, sink);
+    app.tick(1300);
+    app.tick(1300.1);
+    require(app.view().shortcut_bar->buttons[0].label == "T",
+            "the old tie's profile shows for the program");
+    const auto saved = saved_shortcuts(app);
+    const auto* tie = saved.tie({AppIdentity::Kind::Program, "browser"});
+    require(saved.apps.size() == 2 && tie && tie->profile == "t" && tie->name == "browser" &&
+                !saved.tie({AppIdentity::Kind::Program, line}),
+            "the tie is the program's name alone now, saved at once");
+    require(saved.tie({AppIdentity::Kind::Program, "browser-beta --flag=x"}),
+            "another program's tie that only begins the same stays");
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6406,6 +6449,7 @@ int main() {
         first_bar_shows();
         shortcut_apps();
         shortcut_stream_apps();
+        shortcut_long_program_tie();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

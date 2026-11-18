@@ -573,6 +573,7 @@ void App::tick_shortcut_bar(double now) {
         bar_focus_ = std::move(focus);
         bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
+        adopt_long_program_tie();
         profile_choice_.focus(shortcuts_, bar_focus_.app);
         if (bar_menu_) {
             look_up_focused_name(); // for the header of the menu still open
@@ -640,6 +641,29 @@ std::string App::focused_app_name() const {
         return app_name_->name;
     }
     return fallback_app_name(app, bar_focus_.program);
+}
+void App::adopt_long_program_tie() {
+    // The editor holds its own copy of the model; its ✓ would put the old
+    // tie back.
+    if (shortcut_editor_ || !bar_focus_.app || bar_focus_.app->kind != AppIdentity::Kind::Program ||
+        shortcuts_.tie(*bar_focus_.app)) {
+        return;
+    }
+    const auto& app = *bar_focus_.app;
+    const auto prefix = app.id + " ";
+    const auto old =
+        std::find_if(shortcuts_.apps.begin(), shortcuts_.apps.end(), [&](const AppTie& tie) {
+            return tie.app.kind == AppIdentity::Kind::Program && tie.app.id.starts_with(prefix);
+        });
+    if (old == shortcuts_.apps.end()) {
+        return;
+    }
+    // The name saved with it was the same long line.
+    if (old->name.starts_with(prefix) || old->name.empty()) {
+        old->name = fallback_app_name(app);
+    }
+    old->app = app; // its profile shows at the focus that follows (tick_shortcut_bar)
+    save_shortcuts();
 }
 void App::look_up_focused_name() {
     if (!bar_focus_.app || bar_focus_.app->kind == AppIdentity::Kind::Stream) {

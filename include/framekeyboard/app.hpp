@@ -1853,6 +1853,10 @@ class App {
     // identity's own; empty without an identity.
     std::string focused_app_name() const;
     void look_up_focused_name();
+    // R361: a program's identity once held its arguments where they run on
+    // in one string. The focused program's old tie, whose ID is its name and
+    // a space, is moved to its name alone and saved, as an assign is.
+    void adopt_long_program_tie();
     void take_app_names();
     // Why the focused app can't be assigned, as a tooltip; empty when it can.
     std::string assign_unavailable() const;

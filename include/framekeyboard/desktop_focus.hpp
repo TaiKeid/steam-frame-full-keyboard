@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace framekeyboard {
@@ -35,6 +36,14 @@ struct FocusFacts {
 // (app_identity_valid). Pure, for tests. Steam's dashboard and Steam's own
 // fields are told by App and NativeReplacement, which don't ask this.
 std::optional<AppIdentity> focus_identity(const FocusFacts& facts);
+// A process's program file name from its first argument and its
+// executable's file name (/proc/PID/exe; empty when unreadable). Chromium
+// and others rewrite their arguments into one string with spaces, so the
+// first argument can run on with flags: when it, cut at one of its spaces,
+// names the executable's file, the name is the executable's (R361). Else,
+// as before, what follows its last folder separator, so a Windows game run
+// by Wine's loader keeps a file name with spaces (R346). Pure, for tests.
+std::string program_name(std::string_view first_argument, std::string_view executable);
 
 // Whether Gamescope's focused window belongs to a nested desktop compositor,
 // such as SteamOS's Desktop (kwin_wayland on Gamescope's second X display).
@@ -99,7 +108,8 @@ class DesktopFocus {
     // together (focus_identity); empty until known and while the connection
     // is lost.
     FocusedApp focused_app() const;
-    // A process's program file name, from argv[0]; empty if it is gone.
+    // A process's program file name (program_name), from argv[0] and its
+    // executable; empty if it is gone. Reads /proc: never on the VR thread.
     static std::string program(std::uint32_t pid);
     // Whether this process is a nested desktop compositor (exposed for tests).
     static bool nested_compositor(std::uint32_t pid);

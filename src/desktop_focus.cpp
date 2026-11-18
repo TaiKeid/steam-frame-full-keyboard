@@ -529,10 +529,37 @@ std::string DesktopFocus::program(std::uint32_t pid) {
     if (pid == 0) {
         return {};
     }
-    std::ifstream file("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+    const std::string process = "/proc/" + std::to_string(pid);
+    std::ifstream file(process + "/cmdline", std::ios::binary);
     std::string program;
     std::getline(file, program, '\0');
-    return std::filesystem::path(program).filename().string();
+    // Only the executable's file name is kept; an unreadable link, such as
+    // a process gone or out of reach, leaves the first argument's.
+    std::error_code error;
+    auto executable = std::filesystem::read_symlink(process + "/exe", error).filename().string();
+    if (error) {
+        executable.clear();
+    }
+    constexpr std::string_view deleted = " (deleted)"; // the file replaced since it started
+    if (executable.ends_with(deleted)) {
+        executable.resize(executable.size() - deleted.size());
+    }
+    return program_name(program, executable);
+}
+std::string program_name(std::string_view first_argument, std::string_view executable) {
+    const auto file = [](std::string_view path) {
+        const auto separator = path.rfind('/');
+        return separator == std::string_view::npos ? path : path.substr(separator + 1);
+    };
+    if (!executable.empty()) {
+        for (auto space = first_argument.find(' '); space != std::string_view::npos;
+             space = first_argument.find(' ', space + 1)) {
+            if (file(first_argument.substr(0, space)) == executable) {
+                return std::string(executable);
+            }
+        }
+    }
+    return std::filesystem::path(first_argument).filename().string();
 }
 std::optional<AppIdentity> focus_identity(const FocusFacts& facts) {
     const auto valid = [](AppIdentity app) -> std::optional<AppIdentity> {

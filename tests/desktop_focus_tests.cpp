@@ -506,6 +506,39 @@ void probe_title_tests(int number) {
                 sample.app.steam,
             "the same app's title is read again at each poll, keeping what describe found");
 }
+// R361: a program's name from its first argument and its executable's file
+// name, as /proc gives them; made-up lines, nothing of the computer's own.
+void program_names() {
+    // A Chromium-based browser rewrites its arguments into one string.
+    require(program_name("/opt/example/browser/browser --enable-features=A,B --flag=x,y "
+                         "--data-dir=/home/user/.config/example",
+                         "browser") == "browser",
+            "a browser's flags are no part of its name");
+    require(program_name("browser --type=renderer", "browser") == "browser", "without a folder too");
+    // A Flatpak app: its executable is a path inside the sandbox.
+    require(program_name("/app/example/example-app --ozone-platform=x11", "example-app") ==
+                "example-app",
+            "a Flatpak app whose arguments run on");
+    require(program_name("/app/bin/editor", "editor") == "editor", "a Flatpak app as before");
+    // A Windows game under Wine: the executable is the loader, which the
+    // game's path never begins with; its file name keeps its spaces (R346).
+    require(program_name("C:\\Games\\My Game\\My Game.exe", "wine64-preloader") ==
+                "C:\\Games\\My Game\\My Game.exe",
+            "a Proton game's path is left whole for the name rules after it");
+    require(program_name("Z:/home/user/Games/My Game/My Game.exe", "wine64-preloader") == "My Game.exe",
+            "a Windows game with spaces keeps its whole file name");
+    // A script run by an interpreter: its first argument is the interpreter.
+    require(program_name("/usr/bin/python3", "python3.12") == "python3", "an interpreter, as before");
+    require(program_name("python3 /home/user/tool.py", "python3.12") == "tool.py",
+            "a rewritten interpreter line that doesn't name its executable's file: as before");
+    // Without the link, and with a name that only begins the file's.
+    require(program_name("/opt/example/browser/browser --flag=x", "") == "browser --flag=x",
+            "an unreadable link leaves the first argument's");
+    require(program_name("/opt/example/browser-beta --flag=x", "browser") == "browser-beta --flag=x",
+            "a name that only begins the file's name is not it");
+    require(program_name("/home/user/My Apps/browser --flag", "browser") == "browser",
+            "a folder with a space before the executable");
+}
 // Each row of the design's "Which identity the focus has", first row that fits.
 void identity_tests() {
     using Kind = AppIdentity::Kind;
@@ -681,6 +714,7 @@ int main() {
         require(DesktopFocus::program(static_cast<std::uint32_t>(terminal)).empty(),
                 "a process that is gone has no name");
         identity_tests();
+        program_names();
         probe_epoch_tests(answering_number + 1);
         probe_title_tests(answering_number + 10);
     } catch (const std::exception& error) {
