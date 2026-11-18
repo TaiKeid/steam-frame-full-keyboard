@@ -5179,8 +5179,10 @@ void run_buttons() {
     ShortcutButton empty;
     empty.label = "Empty";
     empty.action.kind = ShortcutAction::Kind::Run;
+    ShortcutButton unlabeled = missing; // R353
+    unlabeled.label.clear();
     ShortcutModel model;
-    model.profiles.push_back({"r", "Run", {command, missing, empty}});
+    model.profiles.push_back({"r", "Run", {command, missing, empty, unlabeled}});
     model.free_profile = "r";
     write_shortcuts(directory.path, model);
     Options options;
@@ -5240,6 +5242,11 @@ void run_buttons() {
     press(2);
     app.tick(now += .1);
     require(lines() == 2, "an empty Run button does nothing");
+    press(3);
+    require(settle_until([&] { return app.view().status.starts_with("A Run button"); }) &&
+                app.view().status == "A Run button could not start. Check its script or command "
+                                     "in the shortcut editor.",
+            "a button without a label has a sentence of its own (R353)");
     setenv("HOME", old_home.c_str(), 1);
 }
 // R343: the moment the keyboard opens in the dashboard, before the probe

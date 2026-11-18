@@ -806,7 +806,10 @@ void App::take_started() {
             // Only the kind, as a number: never the label, script or command.
             std::cerr << "Shortcut bar: a Run button did not start (failure "
                       << static_cast<int>(result->failure) << ")\n";
-            status_ = tr("status.shortcuts-run-failed", {{"button", start->label}});
+            // A button without a label has a sentence of its own (R353).
+            status_ = start->label.find_first_not_of(' ') == std::string::npos
+                          ? tr("status.shortcuts-run-failed-unlabeled")
+                          : tr("status.shortcuts-run-failed", {{"button", start->label}});
             dirty = true;
         }
         pending_starts_.erase(start);

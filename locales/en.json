@@ -531,6 +531,8 @@
             "Shortcuts saved, but not yet safe on disk: a power loss now could lose them.",
         "status.shortcuts-run-failed":
             "{button} could not start. Check its script or command in the shortcut editor.",
+        "status.shortcuts-run-failed-unlabeled":
+            "A Run button could not start. Check its script or command in the shortcut editor.",
         "status.shortcuts-steam-fields": "Shortcuts may not work in Steam fields.",
         "status.startup-not-configured": "SteamOS startup not configured: {error}",
         "status.streaming-restart": "Streaming support starts after SteamOS restarts.",
