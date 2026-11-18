@@ -227,7 +227,7 @@ separate from this host configuration.
 
 ### Measure rendering
 
-`render-benchmark` uses the production renderer with bundled English/Graphite profiles, a temporary config directory, and a `NullSink`. It cannot type into applications. It runs for about 65 seconds after warmup: idle, one and four key presses per second, forced redraws at a target 60 Hz, and four Shift taps a second (each repaints the whole keyboard), then a wobbling laser over Settings, the Additional languages popup, a drag in it, and the dictation editor. Each synthetic press lasts 100 ms, alternating between two keys; Graphite's 60 ms press and 128 ms release (from its 80 ms `press_duration_ms`) and Hover fade's 0.18 s, stepped at 30 fps, determine redraw counts. It does not change the installed app or its settings.
+`render-benchmark` uses the production renderer with bundled English/Graphite profiles, a temporary config directory, and a `NullSink`. It cannot type into applications. It runs for about 75 seconds after warmup: idle, one and four key presses per second, forced redraws at a target 60 Hz, four Shift taps a second (each repaints the whole keyboard), a held G while a second laser steps over V, B and N as they fade, and a laser sweeping along the top letter row, then a wobbling laser over Settings, the Additional languages popup, a drag in it, and the dictation editor. Each synthetic press lasts 100 ms, alternating between two keys; Graphite's 60 ms press and 128 ms release (from its 80 ms `press_duration_ms`) and Hover fade's 0.18 s, stepped at 30 fps, determine redraw counts. It does not change the installed app or its settings.
 
 After configuring the ARM64 build, run on the device:
 

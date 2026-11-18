@@ -5,6 +5,7 @@
 #include "openvr.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -279,6 +280,55 @@ void screen_workload(App& app, Upload& upload, const char* name, double duration
     transfer.print(upload.native_pixels() ? "native_upload" : "rgba_conversion_and_upload");
     std::cout << std::flush;
 }
+// The middle of the key whose action is `action`.
+std::pair<double, double> key_center(App& app, const std::string& action) {
+    const auto view = app.view();
+    double left = panel_width, right = 0, top = panel_height, bottom = 0;
+    for (int y = 96; y < panel_height; y += 2) {
+        for (int x = 0; x < panel_width; x += 2) {
+            const auto* key = app.renderer.hit_key(view, x, y);
+            if (key && key->action == action) {
+                left = std::min<double>(left, x), right = std::max<double>(right, x);
+                top = std::min<double>(top, y), bottom = std::max<double>(bottom, y);
+            }
+        }
+    }
+    if (right < left) {
+        throw std::runtime_error("benchmark key not found");
+    }
+    return {(left + right) / 2, (top + bottom) / 2};
+}
+// Keys drawn by themselves, repainted as the keyboard repaints them
+// (App::paint, no forced full paints): a key held down while a second laser
+// steps over the next row's keys under it, each one fading once left; then a
+// laser sweeping along a row, the keys behind it fading. Synthetic presses
+// end at NullSink, and the hold is canceled, never released into a key.
+void key_states(App& app, Upload& upload, bool use_vr) {
+    app.cancel();
+    const auto held = key_center(app, "KeyG");
+    const std::array<std::pair<double, double>, 3> below = {
+        key_center(app, "KeyV"), key_center(app, "KeyB"), key_center(app, "KeyN")};
+    app.move(0, held.first, held.second);
+    if (!app.down(0, held.first, held.second, monotonic_seconds())) {
+        throw std::runtime_error("synthetic key press rejected");
+    }
+    screen_workload(app, upload, "held_key_next_row_fading", 5, use_vr, [&](double t) {
+        // A new key every 0.15 s, so the one before is still fading (0.18 s).
+        const auto step = static_cast<std::size_t>(t / .15);
+        const auto& at = below[step % below.size()];
+        app.move(1, at.first, at.second);
+    });
+    app.cancel_pointer(1);
+    app.cancel_pointer(0);
+    const auto first = key_center(app, "KeyQ"), last = key_center(app, "KeyP");
+    screen_workload(app, upload, "hover_along_row", 5, use_vr, [&](double t) {
+        // Q to P and back each 1.2 s.
+        const double phase = std::fmod(t, 1.2) / .6;
+        const double share = phase < 1 ? phase : 2 - phase;
+        app.move(0, first.first + (last.first - first.first) * share, first.second);
+    });
+    app.cancel_pointer(0);
+}
 Rect control_bounds(App& app, const std::string& id) {
     const auto view = app.view();
     for (const auto& control : view.controls) {
@@ -378,6 +428,7 @@ int main(int argc, char** argv) {
         workload(app, upload, "shift_four_taps_per_second", 10, 4, false, use_vr, full_paint,
                  "ShiftLeft", "ShiftLeft");
         std::cout << "key_body_bytes=" << app.renderer.key_body_bytes() << '\n';
+        key_states(app, upload, use_vr);
         screens(app, upload, use_vr);
         fs::remove_all(temporary);
         return 0;
