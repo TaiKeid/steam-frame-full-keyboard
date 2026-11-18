@@ -33,6 +33,7 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 - A profile with no buttons shows as two empty slots. One button sits centered in two slots.
 - A profile with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each profile keeps its scroll position while the keyboard runs.
 - Buttons look and feel like keys: hover, press travel, vibration and haptic sounds. They act on release over the same button, as controls do, so a drag can scroll. A macro that repeats while held starts on press instead, and a press on it never starts a drag.
+- A Run button carries a small prompt mark, `>_`, in its top right corner, so a button that starts a script or a command is told apart from one that presses keys. The mark is a drawn icon in the theme's dimmed label color, 16 × 12 with its corner 7 px in from the button's top and right edges. It moves with the button's press and fades with a disabled button. It shows wherever the button is drawn: on the bar, in the editor's strip, and while the button is carried. Shortcut and Macro buttons have no mark.
 - A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)). So is a button that has no action yet.
 - The bar hides in Settings and in dictation mode, and stays up with the emoji picker. Under a shell the feature is off.
 - While the bar shows, tooltips and the status card sit above it instead of above the case. When both can't sit side by side there, the status card shows and the tooltip waits.
@@ -376,7 +377,7 @@ Facts to measure on the Frame before the parts that depend on them:
 
 ## Not in this version
 
-- Icons and images on buttons.
+- Icons and images of the user's choice on buttons; the Run mark is the only one.
 - Holding a shortcut down, or keeping it down until pressed again.
 - Macro steps that hold and release a key, macro steps that type text, and endless repeats.
 - Starting installed apps or Steam games from a list.
