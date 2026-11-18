@@ -2681,6 +2681,9 @@ struct ShownTooltip {
     bool operator==(const ShownTooltip&) const = default;
     std::string text;
     Rect button; // the button it points at
+    // One of the shortcut bar's own (picker, Manage, assign): it stands above
+    // the bar. The others stand above the case, the bar or not (R358).
+    bool bar{};
 };
 std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
     auto button = [&](std::string_view id) -> const Control* {
@@ -2698,17 +2701,20 @@ std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
         return ShownTooltip{hovered->label, hovered->bounds};
     }
     if (!view.bar_tooltip.empty() && view.shortcut_bar && !view.settings) {
-        return ShownTooltip{view.bar_tooltip, view.bar_tooltip_at};
+        return ShownTooltip{view.bar_tooltip, view.bar_tooltip_at, true};
     }
     return {};
 }
-// Where tooltips and the status card stand: above the case, or above the
-// shortcut bar while it shows.
+// Where the status card and the bar's own tooltips stand: above the case,
+// or above the shortcut bar while it shows.
 double above_case(const PanelView& view) {
     return view.shortcut_bar && !view.settings ? view.shortcut_bar->plate.y : panel_case_bounds(view).y;
 }
 // Where the tooltip may lie: above the case, centred on its button and kept
-// on the panel. Its card is as wide as its text, up to this.
+// on the panel. Its card is as wide as its text, up to this. A toolbar's
+// tooltip keeps that place over the shortcut bar, drawn over it and taking
+// no pointer (pointer_bounds leaves it out); only the bar's own tooltips
+// stand above the bar (R358).
 constexpr double focus_tooltip_height = 46, focus_tooltip_pointer = 10;
 std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optional<ShownTooltip>& tip) {
     if (!tip) {
@@ -2716,7 +2722,8 @@ std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optiona
     }
     constexpr double width = 640;
     const double centre = tip->button.x + tip->button.width / 2;
-    const double bottom = above_case(view) - 4; // the pointer's tip
+    const double base = tip->bar ? above_case(view) : panel_case_bounds(view).y;
+    const double bottom = base - 4; // the pointer's tip
     return Rect{std::clamp(centre - width / 2, 8.0, panel_width - 8 - width),
                 bottom - focus_tooltip_pointer - focus_tooltip_height, width,
                 focus_tooltip_height + focus_tooltip_pointer};
@@ -2761,9 +2768,11 @@ void draw_card(cairo_t* cr, const Theme& t, const Rect& card) {
     cairo_stroke(cr);
 }
 // The keyboard's messages: a card above the case, at the focus tooltip's
-// height, centred on the case. Beside the tooltip when both show, or above
-// it when the panel has no room beside it. Above the shortcut bar there is
-// no room above the tooltip: the card stays and the tooltip waits.
+// height, centred on the case, or above the shortcut bar while it shows.
+// Beside a tooltip in its row when both show, or above it when the panel has
+// no room beside it. Above the bar there is no room above the bar's own
+// tooltip: the card stays and that tooltip waits. A toolbar's tooltip stands
+// over the bar, below the card's row, so both show (R358).
 constexpr double status_card_size = 17, status_card_pad = 20;
 Rect status_card_bounds(cairo_t* cr, const PanelView& view, bool* tooltip_waits = nullptr) {
     constexpr double gap = 12;
@@ -2774,9 +2783,10 @@ Rect status_card_bounds(cairo_t* cr, const PanelView& view, bool* tooltip_waits 
     Rect card{std::clamp(body.x + (body.width - width) / 2, 8.0, panel_width - 8 - width),
               above_case(view) - 4 - focus_tooltip_pointer - focus_tooltip_height, width,
               focus_tooltip_height};
-    if (const auto tooltip = focus_tooltip_card(cr, view); tooltip &&
-                                                           card.x < tooltip->x + tooltip->width + gap &&
-                                                           tooltip->x < card.x + card.width + gap) {
+    if (const auto tooltip = focus_tooltip_card(cr, view);
+        tooltip && card.x < tooltip->x + tooltip->width + gap &&
+        tooltip->x < card.x + card.width + gap && card.y < tooltip->y + tooltip->height &&
+        tooltip->y < card.y + card.height) {
         if (const double right = tooltip->x + tooltip->width + gap; right + width <= panel_width - 8) {
             card.x = std::max(card.x, right);
         } else if (const double left = tooltip->x - gap - width; left >= 8) {
@@ -2804,10 +2814,11 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     if (!found) {
         return;
     }
-    // Over the shortcut bar a message and a tooltip that can't sit side by
-    // side: the message shows (draw_status_card), the tooltip waits. The
-    // status card shows whenever there is a status: the bar is never shown
-    // with dictation's editor, whose status sits in its toolbar.
+    // Over the shortcut bar a message and one of the bar's own tooltips that
+    // can't sit side by side: the message shows (draw_status_card), the
+    // tooltip waits. The status card shows whenever there is a status: the
+    // bar is never shown with dictation's editor, whose status sits in its
+    // toolbar.
     if (view.shortcut_bar && !view.settings && !view.status.empty()) {
         bool waits = false;
         status_card_bounds(cr, view, &waits);
@@ -5424,9 +5435,28 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
              {focus_tooltip_area(previous_->view, before), focus_tooltip_area(view, after)}) {
             if (bounds && before != after) {
                 // The card's shadow spreads a few pixels past it.
-                const double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
-                damage_area({left, top, std::ceil(bounds->x + bounds->width + 8) - left,
-                             std::ceil(bounds->y + bounds->height + 8) - top});
+                double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
+                double right = std::ceil(bounds->x + bounds->width + 8);
+                double bottom = std::ceil(bounds->y + bounds->height + 8);
+                // Over the shortcut bar the area takes in the bar whole, its
+                // plate and tab: its edges would cut through button labels,
+                // which a clip draws differently (R358).
+                for (const PanelView* shown : std::array<const PanelView*, 2>{&previous_->view, &view}) {
+                    if (!shown->shortcut_bar || shown->settings) {
+                        continue;
+                    }
+                    const auto& b = *shown->shortcut_bar;
+                    const auto plate = pixel_bounds(
+                        {b.plate.x, b.plate.y, b.picker.x + b.picker.width - b.plate.x, b.plate.height},
+                        1);
+                    if (overlaps(plate, {left, top, right - left, bottom - top})) {
+                        left = std::min(left, plate.x);
+                        top = std::min(top, plate.y);
+                        right = std::max(right, plate.x + plate.width);
+                        bottom = std::max(bottom, plate.y + plate.height);
+                    }
+                }
+                damage_area({left, top, right - left, bottom - top});
             }
         }
     }
@@ -5894,9 +5924,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 draw_candidates(cr, view, *view.candidates); // on the band over its foot
             }
         }
-        draw_focus_tooltip(cr, view);
-        if (!view.status.empty() && (!in_editor || view.status_card)) {
-            draw_status_card(cr, view);
+        // The tooltip and the message card; over the shortcut bar while it
+        // shows, so drawn after it there (R358).
+        const bool bar_drawn = view.shortcut_bar && !view.settings;
+        const auto draw_cards = [&] {
+            draw_focus_tooltip(cr, view);
+            if (!view.status.empty() && (!in_editor || view.status_card)) {
+                draw_status_card(cr, view);
+            }
+        };
+        if (!bar_drawn) {
+            draw_cards();
         }
         if (view.ime_band && !view.settings) {
             draw_ime_band(cr, view);
@@ -6184,8 +6222,9 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         if (view.shortcut_editor && !view.settings) {
             draw_shortcut_editor(cr, view);
         }
-        if (view.shortcut_bar && !view.settings) {
+        if (bar_drawn) {
             draw_shortcut_bar(cr, view);
+            draw_cards();
         }
         if (view.settings && !view.version.empty()) {
             // Beside the button that acts on it, quiet enough to overlook.

@@ -237,6 +237,61 @@ int main(int argc, char** argv) {
                     app.up(0, ex, ey);
                     settle(app, 10);
                 };
+                // A toolbar button's tooltip stands where it does without
+                // the bar, over the long bar; a message keeps its place
+                // above the bar; and a bar of one button (R358).
+                {
+                    // Folders of their own with Swipe typing on, its button
+                    // the one in the owner's picture; the first has the
+                    // sample bars.
+                    Settings swipe_settings = settings;
+                    swipe_settings.swipe_typing = true;
+                    Options tips_options = bar_options;
+                    tips_options.config_dir = fs::path(config) / ".config" / "framekeyboard-tips";
+                    fs::create_directories(tips_options.config_dir);
+                    save_settings(tips_options.config_dir, swipe_settings);
+                    fs::copy_file(bar_options.config_dir / "shortcuts.json",
+                                  tips_options.config_dir / "shortcuts.json",
+                                  fs::copy_options::overwrite_existing);
+                    App tips(tips_options, sink);
+                    choose_language(tips, language);
+                    settle(tips);
+                    open_menu(tips);
+                    const auto many = tips.view().shortcut_bar->menu->rows[1].bounds;
+                    tips.move(0, many.x + 30, many.y + many.height / 2);
+                    tips.down(0, many.x + 30, many.y + many.height / 2, 1);
+                    tips.up(0, many.x + 30, many.y + many.height / 2);
+                    tips.move(0, 800, 700);
+                    // Swipe typing's button, or Key sounds' where a language has no swipe.
+                    const auto toolbar_button = [](const PanelView& view) {
+                        return control(view,
+                                       has(view, "swipe-toggle") ? "swipe-toggle" : "sounds-toggle")
+                            .bounds;
+                    };
+                    const auto swipe = toolbar_button(tips.view());
+                    tips.move(1, swipe.x + swipe.width / 2, swipe.y + swipe.height / 2);
+                    shot(tips, "shortcut-bar-toolbar-tooltip");
+                    tips.report_status(ui("status.shortcuts-steam-fields"));
+                    shot(tips, "shortcut-bar-toolbar-tooltip-status");
+                    const auto short_dir = fs::path(config) / ".config" / "framekeyboard-short";
+                    fs::create_directories(short_dir);
+                    save_settings(short_dir, swipe_settings);
+                    ShortcutModel one;
+                    ShortcutButton undo;
+                    undo.label = "Undo";
+                    undo.action.chords = {{{"ControlLeft"}, "KeyZ"}};
+                    one.profiles.push_back({"short", "Short", {undo}});
+                    one.free_profile = "short";
+                    std::ofstream(short_dir / "shortcuts.json") << serialize_shortcuts(one);
+                    Options short_options = bar_options;
+                    short_options.config_dir = short_dir;
+                    App short_bar(short_options, sink);
+                    choose_language(short_bar, language);
+                    settle(short_bar);
+                    const auto tip = toolbar_button(short_bar.view());
+                    short_bar.move(1, tip.x + tip.width / 2, tip.y + tip.height / 2);
+                    shot(short_bar, "shortcut-bar-short-toolbar-tooltip");
+                }
                 // A label part typed, Shift latched; Ctrl + K recorded, Ctrl latched.
                 const auto popups = [&](App& app, const std::string& suffix) {
                     click(app, "shortcuts-label");

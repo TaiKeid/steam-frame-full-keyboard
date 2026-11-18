@@ -713,6 +713,13 @@ int alpha_at(const PanelRenderer& renderer, int x, int y) {
         (y + popup_margin) * cairo_image_surface_get_stride(surface));
     return static_cast<int>(row[x] >> 24);
 }
+std::uint32_t pixel_at(const PanelRenderer& renderer, int x, int y) {
+    auto* surface = renderer.surface();
+    const auto* row = reinterpret_cast<const std::uint32_t*>(
+        cairo_image_surface_get_data(surface) +
+        (y + popup_margin) * cairo_image_surface_get_stride(surface));
+    return row[x];
+}
 // With a transparent background every repaint must clear its damage to
 // nothing before drawing, or the case's old pixels or a plate's previous
 // alpha would build up where only the dashboard should show.
@@ -1565,6 +1572,74 @@ void shortcut_bar(const char* theme_id, double opacity) {
         throw std::runtime_error(phase("the status card stands above the bar"));
     }
     view.status.clear();
+    compare.frame(view, phase("the message goes").c_str());
+    // R358: a toolbar button's tooltip stands where it stands without the
+    // bar, right above the case, drawn over the bar and taking no pointer;
+    // the status card keeps its place above the bar, and both show.
+    const auto body = panel_case_bounds(view);
+    const double middle_x = std::round(body.x + body.width / 2);
+    const auto toolbar = view.controls;
+    view.controls.push_back(
+        {"swipe", "Swipe typing", {middle_x - 30, 12, 60, 42}, false, Icon::Settings});
+    view.controls.push_back(
+        {"sounds", "Key sounds", {middle_x + 50, 12, 60, 42}, false, Icon::Settings});
+    compare.frame(view, phase("two toolbar buttons under the bar").c_str());
+    // The middle of the tooltip's card, which lies over the bar's strip.
+    const double tip_y = body.y - 4 - 10 - 23;
+    // A few points of the tooltip, against the same panel drawn without the
+    // bar and its message.
+    const auto as_without_bar = [&](double x) {
+        auto alone = view;
+        alone.shortcut_bar.reset();
+        alone.status.clear();
+        PanelRenderer reference;
+        reference.paint(alone, compare.now, true);
+        for (const auto& [dx, dy] :
+             {std::pair{0.0, 0.0}, std::pair{-14.0, -12.0}, std::pair{16.0, 9.0}}) {
+            const int px = static_cast<int>(x + dx), py = static_cast<int>(tip_y + dy);
+            if (pixel_at(reference, px, py) != pixel_at(compare.incremental, px, py)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    view.hover_tooltip = "swipe";
+    compare.frame(view, phase("a toolbar tooltip over the bar").c_str());
+    if (!as_without_bar(middle_x)) {
+        throw std::runtime_error(
+            phase("a toolbar tooltip stands over the bar where it stands without it"));
+    }
+    if (alpha_at(compare.incremental, static_cast<int>(middle_x), static_cast<int>(g.plate.y - 33)) !=
+        0) {
+        throw std::runtime_error(phase("nothing of a toolbar tooltip stands above the bar"));
+    }
+    // A bar button under it is still the pointer's, and its hover and press
+    // repaint under the tooltip as a full repaint does.
+    if (!takes_pointer(view, middle_x, tip_y)) {
+        throw std::runtime_error(phase("the bar under a tooltip takes the pointer"));
+    }
+    const int under = static_cast<int>(std::floor((middle_x - g.strip.x) / g.pitch));
+    for (const auto& state : {State{0, under}, State{0, under, under}, State{0, under}}) {
+        view.shortcut_bar = bar(state);
+        compare.frame(view, phase("a bar button under the tooltip").c_str());
+        if (!as_without_bar(middle_x)) {
+            throw std::runtime_error(phase("the tooltip stays over a bar button's hover and press"));
+        }
+    }
+    view.hover_tooltip = "sounds";
+    compare.frame(view, phase("the tooltip moves to the next toolbar button").c_str());
+    view.status = "A message that comes while the bar shows";
+    compare.frame(view, phase("a message with a toolbar tooltip").c_str());
+    if (!as_without_bar(middle_x + 80) || !above(middle_x)) {
+        throw std::runtime_error(phase("a toolbar tooltip and the message above the bar both show"));
+    }
+    view.status.clear();
+    compare.frame(view, phase("the message goes, the tooltip stays").c_str());
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the button let go under the tooltip").c_str());
+    view.hover_tooltip.clear();
+    compare.frame(view, phase("the toolbar tooltip leaves").c_str());
+    view.controls = toolbar;
     view.shortcut_bar.reset();
     compare.frame(view, phase("the bar goes").c_str());
     if (alpha_at(compare.incremental, static_cast<int>(g.plate.x + 6),
