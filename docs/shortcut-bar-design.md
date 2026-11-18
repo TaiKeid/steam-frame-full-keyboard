@@ -162,9 +162,14 @@ Starts a program on the Frame. Nothing is typed, so it works without a typing ta
 | Script | A file in `scripts/` in the config folder (`~/.config/framekeyboard/scripts/`), chosen from a list. Run directly when executable, else with `/bin/sh`. The name is checked again at each press: still a plain file name, still a regular file in that folder |
 | Command | One line the user typed, run with `/bin/sh -c` |
 
-- The child gets its own session, `/dev/null` for input and output, no other open files, the home folder as its working directory and the session environment the keyboard runs in.
-- It outlives the keyboard: nothing waits for it, and the session unit's `KillMode=process` leaves it running across a restart or an update.
-- It is started off the VR thread. A program that can't be started shows a status naming the button.
+- The script list shows the folder's regular files by name, up to 64: no folders, no links, no hidden files, and no name the file could not hold. The keyboard makes the folder when the list first opens, so the path the empty list names exists. The folder is read off the VR thread, when the editor shows the list and on **Refresh**.
+- An executable file that the system can't run by itself, one without an interpreter line, is run with `/bin/sh` too, as a shell would.
+- A press starts one program. More presses on that button are ignored until its start has been reported. A press on a Run button stops a run under way, as any press on the bar does. A Run button is never disabled for lack of a typing target.
+- The child gets its own session, `/dev/null` for input and output, no other open files, the home folder as its working directory, and default signal handling and scheduling.
+- Its environment is the keyboard's without what starting the keyboard added: the keyboard's own library path and preload, its own variables, and those of an AppImage it runs from. One function holds that list.
+- It outlives the keyboard: nothing waits for it, no finished child stays behind as a zombie while the keyboard runs, and the session unit's `KillMode=process` leaves it running across a restart or an update.
+- It is started off the VR thread. A script that is missing, is not a regular file or can't be executed shows a status naming the button. A command always starts its shell; what the command then does is not reported.
+- Only the kind of failure is logged, as a number: never the label, the script's name or the command.
 
 ## Where actions can go
 
@@ -202,11 +207,11 @@ Its layout fits both widths. With the numpad hidden the profiles column is 236 w
 | Label and Action | The selected button's label field, and Shortcut, Macro or Run |
 | Shortcut | The recorded combinations as chips in a strip of fixed width, then **Record** and clear, which stay in place whatever is recorded. A strip too short for its chips scrolls sideways, as the bar does, and fades at a clipped side |
 | Macro | The steps as a list that scrolls: drag to reorder, ✕ to delete. A Keys step shows its combinations as chips and a press on it opens the recorder; a Wait step has − and + beside its time, in steps of 0.1 s. **+ Keys** opens the recorder for a new step and **+ Wait** adds half a second. Repeat: Once, Times with a count, While held |
-| Run | Script or Command; a list of the script files, or the command field |
+| Run | **Script** or **Command**, a switch as Repeat's is. Script: the folder's files as a list that scrolls as the steps do; a press chooses a file and a press on the chosen one clears it; a chosen file that is gone stays in the list, marked missing; an empty list names the folder; **Refresh** beside the list reads the folder again. Command: a field that opens the popup to type one line. A line under it says what the button starts |
 
 A button lifted from the strip can be carried to another profile. The row under it lights up, and letting go there opens a small popover beside that row with **Move** and **Copy**. Either puts the button at the end of that profile; a press anywhere else closes the popover and the button goes back to its place. The selected profile stays selected, so more buttons can follow. A profile that already holds 64 buttons takes no drop.
 
-Shortcut and Macro each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
+Shortcut, Macro and Run each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. Inside Run, Script and Command do the same. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
 
 Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the profile that was selected in the editor, as if it had been chosen in the picker: a free one becomes the free profile. So a first profile shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a profile that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
@@ -232,7 +237,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 
 | Editing | A key press | Ends with |
 | --- | --- | --- |
-| Label, profile name, later a command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
+| Label, profile name, command | Types the key's US character, with a latched Shift or Caps Lock for capitals and symbols. Backspace deletes, the arrows move the caret. A command stops taking characters at 512 bytes | Enter or Done saves; Esc or Cancel cancels. In a label Shift+Enter starts a second line, once |
 | Recording | Records the key with the modifiers latched then, as one combination. A press on the pending modifiers' chip, or Done, records them alone | Done; Cancel keeps what was there |
 
 - A chip is as wide as its text plus 12 px on each side. The line that says what a button sends ends in an ellipsis when it is too long.
@@ -350,6 +355,7 @@ The model knows nothing of drawing or output. The runner and the launcher are th
 
 - `shortcuts`: the file's parsing, limits, invalid files and the `.bad` rule; which profile shows for each focus change; the toolbar button's three cases.
 - `shortcut-runner`: order and spacing against a recording sink, whole-or-refused sequences, every stop rule, a focus change mid-run.
+- `shortcut-launch`: in a temporary config folder, a script that writes a marker file, run directly and through `/bin/sh`; a command; the name rules and a missing script; the child's environment, open files, session and working directory; no child left to wait for.
 - `settings`: the General row, the editor's flows (profiles, strip drags between profiles, steps), ✓ and ← with the question, the popup's typing and recording at both widths.
 - `rendering`: bar hover, press and scroll repaints compared with a full repaint; the bar with the tooltip and the status card.
 - `locales` and the interface tour: new strings in every language, labels fit, pictures of the bar, the menu and the editor.
@@ -364,7 +370,7 @@ Facts to measure on the Frame before the parts that depend on them:
 | Stick press: how far the thumbstick component moves, in the dashboard and over apps, and whether SteamVR or the app also acts on it | Renaming in place |
 | What Gamescope reports for a game streamed from a PC, a streamed desktop and Moonlight | The stream row under [Apps](#apps) |
 | Combinations sent back to back into a private receiver, with gaps from 0 to 50 ms | `shortcut_key_gap` |
-| A program started by the keyboard: its environment, and that it survives a keyboard restart | Run |
+| A program started by the keyboard: its environment, and that it survives a keyboard restart. When the keyboard was started from Steam's launcher: whether Steam still shows the keyboard as running after it quits while that program lives | Run |
 | A numpad digit key sent into a private receiver under Gamescope, in SteamOS's Desktop and into a stream from a PC: whether it arrives as the digit or as the navigation key | Whether numpad digits are offered for local apps |
 | F13–F24 sent into a private receiver under Gamescope and in SteamOS's Desktop: the key seen and any system action. The default keymap turns F13 into Tools, F14–F18 into launcher keys, F20 into mic mute and F21–F23 into touchpad keys | Whether the recorder offers F13–F24 for local apps, or only for streams from a PC |
 
