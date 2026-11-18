@@ -537,7 +537,13 @@ void App::tick_shortcut_bar(double now) {
     // decided again. Inside SteamOS's Desktop another app is a change of
     // identity in the same window. Both come in one snapshot, so a new
     // window never shows the last app's profile.
-    if (auto focus = focused_app(); focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
+    // Until the dashboard probe answers, as each time the keyboard opens in
+    // the dashboard, the focus is unknown: the bar keeps the one it had, so
+    // a pick or the empty bar survives the opening (R343).
+    if (!dashboard_focus_known_) {
+        // nothing to compare
+    } else if (auto focus = focused_app();
+               focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
         bar_focus_ = std::move(focus);
         bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
@@ -550,7 +556,8 @@ void App::tick_shortcut_bar(double now) {
     // Another window of the same app, such as a dialog inside the Desktop,
     // took the keys: only a run stops. The bar and a profile picked for this
     // app stay (R320).
-    if (const auto serial = output_.focus_serial(); serial != bar_focus_serial_) {
+    if (const auto serial = output_.focus_serial();
+        dashboard_focus_known_ && serial != bar_focus_serial_) {
         bar_focus_serial_ = serial;
         stop_shortcut_run();
         dirty = true;

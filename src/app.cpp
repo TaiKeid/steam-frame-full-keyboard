@@ -7097,7 +7097,8 @@ bool App::refuse_without_target(double now) {
     dirty = true;
     return true;
 }
-void App::set_dashboard_focus(bool focused) {
+void App::set_dashboard_focus(bool focused, bool known) {
+    dashboard_focus_known_ = known;
     if (focused != dashboard_focus_) {
         dashboard_focus_ = focused;
         if (!focused && status_is(dashboard_keys_status)) {

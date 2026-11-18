@@ -3680,7 +3680,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // app Gamescope falls back to, not the dashboard the user is in.
         const bool dashboard_block =
             in_dashboard && (!focus_known || dashboard_focus.focused()) && !replacement.remote();
-        app.set_dashboard_focus(dashboard_block);
+        // The bar takes only an answer as a change of focus (R343).
+        app.set_dashboard_focus(dashboard_block, !in_dashboard || focus_known || replacement.remote());
         if constexpr (trace_focus) {
             if (dashboard_block != traced_block) {
                 traced_block = dashboard_block;

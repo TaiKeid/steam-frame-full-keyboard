@@ -5238,6 +5238,85 @@ void run_buttons() {
     require(lines() == 2, "an empty Run button does nothing");
     setenv("HOME", old_home.c_str(), 1);
 }
+// R343: the moment the keyboard opens in the dashboard, before the probe
+// answers, is no change of focus for the bar: a pick and the empty bar stay.
+// Only the dashboard actually having the keys drops them.
+void dashboard_unknown_keeps_focus() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{"ControlLeft"}, "KeyO"}})}});
+    // Other belongs to another app, so picking it leaves the free profile.
+    model.apps.push_back({{AppIdentity::Kind::Program, "viewer"}, "viewer", "o"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus{7, AppIdentity{AppIdentity::Kind::Program, "editor"}, "editor"};
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    App app(options, sink);
+    double now = 7000;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto other = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, other.x + 30, other.y + other.height / 2);
+    require(label() == "O", "Other picked");
+    // Opened in the dashboard: typing waits, the probe hasn't answered.
+    app.set_dashboard_focus(true, false);
+    app.tick(now += .1);
+    require(label() == "O", "while the probe hasn't answered, the pick stays");
+    app.set_dashboard_focus(false, true);
+    app.tick(now += .1);
+    require(label() == "O", "the answer is the same app: the pick stays, no change of focus between");
+    app.set_dashboard_focus(true, false);
+    app.tick(now += .1);
+    app.set_dashboard_focus(true, true);
+    app.tick(now += .1);
+    require(label() == "A", "the dashboard having the keys is a change of focus: the free profile");
+    app.set_dashboard_focus(false, true);
+    app.tick(now += .1);
+    require(label() == "A", "and back to the app: the rule's profile, the pick gone");
+    // The empty bar likewise: no profile is due, the toolbar button opens it.
+    {
+        TemporaryDirectory empty_dir;
+        save_settings(empty_dir.path, settings);
+        ShortcutModel none = model;
+        none.free_profile.clear();
+        write_shortcuts(empty_dir.path, none);
+        Options empty_options = options;
+        empty_options.config_dir = empty_dir.path;
+        App empty(empty_options, sink);
+        empty.tick(now += .1);
+        require(!empty.view().shortcut_bar, "no profile is due: no bar");
+        click(empty, "bar-toggle");
+        require(empty.view().shortcut_bar && empty.view().shortcut_bar->slots, "the empty bar");
+        empty.set_dashboard_focus(true, false);
+        empty.tick(now += .1);
+        empty.set_dashboard_focus(false, true);
+        empty.tick(now += .1);
+        require(empty.view().shortcut_bar && empty.view().shortcut_bar->slots,
+                "an opening over the same app keeps the empty bar");
+        empty.set_dashboard_focus(true, true);
+        empty.tick(now += .1);
+        require(!empty.view().shortcut_bar, "the dashboard having the keys ends it");
+    }
+}
 // The name of the script row lit as chosen, or empty.
 std::string control_selected_script(App& app) {
     for (const auto& row : app.view().shortcut_editor->scripts) {
@@ -5999,6 +6078,7 @@ int main() {
         stick_scrolls_bar();
         run_buttons();
         run_editor();
+        dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();
         carry_closes_on_scroll();
         bar_presses_and_holds();

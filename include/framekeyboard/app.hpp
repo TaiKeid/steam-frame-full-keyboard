@@ -258,7 +258,9 @@ class App {
     // Steam's dashboard has Gamescope's keys (DashboardFocus) and no Steam
     // field is ours: whatever app Gamescope falls back to is not the one the
     // user is looking at, so nothing is typed until a field or window is chosen.
-    void set_dashboard_focus(bool focused);
+    // `known`: the probe has answered. Before it has, typing waits as for the
+    // dashboard, but the shortcut bar keeps the focus it had (R343).
+    void set_dashboard_focus(bool focused, bool known = true);
     // The panel left the view; listening pauses. A pause in interaction,
     // such as Steam handing over a new field, does not.
     void panel_hidden();
@@ -1352,6 +1354,7 @@ class App {
     std::optional<double> passthrough_message_since_;
     bool field_needed_{};
     bool hidden_focus_{}, dashboard_focus_{};
+    bool dashboard_focus_known_{true}; // set_dashboard_focus's `known`
     double focus_shake_since_{-1};
     double swipe_shake_since_{-1};
     // Typing refused for want of a target (target_missing): the Focus mode
