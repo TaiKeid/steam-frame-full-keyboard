@@ -864,6 +864,14 @@ class PanelRenderer {
     // Each key's lock ring as last drawn: how long it had run, at a 30 fps
     // step, or negative while none shows.
     std::map<std::string, double> lock_rings_;
+    // Rows are 6 units apart, so a key's repaint area reaches a little into
+    // the keys of the next row, and a pass's clip edge can cut a key there.
+    // A key drawn by itself (moving, lit, fading, with a ring or a lock's
+    // border) rasterizes slightly differently under such an edge, so it is
+    // drawn once into an image at whole pixels, which every pass copies
+    // exactly, as the flick preview is. Keys at rest copy their body from
+    // the shared image already.
+    bool drawn_by_itself(const PanelView& view, const Key& key) const;
     Animation move_handle_;
     // The hovered dropdown choice, since when, and the whole-pixel offset its
     // name was last painted at, for scrolling a long name.
