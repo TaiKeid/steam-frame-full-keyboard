@@ -229,6 +229,95 @@ void stream_keys() {
     }
     close(pair[1]);
 }
+// R360: a shortcut bar run on Steam's route ends when its request changes
+// or ends, as it does when another window takes the keys: nothing more of
+// it goes to the new target, and every key it pressed went up through the
+// request it went down in.
+void stream_run_target_change() {
+    struct Key {
+        std::uint64_t request{};
+        int code{}, value{};
+    };
+    // Every stream key packet waiting on the helper's end.
+    const auto stream_keys_sent = [](int fd) {
+        std::vector<Key> keys;
+        char data[4096];
+        for (ssize_t size; (size = recv(fd, data, sizeof(data), MSG_DONTWAIT)) > 0;) {
+            auto* message =
+                json_tokener_parse(std::string(data, static_cast<std::size_t>(size)).c_str());
+            if (message && std::string(json_object_get_string(json_object_object_get(message, "op"))) ==
+                               "stream-key") {
+                keys.push_back({json_object_get_uint64(json_object_object_get(message, "request")),
+                                json_object_get_int(json_object_object_get(message, "code")),
+                                json_object_get_int(json_object_object_get(message, "value"))});
+            }
+            json_object_put(message);
+        }
+        return keys;
+    };
+    ShortcutAction macro;
+    macro.kind = ShortcutAction::Kind::Macro;
+    macro.steps = {{MacroStep::Kind::Keys, {{{"ControlLeft"}, "KeyK"}}, 0},
+                   {MacroStep::Kind::Wait, {}, 300},
+                   {MacroStep::Kind::Keys, {{{}, "KeyS"}}, 0}};
+    const char* stream_state =
+        R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true,)"
+        R"("stream":true})";
+    const std::string next_states[] = {
+        R"({"op":"state","version":1,"request":3,"open":true,"eligible":true,"active":true,)"
+        R"("stream":true})",
+        R"({"op":"state","version":1,"request":3,"open":true,"eligible":true,"active":true})"};
+    for (const auto& next : next_states) {
+        Local local;
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "fixture socketpair");
+        {
+            NativeReplacement replacement(local, pair[0]);
+            put(pair[1], stream_state);
+            replacement.poll(10);
+            replacement.route(true);
+            OutputController output(replacement);
+            output.set_enabled(true);
+            QueuedShortcutOutput shortcuts(output, [] { return true; });
+            ShortcutRunner runner(shortcuts);
+            double now = 20;
+            require(runner.start(macro, now), "a macro starts in a stream");
+            for (int i = 0; i < 6; ++i) {
+                output.tick(now += .016);
+                runner.tick(now);
+            }
+            const auto first = stream_keys_sent(pair[1]);
+            require(first.size() == 4 && first[0].code == KEY_LEFTCTRL && first[1].code == KEY_K &&
+                        std::all_of(first.begin(), first.end(),
+                                    [](const Key& key) { return key.request == 2; }),
+                    "its first combination goes to the stream");
+            // Another stream, or one of Steam's fields, during the wait.
+            put(pair[1], next);
+            replacement.poll(now);
+            for (int i = 0; i < 40; ++i) {
+                output.tick(now += .016);
+                runner.tick(now);
+            }
+            const auto later = stream_keys_sent(pair[1]);
+            require(!runner.running() && runner.end() == ShortcutRunner::End::Canceled,
+                    "the run ends when the request on Steam's route changes");
+            require(later.empty() && !replacement.take_unsupported_control() && local.keys.empty(),
+                    "nothing of it reaches the new target");
+            // Each key that went down came up, through request 2.
+            for (const auto code : {KEY_LEFTCTRL, KEY_K}) {
+                require(std::count_if(first.begin(), first.end(),
+                                      [&](const Key& key) {
+                                          return key.code == code && key.value == 1;
+                                      }) == std::count_if(first.begin(), first.end(),
+                                                          [&](const Key& key) {
+                                                              return key.code == code && key.value == 0;
+                                                          }),
+                        "every key it pressed went up through its own request");
+            }
+        }
+        close(pair[1]);
+    }
+}
 // One frame's packet, as update() sends it.
 std::string take_frame(NativeReplacement& replacement, int fd, double now) {
     replacement.update(true, true, 2, false, now, true);
@@ -1635,6 +1724,7 @@ int main(int argc, char** argv) {
         hidden_session_wakeup();
         transport();
         stream_keys();
+        stream_run_target_change();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();

@@ -52,7 +52,13 @@ class NativeReplacement : public KeySink {
     bool stream_session_target() const override { return remote_ && state_.active && state_.stream; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
-    std::uint64_t focus_serial() const override { return remote_ ? 0 : local_.focus_serial(); }
+    // On Steam's route each request is a target of its own: another stream,
+    // a Steam field after a stream, or its end changes it, as another window
+    // would, so a shortcut bar run ends there (R360). Held keys still go up
+    // through the request they went down in (send).
+    std::uint64_t focus_serial() const override {
+        return remote_ ? state_.request : local_.focus_serial();
+    }
     // The keys go to Steam's own field: no app has them.
     FocusedApp focused_app() const override { return remote_ ? FocusedApp{} : local_.focused_app(); }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
