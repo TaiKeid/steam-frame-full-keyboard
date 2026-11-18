@@ -189,7 +189,7 @@ bool ShortcutRunner::advance(double now) {
             }
             in_flight_ = false;
             done_at_ = now;
-            ready_at_ = now + shortcut_key_gap;
+            ready_at_ = now + key_gap_;
         }
         if (next_ == steps_.size()) {
             // A pass ended: another while passes remain or the trigger holds.

@@ -102,6 +102,9 @@ class ShortcutRunner {
     bool tick(double now);
     bool running() const { return active_; }
     End end() const { return end_; }
+    // Probe only (shortcut-target-probe): the gap between combinations for
+    // this runner. The keyboard always keeps shortcut_key_gap.
+    void set_key_gap(double seconds) { key_gap_ = seconds; }
 
   private:
     struct Step {
@@ -146,6 +149,7 @@ class ShortcutRunner {
     // while its apps and dialogs take turns (R320).
     std::uint32_t window_{};
     std::uint64_t focus_serial_{};
+    double key_gap_{shortcut_key_gap};
     double ready_at_{}; // when the next step may be pressed
     double done_at_{};  // when the step before the next ended: a wait counts from here
     End end_{End::None};

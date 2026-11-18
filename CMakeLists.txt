@@ -753,6 +753,10 @@ if(BUILD_TESTING)
     target_link_libraries(japanese-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)
     target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
+    # Opt-in only: sends the shortcut bar's keys through the production route,
+    # only while its own disposable receiver has focus (checked every frame).
+    add_executable(shortcut-target-probe tests/shortcut_target_probe.cpp)
+    target_link_libraries(shortcut-target-probe PRIVATE keyboard_core PkgConfig::X11)
     # Opt-in only: drives commits and replacements for a disposable receiver
     # that the caller has focused and verifies before every command.
     add_executable(text-replace-probe tests/text_replace_probe.cpp)
