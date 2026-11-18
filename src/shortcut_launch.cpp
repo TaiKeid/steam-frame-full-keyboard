@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 
 extern char** environ;
 
@@ -412,5 +413,56 @@ std::optional<ShortcutLauncher::Result> ShortcutLauncher::take() {
     auto result = state_->done.front();
     state_->done.pop_front();
     return result;
+}
+struct ScriptLister::State {
+    ScriptListSource source;
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::optional<fs::path> waiting;
+    std::optional<std::vector<std::string>> done;
+    bool started{}, stop{};
+};
+namespace {
+void run_reads(const std::shared_ptr<ScriptLister::State>& state) {
+    std::unique_lock lock(state->mutex);
+    for (;;) {
+        state->wake.wait(lock, [&] { return state->stop || state->waiting.has_value(); });
+        if (state->stop) {
+            return;
+        }
+        const auto folder = *std::exchange(state->waiting, std::nullopt);
+        lock.unlock();
+        std::vector<std::string> names;
+        if (state->source) {
+            names = state->source(folder);
+        } else {
+            make_scripts_folder(folder); // so the folder the empty list names exists
+            names = list_scripts(folder);
+        }
+        lock.lock();
+        state->done = std::move(names);
+    }
+}
+} // namespace
+ScriptLister::ScriptLister(ScriptListSource source) : state_(std::make_shared<State>()) {
+    state_->source = std::move(source);
+}
+ScriptLister::~ScriptLister() {
+    std::lock_guard lock(state_->mutex);
+    state_->stop = true;
+    state_->wake.notify_all();
+}
+void ScriptLister::read(const fs::path& folder) {
+    std::lock_guard lock(state_->mutex);
+    state_->waiting = folder;
+    if (!state_->started) {
+        state_->started = true;
+        std::thread([state = state_] { run_reads(state); }).detach();
+    }
+    state_->wake.notify_one();
+}
+std::optional<std::vector<std::string>> ScriptLister::take() {
+    std::lock_guard lock(state_->mutex);
+    return std::exchange(state_->done, std::nullopt);
 }
 } // namespace framekeyboard

@@ -80,6 +80,11 @@ struct EditorLayout {
     // Repeat row with its count, and the line saying what a press does.
     Rect steps_well, add_keys, add_wait, repeat, count_minus, count_value, count_plus, sends;
     double steps_top{};
+    // The Run view in the Macro view's places: the script list in the steps'
+    // well, Refresh where + Keys is, the command field over the well's top,
+    // Script | Command where Repeat is, and the line saying what it starts
+    // beside the switch.
+    Rect refresh, command, run_switch, run_line;
     double keys_y{}, segments_x{};
     double button_width{}, button_height{}, button_top{}, pitch{}, gap{};
 };
@@ -125,6 +130,11 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     // One 26-pixel line, centered on the Repeat row.
     l.sends = {l.count_plus.x + 72, 508, l.right - (l.count_plus.x + 72), 26};
     l.explanation = {l.left, 372, l.right - l.left, 60};
+    l.refresh = l.add_keys;
+    l.command = {l.label.x, l.steps_well.y, l.right - l.label.x, 56};
+    l.run_switch = {l.label.x, l.repeat.y, 2 * 130, l.repeat.height};
+    const double line_x = l.run_switch.x + l.run_switch.width + 24;
+    l.run_line = {line_x, l.sends.y, l.right - line_x, 26};
     return l;
 }
 // A profile's row in the editor's column, scrolled.
@@ -255,7 +265,8 @@ void App::open_shortcut_editor() {
     candidate_list_ = false;
     sync_candidates();
     editor_question_ = EditorQuestion::None;
-    editor_rows_scroll_ = editor_strip_scroll_ = {};
+    editor_rows_scroll_ = editor_strip_scroll_ = editor_scripts_scroll_ = {};
+    scripts_.reset(); // read again when the list shows
     shortcut_drag_.reset();
     carry_.reset();
     hovered_.clear();
@@ -400,15 +411,13 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
              {"shortcuts.editor.macro", ShortcutAction::Kind::Macro},
              {"shortcuts.editor.run", ShortcutAction::Kind::Run}}};
         for (std::size_t i = 0; i < kinds.size(); ++i) {
-            // Shortcut and Macro switch, each keeping its content; Run comes
-            // later, and a Run button keeps the action it has.
+            // Shortcut, Macro and Run switch, each keeping its content.
             Control segment{{},
                             tr(kinds[i].first),
                             {l.segments_x + 110 * static_cast<double>(i), l.label.y, 110, 56},
                             kind == kinds[i].second};
             segment.style = ControlStyle::Segment;
             segment.segments = 3;
-            segment.enabled = i < 2 && kind != ShortcutAction::Kind::Run;
             add("shortcuts-kind-" + std::to_string(i), "kind", segment, static_cast<int>(i));
         }
         if (kind == ShortcutAction::Kind::Keys) {
@@ -419,6 +428,9 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
         }
         if (kind == ShortcutAction::Kind::Macro) {
             append_macro_controls(result, l.steps_well, *button);
+        }
+        if (kind == ShortcutAction::Kind::Run) {
+            append_run_controls(result, *button);
         }
     }
     if (carry_) {
@@ -442,6 +454,93 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
                           {panel.x + panel.width - 250, panel.y + panel.height - 80, 210, 52},
                           true});
         result.back().action = {ControlKind::ShortcutEditor, 0, "question-accept"};
+    }
+}
+std::vector<App::ScriptRow> App::script_rows() const {
+    std::vector<ScriptRow> rows;
+    if (scripts_) {
+        for (const auto& name : *scripts_) {
+            rows.push_back({name, false});
+        }
+    }
+    // A chosen script that is gone stays, marked missing, in its place.
+    if (const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+        button && !button->action.script.empty() && scripts_ &&
+        std::none_of(rows.begin(), rows.end(),
+                     [&](const ScriptRow& row) { return row.name == button->action.script; })) {
+        const auto at = std::find_if(rows.begin(), rows.end(), [&](const ScriptRow& row) {
+            return row.name > button->action.script;
+        });
+        rows.insert(at, {button->action.script, true});
+    }
+    return rows;
+}
+bool App::editing_scripts() const {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    return button && button->action.kind == ShortcutAction::Kind::Run && !button->action.command_chosen;
+}
+double App::editor_scripts_limit() const {
+    if (!editing_scripts()) {
+        return 0;
+    }
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
+    const auto count = script_rows().size();
+    if (count == 0) {
+        return 0;
+    }
+    const double content = static_cast<double>(count) * step_pitch + 14 - step_pitch + step_height;
+    return std::max(0.0, content - l.steps_well.height);
+}
+std::string App::scripts_folder_text() const {
+    const auto folder = scripts_folder(fs::absolute(config_dir())).lexically_normal().string();
+    const char* home = std::getenv("HOME");
+    const std::string prefix = home && *home ? fs::path(home).lexically_normal().string() : "";
+    if (!prefix.empty() && folder.starts_with(prefix) &&
+        (folder.size() == prefix.size() || folder[prefix.size()] == '/')) {
+        return "~" + folder.substr(prefix.size());
+    }
+    return folder;
+}
+void App::append_run_controls(std::vector<Control>& result, const ShortcutButton& button) const {
+    const auto add = [&](std::string id, std::string value, Control control, int index = 0) {
+        control.id = std::move(id);
+        control.action = {ControlKind::ShortcutEditor, index, std::move(value)};
+        result.push_back(std::move(control));
+    };
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
+    const auto& action = button.action;
+    if (!action.command_chosen) {
+        // The folder's scripts, a row each, clipped to the well; a press
+        // chooses one, and on the chosen one clears it.
+        const auto rows = script_rows();
+        const auto& well = l.steps_well;
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const auto g = step_geometry(well, l.steps_top, i, editor_scripts_scroll_.shown);
+            if (g.row.y + g.row.height <= well.y || g.row.y >= well.y + well.height) {
+                continue;
+            }
+            Control row{{}, rows[i].name, g.row, rows[i].name == action.script};
+            row.clip = well;
+            add("shortcuts-script-" + std::to_string(i), "script:" + rows[i].name, row);
+        }
+        add("shortcuts-refresh", "refresh", {{}, tr("shortcuts.editor.refresh"), l.refresh});
+    } else {
+        Control field{{}, action.command, l.command};
+        field.style = ControlStyle::TextField;
+        add("shortcuts-command", "command", field);
+    }
+    // Script | Command, as Repeat's switch.
+    for (std::size_t i = 0; i < 2; ++i) {
+        Control segment{
+            {},
+            tr(i == 0 ? "shortcuts.editor.script" : "shortcuts.editor.command"),
+            {l.run_switch.x + 130 * static_cast<double>(i), l.run_switch.y, 130, l.run_switch.height},
+            action.command_chosen == (i == 1)};
+        segment.style = ControlStyle::Segment;
+        segment.segments = 2;
+        add("shortcuts-run-" + std::to_string(i), "run-mode", segment, static_cast<int>(i));
     }
 }
 void App::append_macro_controls(std::vector<Control>& result, const Rect& well,
@@ -700,9 +799,48 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.explanation.push_back(macro_sends(action));
             break;
         }
-        case ShortcutAction::Kind::Run:
-            e.explanation.push_back(tr("shortcuts.editor.run-later"));
+        case ShortcutAction::Kind::Run: {
+            const auto& action = button->action;
+            const auto folder = scripts_folder_text();
+            e.start_caption = tr("shortcuts.editor.start");
+            e.explanation_bounds = l.run_line;
+            if (action.command_chosen) {
+                e.run_caption = tr("shortcuts.editor.command");
+                e.explanation.push_back(action.command.empty() ? tr("shortcuts.editor.type-command")
+                                                               : tr("shortcuts.editor.starts-command",
+                                                                    {{"command", action.command}}));
+                break;
+            }
+            e.run_caption = tr("shortcuts.editor.script");
+            e.scripts_well = l.steps_well;
+            e.missing_mark = tr("shortcuts.editor.missing");
+            const auto rows = script_rows();
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                const auto g = step_geometry(l.steps_well, l.steps_top, i, editor_scripts_scroll_.shown);
+                e.scripts.push_back(
+                    {rows[i].name, g.row, rows[i].name == action.script, rows[i].missing});
+            }
+            if (scripts_ && rows.empty()) {
+                e.scripts_note = tr("shortcuts.editor.no-scripts", {{"folder", folder}});
+            }
+            const double limit = editor_scripts_limit();
+            if (limit > 0) {
+                const auto& well = l.steps_well;
+                const double length = well.height * well.height / (well.height + limit);
+                e.scripts_thumb =
+                    Rect{well.x + well.width - 10,
+                         well.y + 6 + editor_scripts_scroll_.shown / limit * (well.height - 12 - length),
+                         3, length};
+            }
+            const bool missing = std::any_of(rows.begin(), rows.end(), [&](const ScriptRow& row) {
+                return row.missing && row.name == action.script;
+            });
+            e.explanation.push_back(
+                action.script.empty() ? tr("shortcuts.editor.choose-script", {{"folder", folder}})
+                : missing ? tr("shortcuts.editor.script-gone", {{"script", action.script}})
+                          : tr("shortcuts.editor.starts-script", {{"script", action.script}}));
             break;
+        }
         }
     }
     // What a drag carries, where the laser holds it.
@@ -835,7 +973,7 @@ void App::editor_action(const ControlAction& command) {
         shortcut_editor_->remove_tie(index);
     } else if (value == "button") {
         shortcut_editor_->select_button(index);
-        editor_chips_scroll_ = editor_steps_scroll_ = {};
+        editor_chips_scroll_ = editor_steps_scroll_ = editor_scripts_scroll_ = {};
     } else if (value == "add") {
         shortcut_editor_->add_button();
         editor_chips_scroll_ = {};
@@ -854,9 +992,23 @@ void App::editor_action(const ControlAction& command) {
         shortcut_editor_->set_chords({});
         editor_chips_scroll_ = {};
     } else if (value == "kind") {
-        shortcut_editor_->set_kind(command.index == 1 ? ShortcutAction::Kind::Macro
-                                                      : ShortcutAction::Kind::Keys);
-        editor_chips_scroll_ = editor_steps_scroll_ = {};
+        shortcut_editor_->set_kind(command.index == 2   ? ShortcutAction::Kind::Run
+                                   : command.index == 1 ? ShortcutAction::Kind::Macro
+                                                        : ShortcutAction::Kind::Keys);
+        editor_chips_scroll_ = editor_steps_scroll_ = editor_scripts_scroll_ = {};
+    } else if (value == "run-mode") {
+        shortcut_editor_->set_run_command(command.index == 1);
+        editor_scripts_scroll_ = {};
+    } else if (value.starts_with("script:")) {
+        // A press chooses a script; one on the chosen one clears it.
+        const auto name = value.substr(7);
+        const auto* button = shortcut_editor_->selected_button();
+        shortcut_editor_->set_script(button && button->action.script == name ? std::string() : name);
+    } else if (value == "refresh") {
+        script_lister_.read(scripts_folder(config_dir()));
+        scripts_reading_ = true;
+    } else if (value == "command") {
+        open_popup(PopupKind::Command);
     } else if (value == "step") {
         // A Keys step's row opens the recorder for it.
         const auto* button = shortcut_editor_->selected_button();
@@ -903,6 +1055,17 @@ void App::editor_press(unsigned pointer, const std::string& id, double x, double
     if (shortcut_drag_ || editor_question_ != EditorQuestion::None || popup_) {
         return;
     }
+    if (id.starts_with("shortcuts-script-")) {
+        // A drag from any row scrolls the list; a press without one chooses.
+        ShortcutDrag drag;
+        drag.pointer = pointer;
+        drag.x = drag.px = x;
+        drag.y = drag.py = y;
+        drag.scripts = true;
+        drag.scroll = editor_scripts_scroll_.shown;
+        shortcut_drag_ = drag;
+        return;
+    }
     const bool row = id.starts_with("shortcuts-row-");
     // A step's own row, not its − + or ✕: shortcuts-step-<digits>.
     constexpr std::string_view step_prefix = "shortcuts-step-";
@@ -923,7 +1086,7 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
     d.py = y;
     if (!d.lifted) {
         // A row or step lifts going up or down, a button going sideways.
-        if (std::abs(d.row || d.step ? y - d.y : x - d.x) <= dead_zone) {
+        if (std::abs(d.row || d.step || d.scripts ? y - d.y : x - d.x) <= dead_zone) {
             return false;
         }
         d.lifted = true;
@@ -934,6 +1097,14 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
         } else if (!d.step) {
             shortcut_editor_->select_button(d.index);
         }
+    }
+    if (d.scripts) {
+        // The list follows the laser, as the bar does a drag.
+        auto& scroll = editor_scripts_scroll_;
+        scroll.shown = scroll.target = std::clamp(d.scroll - (y - d.y), 0.0, editor_scripts_limit());
+        scroll.remainder = 0;
+        dirty = true;
+        return true;
     }
     const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().profiles.size());
@@ -992,7 +1163,7 @@ bool App::editor_drag_up(unsigned pointer) {
     if (!d.lifted) {
         return false; // a click: the control acts
     }
-    if (shortcut_editor_ && !d.row && !d.step) {
+    if (shortcut_editor_ && !d.row && !d.step && !d.scripts) {
         if (d.over_row) {
             // On another profile that takes it: Move or Copy. On its own
             // profile's row, or a full one's, it goes back to its place.
@@ -1009,6 +1180,10 @@ bool App::editor_drag_up(unsigned pointer) {
 bool App::editing_macro() const {
     const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
     return button && button->action.kind == ShortcutAction::Kind::Macro;
+}
+bool App::editing_keys() const {
+    const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
+    return button && button->action.kind == ShortcutAction::Kind::Keys;
 }
 bool App::editor_scroll(unsigned pointer, double dx, double dy) {
     const auto position = pointer_positions_.find(pointer);
@@ -1028,10 +1203,12 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
             popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
             moved = step_scroll(popup_chips_scroll_, delta, chip_step, popup_chips_limit());
         }
-    } else if (!editing_macro() && l.chips.contains(x, y)) {
+    } else if (editing_keys() && l.chips.contains(x, y)) {
         moved = step_scroll(editor_chips_scroll_, delta, chip_step, editor_chips_limit());
     } else if (editing_macro() && l.steps_well.contains(x, y)) {
         moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
+    } else if (editing_scripts() && l.steps_well.contains(x, y)) {
+        moved = step_scroll(editor_scripts_scroll_, delta, step_pitch, editor_scripts_limit());
     } else if (l.profiles_list.contains(x, y)) {
         // The Move/Copy popover hangs off a row: the column scrolling under
         // it closes it, and the button goes back, as a press elsewhere does (R341).
@@ -1072,11 +1249,14 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
     }
     // The Shortcut view's chip strip lies where a macro's first step row is:
     // each is asked only for its own kind of button (R339).
-    if (!editing_macro() && l.chips.contains(x, y)) {
+    if (editing_keys() && l.chips.contains(x, y)) {
         return room(editor_chips_scroll_, editor_chips_limit());
     }
     if (editing_macro() && l.steps_well.contains(x, y)) {
         return room(editor_steps_scroll_, editor_steps_limit());
+    }
+    if (editing_scripts() && l.steps_well.contains(x, y)) {
+        return room(editor_scripts_scroll_, editor_scripts_limit());
     }
     if (l.profiles_list.contains(x, y)) {
         const double limit =
@@ -1126,9 +1306,21 @@ void App::tick_shortcut_editor(double now) {
          {std::pair{&editor_rows_scroll_, rows}, std::pair{&editor_strip_scroll_, strip},
           std::pair{&editor_chips_scroll_, editor_chips_limit()},
           std::pair{&editor_steps_scroll_, editor_steps_limit()},
+          std::pair{&editor_scripts_scroll_, editor_scripts_limit()},
           std::pair{&popup_chips_scroll_, popup_chips_limit()}}) {
         scroll->target = std::min(scroll->target, limit);
         dirty |= ease_scroll(scroll->shown, scroll->target, elapsed);
+    }
+    // The scripts folder, read when the list first shows; a read's names
+    // arrive here.
+    if (editing_scripts() && !scripts_ && !scripts_reading_) {
+        script_lister_.read(scripts_folder(config_dir()));
+        scripts_reading_ = true;
+    }
+    if (auto names = script_lister_.take()) {
+        scripts_ = std::move(*names);
+        scripts_reading_ = false;
+        dirty = true;
     }
 }
 
@@ -1149,11 +1341,14 @@ void App::open_popup(PopupKind kind, std::optional<std::size_t> step, bool new_s
         const auto* button = shortcut_editor_->selected_button();
         // A shortcut records its combinations; a macro one of its Keys steps.
         const auto wanted = step || new_step ? ShortcutAction::Kind::Macro : ShortcutAction::Kind::Keys;
-        if (!button || (kind == PopupKind::Recording && button->action.kind != wanted)) {
+        if (!button || (kind == PopupKind::Recording && button->action.kind != wanted) ||
+            (kind == PopupKind::Command && button->action.kind != ShortcutAction::Kind::Run)) {
             return;
         }
         if (kind == PopupKind::Label) {
             popup.text = button->label;
+        } else if (kind == PopupKind::Command) {
+            popup.text = button->action.command;
         }
     }
     popup.cursor = popup.text.size();
@@ -1188,6 +1383,9 @@ void App::end_popup(bool save) {
             break;
         case PopupKind::Name:
             shortcut_editor_->rename_profile(popup.text);
+            break;
+        case PopupKind::Command:
+            shortcut_editor_->set_command(popup.text);
             break;
         case PopupKind::Recording:
             // Done replaces: a shortcut's combinations, or a step's. A new
@@ -1277,8 +1475,11 @@ void App::popup_text_key(const Key& key) {
         return;
     }
     const bool label = p.kind == PopupKind::Label;
+    // A command stops taking characters at 512 bytes, one line.
     const auto fits = [&](const std::string& text) {
-        return label ? fits_label(text) : fits_profile_name(text);
+        return label                          ? fits_label(text)
+               : p.kind == PopupKind::Command ? fits_command(text)
+                                              : fits_profile_name(text);
     };
     auto& text = p.text;
     const auto at = std::min(p.cursor, text.size());
@@ -1522,6 +1723,10 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     case PopupKind::Name:
         view.title = tr("shortcuts.popup.name");
         view.hint = tr("shortcuts.popup.name-hint");
+        break;
+    case PopupKind::Command:
+        view.title = tr("shortcuts.popup.command");
+        view.hint = tr("shortcuts.popup.command-hint");
         break;
     case PopupKind::Recording:
         view.title = tr("shortcuts.popup.recording");

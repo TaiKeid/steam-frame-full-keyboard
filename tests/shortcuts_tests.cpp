@@ -907,6 +907,54 @@ void app_names() {
     const auto answered = none.take();
     require(answered && answered->name.empty(), "without a source, an answer at once, with no name");
 }
+// Run in the editor's copy: Script and Command each keep their content while
+// the editor is open; only the chosen one is saved.
+void run_editing() {
+    ShortcutModel model;
+    ShortcutButton button;
+    button.label = "Go";
+    button.action.chords = {{{"ControlLeft"}, "KeyG"}};
+    model.profiles.push_back({"p", "P", {button}});
+    ShortcutEditor editor(model, nullptr);
+    editor.set_kind(ShortcutAction::Kind::Run);
+    const auto action = [&] { return editor.selected_button()->action; };
+    require(action().kind == ShortcutAction::Kind::Run && !action().command_chosen &&
+                action().chords.size() == 1,
+            "Run is chosen, Script first; the shortcut's keys are kept");
+    editor.set_script("tool.sh");
+    editor.set_script("../tool.sh");
+    require(action().script == "tool.sh", "a script name with a folder part is refused");
+    editor.set_run_command(true);
+    editor.set_command(std::string(512, 'a'));
+    require(action().command.size() == 512, "a command of 512 bytes");
+    editor.set_command(std::string(513, 'b'));
+    editor.set_command("two\nlines");
+    require(action().command == std::string(512, 'a'), "longer or two lines: refused");
+    editor.set_command("echo hi");
+    require(action().script == "tool.sh" && action().command == "echo hi",
+            "Script and Command each keep theirs");
+    auto saved = editor.saved();
+    auto run = saved.profiles[0].buttons[0].action;
+    require(run.kind == ShortcutAction::Kind::Run && run.command == "echo hi" && run.script.empty() &&
+                run.chords.empty() && !validate_shortcuts(saved),
+            "the command chosen is saved alone");
+    editor.set_run_command(false);
+    run = editor.saved().profiles[0].buttons[0].action;
+    require(run.script == "tool.sh" && run.command.empty(), "the script chosen is saved alone");
+    editor.set_kind(ShortcutAction::Kind::Keys);
+    require(editor.saved().profiles[0].buttons[0].action.chords.size() == 1 &&
+                editor.saved().profiles[0].buttons[0].action.script.empty(),
+            "back to Shortcut: its keys, no script");
+    require(fits_command("ls -la ~") && !fits_command("a\tb") && !fits_command(std::string("bad\xff")),
+            "a command is one line of valid text");
+    // A Run button read from the file shows the kind it holds.
+    model.profiles[0].buttons[0].action = {};
+    model.profiles[0].buttons[0].action.kind = ShortcutAction::Kind::Run;
+    model.profiles[0].buttons[0].action.command = "true";
+    ShortcutEditor opened(model, nullptr);
+    require(opened.selected_button()->action.command_chosen && !opened.changed(),
+            "a command opens on Command, unchanged");
+}
 } // namespace
 
 int main() {
@@ -924,6 +972,7 @@ int main() {
         picker();
         model_changes();
         ties();
+        run_editing();
         app_names();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";
     } catch (const std::exception& error) {

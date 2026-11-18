@@ -56,10 +56,16 @@ class ShortcutEditor {
     // whose action is a macro or Run is left as it is.
     void set_chords(std::vector<ShortcutChord> chords);
 
-    // Shortcut or Macro for the selected button; Run buttons wait for their
-    // version. A shortcut turned into a macro with no steps yet starts as
+    // Shortcut, Macro or Run for the selected button, each keeping its
+    // content. A shortcut turned into a macro with no steps yet starts as
     // one Keys step holding its combinations.
     void set_kind(ShortcutAction::Kind kind);
+    // The selected Run button's Script | Command switch, each keeping its
+    // content; its script (a valid name, or empty for none) and its command
+    // (fits_command, or empty).
+    void set_run_command(bool command);
+    void set_script(std::string name);
+    void set_command(std::string command);
     // The selected button's macro: steps added, changed, moved, deleted, at
     // most 32, each valid as it is set.
     bool can_add_step() const;
@@ -85,6 +91,9 @@ class ShortcutEditor {
 // characters. A field's typing checks each insertion with this.
 bool fits_label(const std::string& text);
 bool fits_profile_name(const std::string& text);
+// A command as Run holds it: one line of valid UTF-8 without control
+// characters, at most shortcut_limits::command_bytes bytes.
+bool fits_command(const std::string& text);
 // How a combination reads: Ctrl + Shift + K, F13, Super.
 std::string chord_text(const ShortcutChord& chord);
 

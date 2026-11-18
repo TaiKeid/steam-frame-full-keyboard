@@ -3507,7 +3507,11 @@ void draw_typed(cairo_t* cr, const PanelView& view, const Rect& r, const std::st
     pango_layout_set_alignment(layout, centred ? PANGO_ALIGN_CENTER : PANGO_ALIGN_LEFT);
     pango_layout_set_spacing(layout, static_cast<int>(-size * .12 * PANGO_SCALE));
     const double pad = centred ? 4 : 14;
-    pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 2 * pad) * PANGO_SCALE));
+    // Left-aligned text stays one line, however long, such as a command:
+    // it scrolls to keep its caret in view instead of wrapping.
+    if (centred) {
+        pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 2 * pad) * PANGO_SCALE));
+    }
     int width = 0, height = 0;
     pango_layout_get_pixel_size(layout, &width, &height);
     height = std::max(height, static_cast<int>(size * 1.3));
@@ -3839,6 +3843,64 @@ void draw_macro_steps(cairo_t* cr, const PanelView& view) {
     if (!e.count.empty()) {
         draw_well(cr, t, e.count_bounds);
         interface_label(cr, e.count, e.count_bounds, 22, view.interface_font, t.legend);
+    }
+}
+// The Run view (design, Settings and the editor): Script's list of the
+// scripts folder as rows in a well that scroll, the chosen one lit, a gone
+// one marked missing in the disabled color; Refresh beside it. Command's
+// field is drawn with the label's.
+void draw_run_body(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& t = *view.theme;
+    const Color quiet = disabled_legend(t);
+    const auto hovered = [&](const std::string& id) { return view.hovered_controls.contains(id); };
+    if (e.scripts_well.width <= 0) {
+        return; // Command: its field is a control
+    }
+    const auto& well = e.scripts_well;
+    interface_label(cr, e.run_caption, {e.divider + 16, well.y, 96, 52}, 22, view.interface_font,
+                    t.legend, false, PANGO_ALIGN_LEFT);
+    draw_well(cr, t, well);
+    cairo_save(cr);
+    cairo_rectangle(cr, well.x, well.y + 2, well.width, well.height - 4);
+    cairo_clip(cr);
+    for (std::size_t i = 0; i < e.scripts.size(); ++i) {
+        const auto& row = e.scripts[i];
+        const auto id = "shortcuts-script-" + std::to_string(i);
+        const auto& r = row.bounds;
+        if (r.y + r.height <= well.y || r.y >= well.y + well.height) {
+            continue;
+        }
+        if (row.chosen) {
+            fill_latched(cr, t, r, t.radius);
+        } else {
+            rounded(cr, r, t.radius);
+            source(cr, hovered(id) ? t.hover : mix(t.bottom, t.surface, .45));
+            cairo_fill(cr);
+        }
+        const Color ink = row.missing ? quiet : row.chosen ? t.latched_legend : t.legend;
+        const double mark = row.missing ? 120 : 0;
+        ellipsized_label(cr, row.name, {r.x + 22, r.y, r.width - 44 - mark, r.height}, 20,
+                         view.interface_font, ink);
+        if (row.missing) {
+            interface_label(cr, e.missing_mark, {r.x + r.width - 20 - mark, r.y, mark, r.height}, 17,
+                            view.interface_font, quiet, false, PANGO_ALIGN_RIGHT);
+        }
+    }
+    if (!e.scripts_note.empty()) {
+        interface_label(cr, e.scripts_note, {well.x + 20, well.y, well.width - 40, well.height}, 19,
+                        view.interface_font, quiet, false, PANGO_ALIGN_CENTER, true);
+    }
+    cairo_restore(cr);
+    if (e.scripts_thumb) {
+        rounded(cr, *e.scripts_thumb, 1.5);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-refresh") {
+            editor_button(cr, view, c, 22);
+        }
     }
 }
 // A recorder's red dot.
@@ -4186,9 +4248,10 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                         20, view.interface_font, quiet, false, PANGO_ALIGN_CENTER, true);
     }
     for (const auto& c : view.controls) {
-        if (c.id == "shortcuts-label") {
-            interface_label(cr, e.label_caption, {c.bounds.x - 100, c.bounds.y, 96, c.bounds.height}, 22,
-                            view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+        if (c.id == "shortcuts-label" || c.id == "shortcuts-command") {
+            interface_label(cr, c.id == "shortcuts-label" ? e.label_caption : e.run_caption,
+                            {c.bounds.x - 100, c.bounds.y, 96, c.bounds.height}, 22, view.interface_font,
+                            t.legend, false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, c.bounds);
             if (hovered(c)) {
                 rounded(cr, {c.bounds.x + .5, c.bounds.y + .5, c.bounds.width - 1, c.bounds.height - 1},
@@ -4202,23 +4265,32 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             for (auto at = shown.find('\n'); at != std::string::npos; at = shown.find('\n')) {
                 shown.replace(at, 1, " ↵ ");
             }
-            interface_label(cr, shown,
-                            {c.bounds.x + 18, c.bounds.y, c.bounds.width - 36, c.bounds.height}, 22,
-                            view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
-        } else if (c.id.starts_with("shortcuts-kind-") || c.id.starts_with("shortcuts-repeat-")) {
+            const Rect text{c.bounds.x + 18, c.bounds.y, c.bounds.width - 36, c.bounds.height};
+            if (c.id == "shortcuts-label") {
+                interface_label(cr, shown, text, 22, view.interface_font, t.legend, false,
+                                PANGO_ALIGN_LEFT);
+            } else {
+                ellipsized_label(cr, shown, text, 22, view.interface_font, t.legend); // a long command
+            }
+        } else if (c.id.starts_with("shortcuts-kind-") || c.id.starts_with("shortcuts-repeat-") ||
+                   c.id.starts_with("shortcuts-run-")) {
             const auto& r = c.bounds;
             if (c.action.index == 0 && c.id.starts_with("shortcuts-kind-")) {
                 interface_label(cr, e.action_caption, {r.x - 120, r.y, 112, r.height}, 22,
                                 view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             } else if (c.action.index == 0) {
-                interface_label(cr, e.repeat_caption, {e.divider + 16, r.y, 96, r.height}, 22,
-                                view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+                interface_label(cr,
+                                c.id.starts_with("shortcuts-run-") ? e.start_caption : e.repeat_caption,
+                                {e.divider + 16, r.y, 96, r.height}, 22, view.interface_font, t.legend,
+                                false, PANGO_ALIGN_LEFT);
             }
             // Each segment paints its slice of the shared well.
             cairo_save(cr);
             cairo_rectangle(cr, r.x, r.y, r.width, r.height);
             cairo_clip(cr);
-            draw_well(cr, t, {r.x - c.action.index * r.width, r.y, r.width * 3, r.height});
+            draw_well(
+                cr, t,
+                {r.x - c.action.index * r.width, r.y, r.width * std::max(1, c.segments), r.height});
             cairo_restore(cr);
             const Rect thumb{r.x + 4, r.y + 4, r.width - 8, r.height - 8};
             if (c.selected) {
@@ -4248,6 +4320,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     if (e.steps_well.width > 0) {
         draw_macro_steps(cr, view);
     }
+    draw_run_body(cr, view);
     for (std::size_t i = 0; i < e.explanation.size(); ++i) {
         const auto& r = e.explanation_bounds;
         const Rect line{r.x, r.y + 26 * static_cast<double>(i), r.width, 26};

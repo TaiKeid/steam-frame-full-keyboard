@@ -337,7 +337,7 @@ Layout mini_keyboard_layout(const Layout& us, double depth);
 // scaled by `scale`.
 struct ShortcutPopupView {
     bool operator==(const ShortcutPopupView&) const = default;
-    enum class Kind { Label, Name, Recording };
+    enum class Kind { Label, Name, Recording, Command };
     Kind kind{Kind::Label};
     Rect panel, well;        // the popup, and row 2's recessed strip
     std::string title, hint; // row 1; the hint after the title, when it fits
@@ -417,6 +417,20 @@ struct ShortcutEditorView {
     std::optional<ShortcutStepView> lifted_step;
     std::string count;
     Rect count_bounds;
+    // The Run view in the Macro view's places: Script's list of the scripts
+    // folder in a well that scrolls (its rows are controls
+    // shortcuts-script-N), or Command's field; Script | Command under it.
+    std::string run_caption, start_caption; // over the list or field; beside the switch
+    Rect scripts_well;
+    struct ScriptRow {
+        bool operator==(const ScriptRow&) const = default;
+        std::string name; // the user's file name, never logged
+        Rect bounds;
+        bool chosen{}, missing{};
+    };
+    std::vector<ScriptRow> scripts;
+    std::optional<Rect> scripts_thumb;
+    std::string scripts_note, missing_mark; // the empty list's note; "missing"
     // Typing or recording; under it the editor is dimmed but the strip.
     std::optional<ShortcutPopupView> popup;
 };

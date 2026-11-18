@@ -69,7 +69,15 @@ struct ShortcutAction {
     // Run: at most one is set. A script is a file name in the config
     // folder's scripts/; a command is one line for /bin/sh -c.
     std::string script, command;
-    bool operator==(const ShortcutAction&) const = default;
+    // Run: Command is chosen in the editor's Script | Command switch, which
+    // keeps both while the editor is open. Not in the file, set from it as
+    // whether a command is given, and no part of the action's content: two
+    // actions that differ only in it are equal.
+    bool command_chosen{};
+    bool operator==(const ShortcutAction& other) const {
+        return kind == other.kind && chords == other.chords && steps == other.steps &&
+               repeat == other.repeat && script == other.script && command == other.command;
+    }
 };
 struct ShortcutButton {
     std::string label; // Up to two lines, split by one '\n'.

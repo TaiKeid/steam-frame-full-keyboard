@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -74,6 +75,26 @@ class ShortcutLauncher {
     ShortcutLauncher& operator=(const ShortcutLauncher&) = delete;
     void start(std::uint64_t id, LaunchRequest request);
     std::optional<Result> take();
+    // Shared with the thread; defined in shortcut_launch.cpp.
+    struct State;
+
+  private:
+    std::shared_ptr<State> state_;
+};
+
+// Reads the scripts folder for the editor's list on a detached thread of its
+// own, never the VR thread. The source gives the names: tests and the tour
+// give their own; without one the folder is made if missing, then listed
+// (list_scripts). The newest read wins; results are taken on a tick.
+using ScriptListSource = std::function<std::vector<std::string>(const std::filesystem::path&)>;
+class ScriptLister {
+  public:
+    explicit ScriptLister(ScriptListSource source);
+    ~ScriptLister();
+    ScriptLister(const ScriptLister&) = delete;
+    ScriptLister& operator=(const ScriptLister&) = delete;
+    void read(const std::filesystem::path& folder);
+    std::optional<std::vector<std::string>> take();
     // Shared with the thread; defined in shortcut_launch.cpp.
     struct State;
 

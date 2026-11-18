@@ -124,6 +124,9 @@ struct Options {
     // as in tests and previews, no file is read and the names are those the
     // identities give.
     AppNameSource app_names;
+    // Where the editor's Run list reads the scripts folder: tests and the
+    // tour give their own names; empty makes and lists the real folder.
+    ScriptListSource script_list;
 };
 
 // What a Haptic effect or Haptic volume click plays, by the pending choices.
@@ -1937,6 +1940,9 @@ class App {
         // that profile takes it (another one, not full); it lights up.
         std::optional<std::size_t> over_row;
         bool takes{};
+        // A script's row: the drag scrolls the list, from `scroll` at the press.
+        bool scripts{};
+        double scroll{};
     };
     // A button dropped on another profile's row: Move or Copy, in a popover
     // beside that row, until either or a press anywhere else.
@@ -1961,6 +1967,8 @@ class App {
     bool editor_drag_up(unsigned pointer);
     // The selected button is a macro: the Macro view shows, not the Shortcut view.
     bool editing_macro() const;
+    // The selected button is a shortcut: the Shortcut view shows.
+    bool editing_keys() const;
     bool editor_scroll(unsigned pointer, double dx, double dy);
     std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
     void tick_shortcut_editor(double now);
@@ -1979,6 +1987,26 @@ class App {
     // What a press on the macro does, as the line beside Repeat says it.
     std::string macro_sends(const ShortcutAction& action) const;
     double editor_steps_limit() const;
+    // The Run view (design, Settings and the editor): Script's list of the
+    // scripts folder, read off the VR thread when the view shows it and on
+    // Refresh, none until the first read lands; or Command's field.
+    ScriptLister script_lister_{options_.script_list};
+    std::optional<std::vector<std::string>> scripts_;
+    bool scripts_reading_{};
+    BarScroll editor_scripts_scroll_;
+    struct ScriptRow {
+        std::string name;
+        bool missing{}; // the chosen script, gone from the folder
+    };
+    // The list as it shows: the folder's scripts, and a chosen one that is
+    // gone, in their order.
+    std::vector<ScriptRow> script_rows() const;
+    double editor_scripts_limit() const;
+    // The selected button is Run with Script chosen: the list shows.
+    bool editing_scripts() const;
+    void append_run_controls(std::vector<Control>& result, const ShortcutButton& button) const;
+    // The scripts folder as the user knows it: ~ for the home folder.
+    std::string scripts_folder_text() const;
 
     // The editor's popup (design, Typing and recording): a fixed US mini
     // keyboard whose keys are the editor's own controls, acting on press.

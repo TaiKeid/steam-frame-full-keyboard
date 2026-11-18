@@ -1,4 +1,5 @@
 #include "framekeyboard/shortcut_editor.hpp"
+#include "framekeyboard/shortcut_launch.hpp"
 
 #include <algorithm>
 #include <glib.h>
@@ -48,6 +49,10 @@ bool fits_label(const std::string& text) {
 bool fits_profile_name(const std::string& text) {
     std::size_t characters = 0;
     return count_text(text, 0, characters) && characters <= limits::profile_name_characters;
+}
+bool fits_command(const std::string& text) {
+    std::size_t characters = 0;
+    return text.size() <= limits::command_bytes && count_text(text, 0, characters);
 }
 std::string chord_text(const ShortcutChord& chord) {
     static const std::map<std::string, std::string> modifiers{
@@ -102,6 +107,12 @@ std::string chord_text(const ShortcutChord& chord) {
 
 ShortcutEditor::ShortcutEditor(ShortcutModel model, const std::string* showing)
     : model_(std::move(model)), original_(model_) {
+    // A Run button shows Command when it has one, as one read from the file does.
+    for (auto& profile : model_.profiles) {
+        for (auto& button : profile.buttons) {
+            button.action.command_chosen = !button.action.command.empty();
+        }
+    }
     original_ = saved(); // as a save would write it, so an untouched copy is unchanged
     for (std::size_t i = 0; showing && i < model_.profiles.size(); ++i) {
         if (model_.profiles[i].id == *showing) {
@@ -127,6 +138,14 @@ ShortcutModel ShortcutEditor::saved() const {
                 action.steps.clear();
                 action.repeat = {};
             }
+            // Run keeps the one chosen of Script and Command.
+            if (action.kind != ShortcutAction::Kind::Run || action.command_chosen) {
+                action.script.clear();
+            }
+            if (action.kind != ShortcutAction::Kind::Run || !action.command_chosen) {
+                action.command.clear();
+            }
+            action.command_chosen = !action.command.empty();
         }
     }
     return model;
@@ -139,9 +158,7 @@ ShortcutAction* ShortcutEditor::macro() {
     return &model_.profiles[*profile_].buttons[*button_].action;
 }
 void ShortcutEditor::set_kind(ShortcutAction::Kind kind) {
-    const auto* button = selected_button();
-    if (!button || kind == ShortcutAction::Kind::Run ||
-        button->action.kind == ShortcutAction::Kind::Run) {
+    if (!selected_button()) {
         return;
     }
     auto& action = model_.profiles[*profile_].buttons[*button_].action;
@@ -344,6 +361,25 @@ void ShortcutEditor::carry_button(std::size_t index, std::size_t profile, bool c
     model_.profiles[profile].buttons.push_back(std::move(button));
     if (!copy) {
         delete_button(index);
+    }
+}
+void ShortcutEditor::set_run_command(bool command) {
+    const auto* button = selected_button();
+    if (button && button->action.kind == ShortcutAction::Kind::Run) {
+        model_.profiles[*profile_].buttons[*button_].action.command_chosen = command;
+    }
+}
+void ShortcutEditor::set_script(std::string name) {
+    const auto* button = selected_button();
+    if (button && button->action.kind == ShortcutAction::Kind::Run &&
+        (name.empty() || script_name_valid(name))) {
+        model_.profiles[*profile_].buttons[*button_].action.script = std::move(name);
+    }
+}
+void ShortcutEditor::set_command(std::string command) {
+    const auto* button = selected_button();
+    if (button && button->action.kind == ShortcutAction::Kind::Run && fits_command(command)) {
+        model_.profiles[*profile_].buttons[*button_].action.command = std::move(command);
     }
 }
 void ShortcutEditor::set_label(std::string label) {

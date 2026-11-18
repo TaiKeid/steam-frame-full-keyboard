@@ -327,6 +327,7 @@ ShortcutAction parse_action(json_object* object, const std::string& where) {
                 invalid(where, "a run action names an empty script or command");
             }
         }
+        action.command_chosen = !action.command.empty();
     } else {
         invalid(where, "an unknown action kind");
     }

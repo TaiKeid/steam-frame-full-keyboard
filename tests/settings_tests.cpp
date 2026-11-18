@@ -5238,6 +5238,143 @@ void run_buttons() {
     require(lines() == 2, "an empty Run button does nothing");
     setenv("HOME", old_home.c_str(), 1);
 }
+// The name of the script row lit as chosen, or empty.
+std::string control_selected_script(App& app) {
+    for (const auto& row : app.view().shortcut_editor->scripts) {
+        if (row.chosen) {
+            return row.name;
+        }
+    }
+    return {};
+}
+// The editor's Run body (design, Settings and the editor), at both widths:
+// the scripts folder made and listed off the VR thread, choosing and
+// clearing, scrolling from any row, a missing script, Command's popup, each
+// kept while switching, and only the chosen one saved. In a temporary home.
+void run_editor() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory home;
+        const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+        setenv("HOME", home.path.c_str(), 1);
+        const auto config = home.path / ".config" / "framekeyboard";
+        fs::create_directories(config);
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(config, settings);
+        ShortcutModel model;
+        model.profiles.push_back({"p", "P", {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}})}});
+        model.free_profile = "p";
+        write_shortcuts(config, model);
+        Options options;
+        options.config_dir = config;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        open_editor(app);
+        const auto folder = config / "scripts";
+        const auto settle = [&](const std::function<bool()>& done) {
+            static double now = 5000;
+            for (int i = 0; i < 400 && !done(); ++i) {
+                usleep(2000);
+                app.tick(now += .02);
+            }
+            return done();
+        };
+        tap_control(app, "shortcuts-kind-2");
+        require(control(app.view(), "shortcuts-kind-2").selected &&
+                    control(app.view(), "shortcuts-run-0").selected,
+                "Run is chosen, Script first");
+        require(settle([&] { return !app.view().shortcut_editor->scripts_note.empty(); }) &&
+                    fs::is_directory(folder),
+                "the folder is made when the list first shows");
+        require(app.view().shortcut_editor->scripts_note ==
+                    "No scripts in ~/.config/framekeyboard/scripts",
+                "the empty list names the folder, with ~");
+        for (const char* name : {"a.sh", "b.sh", "c.sh", "d.sh", "e.sh", "f.sh", "g.sh"}) {
+            std::ofstream(folder / name) << "true\n";
+        }
+        tap_control(app, "shortcuts-refresh");
+        require(settle([&] { return app.view().shortcut_editor->scripts.size() == 7; }),
+                "Refresh reads the folder again");
+        auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (const char* id :
+             {"shortcuts-refresh", "shortcuts-run-0", "shortcuts-run-1", "shortcuts-script-0"}) {
+            const auto r = control(view, id).bounds;
+            require(body.contains(r.x, r.y) && body.contains(r.x + r.width - 1, r.y + r.height - 1),
+                    (std::string(id) + " lies in the case").c_str());
+        }
+        tap_control(app, "shortcuts-script-1");
+        require(control(app.view(), "shortcuts-script-1").selected &&
+                    app.view().shortcut_editor->explanation.front() == "Starts b.sh.",
+                "a press chooses a script; the line says what it starts");
+        tap_control(app, "shortcuts-script-1");
+        require(!control(app.view(), "shortcuts-script-1").selected &&
+                    app.view().shortcut_editor->explanation.front() ==
+                        "Choose a script from ~/.config/framekeyboard/scripts.",
+                "a press on the chosen one clears it");
+        tap_control(app, "shortcuts-script-2");
+        // Scrolling: the stick over the first row, and a drag from a row.
+        const auto first = middle(control(app.view(), "shortcuts-script-0").bounds);
+        app.move(0, first.x, first.y);
+        const auto room = app.scroll_room(0);
+        require(room && room->forward, "the list reports room under its first row");
+        const double top = app.view().shortcut_editor->scripts[0].bounds.y;
+        app.down(0, first.x, first.y, 6000);
+        app.move(0, first.x, first.y - 20);
+        app.move(0, first.x, first.y - 90);
+        app.up(0, first.x, first.y - 90);
+        require(app.view().shortcut_editor->scripts[0].bounds.y < top - 60 &&
+                    control_selected_script(app) == "c.sh",
+                "a drag from a row scrolls the list and chooses nothing");
+        // The chosen script gone: it stays, marked missing.
+        fs::remove(folder / "c.sh");
+        tap_control(app, "shortcuts-refresh");
+        require(settle([&] {
+                    const auto& rows = app.view().shortcut_editor->scripts;
+                    return rows.size() == 7 && rows[2].name == "c.sh" && rows[2].missing &&
+                           rows[2].chosen;
+                }),
+                "a chosen script that is gone stays in the list, marked missing");
+        require(app.view().shortcut_editor->explanation.front() ==
+                    "c.sh is no longer in the scripts folder.",
+                "and the line says so");
+        // Command: its field opens the popup, which types one line.
+        tap_control(app, "shortcuts-run-1");
+        require(has(app.view(), "shortcuts-command") && !has(app.view(), "shortcuts-refresh") &&
+                    app.view().shortcut_editor->explanation.front() ==
+                        "Type a command for /bin/sh to run.",
+                "Command shows its field");
+        tap_control(app, "shortcuts-command");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->title == "Command",
+                "the field opens the popup, titled Command");
+        tap_mini(app, "KeyL");
+        tap_mini(app, "KeyS");
+        tap_mini(app, "Enter");
+        require(!app.view().shortcut_editor->popup &&
+                    control(app.view(), "shortcuts-command").label == "ls" &&
+                    app.view().shortcut_editor->explanation.front() == "Starts ls",
+                "Enter saves the command");
+        tap_control(app, "shortcuts-command");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "Escape");
+        require(control(app.view(), "shortcuts-command").label == "ls", "Esc cancels");
+        tap_control(app, "shortcuts-run-0");
+        require(control_selected_script(app) == "c.sh", "back to Script: its choice is kept");
+        tap_control(app, "shortcuts-run-1");
+        require(control(app.view(), "shortcuts-command").label == "ls", "and Command's");
+        require(saved_shortcuts(app).profiles[0].buttons[0].action.kind == ShortcutAction::Kind::Keys,
+                "all of it pending until ✓");
+        tap_control(app, "shortcuts-save");
+        const auto saved = saved_shortcuts(app).profiles[0].buttons[0].action;
+        require(saved.kind == ShortcutAction::Kind::Run && saved.command == "ls" &&
+                    saved.script.empty() && saved.chords.empty(),
+                "✓ saves the command chosen alone");
+        setenv("HOME", old_home.c_str(), 1);
+    }
+}
 // R332: a new user's first bar shows as soon as ✓ saves it, and becomes
 // the free bar.
 void first_bar_shows() {
@@ -5502,8 +5639,8 @@ void shortcut_editor_settings() {
                 "Used for shows the bar's apps");
         require(control(view, "shortcuts-kind-0").selected &&
                     control(view, "shortcuts-kind-1").enabled &&
-                    !control(view, "shortcuts-kind-2").enabled,
-                "Shortcut is the action; Macro can be chosen, Run waits for its version");
+                    control(view, "shortcuts-kind-2").enabled,
+                "Shortcut is the action; Macro and Run can be chosen");
         require(view.shortcut_editor->chords.size() == 1 &&
                     view.shortcut_editor->chords[0].text == "Ctrl + A",
                 "the recorded combinations as chips");
@@ -5861,6 +5998,7 @@ int main() {
         shortcut_apps();
         stick_scrolls_bar();
         run_buttons();
+        run_editor();
         macro_first_row_scrolls();
         carry_closes_on_scroll();
         bar_presses_and_holds();
