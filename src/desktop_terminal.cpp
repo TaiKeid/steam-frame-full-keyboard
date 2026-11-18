@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <climits>
+#include <cstdio>
 #include <ctime>
 #include <dlfcn.h>
 #include <fstream>
+#include <iostream>
+#include <mutex>
 #include <poll.h>
 #include <sstream>
 #include <string_view>
@@ -13,9 +17,37 @@
 #include <systemd/sd-bus.h>
 #include <type_traits>
 #include <unistd.h>
+#include <vector>
 
 namespace framekeyboard {
 namespace {
+// Debugging: a journal line for each of KWin's reports, with its monotonic
+// time and "none" or "app N", N numbering the distinct app IDs in the order
+// first seen. IDs stay in memory only, never logged. Built only with CMake's
+// FRAMEKEYBOARD_FOCUS_TRACE (as src/vr.cpp's trace_focus); off in releases.
+#ifdef FRAMEKEYBOARD_FOCUS_TRACE
+constexpr bool trace_reports = true;
+#else
+constexpr bool trace_reports = false;
+#endif
+[[maybe_unused]] void trace_report(const std::string& app) {
+    static std::mutex lock;
+    static std::vector<std::string> seen; // the process's, across reconnections
+    const double now =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    char time[32];
+    std::snprintf(time, sizeof(time), "%.3f", now);
+    const std::lock_guard guard(lock);
+    std::string described = "none";
+    if (!app.empty()) {
+        auto at = std::find(seen.begin(), seen.end(), app);
+        if (at == seen.end()) {
+            at = seen.insert(seen.end(), app);
+        }
+        described = "app " + std::to_string(at - seen.begin() + 1);
+    }
+    std::cout << "focus-trace kwin-report " << time << ' ' << described << '\n' << std::flush;
+}
 // The few sd-bus calls used, taken from libsystemd.so.0 if it loads; the
 // keyboard never links it, so a system without it only loses this.
 struct SdBus {
@@ -256,6 +288,9 @@ bool DesktopTerminal::attach(const std::string& address) {
             self->app_ = app ? app : "";
             self->reported_ = true;
             ++self->activations_;
+            if constexpr (trace_reports) {
+                trace_report(self->app_);
+            }
         }
         api.reply(message, "");
         return 1;

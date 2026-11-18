@@ -340,6 +340,8 @@ if(FRAMEKEYBOARD_VR)
     target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
     if(FRAMEKEYBOARD_FOCUS_TRACE)
         target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_FOCUS_TRACE)
+        # src/desktop_terminal.cpp's line per KWin report.
+        target_compile_definitions(keyboard_core PRIVATE FRAMEKEYBOARD_FOCUS_TRACE)
     endif()
     # Development binaries find these beside themselves; packages use share/framekeyboard.
     # Do not embed an absolute source-tree path in the executable for this fallback.
