@@ -36,7 +36,7 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 - A Run button carries a small prompt mark, `>_`, in its top right corner, so a button that starts a script or a command is told apart from one that presses keys. The mark is a drawn icon in the theme's dimmed label color, 16 × 12 with its corner 7 px in from the button's top and right edges. It moves with the button's press and fades with a disabled button. It shows wherever the button is drawn: on the bar, in the editor's strip, and while the button is carried. Shortcut and Macro buttons have no mark.
 - A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)). So is a button that has no action yet.
 - The bar hides in Settings and in dictation mode, and stays up with the emoji picker. Under a shell the feature is off.
-- While the bar shows, tooltips and the status card sit above it instead of above the case. When both can't sit side by side there, the status card shows and the tooltip waits.
+- A tooltip keeps its place right above the case while the bar shows, and is drawn over the bar where the two overlap. It takes no pointer: a button under it still hovers and presses. The status card sits above the bar. The bar's own tooltips, for the picker, **Manage** and the assign buttons, point at their parts of the bar; one that would share the status card's row waits while the card shows.
 
 ### Drawing and laser areas
 
@@ -83,7 +83,7 @@ The picker's tab opens a menu that drops over the case from under the bar, its r
 - A press on a name switches to that profile and does nothing else.
 - A press on an assign button ties the focused app to that profile, lights the button, and clears any other profile's tie to that app. A press on a lit button removes the tie. Both are saved at once, and the menu stays open.
 - A profile just tied to the focused app shows at once. Removing a tie leaves the bar as it is until the focus changes.
-- Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported. They are also disabled, for an app without a tie, once 128 apps have one.
+- Assign buttons are disabled while the focused app can't be assigned: Steam's dashboard, an unknown focus, SteamOS's Desktop before its window manager has reported, a stream from a PC until its app is known. The tooltip of a disabled one says that it can't assign here, and why. They are also disabled, for an app without a tie, once 128 apps have one.
 - Six profiles show; more scroll. A tooltip on an assign button says what it will do, naming the profile and the app; on a disabled one it says why.
 - The menu itself does not name the focused app: the lit assign button shows which profile it has, and the tooltips name it.
 
@@ -95,7 +95,8 @@ The picker's tab opens a menu that drops over the case from under the bar, its r
 | Another window in Gamescope | `program`: the file name of the focused process's program | That file name |
 | An app in SteamOS's Desktop | `desktop`: the app ID its window manager reports | `Name` from the app's desktop file; else the ID's last part |
 | Moonlight | `program`: Moonlight itself; the app on the PC can't be seen | Moonlight |
-| A game or app streamed from a PC with Streaming support | To be decided by a [probe](#frame-probes): the stream's own identity if Gamescope reports one, else all such streams as one app | — |
+| A game streamed from a PC with Streaming support | `steam`: the game's Steam app ID, from the arguments Steam's streaming client was started with. The same identity the game has when it runs on the headset, so one assignment covers both | As for a Steam game; a game not installed on the headset shows as "App" and the ID |
+| A stream from a PC without a game ID, such as its desktop or a shortcut that isn't a Steam game | `stream`: all of them are one app, with the one ID `pc`. Which app the PC has in front can't be seen | "PC desktop stream"; "your PC's desktop stream" in a sentence |
 | Steam's dashboard | None; it can't be assigned | — |
 
 Which identity the focus has, by the first row that fits:
@@ -103,12 +104,14 @@ Which identity the focus has, by the first row that fits:
 | Focus | Identity |
 | --- | --- |
 | Steam's dashboard has the keys, the keys go to one of Steam's own text fields, the focused window is Steam's own, or nothing is focused | None |
+| A stream from a PC holds the typing request (Streaming support) | `steam` with the streamed game's ID, or `stream`; none until this session's answer is in |
 | SteamOS's Desktop | `desktop`, with the app ID its window manager reported last; none before its first report and while no window is active there |
 | A game-streaming client, such as Moonlight | `program`, even when Steam started it as a non-Steam shortcut: its file name outlasts a shortcut's ID |
 | A window with a Steam app ID | `steam` |
 | Any other window | `program`; none when the program's name can't be read |
 
 - `DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, read without blocking: the focused window with its app's kind and ID, published together, so the bar never sees a new window with the last one's app.
+- Gamescope reports nothing for a stream from a PC: no focused app and no window (measured for a streamed desktop and a streamed game). Its app is read when a stream session begins, off the VR thread, from the process `streaming_client`: the one number after `--appid`, taken strictly (digits only, no leading zero, nonzero, within 32 bits, exactly one client running). That line also holds the account and the PC's address: nothing else of it is kept and none of it is logged. Any surprise means the `stream` identity, never a guess. An answer belongs to its session: a new session never shows the last one's game, and until its answer is in the bar keeps what it shows and nothing can be assigned.
 - An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set.
 - The uinput backend can't tell which app has the keys: there is no identity there, only free profiles.
 - A name is looked up when the picker's menu opens and when an app is assigned, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie and not looked up again.
@@ -146,7 +149,7 @@ Up to 32 steps, run in order. A macro presses keys; it does not type text.
 `ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run stops, sending nothing more and retrying nothing, when:
 
 - its button is pressed again, or anything else on the keyboard or the bar is pressed: a key, another button, the picker, a row or an assign button of its menu;
-- another window takes the keys, or the target goes away;
+- another window takes the keys, or the target goes away; on Steam's route, where there is no window, when the typing request changes or ends: another stream, a Steam field after a stream;
 - the keyboard hides, Settings or dictation opens, or the headset sleeps;
 - a step fails to deliver.
 
@@ -320,6 +323,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 | File | 512 KB |
 
 - Key names are the logical names of `key_codes`; a chord without `key` is modifiers alone. An unknown name, kind or field value makes the file invalid as a whole.
+- An app tie's `kind` is `steam`, `program`, `desktop` or `stream` ([Apps](#apps)). A `steam` ID is a nonzero 32-bit number, a `program` name has no folder part, and a `stream` tie's ID is `pc`.
 - An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
 - Labels, names and commands are valid UTF-8 without control characters; a label's one line break is the exception.
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
@@ -369,7 +373,7 @@ Facts to measure on the Frame before the parts that depend on them:
 | Probe | Decides |
 | --- | --- |
 | Stick press: how far the thumbstick component moves, in the dashboard and over apps, and whether SteamVR or the app also acts on it | Renaming in place |
-| What Gamescope reports for a game streamed from a PC, a streamed desktop and Moonlight | The stream row under [Apps](#apps) |
+| What Gamescope reports for a game streamed from a PC, a streamed desktop and Moonlight | The stream rows under [Apps](#apps). Answered for Steam's streams: nothing, so the identity comes from the streaming client. Moonlight is still to read |
 | Combinations sent back to back into a private receiver, with gaps from 0 to 50 ms | `shortcut_key_gap` |
 | A program started by the keyboard: its environment, and that it survives a keyboard restart. When the keyboard was started from Steam's launcher: whether Steam still shows the keyboard as running after it quits while that program lives | Run |
 | A numpad digit key sent into a private receiver under Gamescope, in SteamOS's Desktop and into a stream from a PC: whether it arrives as the digit or as the navigation key | Whether numpad digits are offered for local apps |
