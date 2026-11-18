@@ -165,9 +165,12 @@ constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 10
 // The reading line's top, in the flick band and on full layouts: the second
 // toolbar row's 42-pixel switches centred on its 44 pixels.
 constexpr double reading_line_top = second_row_top - 1;
-// The second toolbar row the reading line replaced: the case of a layout,
+// The second toolbar row the reading line replaced: a full layout's case,
 // in every view of it, is at most that much shorter.
 constexpr double second_row_room = 50;
+// The flick layout's case: as wide as a full layout's without its numpad
+// (1326 at its scale of 1.054), its height following its rows.
+constexpr double flick_case_width = 1326;
 double case_height(const PanelView& view) {
     // The shortcut editor is as tall as Settings and a full layout's case,
     // on every layout, so the case's edge and its handle stay in place as
@@ -2350,13 +2353,18 @@ double unbanded_layout_height(const PanelView& view) {
     return std::max(view.layout->height, room / placement(view).scale);
 }
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
+    const double margin = theme.padding;
     if (flick) {
-        return second_row_room;
+        // As wide as a full layout's case without its numpad: the keys at
+        // that width, under the band's two rows, need `needed` of the case.
+        // Whole pixels, as a full layout's: the case is at least that tall.
+        const double scale = (flick_case_width - 2 * margin) / layout.width;
+        const double needed = ime_two_row_height + 2 * margin + theme.depth + layout.height * scale;
+        return std::max(0.0, std::floor(panel_height - needed));
     }
     // The scale placement() gives the keys under the normal toolbar in the
     // full case; under the reading line's taller toolbar, at that scale, they
     // need `needed` of the case.
-    const double margin = theme.padding;
     const double scale =
         std::min((panel_width - 2 * margin) / layout.width,
                  (panel_height - normal_toolbar_height - 2 * margin - theme.depth) / layout.height);
@@ -5755,7 +5763,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const auto hidden = [&](const Rect& r) {
             return covering && hidden_under(r, *covering, t.radius + 6); // modal_panel's corners
         };
-        constexpr Rect settings_cards_area{18, 78, 1564, 476};
+        constexpr Rect settings_cards_area{18, 62, 1564, 476}; // SettingsUi::viewport
         if (view.settings && !hidden(settings_cards_area)) {
             cairo_save(cr);
             cairo_rectangle(cr, settings_cards_area.x, settings_cards_area.y, settings_cards_area.width,

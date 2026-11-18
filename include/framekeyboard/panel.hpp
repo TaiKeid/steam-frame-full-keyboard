@@ -17,7 +17,7 @@ constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
 // Settings' case: as tall as a full-size layout's (reading_case_room()), its
 // cards' scrollbar as far above its foot as the cards are from its sides.
-constexpr int settings_height = 588;
+constexpr int settings_height = 572;
 // Transparent space above/below the case lets dropdowns escape its border.
 // Logical UI and placement coordinates still describe the 1600 x 600 case.
 constexpr int popup_margin = 200;
@@ -208,13 +208,13 @@ constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
 constexpr Rect streaming_popup_bounds{390, 60, 820, 460};
 // The Additional languages popup covers Settings. One well holds three
 // columns, as the emoji picker's sections share one.
-constexpr Rect languages_popup_bounds{14, 8, 1572, 572};
-constexpr Rect languages_well_bounds{30, 72, 1540, 492};
-constexpr Rect languages_layouts_bounds{38, 116, 270, 440};
-constexpr Rect languages_list_bounds{338, 116, 760, 440};
+constexpr Rect languages_popup_bounds{14, 8, 1572, 556};
+constexpr Rect languages_well_bounds{30, 72, 1540, 476};
+constexpr Rect languages_layouts_bounds{38, 116, 270, 424};
+constexpr Rect languages_list_bounds{338, 116, 760, 424};
 constexpr double languages_list_gap = 8;
 constexpr Rect languages_main_bounds{1130, 116, 424, 56};
-constexpr Rect additional_list_bounds{1130, 226, 424, 330};
+constexpr Rect additional_list_bounds{1130, 226, 424, 314};
 constexpr double languages_row_height = 56, additional_row_height = 62;
 // The theme picker covers Settings as Additional languages does. Its well
 // holds a grid of cards, four across: a preview of the keyboard in that
@@ -744,8 +744,9 @@ constexpr double second_row_top = 62;
 // How much sooner a layout's case ends (PanelView::reading_room). A full
 // layout's keys keep the size they have under the normal toolbar, so its
 // case loses only the height they leave spare under the reading line's
-// taller one; the flick layout, as short as a phone's, loses the whole
-// second row.
+// taller one; the flick layout, as short as a phone's, is as wide as a full
+// layout's case without its numpad and as tall as its keys need at that
+// width.
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);

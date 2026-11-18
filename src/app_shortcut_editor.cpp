@@ -116,14 +116,14 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     l.chips = {l.left + 100, l.keys_y, l.record.x - 16 - (l.left + 100), 52};
     l.add_keys = {l.right - 170, 267, 170, 52};
     l.add_wait = {l.right - 170, 329, 170, 52};
-    l.steps_well = {l.label.x, 267, l.add_keys.x - 18 - l.label.x, 226};
+    l.steps_well = {l.label.x, 267, l.add_keys.x - 18 - l.label.x, 210};
     l.steps_top = l.steps_well.y + 7;
-    l.repeat = {l.label.x, 510, 3 * 117, 54};
-    l.count_minus = {l.repeat.x + l.repeat.width + 20, 511, 52, 52};
-    l.count_value = {l.count_minus.x + 60, 511, 70, 52};
-    l.count_plus = {l.count_value.x + 78, 511, 52, 52};
+    l.repeat = {l.label.x, 494, 3 * 117, 54};
+    l.count_minus = {l.repeat.x + l.repeat.width + 20, 495, 52, 52};
+    l.count_value = {l.count_minus.x + 60, 495, 70, 52};
+    l.count_plus = {l.count_value.x + 78, 495, 52, 52};
     // One 26-pixel line, centered on the Repeat row.
-    l.sends = {l.count_plus.x + 72, 524, l.right - (l.count_plus.x + 72), 26};
+    l.sends = {l.count_plus.x + 72, 508, l.right - (l.count_plus.x + 72), 26};
     l.explanation = {l.left, 372, l.right - l.left, 60};
     return l;
 }
@@ -167,7 +167,7 @@ template <class Scroll> bool step_scroll(Scroll& scroll, double delta, double si
     return scroll.target != old;
 }
 // Where the popup's parts go (design, Typing and recording): under the
-// strip, centered on the case, 396 tall whatever the width. Row 1 holds what
+// strip, centered on the case, 380 tall whatever the width. Row 1 holds what
 // is edited and the buttons, row 2 the recessed strip, and the keys take the
 // rest at a scale that fits the mini layout's height into it.
 struct PopupLayout {
@@ -175,14 +175,16 @@ struct PopupLayout {
     double scale{};
 };
 PopupLayout popup_layout(const Rect& body, const Rect& strip_well, const Layout& mini) {
-    constexpr double height = 396, pad = 10, margin = 12, row = 40, well = 44;
-    constexpr double keys_top = pad + row + 8 + well + 8; // 110
+    // 6 above and below and 4 between its rows keep the mini keys at 42 x 48
+    // in a 572-pixel case.
+    constexpr double height = 380, pad = 6, margin = 12, row = 40, well = 44, between = 4;
+    constexpr double keys_top = pad + row + between + well + between; // 98
     PopupLayout l;
     l.scale = mini.height > 0 ? (height - keys_top - pad) / mini.height : 1;
     const double width = mini.width * l.scale + 2 * margin;
     l.panel = {body.x + (body.width - width) / 2, strip_well.y + strip_well.height + 8, width, height};
     l.row = {l.panel.x + margin, l.panel.y + pad, width - 2 * margin, row};
-    l.well = {l.panel.x + margin, l.panel.y + pad + row + 8, width - 2 * margin, well};
+    l.well = {l.panel.x + margin, l.panel.y + pad + row + between, width - 2 * margin, well};
     l.keys = {l.panel.x + margin, l.panel.y + keys_top, mini.width * l.scale, mini.height * l.scale};
     return l;
 }
