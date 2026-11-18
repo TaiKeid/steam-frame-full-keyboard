@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 
 namespace framekeyboard {
 namespace {
@@ -110,12 +112,16 @@ void App::apply_bar_changes(const ShortcutProfileChoice::Changes& changes) {
     dirty = true;
 }
 bool App::shortcut_button_enabled(const ShortcutButton& button) const {
-    // Shortcuts and macros press keys; Run comes in a later phase. A Steam
-    // field takes only a few named keys, so no combination can go there
-    // (design, Where actions can go).
-    return (button.action.kind == ShortcutAction::Kind::Keys ||
-            button.action.kind == ShortcutAction::Kind::Macro) &&
-           !shortcut_action_empty(button.action) && !output_.steam_field_target();
+    if (shortcut_action_empty(button.action)) {
+        return false;
+    }
+    // Run types nothing, so it needs no typing target: never disabled for
+    // one (design, Where actions can go).
+    if (button.action.kind == ShortcutAction::Kind::Run) {
+        return true;
+    }
+    // A Steam field takes only a few named keys, so no combination can go there.
+    return !output_.steam_field_target();
 }
 ShortcutBarGeometry App::bar_geometry(std::size_t buttons) const {
     // From the keyboard's own keys: the emoji picker keeps its case and
@@ -569,6 +575,7 @@ void App::tick_shortcut_bar(double now) {
     dirty |= ease_scroll(menu_scroll_.shown, menu_scroll_.target, elapsed);
     take_shortcuts_result();
     take_app_names();
+    take_started();
 }
 FocusedApp App::focused_app() const {
     auto focus = output_.focused_app();
@@ -719,6 +726,10 @@ void App::press_shortcut_button(std::size_t index, double now) {
     // Copied: what follows may change the model's storage.
     const auto profile_id = bar->id;
     const auto action = bar->buttons[index].action;
+    if (action.kind == ShortcutAction::Kind::Run) {
+        start_run_button(profile_id, index, bar->buttons[index]);
+        return;
+    }
     // Without a target, as a key: Focus mode's icon shakes.
     if (refuse_without_target(now) || !backend_ready_) {
         return;
@@ -755,6 +766,43 @@ void App::press_shortcut_button(std::size_t index, double now) {
         }
     }
     dirty = true;
+}
+void App::start_run_button(const std::string& profile, std::size_t index, const ShortcutButton& button) {
+    // One start at a time for a button: its next press waits for the report.
+    if (std::any_of(pending_starts_.begin(), pending_starts_.end(), [&](const PendingStart& start) {
+            return start.profile == profile && start.button == index;
+        })) {
+        return;
+    }
+    LaunchRequest request;
+    request.script = button.action.script;
+    request.command = button.action.command;
+    request.scripts = scripts_folder(config_dir());
+    const char* home = std::getenv("HOME");
+    request.home = home && *home ? home : "/";
+    request.environment = child_environment(current_environment());
+    const auto id = ++next_start_;
+    auto label = button.label;
+    std::replace(label.begin(), label.end(), '\n', ' ');
+    pending_starts_.push_back({id, profile, index, std::move(label)});
+    launcher_.start(id, std::move(request));
+}
+void App::take_started() {
+    while (const auto result = launcher_.take()) {
+        const auto start = std::find_if(pending_starts_.begin(), pending_starts_.end(),
+                                        [&](const PendingStart& item) { return item.id == result->id; });
+        if (start == pending_starts_.end()) {
+            continue;
+        }
+        if (result->failure != LaunchFailure::None) {
+            // Only the kind, as a number: never the label, script or command.
+            std::cerr << "Shortcut bar: a Run button did not start (failure "
+                      << static_cast<int>(result->failure) << ")\n";
+            status_ = tr("status.shortcuts-run-failed", {{"button", start->label}});
+            dirty = true;
+        }
+        pending_starts_.erase(start);
+    }
 }
 void App::stop_shortcut_run() {
     if (shortcut_runner_.running() || shortcut_run_) {

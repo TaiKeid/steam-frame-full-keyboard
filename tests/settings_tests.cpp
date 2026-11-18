@@ -4050,8 +4050,8 @@ void shortcut_buttons() {
     auto view = app.view();
     const auto& buttons = view.shortcut_bar->buttons;
     require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && buttons[2].enabled &&
-                !buttons[3].enabled,
-            "a macro is enabled; an empty action, and Run for now, are disabled");
+                buttons[3].enabled,
+            "a macro and Run are enabled; an empty action is disabled");
     const auto press = middle(buttons[0].bounds);
     app.move(0, press.x, press.y);
     require(app.down(0, press.x, press.y, 900.1), "a button's press feels like a key's");
@@ -4127,8 +4127,9 @@ void shortcut_buttons() {
     } field;
     App steam(options, field);
     const auto shown = steam.view().shortcut_bar->buttons;
-    require(std::none_of(shown.begin(), shown.end(), [](const auto& b) { return b.enabled; }),
-            "buttons are disabled in a Steam field");
+    require(std::none_of(shown.begin(), shown.end() - 1, [](const auto& b) { return b.enabled; }) &&
+                shown.back().enabled,
+            "key buttons are disabled in a Steam field; Run, which types nothing, is not");
 }
 // R321: a button's press belongs to the bar it began on. Another window
 // takes the keys while it is held and the free bar comes back: letting go in
@@ -5154,6 +5155,89 @@ void stick_scrolls_bar() {
     click(app, "bar-toggle");
     require(!app.view().shortcut_bar && !app.stick_scrolls(), "the bar hidden by hand: no stick");
 }
+// Run buttons (design, Run): never disabled for lack of a target, one start
+// per press with more presses waiting for its report, and a failed start's
+// status naming the button. In a temporary home only.
+void run_buttons() {
+    TemporaryDirectory directory, home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const auto marker = home.path / "marker";
+    ShortcutButton command;
+    command.label = "Mark\nit";
+    command.action.kind = ShortcutAction::Kind::Run;
+    command.action.command = "echo x >> '" + marker.string() + "'";
+    ShortcutButton missing;
+    missing.label = "Gone";
+    missing.action.kind = ShortcutAction::Kind::Run;
+    missing.action.script = "missing.sh";
+    ShortcutButton empty;
+    empty.label = "Empty";
+    empty.action.kind = ShortcutAction::Kind::Run;
+    ShortcutModel model;
+    model.profiles.push_back({"r", "Run", {command, missing, empty}});
+    model.free_profile = "r";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct SteamField : CaptureSink {
+        bool steam_field_target() const override { return true; }
+    } sink;
+    App app(options, sink);
+    double now = 3000;
+    app.tick(now);
+    const auto buttons = [&] { return app.view().shortcut_bar->buttons; };
+    require(buttons()[0].enabled && buttons()[1].enabled && !buttons()[2].enabled,
+            "in a Steam field Run buttons are enabled; an empty one is not");
+    app.set_dashboard_focus(true);
+    app.tick(now += .1);
+    require(buttons()[0].enabled && buttons()[1].enabled,
+            "with Steam's dashboard and no target they are enabled too");
+    const auto press = [&](std::size_t index) {
+        const auto at = middle(buttons()[index].bounds);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now);
+        app.up(0, at.x, at.y);
+    };
+    const auto lines = [&] {
+        std::ifstream file(marker);
+        return static_cast<int>(std::count(std::istreambuf_iterator<char>(file), {}, '\n'));
+    };
+    const auto settle_until = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 400 && !done(); ++i) {
+            usleep(5000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    press(0);
+    press(0); // before its start is reported: ignored
+    require(settle_until([&] { return lines() == 1; }), "a press starts the command");
+    for (int i = 0; i < 40; ++i) {
+        usleep(5000);
+        app.tick(now += .01);
+    }
+    require(lines() == 1 && sink.events.empty(),
+            "the second press waited for the first's report; nothing typed");
+    press(0);
+    require(settle_until([&] { return lines() == 2; }), "once reported, the next press starts it again");
+    press(1);
+    require(settle_until([&] { return app.view().status.find("Gone") != std::string::npos; }) &&
+                app.view().status ==
+                    "Gone could not start. Check its script or command in the shortcut editor.",
+            "a missing script's status names the button");
+    press(2);
+    app.tick(now += .1);
+    require(lines() == 2, "an empty Run button does nothing");
+    setenv("HOME", old_home.c_str(), 1);
+}
 // R332: a new user's first bar shows as soon as ✓ saves it, and becomes
 // the free bar.
 void first_bar_shows() {
@@ -5776,6 +5860,7 @@ int main() {
         first_bar_shows();
         shortcut_apps();
         stick_scrolls_bar();
+        run_buttons();
         macro_first_row_scrolls();
         carry_closes_on_scroll();
         bar_presses_and_holds();

@@ -23,6 +23,7 @@
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
 #include "shortcut_editor.hpp"
+#include "shortcut_launch.hpp"
 #include "shortcut_runner.hpp"
 #include "shortcuts.hpp"
 #include "stream_support.hpp"
@@ -1894,6 +1895,21 @@ class App {
     void tick_shortcut_bar(double now);
     void press_shortcut_button(std::size_t index, double now);
     void stop_shortcut_run();
+    // Run buttons (design, Run): a press starts one program off the VR
+    // thread; more presses on that button wait until its start is
+    // reported, taken on a tick. A failed start shows a status naming the
+    // button; only the kind of failure is logged, as a number.
+    ShortcutLauncher launcher_;
+    struct PendingStart {
+        std::uint64_t id{};
+        std::string profile;
+        std::size_t button{};
+        std::string label; // for the status; never logged
+    };
+    std::vector<PendingStart> pending_starts_;
+    std::uint64_t next_start_{};
+    void start_run_button(const std::string& profile, std::size_t index, const ShortcutButton& button);
+    void take_started();
     // The Debug card's sample bars, while there are none.
     void add_sample_shortcuts();
 
