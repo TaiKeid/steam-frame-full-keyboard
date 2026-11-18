@@ -624,6 +624,37 @@ void app_button() {
             "round again to Game: its profile");
     simulator.shutdown();
 }
+// A Run button starts its program on the computer the simulator runs on:
+// here a command writing a marker in the test's own folder.
+void run_button() {
+    Profile profile;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", profile.path.c_str(), 1);
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    const auto marker = profile.path / "run-marker";
+    ShortcutButton run;
+    run.label = "Mark";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.command = "echo started > '" + marker.string() + "'";
+    ShortcutModel model;
+    model.profiles.push_back({"r", "Run", {run}});
+    model.free_profile = "r";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    require(simulator.app().view().shortcut_bar->buttons[0].enabled, "a Run button is enabled");
+    click_rect(simulator, simulator.app().view().shortcut_bar->buttons[0].bounds);
+    for (int i = 0; i < 300 && !fs::exists(marker); ++i) {
+        usleep(5000);
+        wait(simulator, .01);
+    }
+    require(fs::exists(marker) && simulator.field().text().empty(),
+            "a click starts its command on this computer; nothing is typed");
+    simulator.shutdown();
+    setenv("HOME", old_home.c_str(), 1);
+}
 int main() {
     try {
         injected_converter();
@@ -639,6 +670,7 @@ int main() {
         shortcut_bar();
         shortcut_editor();
         app_button();
+        run_button();
         std::cout << "simulator tests passed\n";
         return 0;
     } catch (const std::exception& error) {

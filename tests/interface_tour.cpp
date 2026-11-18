@@ -6,7 +6,9 @@
 // default. Other languages need a debug build: the Debug card picks them.
 #include "framekeyboard/app.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
@@ -23,6 +25,8 @@ struct Sink : KeySink {
 };
 double now = 100;
 fs::path output;
+// The scripts the Run list shows: made-up names, never the computer's own.
+std::vector<std::string> tour_scripts;
 std::ofstream fits_report;
 
 void settle(App& app, int frames = 40) {
@@ -48,6 +52,10 @@ void click(App& app, const std::string& id) {
     app.down(0, x, y, 1);
     app.up(0, x, y);
     settle(app, 10);
+}
+std::string read_file(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), {}};
 }
 // The last card, where the Debug card is, in view.
 void to_last_card(App& app) {
@@ -178,8 +186,12 @@ int main(int argc, char** argv) {
         // menu, and the bar with its last buttons scrolled into view.
         {
             Options bar_options = options;
-            bar_options.config_dir = fs::path(config) / "shortcut-bar";
+            // Under a home of its own, so the scripts folder reads as a user's.
+            const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+            setenv("HOME", config.c_str(), 1);
+            bar_options.config_dir = fs::path(config) / ".config" / "framekeyboard";
             fs::create_directories(bar_options.config_dir);
+            bar_options.script_list = [](const fs::path&) { return tour_scripts; };
             Settings settings;
             settings.shortcuts = true;
             save_settings(bar_options.config_dir, settings);
@@ -245,6 +257,62 @@ int main(int argc, char** argv) {
                     click(app, "shortcuts-button-6");
                     shot(app, "shortcut-editor-macro" + suffix);
                 };
+                // Run: a script chosen from the list, one gone, the empty
+                // list, a command and its popup; saved with the missing
+                // script, the bar's status when it can't start.
+                const auto wait_for = [&](App& app, const std::function<bool()>& done) {
+                    for (int i = 0; i < 300 && !done(); ++i) {
+                        usleep(5000);
+                        settle(app, 1);
+                    }
+                };
+                const auto run_view = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-row-0");
+                    click(app, "shortcuts-button-0");
+                    click(app, "shortcuts-kind-2");
+                    tour_scripts = {"backup-notes.sh", "brightness-down.sh", "brightness-up.sh",
+                                    "screenshot.sh",   "toggle-wifi.sh",     "volume-check.sh"};
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 6; });
+                    click(app, "shortcuts-script-3");
+                    shot(app, "shortcut-editor-run" + suffix);
+                    tour_scripts.erase(tour_scripts.begin() + 3);
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] {
+                        const auto& rows = app.view().shortcut_editor->scripts;
+                        return rows.size() == 6 && rows[3].missing;
+                    });
+                    shot(app, "shortcut-editor-run-missing" + suffix);
+                    tour_scripts.clear();
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 1; });
+                    click(app, "shortcuts-script-0"); // the missing one, cleared
+                    shot(app, "shortcut-editor-run-empty" + suffix);
+                    click(app, "shortcuts-run-1");
+                    click(app, "shortcuts-command");
+                    for (const char* key :
+                         {"KeyN", "KeyO", "KeyT", "KeyE", "KeyS", "Space", "KeyH", "KeyI"}) {
+                        click(app, std::string("shortcuts-popup-key-") + key);
+                    }
+                    shot(app, "shortcut-editor-run-command-popup" + suffix);
+                    click(app, "shortcuts-popup-done");
+                    shot(app, "shortcut-editor-run-command" + suffix);
+                    // Saved with the gone script: its press can't start it.
+                    click(app, "shortcuts-run-0");
+                    tour_scripts = {"screenshot.sh"};
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 1; });
+                    click(app, "shortcuts-script-0");
+                    click(app, "shortcuts-save");
+                    const auto button = app.view().shortcut_bar->buttons[0].bounds;
+                    const double bx = button.x + button.width / 2, by = button.y + button.height / 2;
+                    app.move(0, bx, by);
+                    app.down(0, bx, by, 1);
+                    app.up(0, bx, by);
+                    app.move(0, bx, by + 400);
+                    wait_for(app, [&] { return !app.view().status.empty(); });
+                    shot(app, "shortcut-bar-run-failed" + suffix);
+                };
                 open_editor(bars);
                 shot(bars, "shortcut-editor");
                 popups(bars, "");
@@ -271,6 +339,12 @@ int main(int argc, char** argv) {
                 click(bars, "shortcuts-back");
                 sink.focus = {1, {}, {}};
                 bars.flush_settings();
+                // A copy of the profiles for the narrow keyboard, before Run changes the first button.
+                const auto saved_profiles = read_file(shortcuts_path(bar_options.config_dir));
+                open_editor(bars);
+                run_view(bars, "");
+                bars.flush_settings();
+                std::ofstream(shortcuts_path(bar_options.config_dir)) << saved_profiles;
                 Settings narrow = settings;
                 narrow.hide_numpad = true;
                 save_settings(bar_options.config_dir, narrow);
@@ -287,9 +361,11 @@ int main(int argc, char** argv) {
                 shot(small, "shortcut-editor-no-numpad");
                 popups(small, "-no-numpad");
                 macro_view(small, "-no-numpad");
+                run_view(small, "-no-numpad");
             } else {
                 bars.back();
             }
+            setenv("HOME", old_home.c_str(), 1);
         }
         // The empty two-slot bar the toolbar button opens with no profiles, at
         // both widths: its tab too.
