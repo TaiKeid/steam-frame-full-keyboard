@@ -1948,6 +1948,8 @@ class App {
         // A script's row: the drag scrolls the list, from `scroll` at the press.
         bool scripts{};
         double scroll{};
+        // A bar's button, moved along the strip: no other kind's (R352).
+        bool button() const { return !row && !step && !scripts; }
     };
     // A button dropped on another profile's row: Move or Copy, in a popover
     // beside that row, until either or a press anywhere else.

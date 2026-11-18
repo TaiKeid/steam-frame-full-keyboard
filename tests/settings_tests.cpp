@@ -5346,7 +5346,12 @@ void run_editor() {
         settings.hide_numpad = narrow;
         save_settings(config, settings);
         ShortcutModel model;
-        model.profiles.push_back({"p", "P", {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}})}});
+        // Three buttons, the third edited: no drag may select another (R352).
+        model.profiles.push_back({"p",
+                                  "P",
+                                  {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}}),
+                                   shortcut_button("One", {{{"ControlLeft"}, "KeyO"}}),
+                                   shortcut_button("Two", {{{"ControlLeft"}, "KeyT"}})}});
         model.free_profile = "p";
         write_shortcuts(config, model);
         Options options;
@@ -5355,6 +5360,8 @@ void run_editor() {
         CaptureSink sink;
         App app(options, sink);
         open_editor(app);
+        tap_control(app, "shortcuts-button-2");
+        require(control(app.view(), "shortcuts-button-2").selected, "the third button is edited");
         const auto folder = config / "scripts";
         const auto settle = [&](const std::function<bool()>& done) {
             static double now = 5000;
@@ -5364,12 +5371,13 @@ void run_editor() {
             }
             return done();
         };
-        require(control(app.view(), "shortcuts-button-0").icon == Icon::None, "a shortcut has no mark");
+        require(control(app.view(), "shortcuts-button-2").icon == Icon::None, "a shortcut has no mark");
         tap_control(app, "shortcuts-kind-2");
         require(control(app.view(), "shortcuts-kind-2").selected &&
                     control(app.view(), "shortcuts-run-0").selected,
                 "Run is chosen, Script first");
-        require(control(app.view(), "shortcuts-button-0").icon == Icon::RunMark,
+        require(control(app.view(), "shortcuts-button-2").icon == Icon::RunMark &&
+                    control(app.view(), "shortcuts-button-0").icon == Icon::None,
                 "the strip shows the mark as soon as Run is chosen, pending as it is");
         require(settle([&] { return !app.view().shortcut_editor->scripts_note.empty(); }) &&
                     fs::is_directory(folder),
@@ -5409,11 +5417,17 @@ void run_editor() {
         const double top = app.view().shortcut_editor->scripts[0].bounds.y;
         app.down(0, first.x, first.y, 6000);
         app.move(0, first.x, first.y - 20);
+        require(control(app.view(), "shortcuts-button-2").selected &&
+                    !app.view().shortcut_editor->lifted_button,
+                "a drag lifted on the list selects no other button and carries none (R352)");
         app.move(0, first.x, first.y - 90);
         app.up(0, first.x, first.y - 90);
         require(app.view().shortcut_editor->scripts[0].bounds.y < top - 60 &&
                     control_selected_script(app) == "c.sh",
                 "a drag from a row scrolls the list and chooses nothing");
+        require(control(app.view(), "shortcuts-button-2").selected &&
+                    control(app.view(), "shortcuts-kind-2").selected,
+                "the third button stays edited, still Run");
         // The chosen script gone: it stays, marked missing.
         fs::remove(folder / "c.sh");
         tap_control(app, "shortcuts-refresh");
@@ -5460,13 +5474,17 @@ void run_editor() {
         require(control_selected_script(app) == "c.sh", "back to Script: its choice is kept");
         tap_control(app, "shortcuts-run-1");
         require(control(app.view(), "shortcuts-command").label == "ls", "and Command's");
-        require(saved_shortcuts(app).profiles[0].buttons[0].action.kind == ShortcutAction::Kind::Keys,
+        require(saved_shortcuts(app).profiles[0].buttons[2].action.kind == ShortcutAction::Kind::Keys,
                 "all of it pending until ✓");
         tap_control(app, "shortcuts-save");
-        const auto saved = saved_shortcuts(app).profiles[0].buttons[0].action;
+        const auto saved_model = saved_shortcuts(app);
+        const auto saved = saved_model.profiles[0].buttons[2].action;
         require(saved.kind == ShortcutAction::Kind::Run && saved.command == "ls" &&
                     saved.script.empty() && saved.chords.empty(),
                 "✓ saves the command chosen alone");
+        require(saved_model.profiles[0].buttons[0] == model.profiles[0].buttons[0] &&
+                    saved_model.profiles[0].buttons[1] == model.profiles[0].buttons[1],
+                "the other buttons are saved unchanged");
         setenv("HOME", old_home.c_str(), 1);
     }
 }

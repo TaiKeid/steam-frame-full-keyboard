@@ -884,7 +884,7 @@ void App::append_shortcut_editor(PanelView& v) const {
                 e.lifted_step = lifted;
             }
         } else if (const auto* selected = shortcut_editor_->selected_profile();
-                   !d.row && !d.step && selected && d.index < selected->buttons.size()) {
+                   d.button() && selected && d.index < selected->buttons.size()) {
             e.lifted_button = ShortcutChip{selected->buttons[d.index].label,
                                            {d.px - l.button_width / 2, d.py - l.button_height / 2,
                                             l.button_width, l.button_height}};
@@ -1110,7 +1110,7 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
         if (d.row) {
             shortcut_editor_->select_profile(d.index);
             editor_strip_scroll_ = {};
-        } else if (!d.step) {
+        } else if (d.button()) {
             shortcut_editor_->select_button(d.index);
         }
     }
@@ -1179,7 +1179,7 @@ bool App::editor_drag_up(unsigned pointer) {
     if (!d.lifted) {
         return false; // a click: the control acts
     }
-    if (shortcut_editor_ && !d.row && !d.step && !d.scripts) {
+    if (shortcut_editor_ && d.button()) {
         if (d.over_row) {
             // On another profile that takes it: Move or Copy. On its own
             // profile's row, or a full one's, it goes back to its place.
