@@ -702,7 +702,25 @@ void App::look_up_focused_name() {
         return;
     }
     const auto& app = *bar_focus_.app;
-    if (const auto* tie = shortcuts_.tie(app); tie && !tie->name.empty()) {
+    const auto* tie = shortcuts_.tie(app);
+    // A tie saved under its identity's own name, such as a window class,
+    // still wants the real one (R362, R363).
+    const bool named = tie && !tie->name.empty() && tie->name != fallback_app_name(app);
+    if (named) {
+        return;
+    }
+    // A name kept before needs no lookup, so a class's scan happens once
+    // (R363); a tie still under its identity's name takes it.
+    if (const auto kept = recorded_app_name(name_record_, app); !kept.empty()) {
+        if (tie && !shortcut_editor_) {
+            for (auto& each : shortcuts_.apps) {
+                if (each.app == app) {
+                    each.name = kept;
+                }
+            }
+            save_shortcuts();
+            dirty = true;
+        }
         return;
     }
     if (!app_name_ || app_name_->app != app) {

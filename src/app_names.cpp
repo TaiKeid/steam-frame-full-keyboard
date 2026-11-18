@@ -116,8 +116,9 @@ std::string steam_name(const std::string& id, const std::vector<fs::path>& roots
     }
     return {};
 }
-// Name= of a desktop file's [Desktop Entry] group, not a translated Name[..]=.
-std::string desktop_name(std::string_view data) {
+// `key`= of a desktop file's [Desktop Entry] group, unescaped, not a
+// translated key[..]=; none when absent.
+std::optional<std::string> desktop_value(std::string_view data, std::string_view key) {
     bool entry = false;
     std::size_t start = 0;
     while (start < data.size()) {
@@ -134,10 +135,10 @@ std::string desktop_name(std::string_view data) {
             entry = line == "[Desktop Entry]";
             continue;
         }
-        if (!entry || !line.starts_with("Name")) {
+        if (!entry || !line.starts_with(key)) {
             continue;
         }
-        auto rest = line.substr(4);
+        auto rest = line.substr(key.size());
         while (!rest.empty() && rest.front() == ' ') {
             rest.remove_prefix(1);
         }
@@ -155,7 +156,47 @@ std::string desktop_name(std::string_view data) {
                 value += rest[i];
             }
         }
-        return clean_app_name(value);
+        return value;
+    }
+    return {};
+}
+// Name= of a desktop file's [Desktop Entry] group, cleaned.
+std::string desktop_name(std::string_view data) {
+    const auto name = desktop_value(data, "Name");
+    return name ? clean_app_name(*name) : std::string();
+}
+// The Name= of the first desktop file, in folder order and by file name
+// within a folder, whose StartupWMClass= is `window_class` as written: a
+// Flatpak's window reports a class its file isn't named by (R363). At most
+// desktop_class_files files and desktop_class_bytes read in all.
+std::string name_by_window_class(const std::string& window_class, const std::vector<fs::path>& folders) {
+    std::size_t files = 0, bytes = 0;
+    for (const auto& folder : folders) {
+        std::vector<fs::path> paths;
+        std::error_code error;
+        for (fs::directory_iterator entry(folder, error); !error && entry != fs::directory_iterator();
+             entry.increment(error)) {
+            if (entry->path().extension() == ".desktop") {
+                paths.push_back(entry->path());
+            }
+            if (paths.size() >= desktop_class_listed) {
+                break; // a folder this large is cut off before sorting
+            }
+        }
+        std::sort(paths.begin(), paths.end());
+        for (const auto& path : paths) {
+            if (files >= desktop_class_files || bytes >= desktop_class_bytes) {
+                return {};
+            }
+            const auto data = read_start(path, app_name_file_bytes);
+            ++files;
+            bytes += data.size();
+            if (desktop_value(data, "StartupWMClass") == window_class) {
+                if (auto name = desktop_name(data); !name.empty()) {
+                    return name;
+                }
+            }
+        }
     }
     return {};
 }
@@ -244,13 +285,19 @@ std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folde
         if (!plain_file_name(app.id)) {
             return {};
         }
-        for (const auto& folder : folders.applications) {
-            const auto data = read_start(folder / (app.id + ".desktop"), app_name_file_bytes);
-            if (auto name = desktop_name(data); !name.empty()) {
-                return name;
+        {
+            bool named_file = false;
+            for (const auto& folder : folders.applications) {
+                std::error_code error;
+                named_file |= fs::is_regular_file(folder / (app.id + ".desktop"), error);
+                const auto data = read_start(folder / (app.id + ".desktop"), app_name_file_bytes);
+                if (auto name = desktop_name(data); !name.empty()) {
+                    return name;
+                }
             }
+            // No file named by the ID: the one whose window class it is.
+            return named_file ? std::string() : name_by_window_class(app.id, folders.applications);
         }
-        return {};
     case AppIdentity::Kind::Program:
         return {}; // Its file name is its name.
     case AppIdentity::Kind::Stream:

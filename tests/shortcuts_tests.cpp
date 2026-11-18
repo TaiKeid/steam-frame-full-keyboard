@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <glib.h>
@@ -1103,6 +1104,43 @@ void app_names() {
             "a desktop file without Name=, or missing: none");
     require(look_up_app_name(desktop("../system/org.example.Notes"), folders).empty(),
             "a Desktop app ID is a file name, never a path");
+    // R363: a window class with no desktop file of its name, as a Flatpak's:
+    // the first file, in folder order and by name, whose StartupWMClass= is it.
+    {
+        const auto first = folder.path / "first", second = folder.path / "second";
+        fs::create_directories(first);
+        fs::create_directories(second);
+        write(second / "com.example.Browser.desktop",
+              "[Desktop Entry]\r\nType=Application\r\nName[de]=Beispiel\r\nName=Example Browser\r\n"
+              "StartupWMClass=example-browser\r\n");
+        write(first / "b.desktop", "[Desktop Entry]\nName=First\nStartupWMClass=shared\n");
+        write(first / "a.desktop", "[Desktop Entry]\nName=First by name\nStartupWMClass=shared\n");
+        write(second / "a.desktop", "[Desktop Entry]\nName=Second\nStartupWMClass=shared\n");
+        write(second / "x.desktop", "[Desktop Entry]\nName=By class\nStartupWMClass=named-app\n");
+        write(first / "named-app.desktop", "[Desktop Entry]\nName=By file\n");
+        const AppNameFolders classes{{}, {first, second}};
+        require(look_up_app_name(desktop("example-browser"), classes) == "Example Browser",
+                "a Flatpak's window class finds its file's name");
+        require(look_up_app_name(desktop("shared"), classes) == "First by name",
+                "two files with one class: the first folder's, by file name");
+        require(look_up_app_name(desktop("named-app"), classes) == "By file",
+                "a file named by the ID wins");
+        require(look_up_app_name(desktop("Example-Browser"), classes).empty(), "the class as written");
+        require(look_up_app_name(desktop("nobody"), classes).empty() &&
+                    fallback_app_name(desktop("nobody")) == "nobody",
+                "nothing found: the ID's last part, as before");
+        // Bounded: past the first files the scan stops.
+        const auto many = folder.path / "many";
+        fs::create_directories(many);
+        for (std::size_t i = 0; i < desktop_class_files; ++i) {
+            char name[32];
+            std::snprintf(name, sizeof(name), "a%04zu.desktop", i);
+            write(many / name, "[Desktop Entry]\nName=Other\n");
+        }
+        write(many / "zz.desktop", "[Desktop Entry]\nName=Late\nStartupWMClass=late\n");
+        require(look_up_app_name(desktop("late"), AppNameFolders{{}, {many}}).empty(),
+                "at most desktop_class_files files are read");
+    }
     require(look_up_app_name(program("notes"), folders).empty(), "a program's name is its file name");
     require(
         fallback_app_name(program("moonlight")) == "moonlight" &&

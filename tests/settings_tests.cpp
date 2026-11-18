@@ -5704,6 +5704,81 @@ void shortcut_stream_focus_held() {
     sink.focus = {5, AppIdentity{AppIdentity::Kind::Program, "editor"}, "editor"};
     require(until("(hidden)"), "a local window takes the keys: its own bar");
 }
+// R363: inside SteamOS's Desktop a Flatpak's window reports its class, which
+// no desktop file is named by; its name comes from the file whose
+// StartupWMClass= it is, and a tie saved under the class takes it. The name
+// is kept, so the next start scans nothing.
+void shortcut_window_class_name() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity browser{AppIdentity::Kind::Desktop, "example-browser"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"w", "Web", {shortcut_button("W", {{{"ControlLeft"}, "KeyW"}})}});
+    model.apps.push_back({browser, "example-browser", "w"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto applications = directory.path / "applications";
+    fs::create_directories(applications);
+    std::ofstream(applications / "com.example.Browser.desktop")
+        << "[Desktop Entry]\nName=Example Browser\nStartupWMClass=example-browser\n";
+    std::atomic<int> lookups{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = directory.path / "cache" / "app-names.json";
+    options.app_names = [&, folders = AppNameFolders{{}, {applications}}](const AppIdentity& app) {
+        ++lookups;
+        return look_up_app_name(app, folders);
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {6, browser, "kwin_wayland"};
+    double now = 1800;
+    const auto open_menu = [&](App& app) {
+        app.tick(now += .01);
+        tap_rect(app, app.view().shortcut_bar->picker);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    {
+        App app(options, sink);
+        open_menu(app);
+        bool renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(browser)->name == "Example Browser";
+        }
+        require(renamed, "a tie saved under the window class takes the name its file gives");
+        app.flush_settings();
+    }
+    // Untied now, only the kept name stands between the next start and a scan.
+    model.apps.clear();
+    write_shortcuts(directory.path, model);
+    const int scans = lookups;
+    {
+        App app(options, sink);
+        open_menu(app);
+        for (int i = 0; i < 50; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+        app.move(0, at.x, at.y);
+        require(lookups == scans &&
+                    app.view().bar_tooltip == "Show Web whenever Example Browser is in front",
+                "a name kept before is not looked up again");
+    }
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6858,6 +6933,7 @@ int main() {
         shortcut_name_record();
         shortcut_fkeys_from_file();
         shortcut_stream_focus_held();
+        shortcut_window_class_name();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

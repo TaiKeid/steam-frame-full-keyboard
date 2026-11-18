@@ -43,8 +43,10 @@ struct AppNameFolders {
 // Flatpak's Steam are included.
 AppNameFolders system_app_name_folders(const std::filesystem::path& home);
 // A Steam app's `name` from its app manifest, searching the libraries
-// libraryfolders.vdf lists; a Desktop app's `Name=` from its desktop file. A
-// program's name is its file name, so it reads nothing. Empty when not found.
+// libraryfolders.vdf lists; a Desktop app's `Name=` from its desktop file, or
+// when no file is named by its ID, from the first whose `StartupWMClass=` is
+// the ID (a Flatpak's window class). A program's name is its file name, so
+// it reads nothing. Empty when not found.
 std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folders);
 // look_up_app_name in system_app_name_folders($HOME), for the headset.
 AppNameSource system_app_names();
@@ -81,6 +83,13 @@ inline constexpr std::size_t app_name_file_bytes = 32 * 1024;
 // libraryfolders.vdf lists every installed game under each library before
 // the next library's path.
 inline constexpr std::size_t library_folders_bytes = 256 * 1024;
+// A Desktop app's window class with no desktop file of its name is looked
+// for in the files' StartupWMClass= (R363), reading at most this many
+// files, each cut off at app_name_file_bytes, and this much in all.
+inline constexpr std::size_t desktop_class_files = 1000;
+// Each folder's file names are listed up to this many, then sorted.
+inline constexpr std::size_t desktop_class_listed = 4000;
+inline constexpr std::size_t desktop_class_bytes = 4 * 1024 * 1024;
 
 // Runs a source's lookups on a detached thread of its own, one at a time,
 // so destroying this never waits for a slow read. Results are taken on a
