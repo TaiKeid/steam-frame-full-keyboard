@@ -182,7 +182,6 @@ void App::append_shortcut_bar(PanelView& v) const {
     view.more_before = scroll > .5;
     view.more_after = scroll < g.scroll_limit - .5;
     view.picker = g.picker;
-    view.picker_button = g.picker_button;
     view.picker_hovered = hovered("picker");
     view.picker_pressed = pressed("picker");
     if (bar_menu_) {
@@ -239,7 +238,7 @@ void App::append_shortcut_bar(PanelView& v) const {
     }
     if (view.picker_hovered && !bar_menu_) {
         v.bar_tooltip = tr("tooltip.shortcuts-picker");
-        v.bar_tooltip_at = g.picker_button;
+        v.bar_tooltip_at = g.picker;
     }
     v.shortcut_bar = std::move(view);
 }
@@ -268,7 +267,7 @@ std::optional<std::string> App::bar_hit(const PanelView& view, double x, double 
             return "menu"; // Its margins take the laser too, choosing nothing.
         }
     }
-    if (bar.picker_button.contains(x, y)) {
+    if (bar.picker.contains(x, y)) {
         return "picker";
     }
     if (bar.strip.contains(x, y)) {

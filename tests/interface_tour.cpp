@@ -191,7 +191,7 @@ int main(int argc, char** argv) {
                 click(bars, "debug-sample-shortcuts");
                 bars.back();
                 shot(bars, "shortcut-bar");
-                const auto picker = bars.view().shortcut_bar->picker_button;
+                const auto picker = bars.view().shortcut_bar->picker;
                 const double x = picker.x + picker.width / 2, y = picker.y + picker.height / 2;
                 bars.move(0, x, y);
                 shot(bars, "shortcut-bar-picker-tooltip");
@@ -209,7 +209,7 @@ int main(int argc, char** argv) {
                 // The editor at both widths, with its popup for a label and for recording.
                 // The picker's button: opens its menu, or closes it.
                 const auto open_menu = [](App& app) {
-                    const auto picker = app.view().shortcut_bar->picker_button;
+                    const auto picker = app.view().shortcut_bar->picker;
                     const double px = picker.x + picker.width / 2, py = picker.y + picker.height / 2;
                     app.move(0, px, py);
                     app.down(0, px, py, 1);

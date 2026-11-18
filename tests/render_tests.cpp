@@ -1427,6 +1427,7 @@ void shortcut_bar(const char* theme_id, double opacity) {
         int hovered{-1}, pressed{-1}, running{-1}, disabled{-1};
         bool picker_hovered{}, menu{};
         int row_hovered{-1};
+        bool picker_pressed{};
     };
     const auto bar = [&](const State& state) {
         ShortcutBarView result;
@@ -1446,8 +1447,8 @@ void shortcut_bar(const char* theme_id, double opacity) {
         result.more_before = state.scroll > .5;
         result.more_after = state.scroll < g.scroll_limit - .5;
         result.picker = g.picker;
-        result.picker_button = g.picker_button;
         result.picker_hovered = state.picker_hovered;
+        result.picker_pressed = state.picker_pressed;
         if (state.menu) {
             const auto m = shortcut_menu_geometry(g, 8);
             ShortcutBarView::Menu menu;
@@ -1485,16 +1486,42 @@ void shortcut_bar(const char* theme_id, double opacity) {
                                  static_cast<int>(g.plate.y + g.plate.height / 2)) != 255) {
         throw std::runtime_error(phase("the plate is the case's color, opaque"));
     }
-    // The plate and the picker beside it: a state repaints only within them.
+    // The plate and the picker's tab on its right: a state repaints only within them.
     const Rect both{g.plate.x, g.plate.y, g.picker.x + g.picker.width - g.plate.x, g.plate.height};
-    for (const auto& state : {State{0, 2}, State{0, 3}, State{0, 3, 3}, State{0, -1, -1, 3},
-                              State{0, -1, -1, -1, 4}, State{0, -1, -1, -1, -1, true}, State{}}) {
+    State pressed_tab;
+    pressed_tab.picker_pressed = true;
+    for (const auto& state :
+         {State{0, 2}, State{0, 3}, State{0, 3, 3}, State{0, -1, -1, 3}, State{0, -1, -1, -1, 4},
+          State{0, -1, -1, -1, -1, true}, pressed_tab, State{}}) {
         view.shortcut_bar = bar(state);
-        compare.frame(view, phase("a button's state").c_str());
+        compare.frame(view, phase("a button's or the tab's state").c_str());
         if (!within(compare.incremental.damage(), both)) {
-            throw std::runtime_error(phase("a button's state repaints only the bar"));
+            throw std::runtime_error(phase("a button's or the tab's state repaints only the bar"));
         }
     }
+    // The tab grows out of the plate: lit in place, and nothing where the
+    // picker's own plate and the gap before it were.
+    view.shortcut_bar = bar(pressed_tab);
+    compare.frame(view, phase("the tab pressed").c_str());
+    const auto alpha = [&](double x, double y) {
+        return alpha_at(compare.incremental, static_cast<int>(x), static_cast<int>(y));
+    };
+    if (opacity == 1 &&
+        (alpha(g.picker.x + g.picker.width / 2, g.picker.y + 4) != 255 ||
+         alpha(g.plate.x + g.plate.width - 1, g.picker.y + g.picker.height / 2) != 255)) {
+        throw std::runtime_error(phase("the tab and its joint with the plate are opaque"));
+    }
+    for (const auto& [x, y] :
+         {std::pair{g.picker.x + g.picker.width + 10, g.plate.y + g.plate.height / 2},
+          std::pair{g.picker.x + 20, g.plate.y + 6},
+          std::pair{g.picker.x + 20, g.plate.y + g.plate.height - 6},
+          std::pair{g.picker.x + g.picker.width + 40, g.plate.y + 10}}) {
+        if (alpha(x, y) != 0) {
+            throw std::runtime_error(phase("nothing drawn around the tab where the old plate was"));
+        }
+    }
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the tab let go").c_str());
     for (const double scroll : {g.pitch * .4, g.pitch, g.scroll_limit}) {
         view.shortcut_bar = bar({scroll});
         compare.frame(view, phase("scrolling").c_str());
@@ -1519,13 +1546,13 @@ void shortcut_bar(const char* theme_id, double opacity) {
     compare.frame(view, phase("the menu closes").c_str());
     // The picker's tooltip and a message stand above the bar.
     view.bar_tooltip = "Choose a profile";
-    view.bar_tooltip_at = g.picker_button;
+    view.bar_tooltip_at = g.picker;
     compare.frame(view, phase("the tooltip").c_str());
     const auto above = [&](double x) {
         return alpha_at(compare.incremental, static_cast<int>(x), static_cast<int>(g.plate.y - 33)) >
                200;
     };
-    if (!above(g.picker_button.x + g.picker_button.width / 2)) {
+    if (!above(g.picker.x + g.picker.width / 2)) {
         throw std::runtime_error(phase("the tooltip stands above the bar"));
     }
     view.status = "A message that comes while the bar shows";
@@ -1675,7 +1702,6 @@ void shortcut_editor(const char* theme_id, bool wide) {
                                 bar_geometry.button_width, bar_geometry.button_height}});
     }
     bar.picker = bar_geometry.picker;
-    bar.picker_button = bar_geometry.picker_button;
     bar.field = 1;
     bar.field_text = "Save\nal";
     bar.field_cursor = 8;
@@ -1864,7 +1890,7 @@ void shortcut_popup(bool narrow) {
         app.move(0, 5, 590);
     };
     const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     tap(app.view().shortcut_bar->menu->edit);
     tap_control("shortcuts-label");
     const std::string name = narrow ? "the popup without the numpad" : "the popup";
@@ -1946,7 +1972,7 @@ void long_combinations_drawn() {
         app.up(0, x, y);
         app.move(0, 800, 590);
     };
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     tap(app.view().shortcut_bar->menu->edit);
     const auto outside = [&](const char* what) {
         PanelRenderer renderer;
@@ -2015,7 +2041,7 @@ void macro_view(bool narrow) {
         app.up(0, x, y);
         app.move(0, 5, 590);
     };
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     tap(app.view().shortcut_bar->menu->edit);
     const std::string name = narrow ? "the macro view without the numpad" : "the macro view";
     const auto phase = [&](const char* what) { return name + ": " + what; };
@@ -2092,7 +2118,7 @@ void carry_view(bool narrow) {
         app.down(0, x, y, now += .1);
         app.up(0, x, y);
     };
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     tap(app.view().shortcut_bar->menu->edit);
     const std::string name = narrow ? "carrying without the numpad" : "carrying";
     const auto phase = [&](const char* what) { return name + ": " + what; };

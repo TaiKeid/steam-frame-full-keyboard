@@ -1245,12 +1245,10 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         }
         break;
     case Icon::BarPicker:
-        // Up and down: another bar, either way.
-        cairo_set_line_width(cr, 2.2);
-        line(-5.5, -2.5, 0, -8);
-        cairo_line_to(cr, 5.5, -2.5);
-        line(-5.5, 2.5, 0, 8);
-        cairo_line_to(cr, 5.5, 2.5);
+        // Three lines: the menu of profiles.
+        line(-8, -6, 8, -6);
+        line(-8, 0, 8, 0);
+        line(-8, 6, 8, 6);
         break;
     case Icon::ChevronLeft:
     case Icon::ChevronRight: {
@@ -2123,7 +2121,7 @@ Rect panel_case_bounds(const PanelView& view) {
 ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons) {
     // Case pixels from the design; a button is left Ctrl's size at the
     // layout's scale (69.5 x 62 units), 6 units apart.
-    constexpr double margin = 12, height = 90, foot = 10, picker_gap = 8, picker_width = 84;
+    constexpr double margin = 12, height = 90, foot = 10, tab_width = 44, tab_height = 56;
     const auto body = panel_case_bounds(view);
     const double scale = placement(view).scale;
     ShortcutBarGeometry g;
@@ -2131,7 +2129,7 @@ ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t but
     g.button_height = 62 * scale;
     const double gap = 6 * scale;
     g.pitch = g.button_width + gap;
-    // As wide as the case with its numpad hidden, picker included, or a
+    // As wide as the case with its numpad hidden, the tab included, or a
     // narrower case's own width: the emoji picker and dictation mode keep
     // the keyboard's case, and a layout without a numpad has none to hide.
     double widest = body.width;
@@ -2149,18 +2147,18 @@ ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t but
             widest = std::min(widest, case_width(view, right));
         }
     }
-    const double room = widest - picker_gap - picker_width - 2 * margin;
+    const double room = widest - tab_width - 2 * margin;
     const auto fit = static_cast<std::size_t>(std::max(2.0, std::floor((room + gap) / g.pitch)));
     g.slots = std::clamp<std::size_t>(buttons, 2, fit);
     const double strip_width = static_cast<double>(g.slots) * g.pitch - gap;
     const double plate_width = strip_width + 2 * margin;
-    const double total = plate_width + picker_gap + picker_width;
+    // Plate and tab together are centered on the case.
+    const double total = plate_width + tab_width;
     const double left = std::round(body.x + (body.width - total) / 2);
     const double top = body.y - foot - height;
     g.plate = {left, top, plate_width, height};
     g.strip = {left + margin, top, strip_width, height};
-    g.picker = {left + plate_width + picker_gap, top, picker_width, height};
-    g.picker_button = {g.picker.x + 12, top + 12, 60, 66};
+    g.picker = {left + plate_width, top + (height - tab_height) / 2, tab_width, tab_height};
     // The face and the side below it, centred in the plate.
     g.button_top = top + (height - g.button_height - view.theme->depth * scale) / 2;
     g.scroll_limit = buttons > g.slots ? static_cast<double>(buttons) * g.pitch - gap - strip_width : 0;
@@ -2174,14 +2172,14 @@ Rect ShortcutMenuGeometry::assign(const Rect& row) const {
     return {row.x + row.width - size, row.y + 4, size, row.height - 8};
 }
 ShortcutMenuGeometry shortcut_menu_geometry(const ShortcutBarGeometry& bar, std::size_t rows) {
-    // Right-aligned with the picker, just under it, over the case.
+    // Under the bar, over the case, its right edge on the tab's.
     constexpr double width = 380, pad = 8, header = 44, row = 52, edit = 56, rule = 9;
     ShortcutMenuGeometry g;
     g.row_height = row;
     g.visible = std::min(rows, shortcut_menu_rows);
     const double listed = static_cast<double>(g.visible) * row;
     const double right = bar.picker.x + bar.picker.width;
-    g.bounds = {std::max(8.0, right - width), bar.picker.y + bar.picker.height + 6, width,
+    g.bounds = {std::max(8.0, right - width), bar.plate.y + bar.plate.height + 6, width,
                 pad + header + listed + rule + edit + pad};
     g.header = {g.bounds.x + pad, g.bounds.y + pad, width - 2 * pad, header};
     g.list = {g.header.x, g.header.y + header, g.header.width, listed};
@@ -2332,7 +2330,8 @@ std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& 
         }
     }
     if (a.picker_hovered != b.picker_hovered || a.picker_pressed != b.picker_pressed) {
-        damage.push_back(pixel_bounds(b.picker_button, 2));
+        // The tab draws nothing outside itself: its own edge's anti-aliasing.
+        damage.push_back(pixel_bounds(b.picker, 1));
     }
     // The menu lies over keys, whose own repaints would cut through its rows'
     // text with their clips: a change in it repaints whole.
@@ -3531,19 +3530,24 @@ void draw_label_field(cairo_t* cr, const PanelView& view, const Rect& r, const s
     draw_typed(cr, view, r, text, cursor, size, true);
 }
 // The shortcut bar (docs/shortcut-bar-design.md): its plate in the case's
-// color and opacity, buttons drawn as keys in Ctrl's tone, and the picker's
-// plate with its flat button. Every color derives from the theme.
+// color and opacity with the picker's tab grown out of its right side,
+// buttons drawn as keys in Ctrl's tone. Every color derives from the theme.
 void draw_shortcut_bar(cairo_t* cr, const PanelView& view) {
     const auto& bar = *view.shortcut_bar;
     const auto& t = *view.theme;
     const double opacity = clear_case(view) ? view.case_opacity : 1;
-    constexpr double plate_radius = 18;
+    constexpr double plate_radius = 18, tab_radius = 14;
+    // The tab, square where it joins the plate: its rectangle reaches into
+    // the plate, clipped to the tab for its own fills.
+    const auto& tab = bar.picker;
+    const Rect tab_shape{tab.x - tab_radius, tab.y, tab.width + tab_radius, tab.height};
     if (opacity > 0) {
-        for (const auto& plate : {bar.plate, bar.picker}) {
-            rounded(cr, plate, plate_radius);
-            cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
-            cairo_fill(cr);
-        }
+        // One fill for both, so the joint has no seam and no doubled edge.
+        rounded(cr, bar.plate, plate_radius);
+        rounded(cr, tab_shape, tab_radius);
+        cairo_set_fill_rule(cr, CAIRO_FILL_RULE_WINDING);
+        cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
+        cairo_fill(cr);
     }
     // The buttons, clipped to the strip; a side with more beyond it fades
     // out, the buttons drawn as a group and masked.
@@ -3586,18 +3590,22 @@ void draw_shortcut_bar(cairo_t* cr, const PanelView& view) {
         draw_icon(cr, Icon::ChevronRight,
                   {bar.plate.x + bar.plate.width - 32, bar.plate.y, 30, bar.plate.height}, t.legend, 18);
     }
-    // The picker: a flat button, lit while its menu is open.
-    const auto& r = bar.picker_button;
+    // The picker: the whole tab is the button, lit while its menu is open.
     const bool open = bar.menu.has_value();
-    if (open || bar.picker_pressed) {
-        fill_latched(cr, t, r, t.radius);
-    } else {
-        rounded(cr, r, t.radius);
-        source(cr, bar.picker_hovered ? t.hover : t.bottom);
-        cairo_fill(cr);
+    if (open || bar.picker_pressed || bar.picker_hovered) {
+        cairo_save(cr);
+        cairo_rectangle(cr, tab.x, tab.y, tab.width, tab.height);
+        cairo_clip(cr);
+        if (open || bar.picker_pressed) {
+            fill_latched(cr, t, tab_shape, tab_radius);
+        } else {
+            rounded(cr, tab_shape, tab_radius);
+            source(cr, t.hover);
+            cairo_fill(cr);
+        }
+        cairo_restore(cr);
     }
-    draw_edge(cr, t, r, t.radius, bar.picker_hovered, true);
-    draw_icon(cr, Icon::BarPicker, r, open || bar.picker_pressed ? t.latched_legend : t.legend, 26);
+    draw_icon(cr, Icon::BarPicker, tab, open || bar.picker_pressed ? t.latched_legend : t.legend, 22);
 }
 // A raised panel floating over the keys, as the Settings dropdowns are.
 void raised_panel(cairo_t* cr, const Theme& t, const Rect& r) {

@@ -1568,7 +1568,7 @@ void shortcut_menu_over_grid() {
         app.down(1, x, y, monotonic_seconds());
         app.up(1, x, y);
     };
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     const auto menu = app.view().shortcut_bar->menu->bounds;
     const auto grid = app.view().emoji->grid;
     require(overlaps(menu, grid), "the menu lies over the grid");
@@ -1585,7 +1585,7 @@ void shortcut_menu_over_grid() {
     app.scroll(0, 3, 0);
     require(first() == before && app.view().shortcut_bar->menu,
             "scrolling past the menu's end leaves the grid in place");
-    tap(app.view().shortcut_bar->picker_button);
+    tap(app.view().shortcut_bar->picker);
     require(!app.view().shortcut_bar->menu, "the picker closes the menu");
     app.move(0, x, y);
     app.scroll(0, 3, 0);

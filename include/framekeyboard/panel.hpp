@@ -274,9 +274,11 @@ struct ShortcutBarView {
     std::vector<Button> buttons; // only those at least partly in the strip
     // Clipped sides fade out under a chevron.
     bool more_before{}, more_after{};
-    Rect picker, picker_button; // the picker's plate and its flat button
+    // The picker: a tab on the plate's right side, part of its shape; the
+    // whole tab is the button, lit while its menu is open.
+    Rect picker;
     bool picker_hovered{}, picker_pressed{};
-    // The picker's menu, dropped over the case from the picker.
+    // The picker's menu, dropped over the case from under the bar.
     struct Menu {
         struct Row {
             bool operator==(const Row&) const = default;
@@ -431,7 +433,7 @@ struct ShortcutFieldView {
 // Where the bar's parts go for `buttons` buttons on the case `view` shows.
 // Sizes follow the layout's scale (design, The bar on the keyboard).
 struct ShortcutBarGeometry {
-    Rect plate, strip, picker, picker_button;
+    Rect plate, strip, picker; // the picker: the tab on the plate's right side
     double button_width{}, button_height{}, pitch{};
     double button_top{};   // a button's face at rest, its side below it
     std::size_t slots{};   // as many as show at once

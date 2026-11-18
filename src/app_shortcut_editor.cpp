@@ -1949,7 +1949,6 @@ void App::append_field_bar(PanelView& v) const {
     view.more_before = scroll > .5;
     view.more_after = scroll < g.scroll_limit - .5;
     view.picker = g.picker;
-    view.picker_button = g.picker_button;
     if (view.field) {
         v.bar_tooltip = tr("shortcuts.field.label-tooltip");
         v.bar_tooltip_at = view.buttons[*view.field].bounds;

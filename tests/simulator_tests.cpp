@@ -531,7 +531,7 @@ void shortcut_editor() {
     std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
     Simulator simulator(setup(profile, "en-us-full", "en-us", false));
     wait(simulator);
-    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->edit);
     require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
     click_rect(simulator, control_bounds(simulator, "shortcuts-new-profile"));
@@ -591,7 +591,7 @@ void app_button() {
     click_app();
     click_app();
     require(simulator.app_label() == "App: Game" && label() == "Home", "on to Game, without a profile");
-    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     // The name comes from the lookup's thread, on a tick.
     for (int i = 0; i < 500 && simulator.app().view().shortcut_bar->menu->app != "Game"; ++i) {
         usleep(2000);
@@ -601,16 +601,16 @@ void app_button() {
             "the menu names it with the simulator's own name");
     click_rect(simulator, simulator.app().view().shortcut_bar->menu->rows[1].assign);
     require(label() == "End", "Game keys, assigned, shows at once");
-    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     click_app();
     require(simulator.app_label() == "App: Moonlight" && label() == "Home",
             "another app: the free profile");
     click_app();
-    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     const auto menu = *simulator.app().view().shortcut_bar->menu;
     require(simulator.app_label() == "App: Steam" && menu.app.empty() && !menu.rows[0].assign_enabled,
             "Steam's dashboard: no app, the assign buttons disabled");
-    click_rect(simulator, simulator.app().view().shortcut_bar->picker_button);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     click_app();
     click_app();
     click_app();

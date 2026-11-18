@@ -642,7 +642,7 @@ void readings_out_of_the_editor() {
         f.app->up(1, x, y);
         f.tick(.01);
     };
-    tap(view.shortcut_bar->picker_button);
+    tap(view.shortcut_bar->picker);
     tap(f.app->view().shortcut_bar->menu->edit);
     view = f.app->view();
     require(view.shortcut_editor && !view.candidates && !view.ime_band,
