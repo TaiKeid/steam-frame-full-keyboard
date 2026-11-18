@@ -1,6 +1,7 @@
 #include "framekeyboard/shortcuts.hpp"
 #include "framekeyboard/input.hpp"
 #include "framekeyboard/private_file.hpp"
+#include "framekeyboard/shortcut_launch.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -152,8 +153,7 @@ std::optional<std::string> check_action(const ShortcutAction& action) {
             if (action.script.size() > limits::script_bytes) {
                 return "a script name is longer than 64 bytes";
             }
-            if (action.script == "." || action.script == ".." ||
-                action.script.find('/') != std::string::npos || !clean_text(action.script)) {
+            if (!script_name_valid(action.script)) {
                 return "a script name is not a plain file name";
             }
         } else if (!action.command.empty()) {
@@ -434,6 +434,10 @@ json_object* action_json(const ShortcutAction& action) {
 }
 } // namespace
 
+bool script_name_valid(std::string_view name) {
+    return !name.empty() && name.size() <= limits::script_bytes && name != "." && name != ".." &&
+           name.find('/') == std::string_view::npos && clean_text(std::string(name));
+}
 bool app_identity_valid(const AppIdentity& app) {
     return !app.id.empty() && app.id.size() <= limits::app_id_bytes && clean_text(app.id) &&
            (app.kind != AppIdentity::Kind::Steam || steam_id(app.id)) &&
