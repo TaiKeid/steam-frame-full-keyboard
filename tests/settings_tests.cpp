@@ -14,6 +14,7 @@
 #include <linux/input-event-codes.h>
 #include <mutex>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -5388,6 +5389,131 @@ void shortcut_pick_history() {
     focus(5, "five");
     require(label() == "A", "every pick tied: the last pick stays");
 }
+// R362: names found are kept in a record of their own, so a game streamed
+// before still has its name when its manifest is gone; a tie saved with the
+// identity's own name takes the real one whenever it is found. A stream's
+// game is looked up when its session's app is known.
+void shortcut_name_record() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"},
+        other{AppIdentity::Kind::Steam, "4000030"}, tool{AppIdentity::Kind::Program, "tool"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto record = directory.path / "cache" / "app-names.json";
+    // The manifests there are: the first game's only while `streaming`.
+    std::atomic<bool> streaming{true};
+    std::mutex mutex;
+    std::string app_id = "4000020";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = record;
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app == game) {
+            return streaming ? "Example Game" : "";
+        }
+        if (app == other) {
+            return "Other Game";
+        }
+        return app == tool ? "Some Tool" : ""; // a source may name a program; it isn't kept
+    };
+    options.stream_clients = [&]() -> std::optional<std::vector<std::vector<std::string>>> {
+        std::lock_guard lock(mutex);
+        return std::vector<std::vector<std::string>>{{"/usr/bin/streaming_client", "--appid", app_id}};
+    };
+    struct StreamSink : CaptureSink {
+        bool stream{};
+        FocusedApp focus;
+        bool steam_field_target() const override { return stream; }
+        bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {4, tool, "tool"};
+    const auto tooltip = [](App& app, double& now, const std::string& wanted) {
+        for (int i = 0; i < 1000; ++i) {
+            app.tick(now += .01);
+            tap_rect(app, app.view().shortcut_bar->picker);
+            const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+            app.move(0, at.x, at.y);
+            const auto tip = app.view().bar_tooltip;
+            tap_rect(app, app.view().shortcut_bar->picker);
+            if (tip == wanted) {
+                return true;
+            }
+            usleep(1000);
+        }
+        return false;
+    };
+    double now = 1500;
+    {
+        App app(options, sink);
+        app.tick(now);
+        // A program named by the source: nothing kept for it.
+        require(tooltip(app, now, "Show Game whenever Some Tool is in front"), "a program's name");
+        // A stream of a game whose manifest is there now: looked up when the
+        // session's app is known, without the menu.
+        sink.stream = true;
+        app.set_native_request(1);
+        require(tooltip(app, now, "Show Game whenever Example Game is in front"),
+                "the streamed game's name");
+        app.flush_settings();
+        struct stat file{};
+        require(stat(record.c_str(), &file) == 0 && (file.st_mode & 0777) == 0600,
+                "the record is the user's alone");
+        std::ifstream read(record);
+        const auto kept = parse_app_name_record({std::istreambuf_iterator<char>(read), {}});
+        require(kept == std::vector<RecordedName>{{game, "Example Game"}},
+                "the game's name is kept, the program's isn't");
+    }
+    // Later, with the manifest gone and the game tied under its ID's own
+    // name, and another game tied the same way.
+    streaming = false;
+    sink.stream = false;
+    model.apps = {{game, "App 4000020", "g"}, {other, "App 4000030", "a"}};
+    write_shortcuts(directory.path, model);
+    {
+        App app(options, sink);
+        app.tick(now += .01);
+        sink.stream = true;
+        app.set_native_request(2);
+        bool renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(game)->name == "Example Game";
+        }
+        require(renamed, "a tie under its ID's own name takes the name kept before");
+        require(tooltip(app, now, "Stop showing Game for Example Game"),
+                "the kept name shows with the manifest gone");
+        // The other game: its name found by a lookup in a later session.
+        sink.stream = false;
+        app.set_native_request(0);
+        app.tick(now += .01);
+        {
+            std::lock_guard lock(mutex);
+            app_id = "4000030";
+        }
+        sink.stream = true;
+        app.set_native_request(3);
+        renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(other)->name == "Other Game";
+        }
+        require(renamed, "a tie under its ID's own name takes a name found later");
+    }
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6528,6 +6654,7 @@ int main() {
         shortcut_stream_apps();
         shortcut_long_program_tie();
         shortcut_pick_history();
+        shortcut_name_record();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

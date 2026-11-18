@@ -48,6 +48,34 @@ AppNameFolders system_app_name_folders(const std::filesystem::path& home);
 std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folders);
 // look_up_app_name in system_app_name_folders($HOME), for the headset.
 AppNameSource system_app_names();
+// A kept record of names found (R362): a Steam game's or a Desktop app's
+// name, kept after its files are gone, such as a game streamed from a PC,
+// whose manifest Steam keeps only while it streams. Programs and the PC's
+// stream need none: their names come from the identity. Oldest found first,
+// at most app_name_record_size; the oldest found goes first. Names are
+// cleaned (clean_app_name) and never logged.
+struct RecordedName {
+    AppIdentity app;
+    std::string name;
+    bool operator==(const RecordedName&) const = default;
+};
+inline constexpr std::size_t app_name_record_size = 256;
+// The record's file is read at most this far; a full one is far smaller.
+inline constexpr std::size_t app_name_record_bytes = 256 * 1024;
+// $XDG_CACHE_HOME/framekeyboard/app-names.json (an absolute one), else
+// ~/.cache/framekeyboard/app-names.json; empty with neither.
+std::filesystem::path app_name_record_path();
+// Whether an identity's name is kept in the record.
+bool recorded_kind(const AppIdentity& app);
+// The record as its file holds it, and back. A file that isn't valid in
+// every part, or holds more than the limit, reads as none.
+std::string serialize_app_name_record(const std::vector<RecordedName>& names);
+std::vector<RecordedName> parse_app_name_record(const std::string& text);
+// Keeps a name found, as the newest; true when the record changed. Nothing
+// for a kind not kept or a name that cleans to nothing.
+bool record_app_name(std::vector<RecordedName>& names, const AppIdentity& app, std::string_view name);
+// The name kept for an app; empty for none.
+std::string recorded_app_name(const std::vector<RecordedName>& names, const AppIdentity& app);
 // Each file read is cut off here: a name lies near the start.
 inline constexpr std::size_t app_name_file_bytes = 32 * 1024;
 // libraryfolders.vdf lists every installed game under each library before

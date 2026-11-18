@@ -128,6 +128,9 @@ struct Options {
     // Where the editor's Run list reads the scripts folder: tests and the
     // tour give their own names; empty makes and lists the real folder.
     ScriptListSource script_list;
+    // The kept record of app names found (app_names.hpp, R362): main gives
+    // app_name_record_path(); empty, as in tests and previews, keeps none.
+    fs::path app_name_record;
     // Where a stream's app comes from (stream_app.hpp): main reads Steam's
     // streaming client; left empty, every stream is the PC's.
     StreamClientSource stream_clients;
@@ -1849,6 +1852,10 @@ class App {
     };
     std::optional<AppName> app_name_;
     std::vector<AppName> name_fixes_; // the identity and the name saved with it
+    // Names found before, for when the files that gave them are gone (R362);
+    // read at start, written through settings_writer_.
+    std::vector<RecordedName> name_record_;
+    void keep_found_name(const AppIdentity& app, const std::string& name);
     // The focused app's name for the picker: its tie's, one found, else the
     // identity's own; empty without an identity.
     std::string focused_app_name() const;

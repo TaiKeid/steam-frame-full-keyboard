@@ -50,6 +50,10 @@ class SettingsWriter {
     // The newest finished shortcuts save, once nothing newer is queued: empty
     // when it worked, else why it did not (never quoting the user's content).
     std::optional<std::optional<std::string>> take_shortcuts_result();
+    // A small private file written whole on the worker, such as the record
+    // of app names (R362), a newer text replacing one not yet written. Its
+    // folder is made if missing. A failure leaves the old file, unreported.
+    void save_private(fs::path file, std::string text);
 
   private:
     void run();
@@ -70,6 +74,8 @@ class SettingsWriter {
     std::optional<ShortcutModel> shortcuts_pending_;
     std::optional<std::optional<std::string>> shortcuts_result_;
     bool shortcuts_writing_{};
+    std::optional<std::pair<fs::path, std::string>> private_pending_;
+    bool private_writing_{};
     std::thread worker_;
 };
 } // namespace framekeyboard

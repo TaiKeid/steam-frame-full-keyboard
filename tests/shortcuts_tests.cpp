@@ -985,6 +985,71 @@ void stream_apps() {
     model.apps[0].app.id = "desktop";
     refused(model, "a stream with another ID");
 }
+// R362: the kept record of names found: its file, its bound, a bad file,
+// and cleaning. Only Steam games and Desktop apps are kept.
+void app_name_record() {
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"},
+        notes{AppIdentity::Kind::Desktop, "org.example.Notes"};
+    std::vector<RecordedName> names;
+    require(record_app_name(names, game, "  Example \x01 Game ") &&
+                record_app_name(names, notes, "Notes"),
+            "names found are kept");
+    require(names == std::vector<RecordedName>{{game, "Example Game"}, {notes, "Notes"}},
+            "cleaned as clean_app_name does, oldest first");
+    require(parse_app_name_record(serialize_app_name_record(names)) == names, "a round trip");
+    require(!record_app_name(names, game, "Example Game") && names.front().app == game,
+            "the same name again changes nothing");
+    require(record_app_name(names, game, "Example Game 2") &&
+                names.back() == RecordedName{game, "Example Game 2"},
+            "a new name for an app is the newest");
+    require(!record_app_name(names, {AppIdentity::Kind::Program, "tool"}, "Tool") &&
+                !record_app_name(names, {AppIdentity::Kind::Stream, "pc"}, "PC") &&
+                !record_app_name(names, game, "\x01\x02") && names.size() == 2,
+            "no program, no stream, no empty name");
+    require(recorded_app_name(names, notes) == "Notes" &&
+                recorded_app_name(names, {AppIdentity::Kind::Steam, "4000030"}).empty(),
+            "a name is looked up by identity");
+    // Bounded: the oldest found goes.
+    std::vector<RecordedName> many;
+    for (int i = 1; i <= static_cast<int>(app_name_record_size) + 1; ++i) {
+        record_app_name(many, {AppIdentity::Kind::Steam, std::to_string(4000000 + i)},
+                        "Game " + std::to_string(i));
+    }
+    require(many.size() == app_name_record_size && many.front().app.id == "4000002" &&
+                many.back().app.id == std::to_string(4000000 + app_name_record_size + 1),
+            "at most 256 names, the oldest found dropped");
+    require(parse_app_name_record(serialize_app_name_record(many)) == many, "a full record reads back");
+    // A bad file reads as none.
+    const auto entry = [](const std::string& kind, const std::string& id, const std::string& name) {
+        return R"({"kind": ")" + kind + R"(", "id": ")" + id + R"(", "name": ")" + name + R"("})";
+    };
+    const auto file = [](const std::string& list, int version = 1) {
+        return R"({"version": )" + std::to_string(version) + R"(, "names": [)" + list + "]}";
+    };
+    require(parse_app_name_record(file(entry("steam", "4000020", "Example Game"))).size() == 1,
+            "a good file");
+    for (const auto& [text, what] : std::vector<std::pair<std::string, std::string>>{
+             {"", "empty"},
+             {"not json", "not JSON"},
+             {file(entry("steam", "4000020", "Game"), 2), "another version"},
+             {file(entry("program", "tool", "Tool")), "a program"},
+             {file(entry("steam", "0", "Game")), "a bad Steam ID"},
+             {file(entry("steam", "4000020", "\\u0001")), "a name that cleans to nothing"},
+             {file(entry("steam", "4000020", "A") + "," + entry("steam", "4000020", "B")),
+              "an app twice"},
+             {R"({"version": 1, "names": [{"kind": "steam", "id": 4000020, "name": "Game"}]})",
+              "an ID not text"}}) {
+        require(parse_app_name_record(text).empty(), "a bad file reads as none: " + what);
+    }
+    std::string list;
+    for (std::size_t i = 0; i <= app_name_record_size; ++i) {
+        list += (i ? "," : "") + entry("steam", std::to_string(4000001 + i), "Game");
+    }
+    require(parse_app_name_record(file(list)).empty(), "more than 256 names: none");
+    require(parse_app_name_record(file(entry("desktop", "org.example.Notes", "\\u001bNotes  App"))) ==
+                std::vector<RecordedName>{{notes, "Notes App"}},
+            "a name is cleaned as it is read");
+}
 // App names, from a temporary folder only: never the computer's own files.
 void app_names() {
     TemporaryDirectory folder;
@@ -1151,6 +1216,7 @@ int main() {
         stream_apps();
         run_editing();
         app_names();
+        app_name_record();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

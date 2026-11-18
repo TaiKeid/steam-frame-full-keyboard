@@ -7,6 +7,7 @@
 #include <deque>
 #include <fstream>
 #include <glib.h>
+#include <json-c/json.h>
 #include <mutex>
 #include <thread>
 
@@ -256,6 +257,114 @@ std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folde
         return {}; // No file names it: App gives its own words.
     }
     return {};
+}
+fs::path app_name_record_path() {
+    const char* cache = std::getenv("XDG_CACHE_HOME");
+    const char* home = std::getenv("HOME");
+    if (cache && *cache == '/') { // a relative one is ignored, as the XDG spec asks
+        return fs::path(cache) / "framekeyboard/app-names.json";
+    }
+    if (home && *home) {
+        return fs::path(home) / ".cache/framekeyboard/app-names.json";
+    }
+    return {};
+}
+bool recorded_kind(const AppIdentity& app) {
+    return app.kind == AppIdentity::Kind::Steam || app.kind == AppIdentity::Kind::Desktop;
+}
+namespace {
+using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
+const char* record_kind(AppIdentity::Kind kind) {
+    return kind == AppIdentity::Kind::Steam ? "steam" : "desktop";
+}
+} // namespace
+std::string serialize_app_name_record(const std::vector<RecordedName>& names) {
+    Json document(json_object_new_object(), json_object_put);
+    json_object_object_add(document.get(), "version", json_object_new_int(1));
+    auto* list = json_object_new_array();
+    for (const auto& entry : names) {
+        auto* object = json_object_new_object();
+        json_object_object_add(object, "kind", json_object_new_string(record_kind(entry.app.kind)));
+        json_object_object_add(
+            object, "id",
+            json_object_new_string_len(entry.app.id.data(), static_cast<int>(entry.app.id.size())));
+        json_object_object_add(
+            object, "name",
+            json_object_new_string_len(entry.name.data(), static_cast<int>(entry.name.size())));
+        json_object_array_add(list, object);
+    }
+    json_object_object_add(document.get(), "names", list);
+    return std::string(json_object_to_json_string_ext(
+               document.get(), JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE)) +
+           '\n';
+}
+std::vector<RecordedName> parse_app_name_record(const std::string& text) {
+    if (text.size() > app_name_record_bytes) {
+        return {};
+    }
+    Json document(json_tokener_parse(text.c_str()), json_object_put);
+    json_object* version = nullptr;
+    json_object* list = nullptr;
+    if (!document || !json_object_is_type(document.get(), json_type_object) ||
+        !json_object_object_get_ex(document.get(), "version", &version) ||
+        !json_object_is_type(version, json_type_int) || json_object_get_int(version) != 1 ||
+        !json_object_object_get_ex(document.get(), "names", &list) ||
+        !json_object_is_type(list, json_type_array) ||
+        json_object_array_length(list) > app_name_record_size) {
+        return {};
+    }
+    std::vector<RecordedName> names;
+    for (std::size_t i = 0; i < json_object_array_length(list); ++i) {
+        auto* entry = json_object_array_get_idx(list, i);
+        const auto text_of = [&](const char* key) -> std::optional<std::string> {
+            json_object* value = nullptr;
+            if (!json_object_is_type(entry, json_type_object) ||
+                !json_object_object_get_ex(entry, key, &value) ||
+                !json_object_is_type(value, json_type_string)) {
+                return {};
+            }
+            return std::string(json_object_get_string(value),
+                               static_cast<std::size_t>(json_object_get_string_len(value)));
+        };
+        const auto kind = text_of("kind"), id = text_of("id"), name = text_of("name");
+        if (!kind || !id || !name || (*kind != "steam" && *kind != "desktop")) {
+            return {};
+        }
+        RecordedName recorded{
+            {*kind == "steam" ? AppIdentity::Kind::Steam : AppIdentity::Kind::Desktop, *id},
+            clean_app_name(*name)};
+        if (!app_identity_valid(recorded.app) || recorded.name.empty() ||
+            std::any_of(names.begin(), names.end(),
+                        [&](const RecordedName& kept) { return kept.app == recorded.app; })) {
+            return {};
+        }
+        names.push_back(std::move(recorded));
+    }
+    return names;
+}
+bool record_app_name(std::vector<RecordedName>& names, const AppIdentity& app, std::string_view name) {
+    auto cleaned = clean_app_name(name);
+    if (!recorded_kind(app) || !app_identity_valid(app) || cleaned.empty()) {
+        return false;
+    }
+    const auto kept = std::find_if(names.begin(), names.end(),
+                                   [&](const RecordedName& entry) { return entry.app == app; });
+    if (kept != names.end()) {
+        if (kept->name == cleaned) {
+            return false; // the same name found again: kept where it was
+        }
+        names.erase(kept);
+    }
+    names.push_back({app, std::move(cleaned)});
+    if (names.size() > app_name_record_size) {
+        names.erase(names.begin()); // the oldest found
+    }
+    return true;
+}
+std::string recorded_app_name(const std::vector<RecordedName>& names, const AppIdentity& app) {
+    const auto kept = std::find_if(names.begin(), names.end(),
+                                   [&](const RecordedName& entry) { return entry.app == app; });
+    return kept == names.end() ? std::string() : kept->name;
 }
 AppNameSource system_app_names() {
     const char* home = std::getenv("HOME");

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <glib.h>
 #include <iostream>
 #include <linux/input-event-codes.h>
@@ -225,6 +226,15 @@ App::App(const Options& options, KeySink& sink, SettingsWriter::Write write_pref
         }
     }
     theme_store_.set_directory(previews);
+    // Names found before (R362): an unreadable or invalid record is none,
+    // written anew at the next name found.
+    if (!options.app_name_record.empty()) {
+        std::ifstream file(options.app_name_record, std::ios::binary);
+        std::string text(app_name_record_bytes + 1, '\0');
+        file.read(text.data(), static_cast<std::streamsize>(text.size()));
+        text.resize(static_cast<std::size_t>(std::max<std::streamsize>(file.gcount(), 0)));
+        name_record_ = parse_app_name_record(text);
+    }
     profiles_.errors.insert(profiles_.errors.end(), settings_errors.begin(), settings_errors.end());
     // Cangjie's and Quick's character order; before any composer loads a table.
     set_character_ranks(data_resource(options.data_dir, "chinese/char-ranks.txt"));

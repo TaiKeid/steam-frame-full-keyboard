@@ -1,4 +1,5 @@
 #include "framekeyboard/settings_writer.hpp"
+#include "framekeyboard/private_file.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/stream_support.hpp"
 
@@ -49,18 +50,28 @@ std::optional<SettingsWriter::Result> SettingsWriter::take_result() {
 }
 bool SettingsWriter::idle() {
     std::lock_guard lock(mutex_);
-    return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_;
+    return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_ && !private_pending_ &&
+           !private_writing_;
 }
 void SettingsWriter::flush() {
     std::unique_lock lock(mutex_);
-    changed_.wait(lock,
-                  [&] { return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_; });
+    changed_.wait(lock, [&] {
+        return !pending_ && !writing_ && !shortcuts_pending_ && !shortcuts_writing_ &&
+               !private_pending_ && !private_writing_;
+    });
 }
 ShortcutsLoad SettingsWriter::load_shortcuts() {
     std::unique_lock lock(mutex_);
     // A save under way owns the store; a load waits for it.
     changed_.wait(lock, [&] { return !shortcuts_pending_ && !shortcuts_writing_; });
     return has_shortcuts_ ? shortcuts_store_.load() : ShortcutsLoad{};
+}
+void SettingsWriter::save_private(fs::path file, std::string text) {
+    {
+        std::lock_guard lock(mutex_);
+        private_pending_.emplace(std::move(file), std::move(text));
+    }
+    changed_.notify_all();
 }
 void SettingsWriter::save_shortcuts(ShortcutModel model) {
     if (!has_shortcuts_) {
@@ -83,7 +94,19 @@ std::optional<std::optional<std::string>> SettingsWriter::take_shortcuts_result(
 void SettingsWriter::run() {
     std::unique_lock lock(mutex_);
     for (;;) {
-        changed_.wait(lock, [&] { return pending_ || shortcuts_pending_ || stopping_; });
+        changed_.wait(lock,
+                      [&] { return pending_ || shortcuts_pending_ || private_pending_ || stopping_; });
+        if (private_pending_ && !pending_ && !shortcuts_pending_) {
+            auto [file, text] = std::move(*private_pending_);
+            private_pending_.reset();
+            private_writing_ = true;
+            lock.unlock();
+            write_private_file(file, text, true);
+            lock.lock();
+            private_writing_ = false;
+            changed_.notify_all();
+            continue;
+        }
         if (shortcuts_pending_ && !pending_) {
             auto model = std::move(*shortcuts_pending_);
             shortcuts_pending_.reset();

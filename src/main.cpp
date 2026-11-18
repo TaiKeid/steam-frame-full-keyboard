@@ -333,6 +333,8 @@ int main(int argc, char** argv) {
                 // A stream's app, from Steam's streaming client
                 // (stream_app.hpp); read off the VR thread too.
                 options.stream_clients = fk::system_stream_clients();
+                // Names found are kept for when their files are gone (R362).
+                options.app_name_record = fk::app_name_record_path();
             }
             // A hosted keyboard never touches the SteamOS boot unit; the saved
             // standalone flags stay as they are for the next standalone launch.

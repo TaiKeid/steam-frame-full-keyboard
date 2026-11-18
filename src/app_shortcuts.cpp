@@ -537,6 +537,23 @@ void App::track_stream_session() {
         if (stream_session_ && answer->session == stream_token_ && !stream_app_) {
             stream_app_ = std::move(answer->app);
             dirty = true;
+            // Steam keeps a streamed game's manifest only while it streams:
+            // its name is looked up now, unless one is known (R362). A tie
+            // saved under its ID's own name takes one kept before.
+            const auto* tie = shortcuts_.tie(*stream_app_);
+            const bool unnamed = !tie || tie->name == fallback_app_name(tie->app);
+            if (const auto kept = recorded_app_name(name_record_, *stream_app_); kept.empty()) {
+                if (recorded_kind(*stream_app_) && unnamed) {
+                    app_names_.request(*stream_app_);
+                }
+            } else if (tie && unnamed && !shortcut_editor_) {
+                for (auto& each : shortcuts_.apps) {
+                    if (each.app == *stream_app_) {
+                        each.name = kept;
+                    }
+                }
+                save_shortcuts();
+            }
         }
     }
 }
@@ -640,6 +657,9 @@ std::string App::focused_app_name() const {
     if (app_name_ && app_name_->app == app && !app_name_->name.empty()) {
         return app_name_->name;
     }
+    if (auto kept = recorded_app_name(name_record_, app); !kept.empty()) {
+        return kept; // found before, when its files were there (R362)
+    }
     return fallback_app_name(app, bar_focus_.program);
 }
 void App::adopt_long_program_tie() {
@@ -685,9 +705,24 @@ void App::take_app_names() {
     }
     bool renamed = false;
     while (auto result = app_names_.take()) {
+        // A name found is kept; none found falls back on one kept before.
+        if (!result->name.empty()) {
+            keep_found_name(result->app, result->name);
+        } else {
+            result->name = recorded_app_name(name_record_, result->app);
+        }
         if (bar_focus_.app == result->app) {
             app_name_ = AppName{result->app, result->name};
             dirty = true;
+        }
+        // A tie saved with the name its identity gives, such as "App" and a
+        // Steam ID, takes the real one whenever it is found (R362).
+        for (auto& tie : shortcuts_.apps) {
+            if (tie.app == result->app && !result->name.empty() && tie.name != result->name &&
+                tie.name == fallback_app_name(tie.app)) {
+                tie.name = result->name;
+                renamed = true;
+            }
         }
         // A tie saved with the identity's own name takes the one found, once,
         // unless it changed since.
@@ -710,6 +745,12 @@ void App::take_app_names() {
         save_shortcuts();
         dirty = true;
     }
+}
+void App::keep_found_name(const AppIdentity& app, const std::string& name) {
+    if (options_.app_name_record.empty() || !record_app_name(name_record_, app, name)) {
+        return;
+    }
+    settings_writer_.save_private(options_.app_name_record, serialize_app_name_record(name_record_));
 }
 std::string App::assign_unavailable() const {
     if (dashboard_focus_) {
