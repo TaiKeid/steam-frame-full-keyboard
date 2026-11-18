@@ -680,9 +680,12 @@ void App::adopt_long_program_tie() {
     }
     const auto& app = *bar_focus_.app;
     const auto prefix = app.id + " ";
+    // Only flags follow the name: a Wine game's file name keeps its spaces
+    // (R346), so "Game" must not take "Game Launcher.exe"'s tie (R366).
     const auto old =
         std::find_if(shortcuts_.apps.begin(), shortcuts_.apps.end(), [&](const AppTie& tie) {
-            return tie.app.kind == AppIdentity::Kind::Program && tie.app.id.starts_with(prefix);
+            return tie.app.kind == AppIdentity::Kind::Program && tie.app.id.starts_with(prefix) &&
+                   tie.app.id.size() > prefix.size() && tie.app.id[prefix.size()] == '-';
         });
     if (old == shortcuts_.apps.end()) {
         return;

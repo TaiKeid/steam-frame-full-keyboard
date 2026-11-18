@@ -5296,6 +5296,9 @@ void shortcut_long_program_tie() {
     model.apps.push_back({{AppIdentity::Kind::Program, line}, line, "t"});
     model.apps.push_back(
         {{AppIdentity::Kind::Program, "browser-beta --flag=x"}, "browser-beta --flag=x", "b"});
+    // A Wine game whose file name begins with another program's name and a
+    // space: not that program's flags (R366).
+    model.apps.push_back({{AppIdentity::Kind::Program, "Game Launcher.exe"}, "Game Launcher.exe", "b"});
     model.free_profile = "a";
     write_shortcuts(directory.path, model);
     Options options;
@@ -5317,11 +5320,18 @@ void shortcut_long_program_tie() {
             "the old tie's profile shows for the program");
     const auto saved = saved_shortcuts(app);
     const auto* tie = saved.tie({AppIdentity::Kind::Program, "browser"});
-    require(saved.apps.size() == 2 && tie && tie->profile == "t" && tie->name == "browser" &&
+    require(saved.apps.size() == 3 && tie && tie->profile == "t" && tie->name == "browser" &&
                 !saved.tie({AppIdentity::Kind::Program, line}),
             "the tie is the program's name alone now, saved at once");
     require(saved.tie({AppIdentity::Kind::Program, "browser-beta --flag=x"}),
             "another program's tie that only begins the same stays");
+    // "Game" has the keys: "Game Launcher.exe" keeps its tie.
+    sink.focus = {8, AppIdentity{AppIdentity::Kind::Program, "Game"}, "Game"};
+    app.tick(1300.2);
+    const auto after = saved_shortcuts(app);
+    require(after.tie({AppIdentity::Kind::Program, "Game Launcher.exe"}) &&
+                !after.tie({AppIdentity::Kind::Program, "Game"}),
+            "a file name with a space after another's name is not its flags");
 }
 // R350: an app without a profile shows the last profile picked for such
 // apps; tied to an app, the one picked before it that no app is tied to;
