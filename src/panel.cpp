@@ -4016,15 +4016,6 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
         if (c.id == "shortcuts-popup-done" || c.id == "shortcuts-popup-cancel" ||
             c.id == "shortcuts-popup-remove-last") {
             editor_button(cr, view, c, 20);
-        } else if (c.id == "shortcuts-popup-fkeys") {
-            Control shown = c;
-            shown.bounds.width -= 26;
-            draw_cap(cr, t, c.bounds, c.enabled && view.hovered_controls.contains(c.id), c.selected,
-                     c.enabled);
-            const Color ink = !c.enabled ? quiet : c.selected ? t.latched_legend : t.legend;
-            interface_label(cr, c.label, shown.bounds, 20, view.interface_font, ink);
-            draw_icon(cr, Icon::ChevronDown,
-                      {c.bounds.x + c.bounds.width - 38, c.bounds.y, 30, c.bounds.height}, ink, 14);
         }
     }
     // Row 2: the text with its caret, or the combinations so far.
@@ -4099,15 +4090,6 @@ void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
                      mini.hovered_keys.contains(key.id) ? 1 : 0);
         }
         cairo_restore(cr);
-    }
-    // The F13–F24 menu over the keys.
-    if (p.fkeys) {
-        raised_panel(cr, t, *p.fkeys);
-        for (const auto& c : view.controls) {
-            if (c.id.starts_with("shortcuts-popup-fkey-")) {
-                editor_button(cr, view, c, 19);
-            }
-        }
     }
 }
 // The shortcut editor's screen (docs/shortcut-bar-design.md, Settings and

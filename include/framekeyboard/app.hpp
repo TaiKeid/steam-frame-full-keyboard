@@ -2058,8 +2058,7 @@ class App {
         // Modifier keys latched by a tap, in the order tapped; a second tap
         // lets one go, a key takes them all.
         std::vector<std::string> latched;
-        bool caps{};  // Caps Lock, for text
-        bool fkeys{}; // the F13–F24 menu is open
+        bool caps{}; // Caps Lock, for text
         // Recording a macro's Keys step, `step` or a new one added on Done,
         // rather than the shortcut.
         std::optional<std::size_t> step;
@@ -2107,7 +2106,7 @@ class App {
     // Records the latched modifiers with `key`, or alone when it is empty,
     // as one combination; the latch ends.
     void popup_record(const std::string& key);
-    void popup_action(const std::string& value, int index);
+    void popup_action(const std::string& value);
     void append_popup_controls(std::vector<Control>& result, const Rect& body) const;
     void append_popup_view(ShortcutEditorView& view, const Rect& body) const;
     void tick_popup(double now);

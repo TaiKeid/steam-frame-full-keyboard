@@ -937,7 +937,7 @@ void App::editor_action(const ControlAction& command) {
     const auto& value = command.value;
     const auto index = static_cast<std::size_t>(std::max(0, command.index));
     if (value.starts_with("popup-")) {
-        popup_action(value, command.index);
+        popup_action(value);
         return;
     }
     if (value == "carry-move" || value == "carry-copy") {
@@ -1463,7 +1463,6 @@ void App::popup_key(const std::string& id, unsigned pointer, double now) {
     if (popup_disabled(key, p.kind)) {
         return;
     }
-    p.fkeys = false;
     dirty = true;
     // A modifier latches on a tap and shows lit; a second tap lets it go.
     if (is_modifier(key_code(key.action))) {
@@ -1617,7 +1616,7 @@ void App::popup_record(const std::string& key) {
     follow_popup_chips();
     dirty = true;
 }
-void App::popup_action(const std::string& value, int index) {
+void App::popup_action(const std::string& value) {
     if (!popup_) {
         return;
     }
@@ -1637,13 +1636,7 @@ void App::popup_action(const std::string& value, int index) {
         if (!p.chords.empty()) {
             p.chords.pop_back();
         }
-        p.fkeys = false;
         follow_popup_chips();
-    } else if (value == "popup-fkeys") {
-        p.fkeys = !p.fkeys;
-    } else if (value == "popup-fkey") {
-        p.fkeys = false;
-        popup_record("F" + std::to_string(index));
     } else if (value == "popup-pending") {
         popup_record({});
     }
@@ -1681,7 +1674,8 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
         result.push_back(std::move(control));
     };
     // Row 1's buttons, from the right: Done, Cancel, and while recording
-    // Remove last and F13–F24.
+    // Remove last. F13–F24 aren't offered: many targets map them to their
+    // own functions (R313); a file's still load and send.
     double right = pl.row.x + pl.row.width;
     const auto take = [&](double width) {
         right -= width;
@@ -1692,15 +1686,10 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
     add("done", "popup-done", {{}, tr("shortcuts.popup.done"), take(120), true, Icon::Apply});
     add("cancel", "popup-cancel", {{}, tr("button.cancel"), take(104)});
     const bool room = p.chords.size() < popup_limit();
-    std::optional<Rect> fkeys_menu; // the F13–F24 button, while its menu is open
     if (p.kind == PopupKind::Recording) {
         Control remove{{}, tr("shortcuts.popup.remove-last"), take(146)};
         remove.enabled = !p.chords.empty();
         add("remove-last", "popup-remove-last", remove);
-        Control fkeys{{}, tr("shortcuts.popup.fkeys"), take(130), p.fkeys};
-        fkeys.enabled = room;
-        const auto menu_at = fkeys.bounds;
-        add("fkeys", "popup-fkeys", fkeys);
         if (const auto pending = pending_text(p.latched, room); !pending.empty()) {
             const auto strip = popup_chips_strip(pl.well);
             const auto row =
@@ -1709,7 +1698,6 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
             chip.clip = strip; // scrolled out of the well, it takes no press
             add("pending", "popup-pending", chip);
         }
-        fkeys_menu = p.fkeys && room ? std::optional<Rect>(menu_at) : std::nullopt;
     }
     // The keys: each takes its row's whole height, side included, so a
     // press between rows still lands on one.
@@ -1722,25 +1710,6 @@ void App::append_popup_controls(std::vector<Control>& result, const Rect& body) 
                          (r.height + depth + 1) * pl.scale}};
         control.enabled = !popup_disabled(key, p.kind);
         add("key-" + key.id, "key", control);
-    }
-    // The F13–F24 menu over the keys, after them, so its items take the
-    // press: hover looks from the last control to the first (R334). Its
-    // panel takes the gaps between them, so no key under it does.
-    if (fkeys_menu) {
-        constexpr double size = 70, height = 46, gap = 8, pad = 8;
-        const double width = 6 * size + 5 * gap + 2 * pad;
-        const double left = fkeys_menu->x + fkeys_menu->width - width;
-        const double top = fkeys_menu->y + fkeys_menu->height + 6;
-        add("fkeys-menu", "popup-menu", {{}, {}, {left, top, width, 2 * height + gap + 2 * pad}});
-        for (int n = 13; n <= 24; ++n) {
-            const int i = n - 13;
-            add("fkey-" + std::to_string(n), "popup-fkey",
-                {{},
-                 "F" + std::to_string(n),
-                 {left + pad + (i % 6) * (size + gap), top + pad + (i / 6) * (height + gap), size,
-                  height}},
-                n);
-        }
     }
 }
 void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
@@ -1771,8 +1740,7 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
     }
     view.title_bounds = {pl.row.x + 6, pl.row.y, 300, pl.row.height};
     // The hint runs up to the first of row 1's buttons.
-    const double buttons =
-        p.kind == PopupKind::Recording ? 120 + 104 + 146 + 130 + 4 * 8 : 120 + 104 + 2 * 8;
+    const double buttons = p.kind == PopupKind::Recording ? 120 + 104 + 146 + 3 * 8 : 120 + 104 + 2 * 8;
     view.hint_bounds = {pl.row.x + 6, pl.row.y, pl.row.width - 6 - buttons - 8, pl.row.height};
     view.text = p.text;
     view.cursor = p.cursor;
@@ -1793,14 +1761,6 @@ void App::append_popup_view(ShortcutEditorView& e, const Rect& body) const {
             view.full = tr("shortcuts.popup.recording-hint");
             view.full_bounds = {pl.well.x + 16, pl.well.y, pl.well.width - 32, pl.well.height};
         }
-    }
-    if (p.fkeys && p.kind == PopupKind::Recording && p.chords.size() < popup_limit()) {
-        // Its button is row 1's fourth from the right.
-        const double fkeys_right = pl.row.x + pl.row.width - (120 + 104 + 146 + 3 * 8);
-        constexpr double size = 70, height = 46, gap = 8, pad = 8;
-        const double width = 6 * size + 5 * gap + 2 * pad;
-        view.fkeys =
-            Rect{fkeys_right - width, pl.row.y + pl.row.height + 6, width, 2 * height + gap + 2 * pad};
     }
     view.layout = &mini_layout_;
     view.language = &profiles_.languages.at("en-us");
@@ -1866,7 +1826,7 @@ bool App::chips_press(unsigned pointer, double x, double y) {
     const auto l = editor_layout(body, bar_geometry(0), shown_theme().depth,
                                  shortcut_editor_->model().profiles.size());
     if (popup_) {
-        if (popup_->kind != PopupKind::Recording || popup_->fkeys ||
+        if (popup_->kind != PopupKind::Recording ||
             !popup_layout(body, l.strip_well, mini_layout_).well.contains(x, y)) {
             return false;
         }

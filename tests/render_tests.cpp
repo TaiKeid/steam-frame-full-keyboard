@@ -2014,10 +2014,6 @@ void shortcut_popup(bool narrow) {
     tap_control("shortcuts-popup-key-KeyK");
     tap_control("shortcuts-popup-key-ShiftLeft");
     compare.frame(app.view(), phase("a combination recorded").c_str());
-    tap_control("shortcuts-popup-fkeys");
-    compare.frame(app.view(), phase("the F13–F24 menu").c_str());
-    tap_control("shortcuts-popup-fkey-13");
-    compare.frame(app.view(), phase("F13 recorded").c_str());
     tap_control("shortcuts-popup-cancel");
     compare.frame(app.view(), phase("canceled").c_str());
 }

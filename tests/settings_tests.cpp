@@ -4603,9 +4603,7 @@ void shortcut_macro_view() {
         for (int i = 0; i < 33; ++i) {
             tap_mini(app, i % 2 ? "KeyA" : "KeyB");
         }
-        require(popup_chips(app.view()).size() == 32 &&
-                    !control(app.view(), "shortcuts-popup-fkeys").enabled,
-                "a Keys step stops at 32 combinations");
+        require(popup_chips(app.view()).size() == 32, "a Keys step stops at 32 combinations");
         tap_control(app, "shortcuts-popup-done");
         require(step_rows(app.view())[2].ends_with(" …"), "a long step ends its row in an ellipsis");
         // A drag moves a step; ✕ deletes one.
@@ -5514,6 +5512,59 @@ void shortcut_name_record() {
         require(renamed, "a tie under its ID's own name takes a name found later");
     }
 }
+// R313: recording no longer offers F13–F24, but a file's still load, show
+// their chips and send.
+void shortcut_fkeys_from_file() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"f",
+         "F keys",
+         {shortcut_button("Fs", {{{}, "F13"}, {{}, "F14"}, {{"ControlLeft"}, "F20"}, {{}, "F24"}})}});
+    model.free_profile = "f";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 1600;
+    app.tick(now);
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 1 &&
+                app.view().shortcut_bar->buttons[0].enabled,
+            "a file with F13–F24 loads, its button enabled");
+    const auto at = middle(app.view().shortcut_bar->buttons[0].bounds);
+    app.move(0, at.x, at.y);
+    app.down(0, at.x, at.y, now);
+    app.up(0, at.x, at.y);
+    for (int i = 0; i < 60; ++i) {
+        app.tick(now += .02);
+    }
+    require(sink.events == std::vector<std::pair<int, int>>{{KEY_F13, 1},
+                                                            {KEY_F13, 0},
+                                                            {KEY_F14, 1},
+                                                            {KEY_F14, 0},
+                                                            {KEY_LEFTCTRL, 1},
+                                                            {KEY_F20, 1},
+                                                            {KEY_F20, 0},
+                                                            {KEY_LEFTCTRL, 0},
+                                                            {KEY_F24, 1},
+                                                            {KEY_F24, 0}},
+            "its keys are sent");
+    open_editor(app);
+    tap_control(app, "shortcuts-button-0");
+    const auto view = app.view();
+    const auto& chords = view.shortcut_editor->chords;
+    require(chords.size() == 4 && chords[0].text == "F13" && chords[2].text == "Ctrl + F20" &&
+                chords[3].text == "F24",
+            "the editor shows their chips");
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6419,9 +6470,22 @@ void shortcut_editor_settings() {
         view = app.view();
         require(view.shortcut_editor->popup &&
                     view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording &&
-                    has(view, "shortcuts-popup-fkeys") && has(view, "shortcuts-popup-remove-last") &&
-                    !has(view, "shortcuts-popup-pending"),
-                "Record: F13–F24, Remove last, Cancel and Done");
+                    has(view, "shortcuts-popup-remove-last") && !has(view, "shortcuts-popup-pending"),
+                "Record: Remove last, Cancel and Done");
+        // R313: F13–F24 aren't offered; Remove last, Cancel and Done keep
+        // their places from the right.
+        {
+            const auto done = control(view, "shortcuts-popup-done").bounds,
+                       cancel = control(view, "shortcuts-popup-cancel").bounds,
+                       remove = control(view, "shortcuts-popup-remove-last").bounds;
+            require(std::none_of(
+                        view.controls.begin(), view.controls.end(),
+                        [](const Control& c) { return c.id.starts_with("shortcuts-popup-fkey"); }) &&
+                        cancel.x + cancel.width + 8 == done.x &&
+                        remove.x + remove.width + 8 == cancel.x && done.width == 120 &&
+                        cancel.width == 104 && remove.width == 146,
+                    "no F13–F24 button or menu while recording");
+        }
         popup_fits(view, narrow);
         // R330: the locks are the keyboard's own switches, never recorded.
         require(!control(view, "shortcuts-popup-key-NumLock").enabled &&
@@ -6442,13 +6506,10 @@ void shortcut_editor_settings() {
         tap_mini(app, "Numpad1");
         tap_mini(app, "AltLeft");
         tap_control(app, "shortcuts-popup-pending");
-        tap_control(app, "shortcuts-popup-fkeys");
-        tap_control(app, "shortcuts-popup-fkey-13");
+        tap_mini(app, "F5");
         view = app.view();
-        require(
-            popup_chips(view) == std::vector<std::string>{"Ctrl + K", "Num 1", "Alt", "F13"} &&
-                !control(view, "shortcuts-popup-fkeys").enabled,
-            "a second tap lets a latch go; keys, numpad keys, modifiers alone and F13, four at most");
+        require(popup_chips(view) == std::vector<std::string>{"Ctrl + K", "Num 1", "Alt", "F5"},
+                "a second tap lets a latch go; keys, numpad keys and modifiers alone, four at most");
         tap_mini(app, "KeyA");
         require(popup_chips(app.view()).size() == 4 && sink.events.empty(),
                 "a fifth is not recorded, and nothing is sent");
@@ -6463,23 +6524,8 @@ void shortcut_editor_settings() {
         tap_mini(app, "KeyQ");
         tap_control(app, "shortcuts-popup-cancel");
         require(app.view().shortcut_editor->chords.size() == 4, "Cancel keeps the shortcut as it was");
-        // R334: every item of the open F13–F24 menu takes its press, its
-        // second row over the keys too.
         tap_control(app, "shortcuts-record");
-        for (const char* key : {"19", "21", "24"}) {
-            tap_control(app, "shortcuts-popup-fkeys");
-            tap_control(app, std::string("shortcuts-popup-fkey-") + key);
-        }
-        require(popup_chips(app.view()) == std::vector<std::string>{"F19", "F21", "F24"},
-                "F19, F21 and F24 are recorded from the menu");
-        tap_control(app, "shortcuts-popup-fkeys");
-        {
-            // Between its items, the menu takes the press and no key under it.
-            const auto f19 = control(app.view(), "shortcuts-popup-fkey-19").bounds;
-            tap_at(app, f19.x + f19.width + 4, f19.y + f19.height / 2);
-            require(popup_chips(app.view()).size() == 3, "no key under the menu is recorded");
-        }
-        tap_control(app, "shortcuts-popup-fkeys"); // closes the menu
+        tap_mini(app, "KeyW");
         tap_control(app, "shortcuts-popup-cancel");
         tap_control(app, "shortcuts-record");
         tap_mini(app, "KeyQ");
@@ -6655,6 +6701,7 @@ int main() {
         shortcut_long_program_tie();
         shortcut_pick_history();
         shortcut_name_record();
+        shortcut_fkeys_from_file();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

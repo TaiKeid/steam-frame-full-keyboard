@@ -458,7 +458,6 @@
         "shortcuts.popup.command": "Command",
         "shortcuts.popup.command-hint": "One line, run with /bin/sh in your home folder",
         "shortcuts.popup.done": "Done",
-        "shortcuts.popup.fkeys": "F13–F24",
         "shortcuts.popup.full": "Four combinations at most",
         "shortcuts.popup.full-step": "32 combinations at most",
         "shortcuts.popup.label": "Label",

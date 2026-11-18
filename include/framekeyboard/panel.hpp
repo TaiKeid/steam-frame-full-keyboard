@@ -351,8 +351,7 @@ struct ShortcutPopupView {
     // empty, or after the chips why no more go.
     std::string full;
     Rect full_bounds;
-    std::optional<Rect> fkeys; // the F13–F24 menu's panel, open
-    const Layout* layout{};    // the mini keyboard
+    const Layout* layout{}; // the mini keyboard
     const Language* language{};
     const LanguageMap* keymap{}; // US legends, whatever language types
     Rect keys;                   // where its (0, 0) and its size land

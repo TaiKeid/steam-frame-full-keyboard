@@ -1979,12 +1979,6 @@ bool App::down(unsigned pointer, double x, double y, double now) {
             std::find_if(v.controls.rbegin(), v.controls.rend(),
                          [&](const Control& item) { return item.id == hovered_[pointer].id; });
         if (control != v.controls.rend()) {
-            // The F13–F24 menu closes on a press anywhere but its keys, taking it.
-            if (popup_ && popup_->fkeys && !control->id.starts_with("shortcuts-popup-fkey")) {
-                popup_->fkeys = false;
-                dirty = true;
-                return false;
-            }
             pressed_controls_[pointer] = {control->id, control->action};
             if (editor_screen()) {
                 editor_press(pointer, control->id, x, y); // a row or button may be dragged
@@ -2018,12 +2012,6 @@ bool App::down(unsigned pointer, double x, double y, double now) {
                 }
             }
         }
-        return false;
-    }
-    // The F13–F24 menu over the keys closes on a press elsewhere, taking it.
-    if (popup_ && popup_->fkeys) {
-        popup_->fkeys = false;
-        dirty = true;
         return false;
     }
     // Open skin tones take the click anywhere in the picker, keys included:

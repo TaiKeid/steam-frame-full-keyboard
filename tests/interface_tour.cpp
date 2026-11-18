@@ -291,6 +291,26 @@ int main(int argc, char** argv) {
                     const auto tip = toolbar_button(short_bar.view());
                     short_bar.move(1, tip.x + tip.width / 2, tip.y + tip.height / 2);
                     shot(short_bar, "shortcut-bar-short-toolbar-tooltip");
+                    // A button holding F13 and F24 from its file: recording no
+                    // longer offers them, but the editor still shows them (R313).
+                    const auto fkeys_dir = fs::path(config) / ".config" / "framekeyboard-fkeys";
+                    fs::create_directories(fkeys_dir);
+                    save_settings(fkeys_dir, settings);
+                    ShortcutModel fkeys;
+                    ShortcutButton launch;
+                    launch.label = "Launch";
+                    launch.action.chords = {{{}, "F13"}, {{"ControlLeft"}, "F24"}};
+                    fkeys.profiles.push_back({"fkeys", "F keys", {launch}});
+                    fkeys.free_profile = "fkeys";
+                    std::ofstream(fkeys_dir / "shortcuts.json") << serialize_shortcuts(fkeys);
+                    Options fkeys_options = bar_options;
+                    fkeys_options.config_dir = fkeys_dir;
+                    App fkeys_bar(fkeys_options, sink);
+                    choose_language(fkeys_bar, language);
+                    settle(fkeys_bar);
+                    open_editor(fkeys_bar);
+                    click(fkeys_bar, "shortcuts-button-0");
+                    shot(fkeys_bar, "shortcut-editor-f13");
                 }
                 // A label part typed, Shift latched; Ctrl + K recorded, Ctrl latched.
                 const auto popups = [&](App& app, const std::string& suffix) {
