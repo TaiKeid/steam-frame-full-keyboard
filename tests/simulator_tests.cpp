@@ -612,6 +612,16 @@ void app_button() {
     require(simulator.app_label() == "App: Moonlight" && label() == "Home",
             "another app: the free profile");
     click_app();
+    require(simulator.app_label() == "App: Game streamed from a PC" && label() == "Home",
+            "a game streamed from a PC is an app of its own");
+    click_app();
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    require(simulator.app_label() == "App: PC desktop stream" &&
+                simulator.app().view().shortcut_bar->menu->rows[0].assign_enabled &&
+                tip() == "Show Game keys whenever your PC's desktop stream is in front",
+            "the PC's desktop stream can be assigned, named in the tooltip's own words");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    click_app();
     click_rect(simulator, simulator.app().view().shortcut_bar->picker);
     const auto menu = *simulator.app().view().shortcut_bar->menu;
     require(simulator.app_label() == "App: Steam" && !menu.rows[0].assign_enabled,

@@ -12,6 +12,7 @@
 #include <iostream>
 #include <limits>
 #include <linux/input-event-codes.h>
+#include <mutex>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -4168,8 +4169,9 @@ void shortcut_buttons() {
             std::vector<std::pair<int, int>>{
                 {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
         "a press in a stream sends its combinations' downs and ups in order");
-    require(assign_tooltip(stream) == "Can't assign here: Full Keyboard can't see which app is in front",
-            "a stream reports no app; it is no Steam field");
+    // Without a streaming client to read, it is the PC's stream (R359).
+    require(assign_tooltip(stream) == "Show Bar whenever your PC's desktop stream is in front",
+            "a stream is no Steam field: it can be assigned");
 }
 // R321: a button's press belongs to the bar it began on. Another window
 // takes the keys while it is held and the free bar comes back: letting go in
@@ -5074,6 +5076,198 @@ void shortcut_apps() {
 }
 // R339: over a macro's steps, the first row scrolls the list too; the
 // Shortcut view's chip strip, which lies there, is asked only for a shortcut.
+// R359: a stream from a PC is the streamed game, by the app ID Steam's
+// streaming client was started with, or the PC's stream as one app. Read
+// off the VR thread when a session begins, and only that session's answer
+// counts. The client lists here stand for /proc.
+void shortcut_stream_apps() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.profiles.push_back({"p", "PC", {shortcut_button("P", {{{"ControlLeft"}, "KeyP"}})}});
+    ShortcutButton slow;
+    slow.label = "Slow";
+    slow.action.kind = ShortcutAction::Kind::Macro;
+    slow.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyJ"}}, 0},
+                         {MacroStep::Kind::Wait, {}, 400},
+                         {MacroStep::Kind::Keys, {{{}, "KeyL"}}, 0}};
+    model.profiles[0].buttons.push_back(slow);
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    // What the client's arguments are now, and whether the read may answer.
+    using Clients = std::vector<std::vector<std::string>>;
+    std::mutex mutex;
+    std::optional<Clients> clients;
+    std::atomic<bool> hold_reads{};
+    const auto set_clients = [&](std::optional<Clients> next) {
+        std::lock_guard lock(mutex);
+        clients = std::move(next);
+    };
+    const auto client = [](const char* app_id) {
+        std::vector<std::string> arguments{"/usr/bin/streaming_client", "--server", "192.0.2.7:27036"};
+        if (app_id) {
+            arguments.insert(arguments.end(), {"--appid", app_id});
+        }
+        return Clients{arguments};
+    };
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.stream_clients = [&]() -> std::optional<Clients> {
+        for (int i = 0; i < 3000 && hold_reads; ++i) {
+            usleep(1000);
+        }
+        std::lock_guard lock(mutex);
+        return clients;
+    };
+    // The replacement's route: a stream session, or one of Steam's fields;
+    // neither has a window or an app of Gamescope's.
+    struct RouteSink : CaptureSink {
+        bool stream{}, field{};
+        bool steam_field_target() const override { return stream || field; }
+        bool stream_session_target() const override { return stream; }
+    } sink;
+    App app(options, sink);
+    double now = 1200;
+    app.tick(now);
+    const auto label = [&] { return app.view().shortcut_bar->buttons[0].label; };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto settle_until = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 1000 && !done(); ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    const auto hover = [&](std::size_t row) {
+        const auto at = middle(menu().rows[row].assign);
+        app.move(0, at.x, at.y);
+        return app.view().bar_tooltip;
+    };
+    const auto assign = [&](std::size_t row) {
+        tap_rect(app, app.view().shortcut_bar->picker);
+        require(menu().rows[row].assign_enabled, "the assign buttons work in a stream");
+        tap_rect(app, menu().rows[row].assign);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    // A stream of a Steam game: its Steam identity, once this session's
+    // answer is in.
+    set_clients(client("4000020"));
+    sink.stream = true;
+    app.set_native_request(5);
+    app.tick(now += .01);
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const bool enabled = menu().rows[1].assign_enabled;
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return enabled;
+            }),
+            "a streamed game can be assigned once its app is read");
+    assign(1);
+    const auto saved = saved_shortcuts(app);
+    require(saved.apps.size() == 1 &&
+                saved.apps[0].app == AppIdentity{AppIdentity::Kind::Steam, "4000020"} &&
+                saved.apps[0].profile == "g" && label() == "G",
+            "the tie is the game's Steam identity, and its profile shows");
+    // The session ends: the free profile; it begins again: the game's.
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    require(label() == "A", "after the stream the free profile shows");
+    sink.stream = true;
+    app.set_native_request(6);
+    require(settle_until([&] { return label() == "G"; }), "the game streamed again shows its profile");
+
+    // Another session with another game, whose read is slow: until its own
+    // answer is in, nothing of the last session's game is used; then the
+    // free profile, as for any app without one.
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    set_clients(client("4000030"));
+    hold_reads = true;
+    sink.stream = true;
+    app.set_native_request(7);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += .01);
+        require(label() == "A", "a new session never shows the last one's game");
+    }
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!menu().rows[1].assign_enabled &&
+                hover(1) == "Can't assign here: Full Keyboard can't see which app is in front",
+            "nothing to assign until its answer is in");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    hold_reads = false;
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const bool enabled = menu().rows[1].assign_enabled;
+                const auto tip = hover(1);
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return enabled && tip == "Show Game whenever App 4000030 is in front";
+            }) &&
+                label() == "A",
+            "the other game is an app of its own, without a profile");
+
+    // A run stops when the session changes, as for another app: J goes, L
+    // never does.
+    sink.events.clear();
+    const auto slow_at = middle(app.view().shortcut_bar->buttons[1].bounds);
+    app.move(0, slow_at.x, slow_at.y);
+    app.down(0, slow_at.x, slow_at.y, now);
+    app.up(0, slow_at.x, slow_at.y);
+    for (int i = 0; i < 10; ++i) {
+        app.tick(now += .01);
+    }
+    app.set_native_request(8);
+    for (int i = 0; i < 80; ++i) {
+        app.tick(now += .01);
+    }
+    require(std::count(sink.events.begin(), sink.events.end(), std::pair{KEY_J, 1}) == 1 &&
+                std::none_of(sink.events.begin(), sink.events.end(),
+                             [](const auto& event) { return event.first == KEY_L; }),
+            "another session stops a run");
+
+    // A stream with no usable app ID, such as the PC's desktop: the one
+    // stream app, named in the tooltip's own words and the editor's.
+    set_clients(client(nullptr));
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    sink.stream = true;
+    app.set_native_request(9);
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const auto tip = hover(2);
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return tip == "Show PC whenever your PC's desktop stream is in front";
+            }),
+            "the PC's stream is named in the tooltip");
+    assign(2);
+    const auto both = saved_shortcuts(app);
+    require(both.apps.size() == 2 && both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"}) &&
+                both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"})->profile == "p" &&
+                both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"})->name == "PC desktop stream" &&
+                label() == "P",
+            "the PC's stream is tied as the stream app, its profile shows");
+
+    // One of Steam's own fields still can't be assigned.
+    sink.stream = false;
+    sink.field = true;
+    app.set_native_request(10);
+    app.tick(now += .01);
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!menu().rows[0].assign_enabled &&
+                hover(0) == "Can't assign here: this is one of Steam's own text fields, not an app" &&
+                label() == "A",
+            "a Steam field still can't be assigned; the free profile shows");
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6211,6 +6405,7 @@ int main() {
         macro_buttons();
         first_bar_shows();
         shortcut_apps();
+        shortcut_stream_apps();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

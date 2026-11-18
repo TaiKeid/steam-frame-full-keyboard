@@ -12,7 +12,9 @@ namespace framekeyboard {
 struct AppIdentity {
     // Steam: a Steam app ID in decimal. Program: the focused process's
     // program file name. Desktop: the app ID SteamOS's Desktop reported.
-    enum class Kind { Steam, Program, Desktop };
+    // Stream: a stream from a PC with no Steam app ID, such as its desktop;
+    // all are one app, with the one ID pc_stream_id (stream_app.hpp).
+    enum class Kind { Steam, Program, Desktop, Stream };
     Kind kind{Kind::Program};
     std::string id;
     bool operator==(const AppIdentity&) const = default;
@@ -20,7 +22,7 @@ struct AppIdentity {
 // Whether shortcuts.json could hold this identity, by the same rules
 // validate_shortcuts applies to a tie: not empty, at most app_id_bytes,
 // valid UTF-8 without control characters; a Steam ID is a nonzero 32-bit
-// number, and a program name has no folder part. An identity that fails is
+// number, a program name has no folder part, and a stream's ID is "pc". An identity that fails is
 // no identity, so an assign can never make the file invalid.
 bool app_identity_valid(const AppIdentity& app);
 // The app with the keys and Gamescope's focused window, read together so a

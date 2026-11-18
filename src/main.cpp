@@ -330,6 +330,9 @@ int main(int argc, char** argv) {
                 // The shortcut bar's app names, from Steam's and the
                 // Desktop's files (app_names.hpp); read off the VR thread.
                 options.app_names = fk::system_app_names();
+                // A stream's app, from Steam's streaming client
+                // (stream_app.hpp); read off the VR thread too.
+                options.stream_clients = fk::system_stream_clients();
             }
             // A hosted keyboard never touches the SteamOS boot unit; the saved
             // standalone flags stay as they are for the next standalone launch.

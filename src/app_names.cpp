@@ -213,6 +213,8 @@ std::string fallback_app_name(const AppIdentity& app, const std::string& program
             return name;
         }
         return "App " + app.id; // English until the interface's languages come
+    case AppIdentity::Kind::Stream:
+        return "PC desktop stream"; // App shows its own words (shortcuts.app.stream)
     }
     return clean_app_name(app.id);
 }
@@ -250,6 +252,8 @@ std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folde
         return {};
     case AppIdentity::Kind::Program:
         return {}; // Its file name is its name.
+    case AppIdentity::Kind::Stream:
+        return {}; // No file names it: App gives its own words.
     }
     return {};
 }

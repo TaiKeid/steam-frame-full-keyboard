@@ -91,6 +91,8 @@ bool profile_id(const std::string& id) {
            });
 }
 // A Steam app ID as Gamescope reports it: a nonzero 32-bit number.
+// The one ID of a stream without a Steam app ID (stream_app.hpp's pc_stream_id).
+constexpr const char* stream_id = "pc";
 bool steam_id(const std::string& id) {
     if (id.empty() || id.size() > 10 || id.front() == '0' ||
         !std::all_of(id.begin(), id.end(), [](unsigned char c) { return c >= '0' && c <= '9'; })) {
@@ -179,6 +181,9 @@ std::optional<std::string> check_tie(const ShortcutModel& model, const AppTie& t
     }
     if (tie.app.kind == AppIdentity::Kind::Program && tie.app.id.find('/') != std::string::npos) {
         return "a program name has a folder part";
+    }
+    if (tie.app.kind == AppIdentity::Kind::Stream && tie.app.id != stream_id) {
+        return "a stream's ID is not \"pc\"";
     }
     std::size_t characters = 0;
     if (!clean_text(tie.name, 0, characters) || characters > limits::app_name_characters) {
@@ -342,6 +347,8 @@ AppTie parse_tie(json_object* object, const std::string& where) {
         tie.app.kind = AppIdentity::Kind::Program;
     } else if (kind == "desktop") {
         tie.app.kind = AppIdentity::Kind::Desktop;
+    } else if (kind == "stream") {
+        tie.app.kind = AppIdentity::Kind::Stream;
     } else {
         invalid(where, "an unknown app kind");
     }
@@ -356,6 +363,8 @@ const char* kind_name(AppIdentity::Kind kind) {
         return "steam";
     case AppIdentity::Kind::Desktop:
         return "desktop";
+    case AppIdentity::Kind::Stream:
+        return "stream";
     case AppIdentity::Kind::Program:
         break;
     }
@@ -442,7 +451,8 @@ bool script_name_valid(std::string_view name) {
 bool app_identity_valid(const AppIdentity& app) {
     return !app.id.empty() && app.id.size() <= limits::app_id_bytes && clean_text(app.id) &&
            (app.kind != AppIdentity::Kind::Steam || steam_id(app.id)) &&
-           (app.kind != AppIdentity::Kind::Program || app.id.find('/') == std::string::npos);
+           (app.kind != AppIdentity::Kind::Program || app.id.find('/') == std::string::npos) &&
+           (app.kind != AppIdentity::Kind::Stream || app.id == stream_id);
 }
 const ShortcutProfile* ShortcutModel::profile(const std::string& id) const {
     const auto found = std::find_if(profiles.begin(), profiles.end(),

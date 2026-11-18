@@ -35,7 +35,11 @@ double chip_width(const std::string& text, double size, const std::string& famil
 }
 // A Used for chip: the tie's stored name, else what its identity gives, as a
 // hand-edited file may leave the name empty.
-std::string tie_chip(const AppTie& tie) {
+// A stream from a PC shows the editor's words in any language (R359).
+std::string tie_chip(const AppTie& tie, const std::string& stream_name) {
+    if (tie.app.kind == AppIdentity::Kind::Stream) {
+        return stream_name;
+    }
     return tie.name.empty() ? fallback_app_name(tie.app) : tie.name;
 }
 // The gap between chips, where a chevron goes, and one stick step's scroll.
@@ -361,8 +365,10 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
     // Used for: each tie's ✕.
     double x = l.used.x, y = l.used.y + 34;
     for (const auto index : shortcut_editor_->ties()) {
-        const double width = std::min(
-            l.used.width, chip_width(tie_chip(model.apps[index]), 19, localization_.fonts()) + 32);
+        const double width =
+            std::min(l.used.width, chip_width(tie_chip(model.apps[index], tr("shortcuts.app.stream")),
+                                              19, localization_.fonts()) +
+                                       32);
         if (x + width > l.used.x + l.used.width && x > l.used.x) {
             x = l.used.x;
             y += 48;
@@ -742,7 +748,7 @@ void App::append_shortcut_editor(PanelView& v) const {
         e.used_caption = tr("shortcuts.editor.used");
         double x = l.used.x, y = l.used.y + 34;
         for (const auto index : shortcut_editor_->ties()) {
-            const auto name = tie_chip(model.apps[index]);
+            const auto name = tie_chip(model.apps[index], tr("shortcuts.app.stream"));
             const double width =
                 std::min(l.used.width, chip_width(name, 19, localization_.fonts()) + 32);
             if (x + width > l.used.x + l.used.width && x > l.used.x) {

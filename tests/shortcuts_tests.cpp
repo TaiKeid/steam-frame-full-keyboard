@@ -2,6 +2,7 @@
 #include "framekeyboard/app_names.hpp"
 #include "framekeyboard/shortcut_editor.hpp"
 #include "framekeyboard/shortcuts.hpp"
+#include "framekeyboard/stream_app.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -816,6 +817,82 @@ void ties() {
                 model.tie(program("app0"))->profile == "p1",
             "a tied app's tie still moves at the limit");
 }
+// A stream from a PC (R359): the streamed game's app ID from the streaming
+// client's arguments, strictly, and the PC's stream for anything else. The
+// lists here stand for /proc; no test reads it. The account and address
+// arguments are made up and never part of the answer.
+void stream_apps() {
+    const std::vector<std::string> base{"/usr/bin/streaming_client", "--account", "12345", "--server",
+                                        "192.0.2.7:27036"};
+    const auto with = [&](std::vector<std::string> more) {
+        auto arguments = base;
+        arguments.insert(arguments.end(), more.begin(), more.end());
+        return arguments;
+    };
+    require(streamed_app_id(with({"--gameid", "4000020", "--appid", "4000020"})) == 4000020u,
+            "--appid and its number");
+    require(!streamed_app_id(base), "no --appid");
+    require(!streamed_app_id(with({"--appid", "0"})), "0 is no app");
+    require(!streamed_app_id(with({"--appid", "4294967296"})) &&
+                streamed_app_id(with({"--appid", "4294967295"})) == 4294967295u,
+            "the ID fits 32 bits");
+    require(!streamed_app_id(with({"--appid", "12345678901"})), "too many digits");
+    for (const char* odd : {"4000020x", "-1", "+4", " 4", "", "0400", "4e6"}) {
+        require(!streamed_app_id(with({"--appid", odd})), std::string("not a plain number: ") + odd);
+    }
+    require(!streamed_app_id(with({"--appid"})), "--appid last, with nothing after it");
+    require(!streamed_app_id(with({"--appid=4000020"})) && !streamed_app_id(with({"--APPID", "4"})),
+            "only the argument exactly --appid");
+    require(!streamed_app_id(with({"--appid", "4000020", "--appid", "4000030"})),
+            "two --appid: a surprise");
+    require(!streamed_app_id(with({"--gameid", "4000020"})), "--gameid alone is not read");
+
+    using Clients = std::optional<std::vector<std::vector<std::string>>>;
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"};
+    require(stream_identity(Clients{{with({"--appid", "4000020"})}}) == game,
+            "one client with an ID: the Steam game");
+    require(stream_identity(Clients{{base}}) == pc_stream_identity(), "one without: the PC's stream");
+    require(stream_identity(std::nullopt) == pc_stream_identity(), "unreadable: the PC's stream");
+    require(stream_identity(Clients{std::vector<std::vector<std::string>>{}}) == pc_stream_identity(),
+            "no client: the PC's stream");
+    require(stream_identity(Clients{{with({"--appid", "4000020"}), with({"--appid", "4000020"})}}) ==
+                pc_stream_identity(),
+            "two clients: the PC's stream, never a guess");
+    require(app_identity_valid(game) && app_identity_valid(pc_stream_identity()) &&
+                !app_identity_valid({AppIdentity::Kind::Stream, "desktop"}),
+            "a stream's one ID is pc");
+
+    // The finder answers each request with its number, off the caller's thread.
+    std::atomic<int> reads{};
+    StreamAppFinder finder([&]() -> Clients {
+        ++reads;
+        return Clients{{with({"--appid", "4000020"})}};
+    });
+    finder.request(7);
+    std::optional<StreamAppFinder::Result> answer;
+    for (int i = 0; i < 1000 && !answer; ++i) {
+        usleep(1000);
+        answer = finder.take();
+    }
+    require(answer && answer->session == 7 && answer->app == game && reads == 1,
+            "an answer carries its session's number");
+    StreamAppFinder none({});
+    none.request(3);
+    const auto at_once = none.take();
+    require(at_once && at_once->session == 3 && at_once->app == pc_stream_identity(),
+            "without a source nothing is read: the PC's stream, at once");
+
+    // The PC's stream in shortcuts.json: kind "stream", the one ID.
+    ShortcutModel model;
+    model.profiles = {{"p1", "One", {}}};
+    model.apps = {{pc_stream_identity(), "PC desktop stream", "p1"}, {game, "App 4000020", "p1"}};
+    accepted(model, "a stream tie");
+    require(serialize_shortcuts(model).find("\"kind\": \"stream\"") != std::string::npos ||
+                serialize_shortcuts(model).find("\"kind\":\"stream\"") != std::string::npos,
+            "written as kind stream");
+    model.apps[0].app.id = "desktop";
+    refused(model, "a stream with another ID");
+}
 // App names, from a temporary folder only: never the computer's own files.
 void app_names() {
     TemporaryDirectory folder;
@@ -978,6 +1055,7 @@ int main() {
         picker();
         model_changes();
         ties();
+        stream_apps();
         run_editing();
         app_names();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";

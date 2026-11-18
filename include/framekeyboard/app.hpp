@@ -26,6 +26,7 @@
 #include "shortcut_launch.hpp"
 #include "shortcut_runner.hpp"
 #include "shortcuts.hpp"
+#include "stream_app.hpp"
 #include "stream_support.hpp"
 #include "swipe.hpp"
 #include "theme_previews.hpp"
@@ -127,6 +128,9 @@ struct Options {
     // Where the editor's Run list reads the scripts folder: tests and the
     // tour give their own names; empty makes and lists the real folder.
     ScriptListSource script_list;
+    // Where a stream's app comes from (stream_app.hpp): main reads Steam's
+    // streaming client; left empty, every stream is the PC's.
+    StreamClientSource stream_clients;
 };
 
 // What a Haptic effect or Haptic volume click plays, by the pending choices.
@@ -1821,8 +1825,19 @@ class App {
     FocusedApp bar_focus_;
     std::uint64_t bar_focus_serial_{}; // KeySink::focus_serial, beside it
     // The app with the keys, as the bar sees it: none while Steam's
-    // dashboard has them (set_dashboard_focus).
+    // dashboard has them (set_dashboard_focus); in a stream from a PC, the
+    // streamed app once this session's answer is in.
     FocusedApp focused_app() const;
+    // Streams from a PC (R359). A session is the native request a stream
+    // holds (stream_session_target); its app is read off the VR thread when
+    // it begins and dies with it, so a new session never shows the last
+    // one's game. Until its answer is in, the bar keeps what it shows.
+    StreamAppFinder stream_apps_{options_.stream_clients};
+    std::optional<std::uint64_t> stream_session_; // its request
+    std::uint64_t stream_token_{};                // the finder's number for it
+    std::optional<AppIdentity> stream_app_;
+    void track_stream_session();
+    bool stream_app_pending() const { return stream_session_ && !stream_app_; }
     // App names (design, Apps): looked up off the VR thread when the menu
     // opens and on an assign, taken on a tick. `app_name_` is the last one
     // found for an app; `name_fixes_` are ties saved with the name the

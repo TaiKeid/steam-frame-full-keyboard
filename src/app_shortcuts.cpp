@@ -519,9 +519,31 @@ std::optional<ScrollRoom> App::bar_scroll_room(double x, double y) const {
     const double target = scrolled == bar_scroll_.end() ? 0 : scrolled->second.target;
     return ScrollRoom{target > 0, target < g.scroll_limit};
 }
+void App::track_stream_session() {
+    const auto session =
+        output_.stream_session_target() ? std::optional<std::uint64_t>(native_request_) : std::nullopt;
+    if (session != stream_session_) {
+        // A stream began, ended or another took its place: the last one's
+        // app goes with it, and a run stops, as for another app (R359).
+        stream_session_ = session;
+        stream_app_.reset();
+        stop_shortcut_run();
+        if (session) {
+            stream_apps_.request(++stream_token_);
+        }
+    }
+    while (auto answer = stream_apps_.take()) {
+        // Only this session's: one for a session that ended is dropped.
+        if (stream_session_ && answer->session == stream_token_ && !stream_app_) {
+            stream_app_ = std::move(answer->app);
+            dirty = true;
+        }
+    }
+}
 void App::tick_shortcut_bar(double now) {
     const double elapsed = bar_tick_ < 0 ? 0 : now - bar_tick_;
     bar_tick_ = now;
+    track_stream_session();
     // A While held macro runs only while a press holds it: whatever ended
     // the press (a release, a cancel, the hold's limit, another profile), the
     // pass under way finishes and no other starts.
@@ -543,7 +565,8 @@ void App::tick_shortcut_bar(double now) {
     // Until the dashboard probe answers, as each time the keyboard opens in
     // the dashboard, the focus is unknown: the bar keeps the one it had, so
     // a pick or the empty bar survives the opening (R343).
-    if (!dashboard_focus_known_) {
+    // So is a stream's app until its session's answer is in.
+    if (!dashboard_focus_known_ || stream_app_pending()) {
         // nothing to compare
     } else if (auto focus = focused_app();
                focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
@@ -589,6 +612,11 @@ void App::tick_shortcut_bar(double now) {
 }
 FocusedApp App::focused_app() const {
     auto focus = output_.focused_app();
+    if (output_.stream_session_target()) {
+        // Gamescope reports nothing for a stream: its app is the streaming
+        // client's answer for this session, and it has no window (R359).
+        focus = {0, stream_session_ ? stream_app_ : std::nullopt, {}};
+    }
     if (dashboard_focus_) {
         // Steam's dashboard has the keys: it is no app, whatever window
         // Gamescope would fall back to.
@@ -602,6 +630,9 @@ std::string App::focused_app_name() const {
         return {};
     }
     const auto& app = *bar_focus_.app;
+    if (app.kind == AppIdentity::Kind::Stream) {
+        return tr("shortcuts.app.stream-sentence"); // its own words, in any language
+    }
     if (const auto* tie = shortcuts_.tie(app); tie && !tie->name.empty()) {
         return tie->name; // stored with the tie, not looked up again
     }
@@ -611,7 +642,7 @@ std::string App::focused_app_name() const {
     return fallback_app_name(app, bar_focus_.program);
 }
 void App::look_up_focused_name() {
-    if (!bar_focus_.app) {
+    if (!bar_focus_.app || bar_focus_.app->kind == AppIdentity::Kind::Stream) {
         return;
     }
     const auto& app = *bar_focus_.app;
@@ -664,7 +695,9 @@ std::string App::assign_unavailable() const {
     if (output_.steam_field_target() && !output_.stream_session_target()) {
         return tr("tooltip.shortcuts-assign-steam-field");
     }
-    if (!bar_focus_.app) {
+    // A stream's app is unknown until its session's answer is in: the bar
+    // still holds the last one's.
+    if (!bar_focus_.app || stream_app_pending()) {
         return tr("tooltip.shortcuts-assign-unknown");
     }
     if (!shortcuts_.can_assign(*bar_focus_.app)) {
@@ -688,8 +721,11 @@ void App::assign_profile(std::size_t row) {
     } else {
         // Saved with the name known now; until a lookup lands, the one the
         // identity gives, updated once it does (take_app_names).
-        const bool known = (tie && !tie->name.empty()) || (app_name_ && app_name_->app == app);
-        const auto name = focused_app_name();
+        // A stream from a PC is saved with the editor's words for it; no
+        // lookup names it.
+        const bool stream = app.kind == AppIdentity::Kind::Stream;
+        const bool known = stream || (tie && !tie->name.empty()) || (app_name_ && app_name_->app == app);
+        const auto name = stream ? tr("shortcuts.app.stream") : focused_app_name();
         if (!shortcuts_.assign(app, name, id)) {
             return;
         }

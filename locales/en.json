@@ -397,6 +397,8 @@
         "setting.use-drag-to-move": "Grab to move",
         "setting.use-drag-to-move.note": "Hold grip on the keyboard instead of the line",
         "setting.vibration": "Key vibration",
+        "shortcuts.app.stream": "PC desktop stream",
+        "shortcuts.app.stream-sentence": "your PC's desktop stream",
         "shortcuts.editor.action": "Action",
         "shortcuts.editor.add-keys": "+ Keys",
         "shortcuts.editor.add-wait": "+ Wait",

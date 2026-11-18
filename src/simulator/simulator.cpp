@@ -1,6 +1,7 @@
 #include "simulator.hpp"
 #include "framekeyboard/mozc.hpp"
 #include <algorithm>
+#include <cmath>
 #include <pango/pangocairo.h>
 #include <stdexcept>
 #include <utility>
@@ -39,6 +40,10 @@ const SimulatedApp simulated_apps[] = {
     {"Terminal", 3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, false},
     {"Game", 4, AppIdentity{AppIdentity::Kind::Steam, "4000010"}, false},
     {"Moonlight", 5, AppIdentity{AppIdentity::Kind::Program, "moonlight"}, false},
+    // As a stream from a PC shows on the headset: a Steam game by its app
+    // ID, and the PC's desktop as the one stream app.
+    {"Game streamed from a PC", 7, AppIdentity{AppIdentity::Kind::Steam, "4000020"}, false},
+    {"PC desktop stream", 8, AppIdentity{AppIdentity::Kind::Stream, "pc"}, false},
     {"Steam", 6, std::nullopt, true},
 };
 // The names the simulator gives its apps, in place of a lookup in files.
@@ -99,6 +104,11 @@ void button(cairo_t* cr, Rect r, const char* text, bool on) {
     auto layout = text_layout(cr, text, bar_font, {});
     int w = 0, h = 0;
     pango_layout_get_pixel_size(layout.get(), &w, &h);
+    // A label too long for its button, such as a long app name, is set smaller.
+    if (const double room = r.width - 16; w > room) {
+        layout = text_layout(cr, text, std::floor(bar_font * room / w), {});
+        pango_layout_get_pixel_size(layout.get(), &w, &h);
+    }
     set(cr, ink);
     cairo_move_to(cr, r.x + (r.width - w) / 2, r.y + (r.height - h) / 2);
     pango_cairo_show_layout(cr, layout.get());

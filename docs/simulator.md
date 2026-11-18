@@ -63,7 +63,7 @@ Steam's own text fields confirm each key the keyboard sends before taking the ne
 
 ## App
 
-The **App** button stands for another app taking the keys, so the [shortcut bar](shortcut-bar-design.md) can be tried with profiles assigned to apps. Each click goes on to the next of Notes, Terminal (both apps in SteamOS's Desktop), Game (a Steam game), Moonlight and Steam, then round again; it starts on Notes. Each is another window with an identity and a name of the simulator's own; Steam is Steam's dashboard, which can't be assigned and takes no typing, as on the headset. Nothing of the computer's own apps is read.
+The **App** button stands for another app taking the keys, so the [shortcut bar](shortcut-bar-design.md) can be tried with profiles assigned to apps. Each click goes on to the next of Notes, Terminal (both apps in SteamOS's Desktop), Game (a Steam game), Moonlight, Game streamed from a PC (a Steam game streamed from a PC), PC desktop stream (a stream from a PC that names no Steam game, which all count as one app) and Steam, then round again; it starts on Notes. Each is another window with an identity and a name of the simulator's own; Steam is Steam's dashboard, which can't be assigned and takes no typing, as on the headset. Nothing of the computer's own apps is read.
 
 ## Japanese
 
