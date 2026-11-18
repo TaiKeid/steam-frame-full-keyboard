@@ -190,10 +190,18 @@ std::string clean_app_name(std::string_view text) {
     }
     return result;
 }
+namespace {
+// A program's own name: what follows the last folder separator, a Windows
+// one too, as Wine names a game's process by its Windows path (R346).
+std::string_view program_file(std::string_view program) {
+    const auto separator = program.find_last_of("/\\");
+    return separator == std::string_view::npos ? program : program.substr(separator + 1);
+}
+} // namespace
 std::string fallback_app_name(const AppIdentity& app, const std::string& program) {
     switch (app.kind) {
     case AppIdentity::Kind::Program:
-        return clean_app_name(app.id);
+        return clean_app_name(program_file(app.id));
     case AppIdentity::Kind::Desktop: {
         const auto dot = app.id.rfind('.');
         const auto last =
@@ -201,7 +209,7 @@ std::string fallback_app_name(const AppIdentity& app, const std::string& program
         return clean_app_name(last);
     }
     case AppIdentity::Kind::Steam:
-        if (auto name = clean_app_name(program); !name.empty()) {
+        if (auto name = clean_app_name(program_file(program)); !name.empty()) {
             return name;
         }
         return "App " + app.id; // English until the interface's languages come

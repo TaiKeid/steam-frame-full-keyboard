@@ -21,8 +21,9 @@ namespace framekeyboard {
 using AppNameSource = std::function<std::string(const AppIdentity&)>;
 
 // What an identity gives by itself, until or unless its name is found: a
-// program's file name, the last dot-separated part of a Desktop app ID, and
-// for a Steam app the focused program's name, else "App" and the ID.
+// program's file name (after the last / or \, as Wine's are Windows paths),
+// the last dot-separated part of a Desktop app ID, and for a Steam app the
+// focused program's name, else "App" and the ID.
 std::string fallback_app_name(const AppIdentity& app, const std::string& program = {});
 // A name as read from a file, made fit to show and keep: none for invalid
 // UTF-8; control characters removed, spaces trimmed, at most

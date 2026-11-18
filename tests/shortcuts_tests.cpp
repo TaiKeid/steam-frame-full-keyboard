@@ -877,6 +877,12 @@ void app_names() {
             fallback_app_name(steam_app("4000010"), "game.x86_64") == "game.x86_64" &&
             fallback_app_name(steam_app("4000010")) == "App 4000010",
         "until a name is found: the file name, the ID's last part, the program, else App and the ID");
+    // R346: Wine names a game's process by its Windows path.
+    require(fallback_app_name(program("C:\\Games\\Example\\game.exe")) == "game.exe" &&
+                fallback_app_name(steam_app("4000010"), "Z:\\home\\games\\example.exe") ==
+                    "example.exe" &&
+                fallback_app_name(program("mixed/dir\\tool.exe")) == "tool.exe",
+            "a Windows path names the program by what follows its last separator");
     const auto standard = system_app_name_folders("/home/someone");
     require(standard.steam.front() == "/home/someone/.local/share/Steam" &&
                 std::find(standard.applications.begin(), standard.applications.end(),
