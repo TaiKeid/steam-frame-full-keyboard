@@ -62,14 +62,14 @@ The button is the user's switch for the bar, saved as `shortcuts_switch`. Its ic
 Each time another app takes the keys:
 
 1. The app has a profile: that profile.
-2. Otherwise the free profile chosen last, if it still exists and is still free.
-3. Otherwise nothing. The toolbar button shows off, without changing the user's switch, so a later app with a profile brings the bar back.
+2. Otherwise a profile picked before for apps without one: the one picked last if no app is assigned to it; else the most recently picked one that no app is assigned to; else, when every profile picked is assigned to some app, the one picked last all the same. A profile never picked is not chosen for the user.
+3. Otherwise, nothing having been picked, nothing. The toolbar button shows off, without changing the user's switch, so a later app with a profile brings the bar back.
 
 Steam's dashboard and an app that can't be identified count as apps without a profile. An empty bar opened with the toolbar button stays until the focus moves on.
 
 Inside SteamOS's Desktop another app taking the keys is a change of focus, as another window is elsewhere. Another window of the same app, such as a dialog, is not: the bar and a profile chosen in the picker stay, and only a run under way stops.
 
-Choosing a profile in the picker shows it until the focus changes. If it is a free profile, it also becomes the one rule 2 returns to. The switch turned off by hand overrides all of this.
+Choosing a profile in the picker shows it until the focus changes. Chosen while an app without a profile of its own has the keys, it also goes first in the picks rule 2 returns to; chosen while an app with its own profile has them, it stays temporary. A deleted profile leaves the picks. The switch turned off by hand overrides all of this.
 
 ## Picker menu
 
@@ -112,16 +112,17 @@ Which identity the focus has, by the first row that fits:
 
 - `DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, read without blocking: the focused window with its app's kind and ID, published together, so the bar never sees a new window with the last one's app.
 - Gamescope reports nothing for a stream from a PC: no focused app and no window (measured for a streamed desktop and a streamed game). Its app is read when a stream session begins, off the VR thread, from the process `streaming_client`: the one number after `--appid`, taken strictly (digits only, no leading zero, nonzero, within 32 bits, exactly one client running). That line also holds the account and the PC's address: nothing else of it is kept and none of it is logged. Any surprise means the `stream` identity, never a guess. An answer belongs to its session: a new session never shows the last one's game, and until its answer is in the bar keeps what it shows and nothing can be assigned.
-- An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set.
+- An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set. Some programs, Chromium-based browsers among them, rewrite their arguments into one string with spaces: when the first argument, cut at one of its spaces, names the file `/proc/<pid>/exe` points to, the name is that file's, without the flags. Otherwise it is what follows the last folder separator, so a Windows game run by Wine keeps a file name with spaces.
 - The uinput backend can't tell which app has the keys: there is no identity there, only free profiles.
-- A name is looked up when the picker's menu opens and when an app is assigned, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie and not looked up again.
+- A name is looked up when the picker's menu opens, when an app is assigned, and when a stream session's app becomes known, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie.
+- Names found for Steam games and Desktop apps are also kept in `app-names.json` in the keyboard's cache folder: at most 256, the oldest found dropped, the user's alone, written off the VR thread; a bad file reads as none. Steam keeps a streamed game's manifest only while it streams, so its name can be read then and not later: a lookup that finds nothing uses the name kept, and a tie saved under its ID's own name, such as "App" and a Steam ID, takes the real name whenever one is found or kept.
 - Desktop files are looked for by the app ID as a file name, in the user's and the system's application folders, Flatpak's included.
 
 ## Actions
 
 ### Shortcut
 
-One to four key combinations sent in order, once per press: Ctrl+K, then S. A combination is any modifiers plus one key, or modifiers alone (a tap of Super). Every key of the keyboard can be recorded, including F1–F12, Tab, Delete, Home, Page Up and the modifiers, plus F13–F24, which the keyboard has no keys for.
+One to four key combinations sent in order, once per press: Ctrl+K, then S. A combination is any modifiers plus one key, or modifiers alone (a tap of Super). Every key of the keyboard can be recorded, including F1–F12, Tab, Delete, Home, Page Up and the modifiers. F13–F24 are not offered: on the headset's own routes the keymap turns most of them into other keys (in SteamOS's Desktop F13 opens System Settings and F20 mutes the microphone).
 
 - Each combination is one `OutputController::tap()`: modifiers down, key down, then up in reverse. `can_queue()` is checked for the whole sequence first, so it is sent whole or refused.
 - The runner ends a shortcut before its next combination when another window has taken the keys since it started: between combinations the output queue is empty and can't notice.
@@ -217,7 +218,7 @@ A button lifted from the strip can be carried to another profile. The row under 
 
 Shortcut, Macro and Run each keep what the user gave them while the editor is open, so switching between them loses nothing; only the chosen one is saved. Inside Run, Script and Command do the same. A shortcut turned into a macro for the first time starts as one Keys step holding its combinations.
 
-Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the profile that was selected in the editor, as if it had been chosen in the picker: a free one becomes the free profile. So a first profile shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a profile that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
+Everything in the editor is pending. ✓ saves it and returns to the keyboard, showing the profile that was selected in the editor, as if it had been chosen in the picker: it goes first in the picks for apps without a profile. So a first profile shows as soon as it is saved. ← returns without saving, and asks first, Discard or Save, when something changed. Deleting a profile that has buttons asks too. Settings' own ✓ and ← do not touch the editor's content.
 
 ### Typing and recording
 
@@ -227,7 +228,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 
 | Row | Content |
 | --- | --- |
-| 1 | What is edited (Label, Profile name, Recording), then **F13–F24** and **Remove last** while recording, **Cancel** and **Done** |
+| 1 | What is edited (Label, Profile name, Recording), then **Remove last** while recording, **Cancel** and **Done** |
 | 2 | A recessed strip across the popup: the text being typed with its caret, or the combinations recorded so far as chips. When they don't fit it scrolls sideways, with the stick or a drag, and follows the newest chip while recording |
 | Keys | The mini keyboard |
 
@@ -302,7 +303,8 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
   "apps": [
     {"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "profile": "p1"}
   ],
-  "free_profile": "p1"
+  "free_profile": "p1",
+  "earlier_picks": ["p2"]
 }
 ```
 
@@ -327,19 +329,20 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 - An action may be empty: a shortcut without combinations, a macro without steps, or Run with neither a script nor a command. The editor saves a button the user has not finished, and a press on it does nothing.
 - Labels, names and commands are valid UTF-8 without control characters; a label's one line break is the exception.
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
-- What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and the free profile are written at once.
+- `free_profile` is the profile picked last for apps without one, and `earlier_picks` those picked before it, newest first; a file without `earlier_picks` has a history of one. A pick that names no profile, or one that is there twice, makes the file invalid.
+- What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and a pick for apps without a profile are written at once.
 - Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. The file is synced to disk before it replaces the old one.
 - Reload config rereads and rechecks the file, so a hand edit shows without a restart; a reload that finds it invalid keeps the profiles already loaded and reports. `framekeyboard --check` reports the file's state beside the layouts, languages and themes.
 - The installer and updates leave the file alone, as they do other user files.
 
-`key_codes` gains `F13` to `F24`, and the stream key table their scancodes.
+`key_codes` gains `F13` to `F24`, and the stream key table their scancodes. The recorder does not offer them; a file or a button that holds them still loads, shows its chips and sends.
 
 ## Security and privacy
 
 - A button can run a command and press any keys, so `shortcuts.json` is the only place such actions come from. Layout, language and theme profiles stay data and cannot run commands, and nothing in a shell's protocol or the instance socket can add, change or press a button.
 - There is no import or sharing of profiles in this version.
 - Labels, names, recorded keys, commands and script names are never logged.
-- App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) says the same.
+- App identities: the program name and the Desktop's app ID were read, matched and dropped until now. They are now also kept in memory while that app has the keys and, for an app the user assigned, written to `shortcuts.json` with its name. The names found for Steam games and Desktop apps, with their IDs, are kept in `app-names.json` in the cache folder, also for apps the user did not assign. They are still never logged, and window titles are still not used. [Terminal edit keys](terminal-edit-keys-design.md#privacy) says the same.
 
 ## Code map
 
@@ -377,7 +380,7 @@ Facts to measure on the Frame before the parts that depend on them:
 | Combinations sent back to back into a private receiver, with gaps from 0 to 50 ms | `shortcut_key_gap` |
 | A program started by the keyboard: its environment, and that it survives a keyboard restart. When the keyboard was started from Steam's launcher: whether Steam still shows the keyboard as running after it quits while that program lives | Run |
 | A numpad digit key sent into a private receiver under Gamescope, in SteamOS's Desktop and into a stream from a PC: whether it arrives as the digit or as the navigation key | Whether numpad digits are offered for local apps |
-| F13–F24 sent into a private receiver under Gamescope and in SteamOS's Desktop: the key seen and any system action. The default keymap turns F13 into Tools, F14–F18 into launcher keys, F20 into mic mute and F21–F23 into touchpad keys | Whether the recorder offers F13–F24 for local apps, or only for streams from a PC |
+| F13–F24 sent into a private receiver under Gamescope and in SteamOS's Desktop: the key seen and any system action. The default keymap turns F13 into Tools, F14–F18 into launcher keys, F20 into mic mute and F21–F23 into touchpad keys | Whether the recorder offers F13–F24 for local apps, or only for streams from a PC. Answered by hand in SteamOS's Desktop: F13 opens System Settings and F20 mutes the microphone, so the recorder offers none of them |
 
 ## Not in this version
 
