@@ -1271,6 +1271,11 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
             cairo_line_to(cr, 4.5, -.5);
         }
         break;
+    case Icon::RunMark:
+        line(-8, -6, -2, 0);
+        cairo_line_to(cr, -8, 6);
+        line(2, 6, 9, 6);
+        break;
     case Icon::Pencil:
         cairo_move_to(cr, -8.5, 8.5);
         cairo_line_to(cr, -7.5, 4);
@@ -3425,8 +3430,10 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
 }
 // A bar button's label: its one or two lines centred on the face, shrunk to
 // fit its width down to 70%, then each line ends in an ellipsis.
+// `mark`: the Run mark's scale (draw_run_mark), 0 without one. A first line
+// that would reach into the mark moves the label down, within the face.
 void bar_label(cairo_t* cr, const std::string& text, const Rect& face, double size,
-               const std::string& family, Color color) {
+               const std::string& family, Color color, double mark = 0) {
     constexpr double smallest = .7;
     auto* layout = pango_cairo_create_layout(cr);
     auto* font = pango_font_description_new();
@@ -3455,12 +3462,48 @@ void bar_label(cairo_t* cr, const std::string& text, const Rect& face, double si
         label_fits->push_back({text, family, drawn / size, pango_layout_get_line_count(layout),
                                pango_layout_is_ellipsized(layout) != 0});
     }
+    double top = face.y + (face.height - height) / 2;
+    if (mark > 0) {
+        PangoRectangle ink{}, logical{};
+        pango_layout_line_get_pixel_extents(pango_layout_get_line_readonly(layout, 0), &ink, &logical);
+        // The first line's ink, centred in the room as the layout places it.
+        const double right = face.x + 5 + (room + ink.width) / 2 + 1;
+        const double mark_left = face.x + face.width - 23 * mark, mark_bottom = face.y + 19 * mark;
+        int baseline = pango_layout_get_baseline(layout) / PANGO_SCALE;
+        const double ink_top = top + baseline + ink.y; // ink.y is above the baseline
+        if (right > mark_left && ink_top < mark_bottom + 1) {
+            top = std::min(top + mark_bottom + 1 - ink_top, face.y + face.height - height);
+        }
+    }
     source(cr, color);
-    cairo_move_to(cr, face.x + 5, face.y + (face.height - height) / 2);
+    cairo_move_to(cr, face.x + 5, top);
     pango_cairo_show_layout(cr, layout);
     pango_font_description_free(font);
     g_object_unref(layout);
 }
+// A Run button's mark (design, The bar on the keyboard): >_ in the keyboard's
+// icon style, 16 x 12 with its corner 7 px in from the face's top right at
+// the full layout's scale, `k` its share of that scale.
+void draw_run_mark(cairo_t* cr, const Rect& face, double k, Color color) {
+    const double w = 16 * k;
+    const double x = face.x + face.width - 7 * k - w, y = face.y + 7 * k;
+    cairo_save(cr);
+    cairo_new_path(cr);
+    source(cr, color);
+    cairo_set_line_width(cr, 1.7 * k);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_move_to(cr, x + 1.5 * k, y + 1.5 * k); // the chevron
+    cairo_line_to(cr, x + 6.5 * k, y + 6 * k);
+    cairo_line_to(cr, x + 1.5 * k, y + 10.5 * k);
+    cairo_move_to(cr, x + 9 * k, y + 10.5 * k); // the underscore
+    cairo_line_to(cr, x + 15 * k, y + 10.5 * k);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+// The full-size layouts' scale, 1.054: the case's 1600 less 20 each side
+// over their 1480 units. Sizes given in case pixels are at this scale.
+constexpr double full_layout_scale = (panel_width - 40.0) / 1480;
 // A bar button drawn as a key in Ctrl's tone at `scale`, from its resting
 // face, its label on it: on the bar and in the shortcut editor's strip.
 void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::Button& button,
@@ -3488,7 +3531,18 @@ void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::
                       : button.running           ? t.latched_legend
                       : fill == KeyFace::Pressed ? t.pressed_legend
                                                  : t.legend;
-    bar_label(cr, button.label, face, t.small_font_size * 1.15 * scale, view.interface_font, ink);
+    bar_label(cr, button.label, face, t.small_font_size * 1.15 * scale, view.interface_font, ink,
+              button.run ? scale / full_layout_scale : 0);
+    if (button.run) {
+        // Quieter than the label, as a key's Shift character is: on a
+        // disabled face, quieter than its dim label.
+        const Color face_color = !button.enabled                         ? mix(t.bottom, t.surface, .4)
+                                 : button.running                        ? t.latched
+                                 : fill == KeyFace::Pressed && t.pressed ? *t.pressed
+                                                                         : tone.middle;
+        const Color mark = plain_keys(t) && button.enabled ? ink : mix(ink, face_color, .42);
+        draw_run_mark(cr, face, scale / full_layout_scale, mark);
+    }
 }
 // Typed text in a recessed well with its caret at a byte offset: one line
 // left-aligned, or a label's one or two lines centred.
@@ -4197,6 +4251,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                 button.bounds = c.bounds;
                 button.hovered = hovered(c);
                 button.running = c.selected; // the selected button stands out, lit
+                button.run = c.icon == Icon::RunMark;
                 draw_bar_button(cr, view, button, e.scale);
             }
             for (const auto& c : view.controls) {
@@ -4342,6 +4397,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
         button.label = e.lifted_button->text;
         button.bounds = e.lifted_button->bounds;
         button.hovered = true;
+        button.run = e.lifted_run;
         soft_shadow(cr, button.bounds, t.radius + 2, tone_shadow);
         cairo_push_group(cr);
         draw_bar_button(cr, view, button, e.scale);

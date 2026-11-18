@@ -4052,6 +4052,8 @@ void shortcut_buttons() {
     require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && buttons[2].enabled &&
                 buttons[3].enabled,
             "a macro and Run are enabled; an empty action is disabled");
+    require(!buttons[0].run && !buttons[1].run && !buttons[2].run && buttons[3].run,
+            "only the Run button has the >_ mark");
     const auto press = middle(buttons[0].bounds);
     app.move(0, press.x, press.y);
     require(app.down(0, press.x, press.y, 900.1), "a button's press feels like a key's");
@@ -5196,6 +5198,8 @@ void run_buttons() {
     const auto buttons = [&] { return app.view().shortcut_bar->buttons; };
     require(buttons()[0].enabled && buttons()[1].enabled && !buttons()[2].enabled,
             "in a Steam field Run buttons are enabled; an empty one is not");
+    require(buttons()[0].run && buttons()[1].run && buttons()[2].run,
+            "every Run button carries its mark, an empty one too");
     app.set_dashboard_focus(true);
     app.tick(now += .1);
     require(buttons()[0].enabled && buttons()[1].enabled,
@@ -5360,10 +5364,13 @@ void run_editor() {
             }
             return done();
         };
+        require(control(app.view(), "shortcuts-button-0").icon == Icon::None, "a shortcut has no mark");
         tap_control(app, "shortcuts-kind-2");
         require(control(app.view(), "shortcuts-kind-2").selected &&
                     control(app.view(), "shortcuts-run-0").selected,
                 "Run is chosen, Script first");
+        require(control(app.view(), "shortcuts-button-0").icon == Icon::RunMark,
+                "the strip shows the mark as soon as Run is chosen, pending as it is");
         require(settle([&] { return !app.view().shortcut_editor->scripts_note.empty(); }) &&
                     fs::is_directory(folder),
                 "the folder is made when the list first shows");

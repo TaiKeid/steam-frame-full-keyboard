@@ -1441,8 +1441,10 @@ void shortcut_bar(const char* theme_id, double opacity) {
                 continue;
             }
             const int at = static_cast<int>(i);
+            // Buttons 2 to 4 start programs: their >_ mark, hovered (2),
+            // pressed (3) and disabled (3), repaints as their faces do.
             result.buttons.push_back({labels[i], r, at == state.hovered, at == state.pressed,
-                                      at != state.disabled, at == state.running});
+                                      at != state.disabled, at == state.running, i >= 2 && i <= 4});
         }
         result.more_before = state.scroll > .5;
         result.more_after = state.scroll < g.scroll_limit - .5;

@@ -396,6 +396,10 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
                                r,
                                shortcut_editor_->button() == i};
                 button.clip = l.strip;
+                // A Run button's mark, as on the bar; pending, as all here is.
+                if (selected->buttons[i].action.kind == ShortcutAction::Kind::Run) {
+                    button.icon = Icon::RunMark;
+                }
                 add("shortcuts-button-" + std::to_string(i), "button", button, static_cast<int>(i));
             }
         }
@@ -884,6 +888,7 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.lifted_button = ShortcutChip{selected->buttons[d.index].label,
                                            {d.px - l.button_width / 2, d.py - l.button_height / 2,
                                             l.button_width, l.button_height}};
+            e.lifted_run = selected->buttons[d.index].action.kind == ShortcutAction::Kind::Run;
             // Over a profile that takes it, its row lights up; over a row
             // that doesn't, nothing is deleted either.
             e.lifted_removing = d.outside && !d.over_row;
@@ -899,6 +904,7 @@ void App::append_shortcut_editor(PanelView& v) const {
         const auto g = carry_geometry(l, carry_->profile, editor_rows_scroll_.shown);
         e.drop_row = profile_row(l, carry_->profile, editor_rows_scroll_.shown);
         e.lifted_button = ShortcutChip{selected->buttons[carry_->button].label, g.button};
+        e.lifted_run = selected->buttons[carry_->button].action.kind == ShortcutAction::Kind::Run;
         e.carry_panel = g.panel;
     }
     if (popup_) {
@@ -2156,6 +2162,7 @@ void App::append_field_bar(PanelView& v) const {
         shown.label = bar.buttons[i].label;
         shown.bounds = r;
         shown.running = i == selected && shortcut_editor_->button(); // lit, as in the editor's strip
+        shown.run = bar.buttons[i].action.kind == ShortcutAction::Kind::Run;
         if (i == selected) {
             view.field = view.buttons.size();
             view.field_text = field_->text;

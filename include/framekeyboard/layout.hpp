@@ -107,6 +107,9 @@ enum class Icon {
     AppWindow,
     AppWindowAssigned,
     Pencil,
+    // A Run button's mark, >_ (on the editor strip's controls, which flag
+    // such a button with it).
+    RunMark,
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

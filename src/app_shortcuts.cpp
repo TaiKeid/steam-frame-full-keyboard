@@ -179,6 +179,7 @@ void App::append_shortcut_bar(PanelView& v) const {
         shown.label = button.label;
         shown.bounds = r;
         shown.enabled = shortcut_button_enabled(button);
+        shown.run = button.action.kind == ShortcutAction::Kind::Run;
         shown.hovered = hovered(target);
         shown.pressed = pressed(target);
         shown.running = shortcut_run_ && shortcut_runner_.running() &&

@@ -367,6 +367,51 @@ int main(int argc, char** argv) {
             }
             setenv("HOME", old_home.c_str(), 1);
         }
+        // Run buttons' >_ mark: on the bar among others, a long two-line and a
+        // long one-line label, an empty one drawn disabled; the editor's
+        // strip; a light theme. Nothing is pressed.
+        for (const char* theme : {"graphite", "porcelain"}) {
+            Options run_options = options;
+            run_options.config_dir = fs::path(config) / (std::string("run-mark-") + theme);
+            fs::create_directories(run_options.config_dir);
+            Settings settings;
+            settings.shortcuts = true;
+            settings.active.theme = theme;
+            save_settings(run_options.config_dir, settings);
+            const auto run = [](std::string label, std::string command) {
+                ShortcutButton button;
+                button.label = std::move(label);
+                button.action.kind = ShortcutAction::Kind::Run;
+                button.action.command = std::move(command);
+                return button;
+            };
+            ShortcutButton undo;
+            undo.label = "Undo";
+            undo.action.chords = {{{"ControlLeft"}, "KeyZ"}};
+            ShortcutModel model;
+            model.profiles.push_back(
+                {"run",
+                 "Run marks",
+                 {undo, run("Backup", "true"), run("Screenshot to\nclipboard!!", "true"),
+                  run("Restart the audio server", "true"), run("Not set", "")}});
+            model.free_profile = "run";
+            std::ofstream(shortcuts_path(run_options.config_dir)) << serialize_shortcuts(model);
+            App runs(run_options, sink);
+            choose_language(runs, language);
+            settle(runs);
+            const std::string suffix = std::string(theme) == "graphite" ? "" : std::string("-") + theme;
+            shot(runs, "shortcut-bar-run-mark" + suffix);
+            const auto picker = runs.view().shortcut_bar->picker;
+            for (const auto& target : {picker, Rect{}}) {
+                const auto r = target.width > 0 ? target : runs.view().shortcut_bar->menu->manage;
+                const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+                runs.move(0, x, y);
+                runs.down(0, x, y, 1);
+                runs.up(0, x, y);
+                settle(runs, 10);
+            }
+            shot(runs, "shortcut-editor-run-mark" + suffix);
+        }
         // The empty two-slot bar the toolbar button opens with no profiles, at
         // both widths: its tab too.
         for (const bool numpad : {true, false}) {

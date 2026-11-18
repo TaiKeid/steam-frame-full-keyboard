@@ -265,6 +265,7 @@ struct ShortcutBarView {
         Rect bounds;       // where it is after scrolling; `strip` clips it
         bool hovered{}, pressed{}, enabled{true};
         bool running{}; // its run is under way: lit, as a latched key
+        bool run{};     // a Run button: the >_ mark in its top right corner
     };
     bool operator==(const ShortcutBarView&) const = default;
     Rect plate, strip; // the bar's plate, and where its buttons show
@@ -396,6 +397,7 @@ struct ShortcutEditorView {
     // A row or button a drag carries, where the laser holds it; a button
     // carried off the strip would be deleted.
     std::optional<ShortcutChip> lifted_row, lifted_button;
+    bool lifted_run{}; // the lifted or carried button is a Run button: its mark
     bool lifted_removing{};
     // A profile's row a carried button would go to, lit; and, once dropped
     // there, the popover with Move and Copy (controls shortcuts-carry-…).
