@@ -220,6 +220,32 @@ void starts() {
     require(fs::directory_iterator(home.path) != fs::directory_iterator(),
             "the home folder is the test's");
 }
+// A relative scripts folder names the file under the keyboard's working
+// folder, where it was checked, though the program runs in the home folder
+// (R356): a script of the same name there is not the one run.
+void relative_folder() {
+    TemporaryDirectory home, work;
+    setenv("HOME", home.path.c_str(), 1);
+    fs::create_directories(home.path / "scripts");
+    fs::create_directories(work.path / "scripts");
+    write(work.path / "scripts" / "same", "echo work > \"$HOME/same.out\"\n", executable);
+    write(home.path / "scripts" / "same", "echo home > \"$HOME/same.out\"\n", executable);
+    const auto previous = fs::current_path();
+    fs::current_path(work.path);
+    auto r = request(home.path, "scripts");
+    r.script = "same";
+    const auto failure = launch(r);
+    fs::current_path(previous);
+    require(failure == LaunchFailure::None && appears(home.path / "same.out") &&
+                read(home.path / "same.out") == "work\n",
+            "a relative folder's script is the one checked, under the working folder");
+    // Named like an option, it still runs as a file, through /bin/sh too.
+    write(home.path / "scripts" / "-dash", "echo dash > \"$HOME/dash.out\"\n");
+    r = request(home.path, home.path / "scripts");
+    r.script = "-dash";
+    require(launch(r) == LaunchFailure::None && appears(home.path / "dash.out"),
+            "a script named like an option runs");
+}
 // The child's session, streams, files, folder, signals and environment, seen
 // while it sleeps.
 void child_state() {
@@ -318,6 +344,7 @@ int main() {
         environment_rules();
         listing();
         starts();
+        relative_folder();
         child_state();
         nothing_to_wait_for();
         worker();

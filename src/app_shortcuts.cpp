@@ -785,7 +785,13 @@ void App::start_run_button(const std::string& profile, std::size_t index, const 
     LaunchRequest request;
     request.script = button.action.script;
     request.command = button.action.command;
-    request.scripts = scripts_folder(config_dir());
+    // Absolute now, from the keyboard's working folder: the program runs in
+    // the home folder (R356).
+    std::error_code error;
+    request.scripts = fs::absolute(scripts_folder(config_dir()), error);
+    if (error) {
+        request.scripts = scripts_folder(config_dir()); // launch() makes it absolute or fails
+    }
     const char* home = std::getenv("HOME");
     request.home = home && *home ? home : "/";
     request.environment = child_environment(current_environment());

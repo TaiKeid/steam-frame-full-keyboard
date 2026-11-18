@@ -300,7 +300,14 @@ LaunchFailure launch(const LaunchRequest& request) {
         if (!script_name_valid(request.script)) {
             return LaunchFailure::BadName;
         }
-        const auto path = request.scripts / request.script;
+        // Absolute: the child changes to the home folder before it runs the
+        // file, which must be the one checked here (R356). It also keeps a
+        // script named like an option from reaching /bin/sh as one.
+        std::error_code error;
+        const auto path = std::filesystem::absolute(request.scripts / request.script, error);
+        if (error) {
+            return LaunchFailure::System;
+        }
         struct stat info{};
         if (lstat(path.c_str(), &info) != 0) {
             return LaunchFailure::Missing;
