@@ -852,6 +852,16 @@ void key_area_tests(const fk::Profiles& defaults) {
     }
     require(at(40, 290) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 290).empty(),
             "Paste reaches toward the mic key only while it shows");
+    // R344: on the flick English page the gap under the emoji key is the
+    // usual one and is shared, so a press there is never lost.
+    {
+        const auto& flick = defaults.layouts.at("ja-flick-qwerty");
+        const auto flick_areas = fk::key_areas(flick);
+        for (const double y : {49.0, 51.0, 53.0}) {
+            require(!area_key(flick, flick_areas, 20, y).empty(),
+                    "the flick English page has no dead strip under its emoji key");
+        }
+    }
     // ISO and JIS Enter: the pocket beside it is split with ].
     for (const char* id : {"en-gb-full", "ja-jis-full"}) {
         const auto& layout = defaults.layouts.at(id);

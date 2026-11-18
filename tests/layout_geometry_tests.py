@@ -16,9 +16,9 @@ KEY = 62
 PITCH = KEY + GAP
 FUNCTION_GAP = 22
 TOLERANCE = 0.01
-# The flick QWERTY page's Emoji key keeps its size above a side column that
-# matches the kana page's, whose top key is taller.
-KEPT_GAPS = {("ja-flick-qwerty", "Emoji"): 10.4}
+# No key keeps another gap (R344 made the flick English page's emoji key as
+# tall as the side keys under it).
+KEPT_GAPS = {}
 
 
 def problems(path):
