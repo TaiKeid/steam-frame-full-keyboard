@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 enum {
@@ -148,6 +149,15 @@ static void switch_file(const char* name, bool present) {
     } else {
         unlink(in_directory(name));
     }
+}
+
+// The library's clock (R369): the monotonic clock moved on by `clock_ahead_ms`, so a quiet time ends
+// when the test says. Exported, as the SDL functions are, for the library to look up.
+static uint64_t clock_ahead_ms;
+__attribute__((visibility("default"))) uint64_t framekeyboard_stream_test_clock_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000) + clock_ahead_ms;
 }
 
 static bool (*poll_overlay)(uint64_t, void*, uint32_t);
@@ -758,6 +768,189 @@ int main(int argc, char** argv) {
           "the waiting commit is withdrawn, the typing one is not");
     close(keyboard);
     idle_pump();
+
+    // R369: around a text of Full Keyboard's the PC's pointer is put back where the user last clicked
+    // the stream: an enter when the client last saw a leave, then a move to the click, then the text
+    // on a later poll; the laser's moves, enters and leaves are then held until the quiet time after
+    // the last text (1 s for one character) and go on in order. A button is never held and brings
+    // what is held out first; a press is the new click. The fake gives each event a mark at offset 12,
+    // the mouse event's x.
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected for the pointer");
+    clock_ahead_ms += 5000; // past any quiet time of the texts above
+    const char text[] = "T\xd0\x91"; // one Cyrillic character, typed as a text
+    uint32_t type = 0;
+    float age = 1;
+    uint32_t button = 9;
+#define NEXT_EVENT(what)                                                                              \
+    do {                                                                                              \
+        check(poll_overlay(1, event, sizeof event), what);                                            \
+        memcpy(&type, event, sizeof type);                                                            \
+        memcpy(&age, event + 8, sizeof age);                                                          \
+        memcpy(&button, event + 20, sizeof button);                                                   \
+    } while (0)
+    reset();
+    add(300, "1", 1);
+    NEXT_EVENT("before any text a move passes");
+    check(type == 300 && event[12] == '1', "as it came");
+    // A click at C; then the laser moves away and leaves the stream.
+    reset();
+    add(301, "C", 1);
+    add(302, "c", 1);
+    add(300, "2", 1);
+    add(304, "L", 1);
+    for (int i = 0; i < 4; ++i) {
+        NEXT_EVENT("the click and the laser's moves pass while nothing is typed");
+    }
+    check(type == 304 && event[12] == 'L', "the last of them the leave");
+    check(recv(keyboard, told, sizeof told, MSG_DONTWAIT) == 1 && told[0] == 'F', "the click is told");
+    check(idle_pump(), "nothing more");
+    // A text: an enter and a move back to the click come first, the text after them.
+    pushed_count = 0;
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text sent");
+    check(idle_pump() && pushed_count == 0, "the text waits for the pointer");
+    NEXT_EVENT("the client is given the laser back on the stream");
+    check(type == 303 && event[12] == 'L' && age == 0, "an enter, made from the leave, with no age");
+    NEXT_EVENT("then a move");
+    check(type == 300 && event[12] == 'C' && age == 0 && button == 0, "a move to the click, no button");
+    check(!poll_overlay(1, event, sizeof event) && pushed_count == 1 && is_text(0, "\xd0\x91"),
+          "then the text is typed, behind them");
+    // The laser's own events are held during the quiet time, then go on, the latest of each in order.
+    reset();
+    add(300, "3", 1);
+    add(304, "M", 1);
+    add(300, "4", 1);
+    check(!poll_overlay(1, event, sizeof event), "the laser's events are held");
+    clock_ahead_ms += 1100;
+    NEXT_EVENT("after the quiet time");
+    check(type == 304 && event[12] == 'M', "the leave first");
+    NEXT_EVENT("then");
+    check(type == 300 && event[12] == '4', "the last move");
+    check(!poll_overlay(1, event, sizeof event), "and nothing else");
+
+    // Two texts in a row: one move back, and the second extends the quiet time.
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a first text");
+    check(idle_pump() && pushed_count == 1, "it waits");
+    NEXT_EVENT("an enter");
+    check(type == 303, "since the laser had left");
+    NEXT_EVENT("a move back");
+    check(type == 300 && event[12] == 'C', "to the click");
+    check(!poll_overlay(1, event, sizeof event) && pushed_count == 2, "the first text");
+    clock_ahead_ms += 800;
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a second text");
+    check(idle_pump() && pushed_count == 3, "the second goes at once: the pointer is still at the click");
+    clock_ahead_ms += 900; // 1.7 s after the first, 0.9 after the second
+    reset();
+    add(300, "5", 1);
+    check(!poll_overlay(1, event, sizeof event), "the second text keeps the laser held");
+    clock_ahead_ms += 200;
+    NEXT_EVENT("until its own quiet time ends");
+    check(type == 300 && event[12] == '5', "the held move");
+
+    // A button press during the hold: what is held goes first, then the press, the new click.
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text");
+    idle_pump();
+    NEXT_EVENT("the move back");
+    check(type == 300 && event[12] == 'C', "to the old click");
+    check(!poll_overlay(1, event, sizeof event) && pushed_count == 4, "the text");
+    reset();
+    add(300, "6", 1);
+    add(301, "D", 1);
+    add(302, "d", 1);
+    add(300, "7", 1);
+    NEXT_EVENT("a press during the hold");
+    check(type == 300 && event[12] == '6', "brings the held move out first");
+    NEXT_EVENT("then");
+    check(type == 301 && event[12] == 'D', "the press");
+    NEXT_EVENT("and its release");
+    check(type == 302, "passes");
+    check(!poll_overlay(1, event, sizeof event), "the later move is held");
+    recv(keyboard, told, sizeof told, MSG_DONTWAIT);
+    clock_ahead_ms += 1100;
+    NEXT_EVENT("after the quiet time");
+    check(type == 300 && event[12] == '7', "the held move");
+    check(!poll_overlay(1, event, sizeof event), "nothing else");
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text");
+    idle_pump();
+    NEXT_EVENT("the move back");
+    check(type == 300 && event[12] == 'D', "to the new click");
+    check(!poll_overlay(1, event, sizeof event) && pushed_count == 5, "the text");
+    clock_ahead_ms += 1100;
+
+    // A button held down: nothing made up, nothing held.
+    reset();
+    add(301, "E", 1);
+    add(300, "8", 1);
+    NEXT_EVENT("a press");
+    NEXT_EVENT("a move while it is down");
+    check(type == 300 && event[12] == '8', "passes");
+    recv(keyboard, told, sizeof told, MSG_DONTWAIT);
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text while it is down");
+    check(idle_pump() && pushed_count == 6, "goes at once, nothing made up");
+    reset();
+    add(300, "9", 1);
+    NEXT_EVENT("a move while the button is down");
+    check(type == 300 && event[12] == '9', "is not held");
+    reset();
+    add(302, "e", 1);
+    NEXT_EVENT("the release");
+    clock_ahead_ms += 1100;
+    idle_pump();
+
+    // ASCII only: key presses, which start nothing.
+    reset();
+    add(300, "a", 1);
+    NEXT_EVENT("the laser moves away from the click");
+    check(send(keyboard, "Tab", 3, 0) == 3, "an ASCII commit");
+    const int keys_before = pushed_count;
+    check(idle_pump() && idle_pump() && pushed_count > keys_before, "typed as key presses");
+    reset();
+    add(300, "b", 1);
+    NEXT_EVENT("no pointer is made up for them, and nothing held");
+    check(type == 300 && event[12] == 'b', "the laser's move passes");
+
+    // The session's end lets what is held go at once and keeps the click.
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text");
+    idle_pump();
+    NEXT_EVENT("the move back");
+    check(type == 300 && event[12] == 'E', "to the last click");
+    idle_pump();
+    reset();
+    add(300, "c", 1);
+    check(!poll_overlay(1, event, sizeof event), "held");
+    check(send(keyboard, "R", 1, 0) == 1, "the session ends");
+    idle_pump();
+    reset();
+    NEXT_EVENT("at the session's end");
+    check(type == 300 && event[12] == 'c', "what is held goes at once");
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "the next session's text");
+    idle_pump();
+    NEXT_EVENT("the click is kept across the end");
+    check(type == 300 && event[12] == 'E', "a move back to it");
+    idle_pump();
+    clock_ahead_ms += 1100;
+
+    // Full Keyboard gone and back: no click remembered, nothing made up; the hold still starts.
+    close(keyboard);
+    idle_pump();
+    reset();
+    add(300, "d", 1);
+    NEXT_EVENT("without a session");
+    check(type == 300 && event[12] == 'd', "nothing is held");
+    keyboard = accept_keyboard(server);
+    check(keyboard >= 0, "library reconnected");
+    const int before_text = pushed_count;
+    check(send(keyboard, text, sizeof text - 1, 0) == (ssize_t)sizeof text - 1, "a text with no click");
+    check(idle_pump() && pushed_count == before_text + 1, "goes at once: no click to go back to");
+    reset();
+    add(300, "e", 1);
+    check(!poll_overlay(1, event, sizeof event), "the laser is held after it");
+    clock_ahead_ms += 1100;
+    NEXT_EVENT("and goes on after the quiet time");
+    check(type == 300 && event[12] == 'e', "the held move");
+    close(keyboard);
+    idle_pump();
+#undef NEXT_EVENT
 
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",

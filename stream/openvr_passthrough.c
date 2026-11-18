@@ -14,8 +14,10 @@
 //
 // The one wrapped call hands SDL a copy of the overlay function table whose PollNextOverlayEvent is
 // ours. It returns every event untouched and, once per event pump, types what Full Keyboard sent over a
-// private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
-// other keyboard keep their stock behaviour.
+// private local socket: text as SDL text events, keys as SDL key events. Around a text of Full
+// Keyboard's the PC's pointer is put back where the user last clicked the stream and kept there for a
+// while (R369; see fk_poll).
+// Steam's own keyboard and every other keyboard keep their stock behaviour.
 //
 // Nothing here stores or logs what is typed.
 #define _GNU_SOURCE
@@ -40,7 +42,13 @@
 enum {
     kOverlayFunctions = 82,     // function pointers in VR_IVROverlay_FnTable for IVROverlay_026
     kPollNextOverlayEvent = 48, // its slot in that table
-    kMouseButtonDown = 301,     // EVREventType_VREvent_MouseButtonDown, the first field of VREvent_t
+    kMouseMove = 300,           // EVREventType_VREvent_MouseMove, the first field of VREvent_t
+    kMouseButtonDown = 301,     // VREvent_MouseButtonDown
+    kMouseButtonUp = 302,       // VREvent_MouseButtonUp
+    kFocusEnter = 303,          // VREvent_FocusEnter: the laser came onto the overlay
+    kFocusLeave = 304,          // VREvent_FocusLeave: it went off
+    kTouchPadMove = 306,        // VREvent_TouchPadMove: mouse data, a position
+    kEventCopy = 256,           // the most of one VREvent_t kept while it is held
     kSdlTextInput = 0x303,      // SDL_EVENT_TEXT_INPUT
     kSdlKeyDown = 0x300,        // SDL_EVENT_KEY_DOWN
     kSdlKeyUp = 0x301,          // SDL_EVENT_KEY_UP
@@ -112,6 +120,9 @@ typedef struct {
     uint32_t commit; // the commit's number, counted from Full Keyboard's 'Q'
 } Queued;
 
+static uint64_t now_ms(void);
+static void start_quiet(const unsigned char* bytes, size_t length);
+
 static void* overlay_table[kOverlayFunctions];
 static PollFn real_poll;
 static char text_slots[kTextSlots][kTextBytes];
@@ -135,6 +146,26 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
+// The PC's pointer around a text (R369; fk_poll). Until when the laser's pointer events are held.
+static uint64_t quiet_until_ms;
+// A button pressed on the overlay and not yet released. A release can go missing, so leaving the
+// overlay and a new session also end it: holding never stays off for good.
+static bool button_down;
+typedef struct {
+    unsigned char bytes[kEventCopy];
+    uint32_t size;
+    bool set;
+    bool made_up; // ours, putting the pointer back; not the laser's
+} HeldEvent;
+// The last click on the overlay, the one that focused the field: where the PC's pointer goes back to
+// before a text. Kept across a session's end, dropped when Full Keyboard goes away.
+static HeldEvent click;
+// A pointer event went on to the client since that click or since the pointer was put back: the PC's
+// pointer may be elsewhere.
+static bool pointer_moved;
+// The last enter or leave the client was given.
+static HeldEvent last_focus;
+static bool pointer_at_click_for_text(const unsigned char* bytes, size_t length);
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
 // refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
@@ -246,7 +277,11 @@ static bool push_text(const unsigned char* bytes, size_t length) {
     event.text.type = kSdlTextInput;
     event.text.window_id = focused_window();
     event.text.text = slot;
-    return push_event(&event);
+    if (!push_event(&event)) {
+        return false;
+    }
+    start_quiet(bytes, length);
+    return true;
 }
 
 // The key code SDL itself gives a scancode on a US layout (SDL_GetDefaultKeyFromScancode): the
@@ -546,6 +581,10 @@ static void pump_queue(void) {
         if (queue[queue_head].text && text_slots_busy()) {
             return; // it stays first in line until SDL's client has taken some texts
         }
+        if (queue[queue_head].text &&
+            !pointer_at_click_for_text((const unsigned char*)queue[queue_head].text, queue[queue_head].length)) {
+            return; // it waits for the client to take the pointer back to the click first
+        }
         Queued next = queue[queue_head];
         queue_head = (queue_head + 1) % kQueue;
         --queue_count;
@@ -624,6 +663,7 @@ static void release_everything(void) {
 // with no release queued is let go of now; one whose release is queued comes up in its turn.
 static void end_session(void) {
     dropped_mods = 0; // the next session starts with nothing pressed
+    quiet_until_ms = 0; // what the laser did meanwhile goes on at once
     static bool keep[kQueue];
     bool released[kScancodes]; // a release is queued that no later press of the key has used
     memset(released, 0, sizeof released);
@@ -675,7 +715,20 @@ static void end_session(void) {
     }
 }
 
+typedef uint64_t (*ClockFn)(void);
+
 static uint64_t now_ms(void) {
+    // A test program defines this clock and exports it, as it does SDL's functions; the streaming
+    // client has none, and the monotonic clock counts.
+    static ClockFn test_clock;
+    static bool looked_up;
+    if (!looked_up) {
+        looked_up = true;
+        test_clock = (ClockFn)dlsym(RTLD_DEFAULT, "framekeyboard_stream_test_clock_ms");
+    }
+    if (test_clock) {
+        return test_clock();
+    }
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000);
@@ -686,6 +739,8 @@ static void stream_disconnect(void) {
         close(stream_socket);
         stream_socket = -1;
         release_everything();
+        quiet_until_ms = 0; // the laser's held events go on at once
+        click.set = last_focus.set = pointer_moved = false; // the next keyboard's clicks are its own
         acks = commit_failed = false; // the next keyboard asks again
         next_commit = 0;
     }
@@ -735,6 +790,7 @@ static void stream_connect(void) {
         return;
     }
     stream_socket = fd;
+    button_down = false; // a release lost before this session holds nothing off
 }
 
 // Full Keyboard gave up waiting for a commit ('W'): if none of it is typed yet, it goes and is answered
@@ -864,23 +920,185 @@ static void stream_tick(void) {
     }
 }
 
-static bool fk_poll(uint64_t overlay, void* event, uint32_t size) {
-    if (!real_poll(overlay, event, size)) {
-        // End of this pump: SDL has every real event. Now type the next step of ours.
-        stream_tick();
-        pump_queue();
-        return false;
+// The PC's pointer around a text (R369). A Unicode character reaches a Windows PC as a key-down and a
+// key-up of VK_PACKET; when the PC's pointer is not over the focused window, the key-up can be lost and
+// the key stays down there for good. While the user types on the panel, the streaming client has
+// moved the PC's pointer after the laser, usually off the stream. So, as a PC's own mouse stays where
+// the user clicked while they type:
+//   - the last click on the stream's overlay is remembered;
+//   - before a text of Full Keyboard's goes out, if the pointer may have left that click, the client
+//     is first given what puts it back: an enter when it last saw the laser leave, then a move to the
+//     click; the text follows on a later poll, behind them in the client's own queue;
+//   - from then until a quiet time after the last text, the laser's moves, enters and leaves are held,
+//     the latest of each, and then go on in that order, so the pointer goes to where the laser is.
+// A button press or release is never held: what is held goes first, then the button, and a press is
+// the new click; while a button is down nothing is held or made up. Scrolling carries no position and
+// passes. Key presses typed for a commit (ASCII) are real presses and start nothing. Without Full
+// Keyboard's session, or before its first text, every event passes as it came.
+static HeldEvent held_focus, held_move; // the latest enter or leave, and the latest move
+static HeldEvent released[3];           // going out, in order, before any new event
+static unsigned released_count, released_next;
+
+// The quiet time after a text of `characters` characters: generous, as the PC's own timing is not
+// known; the cost is only the PC's pointer staying at the field a little longer. 1 s, 50 ms for each
+// character after the first, at most 4 s.
+static uint64_t quiet_ms(size_t characters) {
+    const uint64_t ms = 1000 + 50 * (uint64_t)(characters > 1 ? characters - 1 : 0);
+    return ms < 4000 ? ms : 4000;
+}
+
+static void start_quiet(const unsigned char* bytes, size_t length) {
+    size_t characters = 0;
+    for (size_t i = 0; i < length; ++i) {
+        characters += (bytes[i] & 0xc0) != 0x80; // UTF-8 lead bytes
     }
+    const uint64_t until = now_ms() + quiet_ms(characters);
+    if (until > quiet_until_ms) {
+        quiet_until_ms = until;
+    }
+}
+
+static bool holding(void) {
+    return stream_socket >= 0 && !button_down && now_ms() < quiet_until_ms;
+}
+
+static uint32_t event_type(const unsigned char* bytes) {
     uint32_t type;
-    if (size >= sizeof type && stream_socket >= 0) {
-        memcpy(&type, event, sizeof type);
-        if (type == kMouseButtonDown) {
-            // The user clicked the stream. Steam sends no keyboard request for that, so Full Keyboard
-            // is told: a panel that is already showing then types here.
-            send(stream_socket, "F", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+    memcpy(&type, bytes, sizeof type);
+    return type;
+}
+
+static bool moves_pointer(uint32_t type) {
+    return type == kMouseMove || type == kFocusEnter || type == kFocusLeave || type == kTouchPadMove;
+}
+
+// A made-up event from a real one: its type, no age, and for a mouse event no button. Its device
+// index (the controller that clicked, or that left) and the rest of its data, such as the click's
+// position and the overlay, stay as they came.
+static HeldEvent made_up(const HeldEvent* from, uint32_t type) {
+    HeldEvent event = *from;
+    event.made_up = true;
+    memcpy(event.bytes, &type, sizeof type);
+    const float age = 0;
+    memcpy(event.bytes + 8, &age, sizeof age); // VREvent_t.eventAgeSeconds
+    if (type == kMouseMove && event.size >= 24) {
+        const uint32_t no_button = 0;
+        memcpy(event.bytes + 20, &no_button, sizeof no_button); // VREvent_Mouse_t.button
+    }
+    return event;
+}
+
+// Before a text: true when it may go now. Otherwise the client is first given what puts the pointer
+// back at the click, and the text waits for a later poll.
+static bool pointer_at_click_for_text(const unsigned char* bytes, size_t length) {
+    if (released_next < released_count) {
+        return false; // what goes before it is still on its way to the client
+    }
+    if (!click.set || !pointer_moved || button_down || stream_socket < 0) {
+        return true;
+    }
+    released_count = released_next = 0;
+    if (last_focus.set && event_type(last_focus.bytes) == kFocusLeave) {
+        released[released_count++] = made_up(&last_focus, kFocusEnter);
+    }
+    released[released_count++] = made_up(&click, kMouseMove);
+    pointer_moved = false;
+    start_quiet(bytes, length); // the laser's own events are held from now on
+    return false;
+}
+
+// The client is given an event: what the PC's pointer may do since.
+static void given(const HeldEvent* event) {
+    const uint32_t type = event_type(event->bytes);
+    if (type == kMouseButtonDown) {
+        click = *event; // where the PC's pointer goes back to before a text
+        pointer_moved = false;
+    }
+    if (type == kFocusEnter || type == kFocusLeave) {
+        last_focus = *event;
+    }
+    if (!event->made_up && moves_pointer(type)) {
+        pointer_moved = true;
+    }
+}
+
+static void release_held(void) {
+    released_count = released_next = 0;
+    if (held_focus.set) {
+        released[released_count++] = held_focus;
+    }
+    if (held_move.set) {
+        released[released_count++] = held_move;
+    }
+    held_focus.set = held_move.set = false;
+}
+
+static bool next_released(void* event, uint32_t size) {
+    while (released_next < released_count) {
+        const HeldEvent* out = &released[released_next++];
+        if (out->size == size) {
+            memcpy(event, out->bytes, size);
+            given(out);
+            return true;
         }
     }
-    return true; // every event reaches SDL as it came: other keyboards keep their stock behaviour
+    released_count = released_next = 0;
+    return false;
+}
+
+static bool fk_poll(uint64_t overlay, void* event, uint32_t size) {
+    if (next_released(event, size)) {
+        return true;
+    }
+    if ((held_focus.set || held_move.set) && !holding()) {
+        release_held(); // the quiet time is over, or the session ended
+        if (next_released(event, size)) {
+            return true;
+        }
+    }
+    for (;;) {
+        if (!real_poll(overlay, event, size)) {
+            // End of this pump: SDL has every real event. Now type the next step of ours.
+            stream_tick();
+            pump_queue();
+            return false;
+        }
+        uint32_t type;
+        if (size < sizeof type || size > kEventCopy) {
+            return true;
+        }
+        HeldEvent real = {.size = size, .set = true};
+        memcpy(real.bytes, event, size);
+        type = event_type(real.bytes);
+        if (type == kMouseButtonDown || type == kMouseButtonUp) {
+            button_down = type == kMouseButtonDown;
+            if (button_down && stream_socket >= 0) {
+                // The user clicked the stream. Steam sends no keyboard request for that, so Full
+                // Keyboard is told: a panel that is already showing then types here.
+                send(stream_socket, "F", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+            }
+            if (held_focus.set || held_move.set) {
+                // What is held goes first, so the button lands where the laser points; a press is
+                // then the new click.
+                release_held();
+                released[released_count++] = real;
+                next_released(event, size);
+                return true;
+            }
+            given(&real);
+            return true;
+        }
+        if (type == kFocusLeave) {
+            button_down = false;
+        }
+        if (moves_pointer(type) && holding()) {
+            HeldEvent* slot = type == kFocusEnter || type == kFocusLeave ? &held_focus : &held_move;
+            *slot = real;
+            continue; // held: SDL gets the next event instead
+        }
+        given(&real);
+        return true; // every other event reaches SDL as it came
+    }
 }
 
 static GetGenericInterfaceFn real_get_generic_interface(void) {
