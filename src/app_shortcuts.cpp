@@ -582,11 +582,17 @@ void App::tick_shortcut_bar(double now) {
     // Until the dashboard probe answers, as each time the keyboard opens in
     // the dashboard, the focus is unknown: the bar keeps the one it had, so
     // a pick or the empty bar survives the opening (R343).
-    // So is a stream's app until its session's answer is in.
-    if (!dashboard_focus_known_ || stream_app_pending()) {
+    // So is a stream's app until its session's answer is in, and after its
+    // session ends while nothing local has the keys (R364).
+    const bool stream = output_.stream_session_target();
+    auto focus = focused_app();
+    const bool nothing_local = !stream && !dashboard_focus_ && focus.window == 0 && !focus.app;
+    if (!nothing_local) {
+        stream_focus_held_ = false;
+    }
+    if (!dashboard_focus_known_ || stream_app_pending() || stream_focus_held_) {
         // nothing to compare
-    } else if (auto focus = focused_app();
-               focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
+    } else if (focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
         bar_focus_ = std::move(focus);
         bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
@@ -596,6 +602,9 @@ void App::tick_shortcut_bar(double now) {
             look_up_focused_name(); // for the header of the menu still open
         }
         dirty = true;
+    }
+    if (stream && stream_app_ && bar_focus_.app == stream_app_) {
+        stream_focus_held_ = true; // kept once the session ends, while nothing local has the keys
     }
     // Another window of the same app, such as a dialog inside the Desktop,
     // took the keys: only a run stops. The bar and a profile picked for this

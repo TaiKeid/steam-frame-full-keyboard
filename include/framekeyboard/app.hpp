@@ -1841,6 +1841,12 @@ class App {
     std::optional<AppIdentity> stream_app_;
     void track_stream_session();
     bool stream_app_pending() const { return stream_session_ && !stream_app_; }
+    // The bar's focus is a stream's app (R364). After its session ends, as
+    // when the panel hides and the route goes local, Gamescope reports no
+    // window and no app for the stream: the focus is unknown then, and the
+    // bar keeps that app with its pick or empty bar until a window, the
+    // dashboard or another session's different app takes the keys.
+    bool stream_focus_held_{};
     // App names (design, Apps): looked up off the VR thread when the menu
     // opens and on an assign, taken on a tick. `app_name_` is the last one
     // found for an app; `name_fixes_` are ties saved with the name the

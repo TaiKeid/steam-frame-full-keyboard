@@ -5132,9 +5132,15 @@ void shortcut_stream_apps() {
     // neither has a window or an app of Gamescope's.
     struct RouteSink : CaptureSink {
         bool stream{}, field{};
+        FocusedApp local; // the local route's window and app, off Steam's route
         bool steam_field_target() const override { return stream || field; }
         bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return stream || field ? 0 : local.window; }
+        FocusedApp focused_app() const override { return stream || field ? FocusedApp{} : local; }
     } sink;
+    // A local window that takes the keys between streams: after a stream
+    // ends with nothing local, the bar keeps its app (R364).
+    const FocusedApp desk{3, AppIdentity{AppIdentity::Kind::Program, "desk"}, "desk"};
     App app(options, sink);
     double now = 1200;
     app.tick(now);
@@ -5177,11 +5183,13 @@ void shortcut_stream_apps() {
                 saved.apps[0].app == AppIdentity{AppIdentity::Kind::Steam, "4000020"} &&
                 saved.apps[0].profile == "g" && label() == "G",
             "the tie is the game's Steam identity, and its profile shows");
-    // The session ends: the free profile; it begins again: the game's.
+    // The session ends and a local window takes the keys: the free profile;
+    // the game streamed again: its own.
     sink.stream = false;
     app.set_native_request(0);
+    sink.local = desk;
     app.tick(now += .01);
-    require(label() == "A", "after the stream the free profile shows");
+    require(label() == "A", "after the stream a local window shows the free profile");
     sink.stream = true;
     app.set_native_request(6);
     require(settle_until([&] { return label() == "G"; }), "the game streamed again shows its profile");
@@ -5258,8 +5266,11 @@ void shortcut_stream_apps() {
                 label() == "P",
             "the PC's stream is tied as the stream app, its profile shows");
 
-    // One of Steam's own fields still can't be assigned.
+    // One of Steam's own fields still can't be assigned. A local window
+    // first, so the bar no longer holds the stream's app (R364).
     sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
     sink.field = true;
     app.set_native_request(10);
     app.tick(now += .01);
@@ -5564,6 +5575,118 @@ void shortcut_fkeys_from_file() {
     require(chords.size() == 4 && chords[0].text == "F13" && chords[2].text == "Ctrl + F20" &&
                 chords[3].text == "F24",
             "the editor shows their chips");
+}
+// R364: when a stream's session ends, as when the panel hides, Gamescope
+// reports no window and no app: the bar keeps the stream's app, its pick and
+// its empty bar, until a window, the dashboard or another game takes the keys.
+void shortcut_stream_focus_held() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"};
+    ShortcutModel model;
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{"ControlLeft"}, "KeyO"}})}});
+    model.apps.push_back({game, "Game", "g"});
+    write_shortcuts(directory.path, model); // nothing picked ever: no profile for other apps
+    std::mutex mutex;
+    std::string app_id = "4000020";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.stream_clients = [&]() -> std::optional<std::vector<std::vector<std::string>>> {
+        std::lock_guard lock(mutex);
+        return std::vector<std::vector<std::string>>{{"/usr/bin/streaming_client", "--appid", app_id}};
+    };
+    struct StreamSink : CaptureSink {
+        bool stream{};
+        FocusedApp focus; // the local route's: nothing during a stream
+        bool steam_field_target() const override { return stream; }
+        bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return stream ? 0 : focus.window; }
+        FocusedApp focused_app() const override { return stream ? FocusedApp{} : focus; }
+    } sink;
+    App app(options, sink);
+    double now = 1700;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return !view.shortcut_bar         ? std::string("(hidden)")
+               : view.shortcut_bar->slots ? std::string("(empty)")
+                                          : view.shortcut_bar->buttons[0].label;
+    };
+    std::uint64_t request = 0;
+    const auto begin = [&](const char* id) {
+        {
+            std::lock_guard lock(mutex);
+            app_id = id;
+        }
+        sink.stream = true;
+        app.set_native_request(++request);
+    };
+    const auto end = [&] {
+        sink.stream = false;
+        app.set_native_request(0);
+    };
+    // Every tick until `ticks` pass, the bar shows `wanted`.
+    const auto steady = [&](const std::string& wanted, int ticks = 60) {
+        for (int i = 0; i < ticks; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            if (label() != wanted) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto until = [&](const std::string& wanted) {
+        for (int i = 0; i < 1000 && label() != wanted; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        return label() == wanted;
+    };
+    begin("4000020");
+    require(until("G"), "the streamed game's profile");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto other = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, other.x + 30, other.y + other.height / 2);
+    require(label() == "O", "another profile picked by hand in the stream");
+    // Hidden: the route goes local, where a stream has no window and no app.
+    app.set_interaction_active(false);
+    end();
+    require(steady("O"), "hidden over the stream, the pick stays");
+    app.set_interaction_active(true);
+    begin("4000020");
+    require(steady("O"), "shown again over the same game: the pick, with no moment of its own profile");
+    // Keep open: the game's request ends while the panel stays.
+    end();
+    require(steady("O"), "the request ending keeps the pick");
+    // Another game: its own bar; then its empty bar, opened by hand, stays.
+    begin("4000030");
+    require(until("(hidden)"), "another game without a profile: nothing");
+    tap_rect(app, control(app.view(), "bar-toggle").bounds);
+    require(label() == "(empty)", "the empty bar, opened by hand");
+    app.set_interaction_active(false);
+    end();
+    require(steady("(empty)"), "hidden over the stream, the empty bar stays");
+    app.set_interaction_active(true);
+    begin("4000030");
+    require(steady("(empty)"), "and shows again");
+    // A second session with another game switches.
+    end();
+    app.tick(now += .01);
+    begin("4000020");
+    require(until("G"), "another game's session switches");
+    // A local window taking the keys after the stream switches.
+    end();
+    require(steady("G", 5), "the game's bar held after its session");
+    sink.focus = {5, AppIdentity{AppIdentity::Kind::Program, "editor"}, "editor"};
+    require(until("(hidden)"), "a local window takes the keys: its own bar");
 }
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
@@ -6718,6 +6841,7 @@ int main() {
         shortcut_pick_history();
         shortcut_name_record();
         shortcut_fkeys_from_file();
+        shortcut_stream_focus_held();
         stick_scrolls_bar();
         run_buttons();
         run_editor();
