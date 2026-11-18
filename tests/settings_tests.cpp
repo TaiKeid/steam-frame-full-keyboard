@@ -5004,6 +5004,12 @@ void shortcut_apps() {
     app.tick(now += .1);
     require(hover(0) == "Can't assign here: Full Keyboard can't see which app is in front",
             "an app that can't be told");
+    // Steam's own window, not its dashboard: a reason of its own (R367).
+    sink.focus = {11, std::nullopt, "steamwebhelper", true};
+    app.tick(now += .1);
+    require(!menu().rows[0].assign_enabled &&
+                hover(0) == "Can't assign here: Steam itself is in front, not an app",
+            "Steam's own window");
 
     // Assigned before its name arrives: saved with the program's name, then
     // the name found, once.

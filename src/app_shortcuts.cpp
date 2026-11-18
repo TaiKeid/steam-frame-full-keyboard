@@ -772,6 +772,9 @@ std::string App::assign_unavailable() const {
     if (output_.steam_field_target() && !output_.stream_session_target()) {
         return tr("tooltip.shortcuts-assign-steam-field");
     }
+    if (bar_focus_.steam && !stream_app_pending()) {
+        return tr("tooltip.shortcuts-assign-steam");
+    }
     // A stream's app is unknown until its session's answer is in: the bar
     // still holds the last one's.
     if (!bar_focus_.app || stream_app_pending()) {

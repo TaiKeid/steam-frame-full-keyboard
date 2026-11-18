@@ -140,7 +140,8 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (desktop && terminal.attached(desktop_bus) && terminal.reported()) {
             facts.desktop_app = terminal.app();
         }
-        FocusedApp app{facts.window, focus_identity(facts), facts.program};
+        FocusedApp app{facts.window, focus_identity(facts), facts.program,
+                       facts.window != 0 && facts.steam_app == steam_client_app_id};
         std::lock_guard lock(state.mutex);
         if (app != state.app) {
             state.app = std::move(app);

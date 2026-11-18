@@ -34,6 +34,9 @@ struct FocusedApp {
     std::uint32_t window{};
     std::optional<AppIdentity> app;
     std::string program;
+    // Steam's own window has the keys, not the dashboard: no app, for a
+    // reason of its own (R367).
+    bool steam{};
     bool operator==(const FocusedApp&) const = default;
 };
 } // namespace framekeyboard

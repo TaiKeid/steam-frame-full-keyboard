@@ -589,6 +589,7 @@
             "Can't assign here: Steam's dashboard is in front, not an app",
         "tooltip.shortcuts-assign-full":
             "128 apps have a profile already. Remove one in the editor first",
+        "tooltip.shortcuts-assign-steam": "Can't assign here: Steam itself is in front, not an app",
         "tooltip.shortcuts-assign-steam-field":
             "Can't assign here: this is one of Steam's own text fields, not an app",
         "tooltip.shortcuts-assign-unknown":
