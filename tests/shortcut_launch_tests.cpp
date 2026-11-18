@@ -193,6 +193,14 @@ void starts() {
     r.command = "echo command > command.out";
     require(launch(r) == LaunchFailure::None && appears(home.path / "command.out"),
             "a command runs with /bin/sh -c, in the home folder");
+    // Starting with - or +, it is still the command, not shell options (R355):
+    // the first word isn't found, the rest runs.
+    r.command = "-x 2>/dev/null; echo minus > minus.out";
+    require(launch(r) == LaunchFailure::None && appears(home.path / "minus.out"),
+            "a command starting with - runs as typed");
+    r.command = "+e 2>/dev/null; echo plus > plus.out";
+    require(launch(r) == LaunchFailure::None && appears(home.path / "plus.out"),
+            "a command starting with + runs as typed");
     r.command.clear();
     // What can't start.
     require(launch(r) == LaunchFailure::NoAction, "nothing to run");

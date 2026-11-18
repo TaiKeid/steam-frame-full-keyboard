@@ -317,7 +317,9 @@ LaunchFailure launch(const LaunchRequest& request) {
             shell.clear();
         }
     } else if (!request.command.empty()) {
-        program = {"/bin/sh", "-c", request.command};
+        // "--" as the C library's system() passes it: a command starting
+        // with - or + is the command, not options (R355).
+        program = {"/bin/sh", "-c", "--", request.command};
     } else {
         return LaunchFailure::NoAction;
     }
