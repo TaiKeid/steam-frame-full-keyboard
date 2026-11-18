@@ -5425,6 +5425,15 @@ void run_editor() {
                     app.view().shortcut_editor->explanation.front() ==
                         "Type a command for /bin/sh to run.",
                 "Command shows its field");
+        {
+            // R348: its caption as large as Label's, the field starting after it.
+            const auto v = app.view();
+            const auto field = control(v, "shortcuts-command").bounds;
+            require(field.x - (v.shortcut_editor->divider + 16) >=
+                            interface_text_width("Command", 22, v.interface_font) + 4 &&
+                        field.x + field.width <= panel_case_bounds(v).x + panel_case_bounds(v).width,
+                    "the Command caption has room at full size; the field stays in the case");
+        }
         tap_control(app, "shortcuts-command");
         require(app.view().shortcut_editor->popup &&
                     app.view().shortcut_editor->popup->title == "Command",

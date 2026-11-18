@@ -4249,9 +4249,14 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     }
     for (const auto& c : view.controls) {
         if (c.id == "shortcuts-label" || c.id == "shortcuts-command") {
-            interface_label(cr, c.id == "shortcuts-label" ? e.label_caption : e.run_caption,
-                            {c.bounds.x - 100, c.bounds.y, 96, c.bounds.height}, 22, view.interface_font,
-                            t.legend, false, PANGO_ALIGN_LEFT);
+            // Command's caption has the room up to its field, which starts
+            // as far right as the caption needs (R348).
+            const Rect caption =
+                c.id == "shortcuts-label"
+                    ? Rect{c.bounds.x - 100, c.bounds.y, 96, c.bounds.height}
+                    : Rect{e.divider + 16, c.bounds.y, c.bounds.x - e.divider - 20, c.bounds.height};
+            interface_label(cr, c.id == "shortcuts-label" ? e.label_caption : e.run_caption, caption, 22,
+                            view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, c.bounds);
             if (hovered(c)) {
                 rounded(cr, {c.bounds.x + .5, c.bounds.y + .5, c.bounds.width - 1, c.bounds.height - 1},

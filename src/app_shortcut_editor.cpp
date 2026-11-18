@@ -527,7 +527,17 @@ void App::append_run_controls(std::vector<Control>& result, const ShortcutButton
         }
         add("shortcuts-refresh", "refresh", {{}, tr("shortcuts.editor.refresh"), l.refresh});
     } else {
-        Control field{{}, action.command, l.command};
+        // The caption as large as Label's and the others; the field starts
+        // as far right as it needs (R348).
+        auto bounds = l.command;
+        const double caption =
+            interface_text_width(tr("shortcuts.editor.command"), 22, localization_.fonts());
+        const double start = l.divider + 16 + caption + 16;
+        if (start > bounds.x) {
+            bounds.width -= start - bounds.x;
+            bounds.x = start;
+        }
+        Control field{{}, action.command, bounds};
         field.style = ControlStyle::TextField;
         add("shortcuts-command", "command", field);
     }
