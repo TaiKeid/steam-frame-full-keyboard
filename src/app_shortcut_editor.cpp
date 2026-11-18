@@ -267,6 +267,7 @@ void App::open_shortcut_editor() {
     editor_question_ = EditorQuestion::None;
     editor_rows_scroll_ = editor_strip_scroll_ = editor_scripts_scroll_ = {};
     scripts_.reset(); // read again when the list shows
+    scripts_beyond_.clear();
     shortcut_drag_.reset();
     carry_.reset();
     hovered_.clear();
@@ -467,15 +468,18 @@ std::vector<App::ScriptRow> App::script_rows() const {
             rows.push_back({name, false});
         }
     }
-    // A chosen script that is gone stays, marked missing, in its place.
+    // A chosen script past the list's end shows in its place; one that is
+    // gone stays there too, marked missing.
     if (const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
         button && !button->action.script.empty() && scripts_ &&
         std::none_of(rows.begin(), rows.end(),
                      [&](const ScriptRow& row) { return row.name == button->action.script; })) {
-        const auto at = std::find_if(rows.begin(), rows.end(), [&](const ScriptRow& row) {
-            return row.name > button->action.script;
-        });
-        rows.insert(at, {button->action.script, true});
+        const auto& name = button->action.script;
+        const auto at = std::find_if(rows.begin(), rows.end(),
+                                     [&](const ScriptRow& row) { return row.name > name; });
+        const bool there =
+            std::find(scripts_beyond_.begin(), scripts_beyond_.end(), name) != scripts_beyond_.end();
+        rows.insert(at, {name, !there});
     }
     return rows;
 }
@@ -1021,8 +1025,7 @@ void App::editor_action(const ControlAction& command) {
         const auto* button = shortcut_editor_->selected_button();
         shortcut_editor_->set_script(button && button->action.script == name ? std::string() : name);
     } else if (value == "refresh") {
-        script_lister_.read(scripts_folder(config_dir()));
-        scripts_reading_ = true;
+        read_scripts();
     } else if (value == "command") {
         open_popup(PopupKind::Command);
     } else if (value == "step") {
@@ -1330,14 +1333,26 @@ void App::tick_shortcut_editor(double now) {
     // The scripts folder, read when the list first shows; a read's names
     // arrive here.
     if (editing_scripts() && !scripts_ && !scripts_reading_) {
-        script_lister_.read(scripts_folder(config_dir()));
-        scripts_reading_ = true;
+        read_scripts();
     }
-    if (auto names = script_lister_.take()) {
-        scripts_ = std::move(*names);
+    if (auto list = script_lister_.take()) {
+        scripts_ = std::move(list->names);
+        scripts_beyond_ = std::move(list->also_present);
         scripts_reading_ = false;
         dirty = true;
     }
+}
+void App::read_scripts() {
+    std::vector<std::string> chosen;
+    for (const auto& profile : shortcut_editor_->model().profiles) {
+        for (const auto& button : profile.buttons) {
+            if (button.action.kind == ShortcutAction::Kind::Run && !button.action.script.empty()) {
+                chosen.push_back(button.action.script);
+            }
+        }
+    }
+    script_lister_.read(scripts_folder(config_dir()), std::move(chosen));
+    scripts_reading_ = true;
 }
 
 void App::open_popup(PopupKind kind, std::optional<std::size_t> step, bool new_step) {

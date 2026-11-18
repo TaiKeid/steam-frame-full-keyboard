@@ -5495,6 +5495,62 @@ void run_editor() {
         setenv("HOME", old_home.c_str(), 1);
     }
 }
+// R354: a chosen script that sorts past the 64 listed is in the folder, so
+// it shows as there, not missing; gone, it is missing.
+void run_script_past_list() {
+    TemporaryDirectory home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    const auto config = home.path / ".config" / "framekeyboard";
+    const auto folder = config / "scripts";
+    fs::create_directories(folder);
+    for (int i = 0; i < 70; ++i) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "n%02d.sh", i);
+        std::ofstream(folder / name) << "true\n";
+    }
+    std::ofstream(folder / "zz.sh") << "true\n";
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(config, settings);
+    ShortcutButton run;
+    run.label = "Z";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.script = "zz.sh";
+    ShortcutModel model;
+    model.profiles.push_back({"p", "P", {run}});
+    model.free_profile = "p";
+    write_shortcuts(config, model);
+    Options options;
+    options.config_dir = config;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    double now = 7000;
+    const auto settle = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 400 && !done(); ++i) {
+            usleep(2000);
+            app.tick(now += .02);
+        }
+        return done();
+    };
+    const auto last = [&] {
+        const auto& rows = app.view().shortcut_editor->scripts;
+        return rows.empty() ? ShortcutEditorView::ScriptRow{} : rows.back();
+    };
+    require(settle([&] { return app.view().shortcut_editor->scripts.size() == 65; }) &&
+                last().name == "zz.sh" && last().chosen && !last().missing &&
+                app.view().shortcut_editor->explanation.front() == "Starts zz.sh.",
+            "a chosen script past the 64 listed shows as there");
+    fs::remove(folder / "zz.sh");
+    tap_control(app, "shortcuts-refresh");
+    require(settle([&] { return last().missing; }) && last().name == "zz.sh" &&
+                app.view().shortcut_editor->explanation.front() ==
+                    "zz.sh is no longer in the scripts folder.",
+            "gone, it is missing");
+    setenv("HOME", old_home.c_str(), 1);
+}
 // R332: a new user's first bar shows as soon as ✓ saves it, and becomes
 // the free bar.
 void first_bar_shows() {
@@ -6119,6 +6175,7 @@ int main() {
         stick_scrolls_bar();
         run_buttons();
         run_editor();
+        run_script_past_list();
         dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();
         carry_closes_on_scroll();

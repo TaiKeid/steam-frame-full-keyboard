@@ -1999,7 +1999,12 @@ class App {
     // Refresh, none until the first read lands; or Command's field.
     ScriptLister script_lister_{options_.script_list};
     std::optional<std::vector<std::string>> scripts_;
+    // Scripts the editor's buttons chose that are in the folder past the
+    // list's end, as the last read found (R354).
+    std::vector<std::string> scripts_beyond_;
     bool scripts_reading_{};
+    // Reads the folder again, with every script the editor's buttons chose.
+    void read_scripts();
     BarScroll editor_scripts_scroll_;
     struct ScriptRow {
         std::string name;

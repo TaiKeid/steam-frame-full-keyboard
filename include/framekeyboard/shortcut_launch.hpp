@@ -87,14 +87,26 @@ class ShortcutLauncher {
 // give their own; without one the folder is made if missing, then listed
 // (list_scripts). The newest read wins; results are taken on a tick.
 using ScriptListSource = std::function<std::vector<std::string>(const std::filesystem::path&)>;
+// Whether `name` is a script a press would start: a valid name for a regular
+// file in `folder`, not a link. Reads the folder: off the VR thread.
+bool script_present(const std::filesystem::path& folder, const std::string& name);
+// A read: the names listed, at most listed_scripts, and which of the names
+// asked about are scripts in the folder though not listed (R354): a button's
+// chosen script past the first 64 is there, not missing.
+struct ScriptList {
+    std::vector<std::string> names;
+    std::vector<std::string> also_present;
+};
 class ScriptLister {
   public:
     explicit ScriptLister(ScriptListSource source);
     ~ScriptLister();
     ScriptLister(const ScriptLister&) = delete;
     ScriptLister& operator=(const ScriptLister&) = delete;
-    void read(const std::filesystem::path& folder);
-    std::optional<std::vector<std::string>> take();
+    // Lists `folder`, and checks each of `chosen` the list leaves out against
+    // the folder itself (with a source, the source's names stand in for it).
+    void read(const std::filesystem::path& folder, std::vector<std::string> chosen = {});
+    std::optional<ScriptList> take();
     // Shared with the thread; defined in shortcut_launch.cpp.
     struct State;
 

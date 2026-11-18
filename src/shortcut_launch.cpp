@@ -48,6 +48,11 @@ template <class Keep> std::string filter_list(std::string_view list, Keep keep) 
 fs::path scripts_folder(const fs::path& config_dir) {
     return config_dir / "scripts";
 }
+bool script_present(const fs::path& folder, const std::string& name) {
+    struct stat info{};
+    return script_name_valid(name) && lstat((folder / name).c_str(), &info) == 0 &&
+           S_ISREG(info.st_mode);
+}
 std::vector<std::string> list_scripts(const fs::path& folder) {
     std::vector<std::string> names;
     std::error_code error;
@@ -418,8 +423,12 @@ struct ScriptLister::State {
     ScriptListSource source;
     std::mutex mutex;
     std::condition_variable wake;
-    std::optional<fs::path> waiting;
-    std::optional<std::vector<std::string>> done;
+    struct Request {
+        fs::path folder;
+        std::vector<std::string> chosen;
+    };
+    std::optional<Request> waiting;
+    std::optional<ScriptList> done;
     bool started{}, stop{};
 };
 namespace {
@@ -430,17 +439,23 @@ void run_reads(const std::shared_ptr<ScriptLister::State>& state) {
         if (state->stop) {
             return;
         }
-        const auto folder = *std::exchange(state->waiting, std::nullopt);
+        const auto request = *std::exchange(state->waiting, std::nullopt);
         lock.unlock();
-        std::vector<std::string> names;
+        ScriptList list;
         if (state->source) {
-            names = state->source(folder);
+            list.names = state->source(request.folder);
         } else {
-            make_scripts_folder(folder); // so the folder the empty list names exists
-            names = list_scripts(folder);
+            make_scripts_folder(request.folder); // so the folder the empty list names exists
+            list.names = list_scripts(request.folder);
+            for (const auto& name : request.chosen) {
+                if (std::find(list.names.begin(), list.names.end(), name) == list.names.end() &&
+                    script_present(request.folder, name)) {
+                    list.also_present.push_back(name);
+                }
+            }
         }
         lock.lock();
-        state->done = std::move(names);
+        state->done = std::move(list);
     }
 }
 } // namespace
@@ -452,16 +467,16 @@ ScriptLister::~ScriptLister() {
     state_->stop = true;
     state_->wake.notify_all();
 }
-void ScriptLister::read(const fs::path& folder) {
+void ScriptLister::read(const fs::path& folder, std::vector<std::string> chosen) {
     std::lock_guard lock(state_->mutex);
-    state_->waiting = folder;
+    state_->waiting = State::Request{folder, std::move(chosen)};
     if (!state_->started) {
         state_->started = true;
         std::thread([state = state_] { run_reads(state); }).detach();
     }
     state_->wake.notify_one();
 }
-std::optional<std::vector<std::string>> ScriptLister::take() {
+std::optional<ScriptList> ScriptLister::take() {
     std::lock_guard lock(state_->mutex);
     return std::exchange(state_->done, std::nullopt);
 }
