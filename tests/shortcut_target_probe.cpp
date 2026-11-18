@@ -2,27 +2,32 @@
 // Actions). It sends through the production route, ShortcutRunner over
 // OutputController over EiSink, as a bar button's press does, ticked at the
 // keyboard's 60 Hz frame. It sends only while its own newly created
-// disposable window has X keyboard focus, checks that before every frame
-// that may send, and looks only at its own window's key events. It prints
-// counts and key names only.
+// disposable window is Gamescope's focused window (the root's
+// GAMESCOPE_FOCUSED_WINDOW), which decides where keys from the EI socket go,
+// and has X keyboard focus; it checks both before every frame that may send,
+// stops at the first key its window did not get, and looks only at its own
+// window's key events. It prints counts and key names only.
 //
 // The route is the keyboard's own: Steam's Gamescope EI socket,
 // /run/user/<uid>/gamescope-0-ei, unless --ei-socket names another, with the
-// text socket that pairs with it. That holds in Gamescope and inside
-// SteamOS's Desktop alike, since the Desktop runs nested in Gamescope and
-// receives its keys from it. The receiver window opens on $DISPLAY, the
-// display of the session the probe was started in.
+// text socket that pairs with it. The receiver window opens on $DISPLAY,
+// which must be Gamescope's own X display: its root carries
+// GAMESCOPE_FOCUSED_WINDOW. Inside SteamOS's Desktop the probe's display is
+// KWin's, without that property, and KWin's active window can't be confirmed
+// from an X client, so it refuses to run there (R365).
 #include "framekeyboard/ei_input.hpp"
 #include "framekeyboard/input.hpp"
 #include "framekeyboard/output.hpp"
 #include "framekeyboard/shortcut_runner.hpp"
 
 #include <X11/XKBlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -34,7 +39,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 void usage() {
-    std::cerr << "Usage: shortcut-target-probe (--gaps | --fkeys | --numpad) [--repeats N]\n"
+    std::cerr << "Usage: shortcut-target-probe (--gaps | --numpad) [--repeats N]\n"
                  "         [--tick-ms MS] [--ei-socket PATH]\n";
 }
 double seconds_now() {
@@ -67,6 +72,7 @@ class Receiver {
         XMapRaised(display_, window_);
         XSync(display_, False);
         num_lock_ = XInternAtom(display_, "Num Lock", False);
+        gamescope_focus_ = XInternAtom(display_, "GAMESCOPE_FOCUSED_WINDOW", False);
     }
     ~Receiver() {
         // Focus goes back only if this window still holds it.
@@ -89,6 +95,11 @@ class Receiver {
         XGetInputFocus(display_, &focus, &ignored);
         return focus == window_;
     }
+    // Whether this display is Gamescope's: its root carries Gamescope's focus.
+    bool on_gamescope() { return gamescope_window().has_value(); }
+    // Whether Gamescope's focused window, which keys from its EI socket
+    // reach, is ours.
+    bool gamescope_focused() { return gamescope_window() == window_; }
     // Every key event at our window since the last call; others are dropped
     // unread.
     std::vector<Event> take() {
@@ -124,6 +135,26 @@ class Receiver {
     }
 
   private:
+    std::optional<Window> gamescope_window() {
+        if (gamescope_focus_ == None) {
+            return {};
+        }
+        Atom type{};
+        int format{};
+        unsigned long count{}, after{};
+        unsigned char* data = nullptr;
+        if (XGetWindowProperty(display_, DefaultRootWindow(display_), gamescope_focus_, 0, 1, False,
+                               XA_CARDINAL, &type, &format, &count, &after, &data) != Success ||
+            type != XA_CARDINAL || format != 32 || count < 1 || !data) {
+            if (data) {
+                XFree(data);
+            }
+            return {};
+        }
+        const Window window = reinterpret_cast<unsigned long*>(data)[0];
+        XFree(data);
+        return window;
+    }
     static std::string key_name(KeySym symbol) {
         const char* name = symbol == NoSymbol ? nullptr : XKeysymToString(symbol);
         return name ? name : "none";
@@ -131,7 +162,7 @@ class Receiver {
     Display* display_{};
     Window window_{}, previous_{};
     int revert_{};
-    Atom num_lock_{};
+    Atom num_lock_{}, gamescope_focus_{};
 };
 
 // The keyboard's own pieces: the bar's runner over the output queue over
@@ -158,6 +189,17 @@ class Probe {
 
     // Connects the route and gives our window focus; throws if either fails.
     void ready() {
+        // Gamescope publishes its focus once a window has it: our new window
+        // may be the first.
+        const auto shown = Clock::now() + std::chrono::seconds(2);
+        while (!receiver_.on_gamescope() && Clock::now() < shown) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        if (!receiver_.on_gamescope()) {
+            throw std::runtime_error(
+                "$DISPLAY is not Gamescope's (no GAMESCOPE_FOCUSED_WINDOW), as inside "
+                "SteamOS's Desktop; nothing sent");
+        }
         const auto deadline = Clock::now() + std::chrono::seconds(5);
         while (!route_.output.pump()) {
             if (Clock::now() > deadline) {
@@ -167,10 +209,14 @@ class Probe {
         }
         route_.output.set_enabled(true);
         receiver_.take_focus();
+        const auto focused = Clock::now() + std::chrono::seconds(2);
+        while (!(receiver_.focused() && receiver_.gamescope_focused()) && Clock::now() < focused) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         receiver_.take();
-        if (!receiver_.focused()) {
-            throw std::runtime_error("the probe window did not get focus; nothing sent");
+        if (!receiver_.focused() || !receiver_.gamescope_focused()) {
+            throw std::runtime_error("the probe window is not Gamescope's focused window; nothing sent");
         }
     }
 
@@ -221,10 +267,11 @@ class Probe {
         std::this_thread::sleep_for(std::chrono::duration<double>(settings_.tick));
     }
     void require_focus() {
-        if (!receiver_.focused()) {
+        if (!receiver_.focused() || !receiver_.gamescope_focused()) {
             route_.runner.stop();
             route_.output.release_holds();
-            throw std::runtime_error("the probe window lost focus; stopped");
+            throw std::runtime_error(
+                "the probe window is no longer Gamescope's focused window; stopped");
         }
     }
 
@@ -246,10 +293,9 @@ int gaps(Probe& probe) {
     // Level-0 names in order; k's press must carry Control, s's must not.
     const std::vector<std::pair<bool, std::string>> expected = {
         {true, "Control_L"}, {true, "k"}, {false, "k"}, {false, "Control_L"}, {true, "s"}, {false, "s"}};
-    int quiet = 0;
     for (const int gap : {0, 10, 20, 30, 50}) {
         probe.set_gap(gap / 1000.0);
-        int complete = 0, reordered = 0, lost = 0;
+        int complete = 0, reordered = 0;
         for (int run = 0; run < probe.settings().repeats; ++run) {
             const auto events = probe.send(action, expected.size());
             std::vector<std::pair<bool, std::string>> got;
@@ -266,18 +312,15 @@ int gaps(Probe& probe) {
                 ++complete;
             } else if (sorted_got == sorted_expected) {
                 ++reordered;
-            } else {
-                ++lost;
             }
-            // Three runs in a row with nothing at our window: the keys may be
-            // going elsewhere, so stop.
-            quiet = events.empty() ? quiet + 1 : 0;
-            if (quiet == 3) {
-                throw std::runtime_error("three runs received nothing; stopped");
+            // A key our window did not get may have gone elsewhere: stop.
+            if (sorted_got != sorted_expected) {
+                std::printf("gap_ms=%d run=%d stopped: a key did not arrive\n", gap, run + 1);
+                throw std::runtime_error("a key did not arrive at the probe window; stopped");
             }
         }
-        std::printf("gap_ms=%d runs=%d complete=%d out_of_order=%d lost=%d\n", gap,
-                    probe.settings().repeats, complete, reordered, lost);
+        std::printf("gap_ms=%d runs=%d complete=%d out_of_order=%d\n", gap, probe.settings().repeats,
+                    complete, reordered);
         std::fflush(stdout);
     }
     return 0;
@@ -304,15 +347,6 @@ void print_key(const char* sent, int code, const std::vector<Event>& events, int
     std::fflush(stdout);
 }
 
-// F13–F24 one at a time.
-int fkeys(Probe& probe) {
-    for (int n = 13; n <= 24; ++n) {
-        const auto key = "F" + std::to_string(n);
-        print_key(key.c_str(), probe.code(key), probe.send(keys({{{}, key}}), 2));
-    }
-    return 0;
-}
-
 // Each numpad digit, then Del and Enter, with the X server's Num Lock.
 int numpad(Probe& probe) {
     std::vector<std::string> names;
@@ -327,6 +361,9 @@ int numpad(Probe& probe) {
     for (const auto& name : names) {
         const auto events = probe.send(keys({{{}, name}}), 2);
         print_key(name.c_str(), probe.code(name), events, probe.num_lock());
+        if (std::none_of(events.begin(), events.end(), [](const Event& event) { return event.press; })) {
+            throw std::runtime_error("a key did not arrive at the probe window; stopped");
+        }
     }
     return 0;
 }
@@ -345,7 +382,7 @@ int main(int argc, char** argv) {
                 }
                 return std::string(argv[++i]);
             };
-            if (argument == "--gaps" || argument == "--fkeys" || argument == "--numpad") {
+            if (argument == "--gaps" || argument == "--numpad") {
                 if (!mode.empty()) {
                     throw std::runtime_error("one mode at a time");
                 }
@@ -380,9 +417,6 @@ int main(int argc, char** argv) {
         std::printf("mode=%s tick_ms=%.3f\n", mode.c_str() + 2, settings.tick * 1000);
         if (mode == "--gaps") {
             return gaps(probe);
-        }
-        if (mode == "--fkeys") {
-            return fkeys(probe);
         }
         return numpad(probe);
     } catch (const std::exception& error) {
