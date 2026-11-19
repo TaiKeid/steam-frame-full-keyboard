@@ -4731,6 +4731,56 @@ void macro_buttons() {
     require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
             "a cancel lets it go");
 }
+// R379: a bar button is one size on every bundled layout, numpad shown or hidden: the full layout's
+// left Ctrl at its scale, the flick layout's larger scale notwithstanding.
+void bar_button_one_size() {
+    const auto profiles = load_profiles({}, {});
+    std::optional<Rect> size;
+    for (const auto& [id, layout] : profiles.layouts) {
+        for (const bool hide : {false, true}) {
+            TemporaryDirectory directory;
+            ShortcutModel model;
+            model.profiles.push_back(
+                {"p",
+                 "Profile",
+                 {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+                  shortcut_button("C", {{{}, "KeyC"}})}});
+            model.free_profile = "p";
+            write_shortcuts(directory.path, model);
+            const auto language =
+                profiles.languages.contains(layout.language) ? layout.language : "en-us";
+            std::ofstream(directory.path / "config.json")
+                << R"({"schema_version":1,"active":{"layout":")" << id << R"(","language":")" << language
+                << R"(","theme":"graphite"},"hide_numpad":)" << (hide ? "true" : "false")
+                << R"(,"shortcuts":true})";
+            Options options;
+            options.config_dir = directory.path;
+            options.mode = Mode::Vr;
+            options.input = InputBackend::Uinput;
+            options.start_enabled = true;
+            options.target_language = "en-us";
+            CaptureSink sink;
+            App app(options, sink);
+            app.tick(3000);
+            const auto view = app.view();
+            if (!view.shortcut_bar || view.shortcut_bar->buttons.size() < 2) {
+                throw std::runtime_error("the bar shows its buttons on " + id);
+            }
+            const auto& first = view.shortcut_bar->buttons[0].bounds;
+            const auto& second = view.shortcut_bar->buttons[1].bounds;
+            const Rect measured{0, 0, first.width, second.x - first.x}; // size and pitch
+            if (!size) {
+                size = measured;
+            }
+            if (std::abs(measured.width - size->width) > 1e-9 ||
+                std::abs(measured.height - size->height) > 1e-9 ||
+                std::abs(first.height - 62 * (1600.0 - 40) / 1480) > 1e-9) {
+                throw std::runtime_error("a bar button is the full layout's size on " + id +
+                                         (hide ? ", numpad hidden" : ""));
+            }
+        }
+    }
+}
 // R340: any press on the bar that acts stops a run. R342: a While held
 // button pressed again while its run finishes a pass takes the hold again.
 void bar_presses_and_holds() {
@@ -7133,6 +7183,7 @@ int main() {
         macro_first_row_scrolls();
         carry_closes_on_scroll();
         bar_presses_and_holds();
+        bar_button_one_size();
         pending_drag_two_lasers();
         carry_buttons();
         lifted_step_moves_whole();

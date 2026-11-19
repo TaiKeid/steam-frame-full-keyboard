@@ -23,7 +23,7 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 
 | Piece | Geometry |
 | --- | --- |
-| Button | The size of left Ctrl: 69.5 × 62 layout units at the layout's scale (73.3 × 65.4), drawn as a key in Ctrl's tone |
+| Button | The size of left Ctrl on the full layouts: 69.5 × 62 layout units at their scale (73.3 × 65.4), the same on every layout, the flick layout's included (R379); drawn as a key in Ctrl's tone |
 | Gap between buttons | 6 layout units (6.3) |
 | Plate | The case's color and opacity, 12 px around the buttons, 90 tall, corners 18; its foot 10 px above the case |
 | Picker | A tab on the plate's right side, part of the plate: 44 × 56, centered on the plate's height, the plate's color and opacity, its two outer corners rounded. The whole tab is the button, with a three-line menu icon |

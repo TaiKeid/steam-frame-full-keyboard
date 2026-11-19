@@ -2130,12 +2130,17 @@ Rect panel_case_bounds(const PanelView& view) {
                              : case_width(view, visible_layout_width(view));
     return {(panel_width - width) / 2, 0, width, case_height(view)};
 }
+// The full-size layouts' scale, 1.054: the case's 1600 less 20 each side
+// over their 1480 units. Sizes given in case pixels are at this scale.
+constexpr double full_layout_scale = (panel_width - 40.0) / 1480;
 ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons) {
-    // Case pixels from the design; a button is left Ctrl's size at the
-    // layout's scale (69.5 x 62 units), 6 units apart.
+    // Case pixels from the design; a button is left Ctrl's size at the full
+    // layouts' scale (69.5 x 62 units), 6 units apart.
     constexpr double margin = 12, height = 90, foot = 10, tab_width = 44, tab_height = 56;
     const auto body = panel_case_bounds(view);
-    const double scale = placement(view).scale;
+    // One size on every layout (R379): the full layout's, whatever this
+    // layout's own scale, as the flick layout's larger one.
+    const double scale = full_layout_scale;
     ShortcutBarGeometry g;
     g.button_width = 69.5 * scale;
     g.button_height = 62 * scale;
@@ -3519,9 +3524,6 @@ void draw_run_mark(cairo_t* cr, const Rect& face, double k, Color color) {
     cairo_stroke(cr);
     cairo_restore(cr);
 }
-// The full-size layouts' scale, 1.054: the case's 1600 less 20 each side
-// over their 1480 units. Sizes given in case pixels are at this scale.
-constexpr double full_layout_scale = (panel_width - 40.0) / 1480;
 // A bar button drawn as a key in Ctrl's tone at `scale`, from its resting
 // face, its label on it: on the bar and in the shortcut editor's strip.
 void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::Button& button,
