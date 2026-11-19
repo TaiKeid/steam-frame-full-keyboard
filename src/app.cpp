@@ -2544,7 +2544,9 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
     settings_ui_.cancel_pointer(pointer);
     candidates_.cancel_pointer(pointer);
     // The laser may click into the field next, moving the cursor: ↶, what
-    // may follow the phrase and the next phrase's pair all end.
+    // may follow the phrase and the next phrase's pair all end. A laser that
+    // only points away with its trigger at rest is not canceled while they
+    // exist (holds_typing_state), so they last until a pull or the other hand.
     reopen_.reset();
     follow_up_.reset();
     last_commit_.reset();

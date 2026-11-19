@@ -2366,9 +2366,9 @@ int typing_flow() {
             require(typing_suggestions(app).empty(), "the other hand's click elsewhere ends the word");
             // The laser leaving is watched only while a word is being typed.
             type(app, "he");
-            require(app.holds_swipe_state(), "a word being typed is kept while the laser points away");
+            require(app.holds_typing_state(), "a word being typed is kept while the laser points away");
             tap(app, "ArrowRight");
-            require(!app.holds_swipe_state(), "with none, there is nothing to watch");
+            require(!app.holds_typing_state(), "with none, there is nothing to watch");
         }
         tap(app, "ArrowRight");
 

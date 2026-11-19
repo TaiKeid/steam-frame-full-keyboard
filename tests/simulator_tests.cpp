@@ -336,13 +336,26 @@ void japanese_reopen(bool slow) {
     press(simulator, "Flick-a");
     press(simulator, "Enter");
 
-    // The pointer leaving the keyboard is the laser leaving the panel: the
-    // chance to reopen ends, and a flick that leaves types nothing.
+    // The pointer leaving the keyboard with its button up is a laser resting
+    // off the keys: the chance to reopen stays (R384). A press off the
+    // keyboard may move the field's cursor, so it ends the chance, and a
+    // flick that leaves types nothing.
     const auto [x, y] = key_point(simulator, "Flick-ka");
     simulator.pointer_move(Simulator::mouse, x, y);
     simulator.pointer_move(Simulator::mouse, x, 60);
     press(simulator, "Flick-undo");
-    require(simulator.field().text() == "あ", "no reopen after the pointer left");
+    wait(simulator, .2);
+    require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
+            "↶ still reopens after the pointer left the keyboard with its button up");
+    press(simulator, "Enter");
+    require(simulator.field().text() == "あ", "and Enter commits it again");
+    simulator.pointer_move(Simulator::mouse, x, 60);
+    simulator.pointer_down(Simulator::mouse, x, 60, clock_now);
+    simulator.pointer_up(Simulator::mouse, x, 60);
+    press(simulator, "Flick-undo");
+    wait(simulator, .2);
+    require(simulator.field().text() == "あ" && simulator.app().view().preedit.empty(),
+            "no reopen after a press off the keyboard");
     simulator.pointer_move(Simulator::mouse, x, y);
     simulator.pointer_down(Simulator::mouse, x, y, clock_now);
     simulator.pointer_move(Simulator::mouse, x, 60);

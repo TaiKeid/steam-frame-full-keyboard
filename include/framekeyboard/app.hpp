@@ -177,14 +177,21 @@ class App {
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
-    // A decoding word, suggestions, the next word's space, or what the keys
-    // typed while completions show: what a pointer leaving the keyboard
-    // discards (cancel_pointer), including acknowledged/pending table text.
+    // What a pointer leaving the keyboard discards (cancel_pointer) because
+    // the field's cursor may move: a decoding word, suggestions, the next
+    // word's space, what the keys typed while completions show, acknowledged
+    // or pending table text, and after a Japanese commit ↶, the follow-up
+    // offers and the pair the next commit may learn (a pair only while
+    // nothing was sent since). While any of it exists a laser that points
+    // away with its trigger at rest is watched rather than canceled, so only
+    // a pull, the other hand or hiding ends it: under Background Disabled the
+    // laser crosses the open strip between the candidate band and the keys.
     // This also enables the existing off-key/caret watch for Chinese, without
     // a new timer. Pointing away at rest keeps adjacency until an observed edit.
-    bool holds_swipe_state() const {
+    bool holds_typing_state() const {
         return table_context_.active() || swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
-               ((!typing_suggestions_.empty() || word_open()) && suggesting());
+               ((!typing_suggestions_.empty() || word_open()) && suggesting()) || reopen_ || follow_up_ ||
+               (last_commit_ && last_commit_->queued == output_.queued());
     }
     // clicked: the pointer pulled its trigger off the keyboard, so it may
     // have moved the field's cursor: the word ends whichever hand typed it.
@@ -1292,7 +1299,8 @@ class App {
     // A flick kana as the kana page types and shows it.
     std::string flick_kana(const std::string& text) const;
     // The kana phrase committed last, which ↶ can bring back until anything
-    // else is pressed, the laser leaves or the keyboard hides.
+    // else is pressed, a trigger is pulled off the keys or the keyboard hides
+    // (a laser resting off them keeps it: holds_typing_state).
     struct Reopen {
         std::string text, reading;
         // The output's counts right after the commit: any change means
@@ -1303,7 +1311,7 @@ class App {
     // The phrase a Japanese commit typed, while the strip offers what may
     // come next, as a phone does: punctuation (docs/japanese.md,
     // Prediction). A press anywhere but the candidates, a key after the
-    // commit, the laser leaving or the keyboard hiding ends it; a choice
+    // commit, a trigger pulled off the keys or the keyboard hiding ends it; a choice
     // types at once.
     std::optional<std::string> follow_up_;
     // Kept for follow_up_ until the next commit learns a pair.
@@ -1318,7 +1326,7 @@ class App {
     // Phrases committed straight after one another, offered first after the
     // phrase before them (NextWords), and the last commit with the output's
     // count right after it: a commit with nothing sent since follows it. The
-    // laser leaving or the input ending starts a new run.
+    // laser leaving with a pull or the input ending starts a new run.
     NextWords next_words_;
     struct LastCommit {
         std::string text;

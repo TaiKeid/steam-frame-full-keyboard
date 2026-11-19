@@ -2549,11 +2549,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return false;
     };
     // A SteamVR laser that left our overlay, off the keyboard. Its hover ends, but swipe
-    // suggestions and the next word's space stay (App::cancel_pointer) until
-    // its trigger moves, the other hand takes the laser or the panel hides:
-    // a pull off the keys may click the window behind. Only while there is
-    // swipe state: the watch reads the trigger every frame. Back on a key,
-    // SteamVR's events take over.
+    // suggestions, the next word's space, ↶ and the follow-up offers stay
+    // (App::cancel_pointer) until its trigger moves, the other hand takes the
+    // laser or the panel hides: a pull off the keys may click the window
+    // behind. Only while App holds such state (holds_typing_state): the watch
+    // reads the trigger every frame. Back on a key, SteamVR's events take over.
     struct GapWatch {
         TriggerWatch watch;
         GapTrigger trigger;
@@ -4245,9 +4245,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     hovered_devices.fill(false);
                     on_own_controls.fill(0);
                 }
-                // Off the keys with the trigger at rest: only the hover ends.
-                // Without swipe state there is nothing to keep, nor to watch.
-                if (!drag.active() && app.holds_swipe_state() &&
+                // Off the keys with the trigger at rest: only the hover ends,
+                // also over the strips between key groups that Background
+                // Disabled leaves open. Without typing state there is nothing
+                // to keep, nor to watch.
+                if (!drag.active() && app.holds_typing_state() &&
                     !std::any_of(pointer_devices.begin(), pointer_devices.end(), [&](const auto& item) {
                         return item.second == device && app.pointer_pressed(item.first);
                     })) {
@@ -4297,7 +4299,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             for (auto it = gap_watches.begin(); it != gap_watches.end();) {
                 auto& [watch, trigger] = it->second;
-                if (away || (pointing && *pointing != it->first) || !app.holds_swipe_state() ||
+                if (away || (pointing && *pointing != it->first) || !app.holds_typing_state() ||
                     !trigger.rests(watch.angle())) {
                     if (!away) {
                         lifecycle.pointer_left(it->first, false);

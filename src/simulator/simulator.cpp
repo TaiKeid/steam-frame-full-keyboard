@@ -229,9 +229,10 @@ void Simulator::leave(unsigned pointer) {
     if (app_->holds_repeat(pointer)) {
         return;
     }
-    // Off the keys with the button up, swipe suggestions and the next word's
-    // space stay until the next press elsewhere (press_outside).
-    if (!app_->pointer_pressed(pointer) && app_->holds_swipe_state()) {
+    // Off the keys with the button up, swipe suggestions, the next word's
+    // space, ↶ and the follow-up offers stay until the next press elsewhere
+    // (press_outside).
+    if (!app_->pointer_pressed(pointer) && app_->holds_typing_state()) {
         app_->move(pointer, -1e4, -1e4);
         return;
     }

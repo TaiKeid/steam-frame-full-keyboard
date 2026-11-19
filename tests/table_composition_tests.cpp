@@ -299,13 +299,13 @@ void contextual_tables(const fs::path& directory) {
         f.recover();
         f.press("KeyA");
         f.press("Digit1");
-        require(f.app->holds_swipe_state(),
+        require(f.app->holds_typing_state(),
                 "Chinese context activates the existing off-key caret watch");
         f.press("KeyQ");
         f.press("KeyQ");
         require(first(*f.app) == "1 木", "a successful commit feeds the next code's context");
         f.app->cancel_pointer(0, true);
-        require(first(*f.app) == "1 木" && !f.app->holds_swipe_state(),
+        require(first(*f.app) == "1 木" && !f.app->holds_typing_state(),
                 "an observed edit clears context without changing any presented choice");
         f.press("Backspace");
         f.press("KeyQ");
@@ -401,7 +401,7 @@ void contextual_tables(const fs::path& directory) {
         f.press("Digit1");
         f.press("KeyQ");
         f.press("KeyQ");
-        require(first(*f.app) == "1 日" && !f.app->holds_swipe_state(),
+        require(first(*f.app) == "1 日" && !f.app->holds_typing_state(),
                 "sensitive/terminal fields do not retain contextual table text");
     }
     {
@@ -452,7 +452,7 @@ void contextual_tables(const fs::path& directory) {
         const auto r = panel_rect(view, key->bounds);
         f.sink.move_on_commit = true;
         f.app->down(7, r.x + r.width / 2, r.y + r.height / 2, f.now);
-        require(!f.app->holds_swipe_state(),
+        require(!f.app->holds_typing_state(),
                 "an acknowledgement that changes target cannot temporarily seed the new scope");
         f.app->up(7, r.x + r.width / 2, r.y + r.height / 2);
     }
