@@ -42,6 +42,8 @@ Theme JSON defines renderer properties directly. Support surface and legend colo
 
 Bundled themes: Graphite (the default) and Midnight; the dark Ember, Plum, Crimson, Navy and Mono, each with its own latched accent; Forest (pine green), Lagoon (deep teal with an aqua latch) and Dusk (indigo, its latch running from apricot to magenta); Onyx and Amber, whose legends and icons are champagne gold on black and amber orange on dark brown, with their own `warning`, `error` and `alert` colors so notices stand apart from the legends; Neon (latched and pressed keys outlined by cyan-to-magenta neon tubes), Aurora (the same tubes from green through blue to violet, so its swipe trail is a blue path under a green comet) and Cinematic (dark blue with orange accents, its swipe trail a blue path under an orange comet); the mid-tone Sage (terracotta latch) and Cocoa (chocolate keys, cream latch); the light Porcelain, Blossom, Lilac, Sand (cream keys on a tan case, with a navy latch and swipe comet), Mint, Sky (pale blue with an azure latch and swipe comet) and Peach (apricot latch, a rose swipe comet); and High Contrast, an accessibility theme with white legends and bright white key edges on black, a yellow edge under the laser, solid yellow while a key is pressed, a yellow swipe trail and cyan when latched, all text at 7:1 or more.
 
+Bundled layouts set their rows 6 units apart, as keys in a row are, with the gap under the function row and the gaps between blocks as they were: a full layout is 400 units tall and its case 572 pixels, the same as Settings and the shortcut editor, and the flick layouts are 266 units. Before 0.20 rows were further apart, full layouts 416 units and the flick layouts 278. A layout of your own copied from an earlier version keeps its old rows and still works, but its case is taller than Settings, so the case's foot moves 16 pixels when Settings opens, and the emoji picker's keys can sit up to 3 pixels off. To take the new rows, copy the bundled file again and make your changes to it anew.
+
 Validate dimensions and animation limits. In particular, press travel cannot exceed side depth, and painting must stay aligned with hit regions. A theme may change appearance but cannot change the meaning of a key or the input keymap. Geometry changes belong to layout profiles.
 
 ## Languages and actual input
@@ -221,6 +223,76 @@ Tapping a language adds it to the end of Additional. Dragging one sideways lifts
 The pairs are saved as the optional `favorites` array in `config.json`. Legacy repeats and entries matching the main language show once or not at all, and are dropped by the next Apply.
 
 Like every Settings change, these edits are saved by Apply and discarded by Back. The back arrow only returns to Settings. If the popup changed anything, leaving Settings asks whether to save or discard; Save does what Apply does. Dropdown changes alone don't ask.
+
+## Shortcut bar
+
+General → Shortcut bar is saved as the optional boolean `shortcuts`, defaulting to false. The toolbar's shortcut bar button is saved at once as `shortcuts_switch`, defaulting to true; while it is false the bar stays hidden. See [the shortcut bar](shortcut-bar.md) for using it.
+
+Profiles, buttons and app assignments are in `shortcuts.json` beside `config.json`, readable by you alone. The keyboard writes it whole into a new file, synced to disk, which then replaces the old one; the editor's ✓ writes it, and so do an assignment in the menu and a profile picked there. You may edit it by hand; Reload config reads it again, and `framekeyboard --check` reports whether it is valid beside the layouts, languages and themes.
+
+```json
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "id": "p1",
+      "name": "Editor",
+      "buttons": [
+        {
+          "label": "Save\nall",
+          "action": {"kind": "keys", "chords": [{"modifiers": ["ControlLeft"], "key": "KeyK"}, {"key": "KeyS"}]}
+        },
+        {
+          "label": "Build",
+          "action": {
+            "kind": "macro",
+            "steps": [
+              {"keys": [{"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}]},
+              {"wait_ms": 500},
+              {"keys": [{"key": "KeyL"}, {"key": "KeyS"}, {"key": "Enter"}]}
+            ],
+            "repeat": {"mode": "times", "count": 3}
+          }
+        },
+        {"label": "Term", "action": {"kind": "run", "script": "open-terminal.sh"}},
+        {"label": "Shot", "action": {"kind": "run", "command": "spectacle -b -n"}}
+      ]
+    }
+  ],
+  "apps": [{"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "profile": "p1"}],
+  "free_profile": "p1",
+  "earlier_picks": []
+}
+```
+
+- An action's `kind` is `keys` (a shortcut: `chords`), `macro` (`steps` and `repeat`) or `run` (`script` or `command`). A chord is a `key` with optional `modifiers`, or `modifiers` alone. Key and modifier names are the layouts' physical key names, such as `KeyK`, `Enter`, `F5`, `Numpad7`, `ControlLeft` and `MetaLeft`; `F13` to `F24` are accepted here, though the recorder doesn't offer them.
+- A macro step is `{"keys": [chords]}` or `{"wait_ms": N}`. `repeat` has `mode` `once`, `times` with a `count`, or `while_held`.
+- An action may be empty: a shortcut without chords, a macro without steps, or a Run button with neither a script nor a command. The editor saves an unfinished button that way, and a press on it does nothing.
+- `apps` ties an app to a profile. `kind` is `steam` (a nonzero 32-bit Steam app ID, as text), `program` (a program's file name, without a folder), `desktop` (a SteamOS Desktop app ID) or `stream` (ID `pc`, every stream from your PC that isn't a Steam game); `name` is what the editor and tooltips show. An app has at most one tie.
+- `free_profile` is the profile picked last in the menu for apps without one, and `earlier_picks` those picked before it, newest first. A pick must name an existing profile, once.
+- Labels, names and commands are UTF-8 without control characters; a label may hold one line break.
+
+| Limit | Value |
+| --- | --- |
+| Profiles | 32 |
+| Buttons in a profile | 64 |
+| Label | Two lines, 24 characters in all |
+| Profile name | 32 characters |
+| Chords in a shortcut | 4 |
+| Steps in a macro | 32 |
+| Chords in a macro's keys step | 32 |
+| Wait | 100 to 10,000 ms |
+| Repeat count | 2 to 99 |
+| Command | 512 bytes, one line |
+| Script name | 64 bytes, a plain file name |
+| App ties | 128 |
+| File | 512 KB |
+
+A file that breaks any of these rules, has an unknown name, kind or field value, or an unknown `schema_version`, loads nothing. Settings says so under the Shortcut bar switch, naming where the fault is (profile 2, button 5) without quoting your text, and the keyboard never overwrites it: the next save moves it to `shortcuts.json.bad` first. When Reload config finds the file invalid, the profiles already loaded stay. A valid file that changed behind the keyboard's back, edited by hand while it ran, is kept as `shortcuts.json.old` when the keyboard next saves. Updates and the installer leave the file alone.
+
+Scripts for Run buttons go in `scripts/` in the same folder, `~/.config/framekeyboard/scripts/`. The editor lists its regular files, up to 64, without folders, links or hidden files.
+
+Names found for Steam games and Desktop apps are kept in `~/.cache/framekeyboard/app-names.json` (under `$XDG_CACHE_HOME` when set), at most 256, the oldest dropped first, so a game streamed from your PC keeps its name. A damaged file reads as empty. It holds only IDs and names and can be deleted at any time.
 
 ## Updates
 

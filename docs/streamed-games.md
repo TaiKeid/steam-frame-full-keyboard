@@ -67,6 +67,14 @@ What remains: the library runs inside the streaming client, so a fault in it cou
 
 Measured on a Steam Frame in November 2026 with a Windows PC and a Linux PC as hosts.
 
+## Shortcuts and macros in a stream
+
+The [shortcut bar](shortcut-bar.md) works in both kinds of stream. Its shortcuts and macros are keys, which is what streams carry best: with Streaming support each combination goes to the PC as a real press and release with its modifiers, and through Moonlight as keys, as the keyboard's own keys do. The PC reads them with its own layout, so a shortcut recorded as Ctrl+Z is the key at Z's place on a US keyboard. Between two combinations the bar waits until the first has been delivered, and, in a stream, at least as long as the stream needs between keys. Run buttons start their programs on the headset, not on the PC.
+
+With Streaming support a game keeps its own identity, its Steam app ID, so a profile assigned to it shows both when it runs on the headset and when it is streamed from your PC. Your PC's desktop, and whatever is streamed from it that isn't a Steam game, counts as one app, **PC desktop stream**: which program the PC has in front can't be seen from the headset. Through Moonlight, Moonlight itself is the app.
+
+A text that follows keys, such as a swiped word after a Backspace, or a word chosen from the candidates after the Space before it, waits until those keys are through to the PC, and then another 150 ms. The stream sends text and keys separately, and a text that overtook a key still on its way could arrive in the wrong place, or leave a mouse button held down on a Windows PC so that clicks stopped working there. The library estimates when the keys are through from what it sent: 75 ms for each key, and 140 ms for the same key pressed again while the last press may still be on its way. Text with no keys before it goes at once.
+
 ## Steam's own keyboard route
 
 The rest of this page records why Full Keyboard does not type into a stream the way Steam's keyboard does. It was measured on a Steam Frame in October 2026, before Streaming support, and explains why that needed its own way in.
