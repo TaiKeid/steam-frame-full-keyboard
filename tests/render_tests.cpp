@@ -1508,6 +1508,31 @@ void shortcut_bar(const char* theme_id, double opacity) {
             throw std::runtime_error(phase("a button's or the tab's state repaints only the bar"));
         }
     }
+    // R383: hovered, pressed or with its menu open, the tab is square where it
+    // joins a drawn plate; with none (Invisible, Disabled) it stands alone,
+    // its light rounded at all four corners. Visible keeps its joined shape.
+    {
+        State hovered_tab;
+        hovered_tab.picker_hovered = true;
+        State open_tab;
+        open_tab.menu = true;
+        for (const auto& state : {hovered_tab, pressed_tab, open_tab}) {
+            view.shortcut_bar = bar(state);
+            compare.frame(view, phase("the tab lit").c_str());
+            const int corner = alpha_at(compare.incremental, static_cast<int>(g.picker.x),
+                                        static_cast<int>(g.picker.y));
+            const int middle =
+                alpha_at(compare.incremental, static_cast<int>(g.picker.x + g.picker.width / 2),
+                         static_cast<int>(g.picker.y + g.picker.height / 2));
+            if (middle == 0 || (opacity == 0 && corner != 0) || (opacity == 1 && corner != 255)) {
+                throw std::runtime_error(phase(opacity == 0
+                                                   ? "a lone tab's light is rounded at the plate's side"
+                                                   : "a tab joined to its plate is square there"));
+            }
+        }
+        view.shortcut_bar = bar({});
+        compare.frame(view, phase("the tab dark again").c_str());
+    }
     // The tab grows out of the plate: lit in place, and nothing where the
     // picker's own plate and the gap before it were.
     view.shortcut_bar = bar(pressed_tab);
@@ -2263,6 +2288,7 @@ int main() {
         shortcut_bar("porcelain", 1);
         shortcut_bar("graphite", .5);
         shortcut_bar("porcelain", 0);
+        shortcut_bar("graphite", 0); // Invisible and Disabled draw alike
         no_stray_lines();
         candidate_menu_resize();
         candidate_scrolling();

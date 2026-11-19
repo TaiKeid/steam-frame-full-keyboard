@@ -3867,15 +3867,21 @@ void draw_shortcut_bar(cairo_t* cr, const PanelView& view) {
                   {bar.plate.x + bar.plate.width - 32, bar.plate.y, 30, bar.plate.height}, t.legend, 18);
     }
     // The picker: the whole tab is the button, lit while its menu is open.
+    // Joined to the plate, its light is square where they meet; with no
+    // plate drawn (Invisible, Disabled) it stands alone, all four corners
+    // rounded as the bar's buttons are (R383).
     const bool open = bar.menu.has_value();
     if (open || bar.picker_pressed || bar.picker_hovered) {
+        const bool alone = opacity <= 0;
+        const Rect shape = alone ? tab : tab_shape;
+        const double radius = alone ? t.radius * bar.scale : tab_radius;
         cairo_save(cr);
         cairo_rectangle(cr, tab.x, tab.y, tab.width, tab.height);
         cairo_clip(cr);
         if (open || bar.picker_pressed) {
-            fill_latched(cr, t, tab_shape, tab_radius);
+            fill_latched(cr, t, shape, radius);
         } else {
-            rounded(cr, tab_shape, tab_radius);
+            rounded(cr, shape, radius);
             source(cr, t.hover);
             cairo_fill(cr);
         }
