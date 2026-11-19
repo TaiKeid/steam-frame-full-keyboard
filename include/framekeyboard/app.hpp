@@ -37,6 +37,8 @@
 #include <deque>
 #include <future>
 #include <optional>
+#include <set>
+#include <string>
 #include <utility>
 
 namespace framekeyboard {
@@ -1863,6 +1865,7 @@ class App {
     };
     std::optional<AppName> app_name_;
     std::vector<AppName> name_fixes_; // the identity and the name saved with it
+    std::set<std::pair<int, std::string>> looked_up_names_; // apps looked up in this run (R376)
     // Names found before, for when the files that gave them are gone (R362);
     // read at start, written through settings_writer_.
     std::vector<RecordedName> name_record_;

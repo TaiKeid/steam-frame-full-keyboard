@@ -5808,9 +5808,112 @@ void shortcut_window_class_name() {
         tap_rect(app, app.view().shortcut_bar->picker);
         const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
         app.move(0, at.x, at.y);
-        require(lookups == scans &&
+        require(lookups == scans + 1 &&
                     app.view().bar_tooltip == "Show Web whenever Example Browser is in front",
-                "a name kept before is not looked up again");
+                "a name kept before shows, and is looked up once in this run (R376)");
+    }
+}
+// R376: a kept name shows until a lookup answers; a name found replaces it, and none found keeps
+// it. An app is looked up once per run, however often its menu opens or it comes back to the front.
+void shortcut_kept_name_refresh() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity editor{AppIdentity::Kind::Desktop, "org.example.Editor"};
+    const AppIdentity other{AppIdentity::Kind::Desktop, "org.example.Other"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"w", "Web", {shortcut_button("W", {{{"ControlLeft"}, "KeyW"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    std::mutex lock;
+    std::string answer = "Old Editor";
+    std::atomic<int> lookups{};
+    std::atomic<bool> open{true};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = directory.path / "cache" / "app-names.json";
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app != editor) {
+            return {};
+        }
+        ++lookups;
+        while (!open) {
+            usleep(1000);
+        }
+        std::lock_guard guard(lock);
+        return answer;
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {6, editor, "kwin_wayland"};
+    double now = 1900;
+    const auto tooltip = [&](App& app) {
+        app.tick(now += .01);
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+        app.move(0, at.x, at.y);
+        const auto text = app.view().bar_tooltip;
+        tap_rect(app, app.view().shortcut_bar->picker);
+        return text;
+    };
+    const auto settle_names = [&](App& app) {
+        for (int i = 0; i < 100; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+    };
+    {
+        App app(options, sink);
+        tooltip(app);
+        settle_names(app);
+        require(tooltip(app) == "Show Web whenever Old Editor is in front",
+                "the first name found is kept");
+        app.flush_settings();
+    }
+    {
+        // Renamed since: the kept name shows while the lookup runs, then the new one.
+        {
+            std::lock_guard guard(lock);
+            answer = "New Editor";
+        }
+        open = false;
+        App app(options, sink);
+        require(tooltip(app) == "Show Web whenever Old Editor is in front",
+                "the kept name shows until an answer");
+        open = true;
+        settle_names(app);
+        require(tooltip(app) == "Show Web whenever New Editor is in front",
+                "a name found replaces the kept one");
+        // Away and back, and the menu again: no second lookup in this run.
+        sink.focus = {7, other, "kwin_wayland"};
+        settle_names(app);
+        sink.focus = {6, editor, "kwin_wayland"};
+        settle_names(app);
+        tooltip(app);
+        settle_names(app);
+        require(lookups == 2, "an app is looked up once per run");
+        app.flush_settings();
+    }
+    {
+        // Its files gone: the lookup finds nothing, and the kept name stays.
+        {
+            std::lock_guard guard(lock);
+            answer.clear();
+        }
+        App app(options, sink);
+        tooltip(app);
+        settle_names(app);
+        require(lookups == 3 && tooltip(app) == "Show Web whenever New Editor is in front",
+                "a lookup that finds nothing keeps the kept name");
     }
 }
 // R362: a desktop stream starts with the ID of Steam's Remote Play Client app; it is the PC's stream,
@@ -7021,6 +7124,7 @@ int main() {
         shortcut_stream_focus_held();
         shortcut_remote_play_tie();
         shortcut_window_class_name();
+        shortcut_kept_name_refresh();
         stick_scrolls_bar();
         run_buttons();
         run_editor();

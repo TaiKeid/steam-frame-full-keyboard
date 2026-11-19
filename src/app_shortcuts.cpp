@@ -749,21 +749,22 @@ void App::look_up_focused_name() {
     if (named) {
         return;
     }
-    // A name kept before needs no lookup, so a class's scan happens once
-    // (R363); a tie still under its identity's name takes it.
-    if (const auto kept = recorded_app_name(name_record_, app); !kept.empty()) {
-        if (tie && !shortcut_editor_) {
-            for (auto& each : shortcuts_.apps) {
-                if (each.app == app) {
-                    each.name = kept;
-                }
+    // A name kept before shows at once (focused_app_name), and a tie still
+    // under its identity's name takes it.
+    if (const auto kept = recorded_app_name(name_record_, app);
+        !kept.empty() && tie && !shortcut_editor_) {
+        for (auto& each : shortcuts_.apps) {
+            if (each.app == app) {
+                each.name = kept;
             }
-            save_shortcuts();
-            dirty = true;
         }
-        return;
+        save_shortcuts();
+        dirty = true;
     }
-    if (!app_name_ || app_name_->app != app) {
+    // Looked up once per run of the keyboard, a class's scan through the
+    // desktop files included (R363), so a renamed app or a wrong match gets
+    // its name again without a scan at every menu open (R376).
+    if (looked_up_names_.insert({static_cast<int>(app.kind), app.id}).second) {
         app_names_.request(app);
     }
 }
@@ -775,9 +776,18 @@ void App::take_app_names() {
     }
     bool renamed = false;
     while (auto result = app_names_.take()) {
-        // A name found is kept; none found falls back on one kept before.
+        // A name found is kept, in place of one kept before; none found falls
+        // back on that one. A tie that took the old kept name takes the new.
         if (!result->name.empty()) {
+            const auto before = recorded_app_name(name_record_, result->app);
             keep_found_name(result->app, result->name);
+            for (auto& tie : shortcuts_.apps) {
+                if (tie.app == result->app && !before.empty() && tie.name == before &&
+                    before != result->name) {
+                    tie.name = result->name;
+                    renamed = true;
+                }
+            }
         } else {
             result->name = recorded_app_name(name_record_, result->app);
         }
