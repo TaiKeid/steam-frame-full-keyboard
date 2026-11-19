@@ -597,6 +597,7 @@ void App::tick_shortcut_bar(double now) {
         bar_focus_serial_ = output_.focus_serial();
         stop_shortcut_run();
         adopt_long_program_tie();
+        adopt_remote_play_tie();
         profile_choice_.focus(shortcuts_, bar_focus_.app);
         if (bar_menu_) {
             look_up_focused_name(); // for the header of the menu still open
@@ -696,6 +697,25 @@ void App::adopt_long_program_tie() {
     }
     old->app = app; // its profile shows at the focus that follows (tick_shortcut_bar)
     save_shortcuts();
+}
+void App::adopt_remote_play_tie() {
+    // The editor holds its own copy of the model; its ✓ would put the old tie back.
+    if (shortcut_editor_ || bar_focus_.app != pc_stream_identity()) {
+        return;
+    }
+    const AppIdentity old_app{AppIdentity::Kind::Steam, std::to_string(remote_play_client_app_id)};
+    const auto old = std::find_if(shortcuts_.apps.begin(), shortcuts_.apps.end(),
+                                  [&](const AppTie& tie) { return tie.app == old_app; });
+    if (old == shortcuts_.apps.end()) {
+        return;
+    }
+    if (shortcuts_.tie(pc_stream_identity())) {
+        shortcuts_.apps.erase(old); // the stream's own tie stands
+    } else {
+        old->app = pc_stream_identity();
+        old->name = tr("shortcuts.app.stream");
+    }
+    save_shortcuts(); // its profile shows at the focus that follows (tick_shortcut_bar)
 }
 void App::look_up_focused_name() {
     if (!bar_focus_.app || bar_focus_.app->kind == AppIdentity::Kind::Stream) {

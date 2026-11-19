@@ -5779,6 +5779,58 @@ void shortcut_window_class_name() {
                 "a name kept before is not looked up again");
     }
 }
+// R362: a desktop stream starts with the ID of Steam's Remote Play Client app; it is the PC's stream,
+// and a tie saved under that ID as a Steam app moves over, or goes when the stream has its own.
+void shortcut_remote_play_tie() {
+    const AppIdentity remote{AppIdentity::Kind::Steam, "202355"};
+    for (const bool stream_tied : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        save_settings(directory.path, settings);
+        ShortcutModel model;
+        model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+        model.profiles.push_back({"d", "Desk", {shortcut_button("D", {{{"ControlLeft"}, "KeyD"}})}});
+        model.profiles.push_back({"s", "Stream", {shortcut_button("S", {{{"ControlLeft"}, "KeyS"}})}});
+        model.apps.push_back({remote, "Remote Play Client", "d"});
+        if (stream_tied) {
+            model.apps.push_back({pc_stream_identity(), "PC desktop stream", "s"});
+        }
+        model.free_profile = "a";
+        write_shortcuts(directory.path, model);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Uinput;
+        options.start_enabled = true;
+        options.target_language = "en-us";
+        options.stream_clients = []() -> std::optional<std::vector<std::vector<std::string>>> {
+            return std::vector<std::vector<std::string>>{
+                {"/usr/bin/streaming_client", "--appid", "202355"}};
+        };
+        struct StreamSink : CaptureSink {
+            bool steam_field_target() const override { return true; }
+            bool stream_session_target() const override { return true; }
+        } sink;
+        App app(options, sink);
+        app.set_native_request(1);
+        double now = 1900;
+        for (int i = 0;
+             i < 200 && app.view().shortcut_bar && app.view().shortcut_bar->buttons[0].label == "A";
+             ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        const auto saved = saved_shortcuts(app);
+        const auto* tie = saved.tie(pc_stream_identity());
+        require(!saved.tie(remote) && saved.apps.size() == 1 && tie &&
+                    tie->profile == (stream_tied ? "s" : "d"),
+                stream_tied ? "the stream's own tie stands, the old one goes"
+                            : "the old tie moves to the PC's stream");
+        require(app.view().shortcut_bar->buttons[0].label == (stream_tied ? "S" : "D"),
+                "and its profile shows for the desktop stream");
+    }
+}
 void macro_first_row_scrolls() {
     TemporaryDirectory directory;
     Settings settings;
@@ -6933,6 +6985,7 @@ int main() {
         shortcut_name_record();
         shortcut_fkeys_from_file();
         shortcut_stream_focus_held();
+        shortcut_remote_play_tie();
         shortcut_window_class_name();
         stick_scrolls_bar();
         run_buttons();

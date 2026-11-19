@@ -2,8 +2,10 @@
 #include "framekeyboard/shortcuts.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <fstream>
 #include <glib.h>
@@ -90,6 +92,198 @@ std::vector<std::string> vdf_values(std::string_view data, std::string_view key,
         }
     }
     return values;
+}
+// Steam's own app cache, appcache/appinfo.vdf, for a game with no manifest here, such as one streamed
+// from a PC (R362). Its format is Steam's private one, read only at the version known: a header (magic,
+// universe, the string table's offset), entries of a stated size (app ID, size, 60 bytes, then binary
+// VDF whose keys are indices into the string table), and the string table at the end. Anything else
+// gives no name. Only the entry asked for is read; the rest are skipped by their size.
+constexpr std::uint32_t appinfo_magic = 0x07564429;
+constexpr std::uintmax_t appinfo_bytes = 64ull * 1024 * 1024;
+class AppInfo {
+  public:
+    explicit AppInfo(const fs::path& path) : file_(path, std::ios::binary) {
+        std::error_code error;
+        size_ = fs::file_size(path, error);
+        ok_ = !error && file_ && size_ >= 16 && size_ <= appinfo_bytes;
+    }
+    // `id`'s appinfo/common/name, or empty.
+    std::string name(std::uint32_t id) {
+        std::uint32_t magic = 0;
+        std::int64_t table = 0;
+        if (!ok_ || !read_at(0, magic) || magic != appinfo_magic || !read_at(8, table) || table < 16 ||
+            static_cast<std::uintmax_t>(table) + 4 > size_ ||
+            !find_keys(static_cast<std::uint64_t>(table))) {
+            return {};
+        }
+        for (std::uint64_t at = 16; at + 8 <= static_cast<std::uint64_t>(table);) {
+            std::uint32_t app = 0, bytes = 0;
+            if (!read_at(at, app) || !read_at(at + 4, bytes) || app == 0) {
+                return {};
+            }
+            const std::uint64_t end = at + 8 + bytes;
+            if (bytes < 60 || end > static_cast<std::uint64_t>(table)) {
+                return {}; // a size that points outside the entries
+            }
+            if (app == id) {
+                std::string data(bytes - 60, '\0');
+                file_.seekg(static_cast<std::streamoff>(at + 8 + 60));
+                if (!file_.read(data.data(), static_cast<std::streamsize>(data.size()))) {
+                    return {};
+                }
+                return find_name(data);
+            }
+            at = end;
+        }
+        return {};
+    }
+
+  private:
+    template <class T> bool read_at(std::uint64_t at, T& value) {
+        if (at + sizeof value > size_) {
+            return false;
+        }
+        file_.clear();
+        file_.seekg(static_cast<std::streamoff>(at));
+        return static_cast<bool>(file_.read(reinterpret_cast<char*>(&value), sizeof value));
+    }
+    // The string table's indices of the three keys, compared without case; the rest of the table is
+    // only walked past.
+    bool find_keys(std::uint64_t table) {
+        std::uint32_t count = 0;
+        if (!read_at(table, count)) {
+            return false;
+        }
+        const char* wanted[] = {"appinfo", "common", "name"};
+        std::string text;
+        file_.seekg(static_cast<std::streamoff>(table + 4));
+        for (std::uint32_t index = 0; index < count; ++index) {
+            text.clear();
+            for (int c; (c = file_.get()) != 0;) {
+                if (c == EOF || text.size() > 64) {
+                    if (c == EOF) {
+                        return false;
+                    }
+                    continue; // longer than any key wanted: not one
+                }
+                text.push_back(static_cast<char>(std::tolower(c)));
+            }
+            for (int k = 0; k < 3; ++k) {
+                if (keys_[k] < 0 && text == wanted[k]) {
+                    keys_[k] = static_cast<std::int32_t>(index);
+                }
+            }
+            if (keys_[0] >= 0 && keys_[1] >= 0 && keys_[2] >= 0) {
+                count_ = count;
+                return true;
+            }
+        }
+        return false;
+    }
+    // appinfo / common / name in an entry's binary VDF: the string, or empty.
+    std::string find_name(const std::string& data) {
+        std::size_t at = 0;
+        int depth = 0;   // maps open
+        int matched = 0; // how many of them are the path's
+        std::string found;
+        while (at < data.size()) {
+            const auto type = static_cast<unsigned char>(data[at++]);
+            if (type == 0x08) {
+                if (depth == 0) {
+                    return {};
+                }
+                if (matched == depth) {
+                    --matched;
+                }
+                --depth;
+                continue;
+            }
+            std::int32_t key = 0;
+            if (at + 4 > data.size()) {
+                return {};
+            }
+            std::memcpy(&key, data.data() + at, 4);
+            at += 4;
+            if (key < 0 || static_cast<std::uint32_t>(key) >= count_) {
+                return {}; // an index outside the table
+            }
+            std::size_t skip = 0;
+            switch (type) {
+            case 0x00:
+                if (++depth > 64) {
+                    return {};
+                }
+                if (matched == depth - 1 && matched < 2 && key == keys_[matched]) {
+                    ++matched;
+                }
+                continue;
+            case 0x01: {
+                const auto end = data.find('\0', at);
+                if (end == std::string::npos) {
+                    return {};
+                }
+                if (matched == 2 && depth == 2 && key == keys_[2]) {
+                    return data.substr(at, end - at);
+                }
+                at = end + 1;
+                continue;
+            }
+            case 0x05: { // a wide string, ended by two NUL bytes
+                std::size_t end = at;
+                while (end + 1 < data.size() && (data[end] != '\0' || data[end + 1] != '\0')) {
+                    end += 2;
+                }
+                if (end + 1 >= data.size()) {
+                    return {};
+                }
+                at = end + 2;
+                continue;
+            }
+            case 0x02:
+            case 0x03:
+            case 0x04:
+            case 0x06:
+                skip = 4;
+                break;
+            case 0x07:
+            case 0x0A:
+                skip = 8;
+                break;
+            default:
+                return {}; // an unknown type: the rest can't be read
+            }
+            if (at + skip > data.size()) {
+                return {};
+            }
+            at += skip;
+        }
+        return found;
+    }
+    std::ifstream file_;
+    std::uintmax_t size_{};
+    bool ok_{};
+    std::int32_t keys_[3]{-1, -1, -1};
+    std::uint32_t count_{};
+};
+// A Steam ID's name from the app cache under the first of `roots` that has one: none when the name
+// isn't UTF-8 or is longer than a name may be.
+std::string appinfo_name(const std::string& id, const std::vector<fs::path>& roots) {
+    const auto number = std::stoull(id); // a valid Steam ID: digits within 32 bits
+    for (const auto& root : roots) {
+        std::error_code error;
+        const auto path = root / "appcache" / "appinfo.vdf";
+        if (!fs::is_regular_file(path, error)) {
+            continue;
+        }
+        const auto name = AppInfo(path).name(static_cast<std::uint32_t>(number));
+        if (name.empty() || !g_utf8_validate(name.data(), static_cast<gssize>(name.size()), nullptr) ||
+            g_utf8_strlen(name.data(), static_cast<gssize>(name.size())) >
+                static_cast<glong>(shortcut_limits::app_name_characters)) {
+            return {};
+        }
+        return clean_app_name(name);
+    }
+    return {};
 }
 std::string steam_name(const std::string& id, const std::vector<fs::path>& roots) {
     // The Steam folder is a library itself, and the first libraryfolders.vdf
@@ -280,7 +474,11 @@ std::string look_up_app_name(const AppIdentity& app, const AppNameFolders& folde
     }
     switch (app.kind) {
     case AppIdentity::Kind::Steam:
-        return steam_name(app.id, folders.steam);
+        if (auto name = steam_name(app.id, folders.steam); !name.empty()) {
+            return name;
+        }
+        // No manifest here, as for a game streamed from a PC: Steam's own app cache (R362).
+        return appinfo_name(app.id, folders.steam);
     case AppIdentity::Kind::Desktop:
         if (!plain_file_name(app.id)) {
             return {};

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <glib.h>
@@ -945,6 +946,9 @@ void stream_apps() {
     require(stream_identity(Clients{{with({"--appid", "4000020"})}}) == game,
             "one client with an ID: the Steam game");
     require(stream_identity(Clients{{base}}) == pc_stream_identity(), "one without: the PC's stream");
+    require(
+        stream_identity(Clients{{with({"--appid", "202355"})}}) == pc_stream_identity(),
+        "Steam's Remote Play Client, as a desktop stream starts: the PC's stream, never a game (R362)");
     require(stream_identity(std::nullopt) == pc_stream_identity(), "unreadable: the PC's stream");
     require(stream_identity(Clients{std::vector<std::vector<std::string>>{}}) == pc_stream_identity(),
             "no client: the PC's stream");
@@ -1050,6 +1054,129 @@ void app_name_record() {
     require(parse_app_name_record(file(entry("desktop", "org.example.Notes", "\\u001bNotes  App"))) ==
                 std::vector<RecordedName>{{notes, "Notes App"}},
             "a name is cleaned as it is read");
+}
+// R362: names from Steam's own app cache (appcache/appinfo.vdf) for a game with no manifest, read
+// from fixtures built here: never a real cache.
+struct AppInfoFixture {
+    std::vector<std::string> strings{"appinfo", "common", "name", "type", "other"};
+    std::vector<std::pair<std::uint32_t, std::string>> entries;
+    std::uint32_t magic = 0x07564429;
+    static void u32(std::string& out, std::uint32_t value) {
+        out.append(reinterpret_cast<char*>(&value), 4);
+    }
+    static void i32(std::string& out, std::int32_t value) {
+        out.append(reinterpret_cast<char*>(&value), 4);
+    }
+    // Binary VDF pieces, keys by index into `strings`.
+    static std::string map(int key) {
+        std::string out(1, '\x00');
+        i32(out, key);
+        return out;
+    }
+    static std::string text(int key, const std::string& value) {
+        std::string out(1, '\x01');
+        i32(out, key);
+        return out + value + std::string(1, '\0');
+    }
+    static std::string end() { return std::string(1, '\x08'); }
+    std::string build() const {
+        std::string body;
+        for (const auto& [id, vdf] : entries) {
+            u32(body, id);
+            u32(body, static_cast<std::uint32_t>(60 + vdf.size()));
+            body += std::string(60, '\0') + vdf;
+        }
+        u32(body, 0); // the list's end
+        std::string out;
+        u32(out, magic);
+        u32(out, 1);
+        const std::int64_t table = 16 + static_cast<std::int64_t>(body.size());
+        out.append(reinterpret_cast<const char*>(&table), 8);
+        out += body;
+        u32(out, static_cast<std::uint32_t>(strings.size()));
+        for (const auto& string : strings) {
+            out += string + std::string(1, '\0');
+        }
+        return out;
+    }
+};
+std::string game_vdf(const std::string& name) {
+    using F = AppInfoFixture;
+    return F::map(0) + F::map(1) + F::text(3, "game") + F::text(2, name) + F::end() + F::end() +
+           F::end();
+}
+void app_info_names() {
+    using F = AppInfoFixture;
+    TemporaryDirectory folder;
+    const auto steam = folder.path / "Steam";
+    fs::create_directories(steam / "appcache");
+    const AppNameFolders folders{{steam}, {}};
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"};
+    const auto name_from = [&](const std::string& bytes) {
+        write(steam / "appcache" / "appinfo.vdf", bytes);
+        return look_up_app_name(game, folders);
+    };
+    // Another entry before it, with every other value type, is skipped by its size.
+    std::string other = F::map(0) + std::string(1, '\x02');
+    F::i32(other, 3);
+    F::i32(other, 7);
+    other += std::string(1, '\x07');
+    F::i32(other, 3);
+    other += std::string(8, '\x01');
+    other += std::string(1, '\x05');
+    F::i32(other, 4);
+    other += std::string("w\0x\0\0\0", 6);
+    other += std::string(1, '\x03');
+    F::i32(other, 3);
+    other += std::string(4, '\x02');
+    other += F::text(2, "Not This One") + F::end() + F::end();
+    F fixture;
+    fixture.entries = {{4000010, other}, {4000020, game_vdf("Example Game")}};
+    require(name_from(fixture.build()) == "Example Game",
+            "a game with no manifest is named from the app cache");
+    auto upper = fixture;
+    upper.strings = {"AppInfo", "COMMON", "Name", "type", "other"};
+    require(name_from(upper.build()) == "Example Game", "its keys compared without case");
+    auto magic = fixture;
+    magic.magic = 0x07564428;
+    require(name_from(magic.build()).empty(), "another version: no name");
+    const auto whole = fixture.build();
+    require(name_from(whole.substr(0, 40)).empty(), "a cut file: no name");
+    auto huge = whole;
+    const std::uint32_t too_big = 0xfffffff0u;
+    std::memcpy(huge.data() + 20, &too_big, 4); // the first entry's size
+    require(name_from(huge).empty(), "a size past the entries: no name");
+    auto beyond = whole;
+    const std::int64_t far = 1ll << 40;
+    std::memcpy(beyond.data() + 8, &far, 8); // the table's offset
+    require(name_from(beyond).empty(), "a table past the file: no name");
+    auto index = fixture;
+    index.entries = {{4000020, F::map(0) + F::map(1) + F::text(99, "x") + F::text(2, "Example Game") +
+                                   F::end() + F::end() + F::end()}};
+    require(name_from(index.build()).empty(), "a key outside the table: no name");
+    auto pathless = fixture;
+    pathless.entries = {
+        {4000020, F::map(0) + F::map(4) + F::text(2, "Example Game") + F::end() + F::end() + F::end()}};
+    require(name_from(pathless.build()).empty(), "a name not at appinfo/common: no name");
+    auto unknown = fixture;
+    unknown.entries = {{4000020, F::map(0) + F::map(1) + std::string("\x09\x03\0\0\0", 5) +
+                                     F::text(2, "Example Game") + F::end() + F::end() + F::end()}};
+    require(name_from(unknown.build()).empty(), "an unknown value type: no name");
+    auto bad_utf8 = fixture;
+    bad_utf8.entries = {{4000020, game_vdf("\xff\xfe")}};
+    require(name_from(bad_utf8.build()).empty(), "a name that isn't UTF-8: no name");
+    auto long_name = fixture;
+    long_name.entries = {
+        {4000020, game_vdf(std::string(shortcut_limits::app_name_characters + 1, 'x'))}};
+    require(name_from(long_name.build()).empty(), "a name longer than a name may be: no name");
+    auto missing = fixture;
+    missing.entries = {{4000030, game_vdf("Example Game")}};
+    require(name_from(missing.build()).empty(), "an ID the cache doesn't have: no name");
+    // A manifest, when there is one, still names it.
+    fs::create_directories(steam / "steamapps");
+    write(steam / "steamapps" / "appmanifest_4000020.acf",
+          "\"AppState\"\n{\n\t\"name\"\t\"Manifest Name\"\n}\n");
+    require(name_from(fixture.build()) == "Manifest Name", "a manifest comes first");
 }
 // App names, from a temporary folder only: never the computer's own files.
 void app_names() {
@@ -1300,6 +1427,7 @@ int main() {
         repeat_editing();
         app_names();
         app_name_record();
+        app_info_names();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

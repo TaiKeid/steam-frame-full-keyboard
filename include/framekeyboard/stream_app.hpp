@@ -19,6 +19,9 @@ namespace framekeyboard {
 // The one identity for a stream with no usable app ID, such as the PC's
 // desktop or a shortcut that isn't a Steam game.
 inline constexpr const char* pc_stream_id = "pc";
+// Steam starts a desktop stream with the ID of its own Remote Play Client app: the PC's stream, never
+// a Steam game (R362).
+inline constexpr std::uint32_t remote_play_client_app_id = 202355;
 AppIdentity pc_stream_identity();
 
 // The argument lists of the streaming clients running as this user, or none
@@ -33,8 +36,9 @@ StreamClientSource system_stream_clients();
 // for anything else, a second --appid included. Pure, for tests.
 std::optional<std::uint32_t> streamed_app_id(const std::vector<std::string>& arguments);
 // The app a stream shows: the game's Steam identity when exactly one client
-// runs and it names a usable ID; the PC's stream identity for any surprise
-// (none read, none running, two, or no usable ID), never a guess.
+// runs and it names a usable ID; the PC's stream identity for the Remote Play
+// Client's ID and for any surprise (none read, none running, two, or no usable
+// ID), never a guess.
 AppIdentity stream_identity(const std::optional<std::vector<std::vector<std::string>>>& clients);
 
 // Answers which app a stream session shows, off the VR thread: a request

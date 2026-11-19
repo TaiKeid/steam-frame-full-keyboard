@@ -1870,6 +1870,9 @@ class App {
     // in one string. The focused program's old tie, whose ID is its name and
     // a space, is moved to its name alone and saved, as an assign is.
     void adopt_long_program_tie();
+    // R362: a desktop stream once showed as Steam's Remote Play Client app; its tie moves to the PC's
+    // stream identity when that has the keys, or goes if the stream identity has one already.
+    void adopt_remote_play_tie();
     void take_app_names();
     // Why the focused app can't be assigned, as a tooltip; empty when it can.
     std::string assign_unavailable() const;

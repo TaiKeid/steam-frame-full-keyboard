@@ -64,7 +64,7 @@ AppIdentity stream_identity(const std::optional<std::vector<std::vector<std::str
     if (!clients || clients->size() != 1) {
         return pc_stream_identity();
     }
-    if (const auto id = streamed_app_id(clients->front())) {
+    if (const auto id = streamed_app_id(clients->front()); id && *id != remote_play_client_app_id) {
         return {AppIdentity::Kind::Steam, std::to_string(*id)};
     }
     return pc_stream_identity();
