@@ -22,7 +22,7 @@ Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-inst
 
 - Vollständiges Layout mit F1–F12, Navigationstasten, Pfeiltasten, einem ausblendbaren Ziffernblock und Shift-, Ctrl- und Alt-Tasten, die beim Halten einrasten.
 - Eigene Tasten für Ausschneiden, Kopieren und Einfügen, die Ctrl+X, Ctrl+C und Ctrl+V senden oder die Tasten eines Terminals, etwa Ctrl+Shift+C und Ctrl+Shift+V.
-- Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#dictation).
+- Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#diktieren).
 - Wischeingabe, nach einer manuellen Installation aus und im Installer frei wählbar, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch, chinesisches Pinyin und [25 weitere Sprachen](docs/configuration.md#swipe-typing), von Tschechisch bis Arabisch und Hebräisch. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
 - Wortvorschläge, standardmäßig an, in den Sprachen mit Wischeingabe: bis zu fünf Ergänzungen des Wortes, das Sie gerade tippen, die meistgenutzten Wörter zuerst.
 - Japanische Umwandlung mit Mozc, mit Kandidaten während des Tippens, und eine japanische 12-Tasten-Flick-Tastatur wie auf dem Telefon.

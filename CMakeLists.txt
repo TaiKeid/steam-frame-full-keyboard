@@ -487,6 +487,9 @@ if(BUILD_TESTING)
         add_test(NAME locales-tool COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_locales_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py")
+        # Every README's links and in-page anchors lead somewhere.
+        add_test(NAME readme-links COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_readme_links.py" "${CMAKE_CURRENT_SOURCE_DIR}")
         # Rows as far apart as keys in a row, no overlaps, all within size.
         add_test(NAME layout-geometry COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/layout_geometry_tests.py" "${CMAKE_CURRENT_SOURCE_DIR}/layouts")

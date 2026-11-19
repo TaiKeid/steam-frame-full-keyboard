@@ -22,7 +22,7 @@ Para instalar pelo terminal, veja [Instalação manual](#instalação-manual).
 
 - Layout em tamanho completo com F1–F12, teclas de navegação, setas, um teclado numérico que pode ser ocultado e teclas Shift, Ctrl e Alt que travam quando mantidas pressionadas.
 - Teclas próprias de Recortar, Copiar e Colar que enviam Ctrl+X, Ctrl+C e Ctrl+V, ou as teclas próprias de um terminal, como Ctrl+Shift+C e Ctrl+Shift+V.
-- Ditado: fale em vez de digitar, com reconhecimento no headset ou no seu próprio servidor de voz Whisper. Corrija o texto em um editor e envie, ou deixe **Digitar enquanto falo** (Type as I speak) digitar cada frase direto no app. Veja [ditado](#dictation).
+- Ditado: fale em vez de digitar, com reconhecimento no headset ou no seu próprio servidor de voz Whisper. Corrija o texto em um editor e envie, ou deixe **Digitar enquanto falo** (Type as I speak) digitar cada frase direto no app. Veja [ditado](#ditado).
 - Digitação por deslize, desativada após uma instalação manual e à sua escolha no instalador, para inglês, alemão, francês, espanhol, italiano, português, polonês, holandês, sueco, ucraniano, russo, chinês pinyin e [mais 25 idiomas](docs/configuration.md#swipe-typing), do tcheco ao árabe e ao hebraico. A digitação por deslize usa a tecnologia "FUTO Swipe".
 - Sugestões de digitação, ativadas por padrão, nos idiomas que têm digitação por deslize: até cinco formas de completar a palavra que você está digitando, com as que você mais usa primeiro.
 - Conversão de japonês com o Mozc, com candidatos enquanto você digita, e um teclado flick japonês de 12 teclas no estilo dos celulares.

@@ -22,7 +22,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 
 - Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar y teclas Shift, Ctrl y Alt que se bloquean al mantenerlas pulsadas.
 - Teclas dedicadas de Cortar, Copiar y Pegar que envían Ctrl+X, Ctrl+C y Ctrl+V, o las teclas propias de un terminal, como Ctrl+Shift+C y Ctrl+Shift+V.
-- Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictation).
+- Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictado).
 - Escritura deslizante, desactivada tras una instalación manual y a tu elección en el instalador, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso, chino pinyin y [25 idiomas más](docs/configuration.md#swipe-typing), del checo al árabe y el hebreo. La escritura deslizante funciona con la tecnología "FUTO Swipe".
 - Sugerencias de escritura, activadas por defecto, en los idiomas que tienen escritura deslizante: hasta cinco formas de completar la palabra que escribes, con las que más usas primero.
 - Conversión de japonés con Mozc, con candidatos mientras escribes, y un teclado flick japonés de 12 teclas como el de los móviles.
