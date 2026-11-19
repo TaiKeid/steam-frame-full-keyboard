@@ -309,7 +309,6 @@
         "setting.background-surface": "Background",
         "setting.background-surface.disabled": "Disabled",
         "setting.background-surface.invisible": "Invisible",
-        "setting.background-surface.note": "Invisible still takes the laser between key groups; Disabled lets it through to what is behind",
         "setting.background-surface.semi-transparent": "Semi-transparent",
         "setting.background-surface.visible": "Visible",
         "setting.curved-keyboard": "Curved keyboard",

@@ -1345,16 +1345,10 @@ void background_surface_setting() {
     }
     app.renderer.write_png("/tmp/framekeyboard-transparent-background.png");
     // Disabled (R380): drawn as Invisible, and the laser passes between key
-    // groups; a line under the row says how the two differ.
+    // groups.
     {
         const auto invisible = app.renderer.rgba();
         app.show_settings();
-        const auto labels = app.view().field_labels;
-        require(std::any_of(labels.begin(), labels.end(),
-                            [](const FieldLabel& label) {
-                                return label.text.starts_with("Invisible still takes the laser");
-                            }),
-                "a line under Background tells Invisible and Disabled apart");
         select(app, "background-surface", "disabled");
         click(app, "apply");
         require(saved(app).background_surface == "disabled" && app.view().case_opacity == 0 &&
@@ -4361,7 +4355,7 @@ void shortcut_invalid_note() {
         require(general != cards.end(), "the General card is in view");
         const auto card = general->bounds;
         app.move(0, std::max(card.x, 0.0) + 40, 300);
-        app.scroll(0, 0, 40); // to the card's foot, under Background's line
+        app.scroll(0, 0, 20);
         static double now = 960;
         for (int i = 0; i < 40; ++i) {
             app.tick(now += .05);
@@ -4372,8 +4366,7 @@ void shortcut_invalid_note() {
         });
     };
     app.show_settings();
-    // Scrolled first: Background's line puts the switch below the fold.
-    require(noted() && has(app.view(), "shortcuts"), "Settings notes the unreadable file");
+    require(has(app.view(), "shortcuts") && noted(), "Settings notes the unreadable file");
     app.back();
     click(app, "bar-toggle");
     open_editor(app);
@@ -4385,7 +4378,7 @@ void shortcut_invalid_note() {
     require(saved_shortcuts(app).profiles.size() == 1, "✓ saves the new bar");
     app.tick(950);
     app.show_settings();
-    require(!noted() && has(app.view(), "shortcuts"), "the save that worked ends the note");
+    require(has(app.view(), "shortcuts") && !noted(), "the save that worked ends the note");
 }
 ShortcutModel editor_model() {
     ShortcutModel model;

@@ -1002,9 +1002,6 @@ void App::update_settings_ui() {
     std::vector<SettingField> general_fields{
         field(ControlKind::OpenThemes, picker("theme", tr("setting.theme"), pending_.theme, themes)),
         background_surface,
-        // Its second line, across the card: what sets the two clear ones apart.
-        SettingField{"background-surface-note", tr("setting.background-surface.note"), "",
-                     ControlStyle::Note},
         field(ControlKind::HoverFade,
               checkbox("hover-fade", tr("setting.hover-fade"), pending_hover_fade_, true,
                        tr("setting.hover-fade.note"))),
