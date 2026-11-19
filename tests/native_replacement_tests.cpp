@@ -220,12 +220,39 @@ void stream_keys() {
             replacement.poll(now);
         }
         require(replacement.text_pending(), "unanswered, it still waits after three seconds");
-        for (double now = 17.4; now < 18.3; now += .4) {
+        for (double now = 17.4; now < 18.7; now += .4) {
             put(pair[1], stream_state);
             replacement.poll(now);
         }
+        // Its five ASCII letters go as keys, which the library lets through before any text that
+        // follows (R369): 80 ms each more.
         require(!replacement.commit_text("again") && !replacement.text_pending(),
-                "and fails past its limit (4 s for five bytes)");
+                "and fails past its limit (4 s for five bytes, 0.4 s for its five keys)");
+        // R369: keys before a text hold it back in the library until they are through, so its wait
+        // grows by 80 ms a key-down: ten presses, 0.8 s.
+        put(pair[1], stream_state);
+        replacement.poll(19);
+        for (int i = 0; i < 10; ++i) {
+            replacement.send(KEY_F5, 1);
+            take(pair[1]);
+            replacement.send(KEY_F5, 0);
+            take(pair[1]);
+        }
+        require(!replacement.commit_text("\xd0\x91") && replacement.text_pending(),
+                "a text after ten keys");
+        take(pair[1]);
+        for (double now = 19.4; now < 23.2; now += .4) {
+            put(pair[1], stream_state);
+            replacement.poll(now);
+        }
+        require(!replacement.commit_text("\xd0\x91") && replacement.text_pending(),
+                "the keys before it lengthen its wait past 3.7 s");
+        for (double now = 23.2; now < 23.8; now += .4) {
+            put(pair[1], stream_state);
+            replacement.poll(now);
+        }
+        require(!replacement.commit_text("\xd0\x91") && !replacement.text_pending(),
+                "and it still fails once their time is up too (4.5 s)");
     }
     close(pair[1]);
 }

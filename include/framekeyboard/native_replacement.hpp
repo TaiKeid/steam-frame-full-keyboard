@@ -166,6 +166,9 @@ class NativeReplacement : public KeySink {
     // and 1 s and a tenth of a second per byte to finish, both counted from this send (R257), and
     // half a second more.
     double pending_limit_{1.0};
+    // When the stream keys sent are estimated through to the PC (R369): the library holds a text back
+    // until then, so a text's wait grows by that time, as the helper's does.
+    double stream_keys_through_{};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

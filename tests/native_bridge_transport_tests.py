@@ -1687,6 +1687,24 @@ class Lifecycle(unittest.TestCase):
             self.assertEqual(channel.take_results(), [(14, False)], "a lost library takes its texts along")
             channel.close()
 
+    def test_stream_key_time_estimate(self):
+        # R369: the helper estimates when our keys are through as the library does, 80 ms a key-down.
+        self.assertEqual(bridge.StreamChannel.typed_key_downs("ab C!\n"), 1 + 1 + 1 + 2 + 2 + 1)
+        self.assertEqual(bridge.StreamChannel.typed_key_downs("\u0431\u0432"), 0, "non-ASCII is a text")
+        with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
+            channel = bridge.StreamChannel(directory, programs=None)
+            try:
+                start = time.monotonic()
+                for _ in range(4):
+                    channel.press(30, 1)
+                    channel.press(30, 0)
+                self.assertAlmostEqual(channel.keys_through - start, 4 * bridge.STREAM_KEY_ON_THE_WAY, delta=.05)
+                channel.send_text("Ab")  # no client: it fails, but its times are known
+                self.assertAlmostEqual(channel.last_text_lead, 4 * bridge.STREAM_KEY_ON_THE_WAY, delta=.05)
+                self.assertAlmostEqual(channel.last_text_taps, 3 * bridge.STREAM_KEY_ON_THE_WAY, delta=1e-9)
+            finally:
+                channel.close()
+
     def test_stream_text_result_waits_until_the_library_typed_it(self):
         # R164: the app hears a text into a stream was delivered only once the library typed it.
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
@@ -1773,6 +1791,18 @@ class Lifecycle(unittest.TestCase):
                 self.assertEqual(client.fallbacks, [], "none of the texts not sent fell back")
                 packet(op="text", request=2, id=5, text="ij")  # commit 4
                 self.assertEqual(library.recv(64), b"Tij", "and the session goes on: the retry is sent")
+                # R369: a text behind keys starts late by design, as the library holds it until they are
+                # through; its start wait grows by their time. Five presses: 5 x 80 ms more.
+                for _ in range(5):
+                    packet(op="stream-key", request=2, code=30, value=1)
+                    packet(op="stream-key", request=2, code=30, value=0)
+                for _ in range(10):
+                    self.assertEqual(library.recv(64)[:1], b"K")
+                packet(op="text", request=2, id=6, text="kl", sent=time.monotonic() - 1.8)  # commit 5
+                self.assertEqual(library.recv(64), b"Tkl")
+                self.assertEqual(text_results(.35), [], "not failed while the keys before it are on the way")
+                self.assertEqual(text_results(.8), [(6, False)], "but still once their time is up too")
+                self.assertEqual(library.recv(64), b"W" + struct.pack("<I", 5), "and is withdrawn")
             finally:
                 library.close()
                 parent.close()
