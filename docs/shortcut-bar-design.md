@@ -1,6 +1,6 @@
 # Shortcut bar: design
 
-Status: design, not implemented. The owner settled the behavior on 2026-11-17; open facts are listed under [Frame probes](#frame-probes). Milestones are in the [roadmap](plan.md#shortcut-bar).
+Status: implemented on the way to 0.20, except [renaming in place](#renaming-in-place), which is not built; acceptance in the headset is still to run. The owner settled the behavior on 2026-11-17; open facts are listed under [Frame probes](#frame-probes). Milestones are in the [roadmap](plan.md#shortcut-bar), and the page for users is [the shortcut bar](shortcut-bar.md).
 
 With **Shortcut bar** on in Settings, a bar of the user's own buttons sits above the keyboard, like a dock. A button sends a shortcut, runs a macro, or starts a script or command. Buttons are grouped into profiles; a profile is chosen by hand or tied to an app, and then shows in the bar whenever that app has the keys.
 
