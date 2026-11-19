@@ -128,7 +128,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Größe ändern | Lösen, mit dem Laser eines der beiden Controller knapp außerhalb einer unteren Ecke der Tastatur zielen, dann den Abzug auf dem eingeblendeten Eckgriff halten und ziehen. Die Tastatur wächst oder schrumpft um ihre Mitte |
 | Um sich herum biegen | **Gebogene Tastatur** (Curved keyboard) in der Einstellungskarte **Allgemein** aktivieren und übernehmen. Lösen, mit dem Laser eines der beiden Controller knapp neben den linken oder rechten Rand der Tastatur zielen, dann den Abzug oder den Griff auf der eingeblendeten Leiste halten und sie nach oben, zu sich ziehen oder die Hand drehen, sodass der Laser nach oben wandert; Zurückdrücken macht die Tastatur wieder flach. Die Biegung bleibt nach einem Neustart erhalten |
 | Ziffernblock ausblenden | In den Einstellungen Allgemein → **Ziffernblock ausblenden** anhaken und **Übernehmen und speichern** |
-| Hinter die Tastatur sehen | In den Einstellungen Allgemein → **Hintergrund** auf **Halbtransparent** oder **Unsichtbar** stellen und **Übernehmen und speichern** |
+| Hinter die Tastatur sehen | In den Einstellungen Allgemein → **Hintergrund** auf **Halbtransparent** oder **Unsichtbar** stellen und **Übernehmen und speichern**. **Deaktiviert** (Disabled) zeigt ebenfalls kein Gehäuse und lässt den Laser zwischen den Tastengruppen hindurch, um anzuklicken, was dahinter liegt |
 | Layout, Sprache oder Design ändern | Das Zahnradsymbol öffnen, Profile wählen, dann **Übernehmen und speichern** (Apply and save) |
 | Zentrieren | Das Symbol **Zentrieren** nutzen oder Full Keyboard erneut starten |
 | Schließen | Mit × das Panel im Ersatzmodus ausblenden; sonst beendet es die App |

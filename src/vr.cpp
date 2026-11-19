@@ -40,6 +40,8 @@
 #include <time.h>
 
 namespace framekeyboard {
+static_assert(max_laser_areas == vr::k_unMaxOverlayIntersectionMaskPrimitivesCount,
+              "laser_areas fits SteamVR's intersection mask");
 namespace {
 // Seconds the system has spent suspended since boot.
 double suspended_seconds() {
@@ -2077,7 +2079,16 @@ class VrPanel {
     }
     // The panel areas of the last mask, for the passthrough pointer.
     const std::vector<Rect>& mask_areas() const { return mask_areas_; }
-    void mask(const PanelView& view) {
+    // A grip move or a handle drag holds the keyboard as a press does: the
+    // whole case takes the laser until it ends (R380). Masks again at once.
+    bool held() const { return held_; }
+    void set_held(bool held, const PanelView& view) {
+        held_ = held;
+        mask(view);
+    }
+    void mask(const PanelView& shown) {
+        auto view = shown;
+        view.pointer_held = view.pointer_held || held_;
         mask_areas_.clear();
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
@@ -2094,13 +2105,26 @@ class VrPanel {
             mask_areas_.push_back(bounds);
             ++count;
         };
-        if (const auto handle = panel_move_handle_bounds(view)) {
+        const auto handle = panel_move_handle_bounds(view);
+        if (handle) {
             rectangle(*handle);
         }
         // The case, an open menu, the flick preview a flick may leave the
-        // case over, and the shortcut bar's plates and menu above the case.
-        for (const auto& area : pointer_bounds(view)) {
-            rectangle(area);
+        // case over, and the shortcut bar's plates and menu above the case;
+        // under Background Disabled only the key groups and what takes input
+        // (pointer_bounds).
+        const auto areas = laser_areas(view, handle ? 1 : 0);
+        if (areas.fallback && !reported_fallback_) {
+            std::cout << (areas.fallback == 1
+                              ? "Laser areas: too many for the mask; using each group's bounds.\n"
+                              : "Laser areas: too many for the mask; using the whole case.\n")
+                      << std::flush;
+            reported_fallback_ = true;
+        }
+        for (const auto& area : areas.areas) {
+            if (count < primitives.size()) {
+                rectangle(area);
+            }
         }
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
@@ -2150,6 +2174,8 @@ class VrPanel {
     std::optional<bool> scroll_;
     NativePointerInputPolicy native_input_;
     std::vector<Rect> mask_areas_;
+    bool held_{};
+    bool reported_fallback_{}; // said once per run
     float curvature_{}; // As SteamVR has it; overlays start flat.
     bool curvature_refused_{};
 };
@@ -4965,6 +4991,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // texture costs milliseconds.
         if (lifecycle.visible() && repaint && app.paint(now)) {
             panel.submit(app.renderer, app.view());
+        }
+        // A move keeps the whole case under the laser while it lasts (R380).
+        if (panel.held() != drag.active()) {
+            panel.set_held(drag.active(), app.view());
         }
         bool fallback = app.take_native_fallback();
         if (replacement_stalled.exchange(false)) {

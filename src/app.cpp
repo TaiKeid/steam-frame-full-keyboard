@@ -909,14 +909,15 @@ void App::update_settings_ui() {
                   checkbox("dictation-direct", tr("setting.dictation-direct"), pending_dictation_direct_,
                            true, tr("setting.dictation-direct.note"))));
     }
-    // Semi-transparent and Invisible keep the case's laser area
-    // (docs/configuration.md, Background).
+    // Semi-transparent and Invisible keep the case's laser area; Disabled
+    // lets it through between key groups (docs/configuration.md, Background).
     auto background_surface = field(
         ControlKind::ChooseBackgroundSurface,
         dropdown("background-surface", tr("setting.background-surface"), pending_background_surface_,
                  {{"visible", tr("setting.background-surface.visible")},
                   {"semi-transparent", tr("setting.background-surface.semi-transparent")},
-                  {"invisible", tr("setting.background-surface.invisible")}}));
+                  {"invisible", tr("setting.background-surface.invisible")},
+                  {"disabled", tr("setting.background-surface.disabled")}}));
     background_surface.width = 250; // "Semi-transparent" and the label, both whole
     auto haptic_sounds =
         field(ControlKind::ChooseHapticSounds,
@@ -1001,6 +1002,9 @@ void App::update_settings_ui() {
     std::vector<SettingField> general_fields{
         field(ControlKind::OpenThemes, picker("theme", tr("setting.theme"), pending_.theme, themes)),
         background_surface,
+        // Its second line, across the card: what sets the two clear ones apart.
+        SettingField{"background-surface-note", tr("setting.background-surface.note"), "",
+                     ControlStyle::Note},
         field(ControlKind::HoverFade,
               checkbox("hover-fade", tr("setting.hover-fade"), pending_hover_fade_, true,
                        tr("setting.hover-fade.note"))),
@@ -1482,6 +1486,11 @@ PanelView App::build_view(bool picker) const {
             v.emoji.emplace(); // Only its width, which sets the case.
         }
         v.emoji->width = emoji_width_;
+        if (!picker) {
+            // Where its tabs and grid take the laser (pointer_bounds, R380).
+            v.emoji->tabs = panel_rect(v, emoji_layout_.tabs);
+            v.emoji->grid = panel_rect(v, emoji_layout_.grid);
+        }
     } else if (!emoji_available()) {
         for (const auto& key : v.layout->keys) {
             if (key.action_kind == ActionKind::Emoji) {
@@ -1637,6 +1646,15 @@ PanelView App::build_view(bool picker) const {
         }
     }
     v.key_areas = key_areas(v);
+    // Background Disabled: the laser passes between key groups, the keys
+    // taking it as Extended key collision does whether or not it is on
+    // (R380).
+    if (settings_.background_surface == "disabled") {
+        v.click_through = true;
+        v.laser_key_areas = &all_key_areas(v);
+        // The skin tone popup, left open after its press, holds the case too.
+        v.pointer_held = !laser_presses_.empty() || (emoji_open_ && emoji_.popup_open());
+    }
     v.key_outlines = debug_card(options_) && debug_key_outlines_;
     // Between letters a press can start a swipe whenever one on a letter
     // would. With Extended key collision the letters' areas already reach
@@ -1657,11 +1675,27 @@ PanelView App::build_view(bool picker) const {
     append_shortcut_bar(v);
     return v;
 }
+void App::hold_laser(unsigned pointer, bool held) {
+    // While any press that began on the keyboard goes on, the whole case
+    // takes the laser, so a swipe past a block's edge stays on it (R380).
+    const bool before = laser_presses_.empty();
+    if (held) {
+        laser_presses_.insert(pointer);
+    } else {
+        laser_presses_.erase(pointer);
+    }
+    if (before != laser_presses_.empty() && settings_.background_surface == "disabled") {
+        dirty = true; // a new mask with the next frame
+    }
+}
 const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
     // The flick page keeps its gaps, and so do its picker and dictation mode.
     if (!settings_.extended_key_collision || flick_page(shown_layout())) {
         return nullptr;
     }
+    return &all_key_areas(view);
+}
+const std::vector<KeyArea>& App::all_key_areas(const PanelView& view) const {
     // Hidden keys take no area, as if absent; Settings, which covers the
     // keys, does not count (hidden_key).
     const bool numpad = view.hide_numpad;
@@ -1681,7 +1715,7 @@ const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
             KeyAreasFor{view.layout, layouts_rebuilt_, numpad,
                         mic,         script,           framekeyboard::key_areas(*view.layout, absent)};
     }
-    return &key_areas_->areas;
+    return key_areas_->areas;
 }
 bool App::scroll(unsigned pointer, double dx, double dy) {
     if (address_ || confirm_ != Confirm::None) {
@@ -1865,6 +1899,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
     if (dragging_ || !interaction_active_) {
         return false;
     }
+    hold_laser(pointer, true);
     if (hold_press(pointer, x, y, now)) {
         return true; // It goes in order once Japanese input stops waiting.
     }
@@ -2314,6 +2349,7 @@ bool App::press_key(unsigned pointer, const Key* key, double x, double y, double
     return false;
 }
 bool App::up(unsigned pointer, double x, double y) {
+    hold_laser(pointer, false);
     if (!replaying_input_ && held_pointers_.contains(pointer)) {
         hold_input(HeldInput::pointer_event(HeldInput::Kind::Up, pointer, x, y));
         held_pointers_.erase(pointer);
@@ -2459,6 +2495,7 @@ bool App::up(unsigned pointer, double x, double y) {
 }
 
 void App::cancel_pointer(unsigned pointer, bool clicked) {
+    hold_laser(pointer, false);
     if (!replaying_input_ && held_pointers_.contains(pointer)) {
         auto input = HeldInput::pointer_event(HeldInput::Kind::Cancel, pointer);
         input.clicked = clicked;
@@ -2592,6 +2629,10 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     flick_track_.reset();
     key_flick_.reset();
     flick_toggle_.reset();
+    if (!laser_presses_.empty()) {
+        laser_presses_.clear(); // the case gives the gaps back (R380)
+        dirty = true;
+    }
     swipe_track_.reset();
     swipe_waiting_ = false;
     ++swipe_request_;

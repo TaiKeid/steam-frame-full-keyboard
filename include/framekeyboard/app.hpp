@@ -1395,6 +1395,12 @@ class App {
     std::uint64_t layouts_rebuilt_{};
     // Null without Extended key collision, and on a flick page.
     const std::vector<KeyArea>* key_areas(const PanelView& view) const;
+    // The same areas whatever the setting says, and on flick pages: where
+    // keys take the laser under Background Disabled (R380).
+    const std::vector<KeyArea>& all_key_areas(const PanelView& view) const;
+    // Pointers whose press began on the keyboard and goes on (R380).
+    std::set<unsigned> laser_presses_;
+    void hold_laser(unsigned pointer, bool held);
     std::string swipe_prepared_; // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};

@@ -128,7 +128,7 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 | Change size | Unpin, aim either controller's laser just outside a bottom corner of the keyboard, then hold the trigger on the corner resizer that fades in and drag. The keyboard grows or shrinks around its center |
 | Curve it around you | Turn on **Curved keyboard** in the **General** settings card and apply. Unpin, aim either controller's laser just outside the left or right edge of the keyboard, then hold the trigger or grip on the handle that fades in and pull it up, toward you, or turn your hand so its laser sweeps up; push it back to flatten the keyboard. The curve stays after a restart |
 | Hide the numpad | In Settings, check General → Hide numpad and Apply and save |
-| See behind the keyboard | In Settings, set General → Background to Semi-transparent or Invisible and Apply and save |
+| See behind the keyboard | In Settings, set General → Background to Semi-transparent or Invisible and Apply and save. **Disabled** shows no case either and also lets the laser through between key groups, to click what is behind |
 | Change layout, language, or theme | Open the gear icon, choose profiles, then **Apply and save** |
 | Recenter | Use the recenter icon, or launch Full Keyboard again |
 | Close | Use × to hide the panel in replacement mode; otherwise it exits the app |

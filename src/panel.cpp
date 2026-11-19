@@ -7,9 +7,11 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <linux/input-event-codes.h>
+#include <map>
 #include <memory>
 #include <pango/pangocairo.h>
 #include <set>
@@ -2292,18 +2294,199 @@ Layout mini_keyboard_layout(const Layout& us, double depth) {
     }
     return mini;
 }
-std::vector<Rect> pointer_bounds(const PanelView& view) {
-    std::vector<Rect> areas{panel_case_bounds(view)};
+namespace {
+// Rectangles covering exactly the union of `pieces`, few of them: the plane
+// cut at every edge into cells, each row of cells taken as runs, and a run
+// stacked onto the one above when both span the same columns. Keys of a row
+// become one rectangle, and equal rows one block.
+std::vector<Rect> merged_cover(const std::vector<Rect>& pieces) {
+    // Edges closer than this are one edge: layout decimals scaled to pixels.
+    constexpr double near = 1e-6;
+    std::vector<double> xs, ys;
+    for (const auto& r : pieces) {
+        if (r.width > near && r.height > near) {
+            xs.insert(xs.end(), {r.x, r.x + r.width});
+            ys.insert(ys.end(), {r.y, r.y + r.height});
+        }
+    }
+    const auto unique = [](std::vector<double>& edges) {
+        std::sort(edges.begin(), edges.end());
+        edges.erase(std::unique(edges.begin(), edges.end(),
+                                [&](double a, double b) { return std::abs(a - b) < near; }),
+                    edges.end());
+    };
+    unique(xs);
+    unique(ys);
+    if (xs.size() < 2 || ys.size() < 2) {
+        return {};
+    }
+    const std::size_t columns = xs.size() - 1, rows = ys.size() - 1;
+    std::vector<char> covered(columns * rows, 0);
+    const auto index = [&](const std::vector<double>& edges, double value) {
+        return static_cast<std::size_t>(std::lower_bound(edges.begin(), edges.end(), value - near) -
+                                        edges.begin());
+    };
+    for (const auto& r : pieces) {
+        if (r.width <= near || r.height <= near) {
+            continue;
+        }
+        const auto x0 = index(xs, r.x), x1 = index(xs, r.x + r.width);
+        const auto y0 = index(ys, r.y), y1 = index(ys, r.y + r.height);
+        for (auto y = y0; y < y1 && y < rows; ++y) {
+            std::fill(covered.begin() + static_cast<std::ptrdiff_t>(y * columns + x0),
+                      covered.begin() + static_cast<std::ptrdiff_t>(y * columns + std::min(x1, columns)),
+                      1);
+        }
+    }
+    std::vector<Rect> result;
+    // The runs still open from the row above, by their columns.
+    std::vector<std::pair<std::pair<std::size_t, std::size_t>, std::size_t>> open;
+    for (std::size_t y = 0; y < rows; ++y) {
+        std::vector<std::pair<std::size_t, std::size_t>> runs;
+        for (std::size_t x = 0; x < columns;) {
+            if (!covered[y * columns + x]) {
+                ++x;
+                continue;
+            }
+            auto end = x;
+            while (end < columns && covered[y * columns + end]) {
+                ++end;
+            }
+            runs.emplace_back(x, end);
+            x = end;
+        }
+        decltype(open) next;
+        for (const auto& run : runs) {
+            const auto above =
+                std::find_if(open.begin(), open.end(), [&](const auto& o) { return o.first == run; });
+            if (above != open.end()) {
+                result[above->second].height = ys[y + 1] - result[above->second].y;
+                next.emplace_back(run, above->second);
+            } else {
+                result.push_back(
+                    {xs[run.first], ys[y], xs[run.second] - xs[run.first], ys[y + 1] - ys[y]});
+                next.emplace_back(run, result.size() - 1);
+            }
+        }
+        open = std::move(next);
+    }
+    return result;
+}
+// Each group of touching rectangles as its bounding rectangle.
+std::vector<Rect> block_bounds(const std::vector<Rect>& rects) {
+    constexpr double near = 1e-6;
+    std::vector<std::size_t> group(rects.size());
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        group[i] = i;
+    }
+    const std::function<std::size_t(std::size_t)> root = [&](std::size_t i) {
+        return group[i] == i ? i : group[i] = root(group[i]);
+    };
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        for (std::size_t j = i + 1; j < rects.size(); ++j) {
+            const auto& a = rects[i];
+            const auto& b = rects[j];
+            if (a.x <= b.x + b.width + near && b.x <= a.x + a.width + near &&
+                a.y <= b.y + b.height + near && b.y <= a.y + a.height + near) {
+                group[root(i)] = root(j);
+            }
+        }
+    }
+    std::map<std::size_t, Rect> bounds;
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        const auto [at, fresh] = bounds.try_emplace(root(i), rects[i]);
+        if (!fresh) {
+            at->second = joined(at->second, rects[i]);
+        }
+    }
+    std::vector<Rect> result;
+    for (const auto& [_, r] : bounds) {
+        result.push_back(r);
+    }
+    return result;
+}
+} // namespace
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved) {
+    // As today: the case, an open menu, the flick preview a flick may leave
+    // the case over, and the shortcut bar's plates and menu above the case.
+    std::vector<Rect> extra;
     if (view.popup) {
-        areas.push_back(*view.popup);
+        extra.push_back(*view.popup);
     }
     if (const auto preview = flick_preview_bounds(view)) {
-        areas.push_back(*preview);
+        extra.push_back(*preview);
     }
     for (const auto& area : shortcut_bar_bounds(view)) {
-        areas.push_back(area);
+        extra.push_back(area);
     }
-    return areas;
+    LaserAreas whole;
+    whole.areas.push_back(panel_case_bounds(view));
+    whole.areas.insert(whole.areas.end(), extra.begin(), extra.end());
+    // Background Disabled lets the laser through between key groups (R380),
+    // but never in Settings, the shortcut editor or a question, nor while a
+    // press that began on the keyboard goes on.
+    if (!view.click_through || !view.laser_key_areas || view.settings || view.shortcut_editor ||
+        view.confirm || view.pointer_held) {
+        return whole;
+    }
+    std::vector<Rect> pieces = extra;
+    for (const auto& area : *view.laser_key_areas) {
+        pieces.push_back(panel_rect(view, area.bounds));
+    }
+    // The toolbar's buttons, the X and the editor's own controls, grown into
+    // the narrow gaps between them as keys are.
+    Layout controls;
+    controls.width = panel_width;
+    controls.height = panel_height;
+    for (const auto& control : view.controls) {
+        auto r = control.bounds;
+        if (control.clip) {
+            const double left = std::max(r.x, control.clip->x), top = std::max(r.y, control.clip->y);
+            const double right = std::min(r.x + r.width, control.clip->x + control.clip->width);
+            const double bottom = std::min(r.y + r.height, control.clip->y + control.clip->height);
+            r = {left, top, right - left, bottom - top};
+        }
+        if (r.width > 0 && r.height > 0) {
+            Key key;
+            key.bounds = r;
+            controls.keys.push_back(std::move(key));
+        }
+    }
+    for (const auto& area : key_areas(controls)) {
+        pieces.push_back(area.bounds);
+    }
+    if (view.emoji) {
+        pieces.push_back(view.emoji->tabs);
+        pieces.push_back(view.emoji->grid);
+        if (view.emoji->popup) {
+            pieces.push_back(view.emoji->popup->bounds);
+        }
+    }
+    if (view.dictation) {
+        pieces.push_back(view.dictation->bounds);
+    }
+    if (view.candidates) {
+        pieces.push_back(view.candidates->area);
+        if (view.candidates->list) {
+            pieces.push_back(*view.candidates->list);
+        }
+    }
+    LaserAreas result;
+    result.areas = merged_cover(pieces);
+    const std::size_t room = max_laser_areas > reserved ? max_laser_areas - reserved : 0;
+    if (result.areas.size() > room) {
+        result.areas = block_bounds(result.areas);
+        result.fallback = 1;
+    }
+    if (result.areas.size() > room) {
+        whole.fallback = 2;
+        return whole;
+    }
+    return result;
+}
+std::vector<Rect> pointer_bounds(const PanelView& view) {
+    // The move handle, which SteamVR's mask holds too, takes one place.
+    return laser_areas(view, panel_move_handle_bounds(view) ? 1 : 0).areas;
 }
 bool takes_pointer(const PanelView& view, double x, double y) {
     const auto areas = pointer_bounds(view);
@@ -2996,9 +3179,10 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_stroke(cr);
     return well;
 }
-// A see-through case (Background other than Visible); Settings keeps it opaque.
+// A see-through case (Background other than Visible); Settings and the
+// shortcut editor keep it opaque, whatever Background says (R380).
 bool clear_case(const PanelView& view) {
-    return view.case_opacity < 1 && !view.settings;
+    return view.case_opacity < 1 && !view.settings && !view.shortcut_editor;
 }
 // Over a clear case, text drawn on the case itself gets a piece of it back:
 // a plate in the case color, fitted to the text and kept inside `area`, so

@@ -128,7 +128,7 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 | Mudar o tamanho | Desafixe, mire o laser de qualquer controle logo fora de um canto inferior do teclado, segure o gatilho na alça de canto que aparece e arraste. O teclado cresce ou encolhe em torno do centro |
 | Curvar ao seu redor | Ative **Teclado curvo** no cartão de configurações **Geral** e aplique. Desafixe, mire o laser de qualquer controle logo fora da borda esquerda ou direita do teclado, segure o gatilho ou o grip na barra que aparece e puxe-a para cima, na sua direção, ou gire a mão para o laser subir; empurre-a de volta para deixar o teclado reto de novo. A curva continua depois de reiniciar |
 | Ocultar o teclado numérico | Nas Configurações, marque Geral → Ocultar teclado numérico e use Aplicar e salvar |
-| Ver atrás do teclado | Nas Configurações, defina Geral → Fundo como Semitransparente ou Invisível e use Aplicar e salvar |
+| Ver atrás do teclado | Nas Configurações, defina Geral → Fundo como Semitransparente ou Invisível e use Aplicar e salvar. **Desativado** (Disabled) também não mostra a moldura e ainda deixa o laser passar entre os grupos de teclas, para clicar no que está atrás |
 | Mudar layout, idioma ou tema | Abra o ícone de engrenagem, escolha os perfis e depois **Aplicar e salvar** |
 | Recentralizar | Use o ícone de recentralizar ou abra o Full Keyboard de novo |
 | Fechar | Use × para ocultar o painel no modo de substituição; caso contrário, ele fecha o app |

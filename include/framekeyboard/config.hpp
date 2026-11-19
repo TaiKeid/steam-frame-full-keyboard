@@ -124,8 +124,9 @@ struct Settings {
     bool num_lock{};
     bool hide_numpad{};
     // The case behind the keys (docs/configuration.md, Background):
-    // "visible", "semi-transparent" (half opaque) or "invisible" (clear, still
-    // taking the laser). Keys keep their theme.
+    // "visible", "semi-transparent" (half opaque), "invisible" (clear, still
+    // taking the laser) or "disabled" (clear, and the laser passes between
+    // key groups to what is behind; R380). Keys keep their theme.
     std::string background_surface{"visible"};
     // Hover fade: a key the laser leaves dims over a moment instead of going
     // dark at once; on unless turned off.

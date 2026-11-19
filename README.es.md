@@ -128,7 +128,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Cambiar el tamaño | Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera de una esquina inferior del teclado, mantén el gatillo sobre el tirador de esquina que aparece y arrastra. El teclado crece o se encoge alrededor de su centro |
 | Curvarlo a tu alrededor | Activa **Teclado curvo** en la tarjeta de ajustes **General** y aplica. Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera del borde izquierdo o derecho del teclado, mantén el gatillo o el agarre (grip) sobre la barra que aparece y tira de ella hacia arriba, hacia ti, o gira la mano para que el láser suba; empújala de vuelta para aplanarlo. La curva se conserva al reiniciar |
 | Ocultar el teclado numérico | En Ajustes, marca General → Ocultar teclado numérico y pulsa Aplicar y guardar |
-| Ver detrás del teclado | En Ajustes, pon General → Fondo en Semitransparente o Invisible y pulsa Aplicar y guardar |
+| Ver detrás del teclado | En Ajustes, pon General → Fondo en Semitransparente o Invisible y pulsa Aplicar y guardar. **Desactivado** (Disabled) tampoco muestra la carcasa y además deja pasar el láser entre los grupos de teclas, para hacer clic en lo que hay detrás |
 | Cambiar distribución, idioma o tema | Abre el icono del engranaje, elige los perfiles y pulsa **Aplicar y guardar** |
 | Recentrar | Usa el icono de recentrar o vuelve a abrir Full Keyboard |
 | Cerrar | Usa × para ocultar el panel en el modo de reemplazo; si no, cierra la app |

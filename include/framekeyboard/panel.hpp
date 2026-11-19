@@ -504,6 +504,14 @@ struct PanelView {
     // Background (Settings): how opaque the case is behind the keys, 1 when
     // filled; below 1 it is drawn see-through, and still takes the laser.
     double case_opacity{1};
+    // Background Disabled (R380): no case drawn, and the laser passes between
+    // key groups to what is behind (laser_areas). laser_key_areas are where
+    // the keys take it, as Extended key collision has them whether or not
+    // it is on; pointer_held, a press that began on the keyboard and goes
+    // on, gives the whole case back until it ends.
+    bool click_through{};
+    const std::vector<KeyArea>* laser_key_areas{};
+    bool pointer_held{};
     // Hover fade (Settings): a key the laser leaves dims over a moment, a
     // short trail behind the laser, instead of going dark at once.
     bool hover_fade{true};
@@ -745,6 +753,22 @@ std::vector<Rect> shortcut_bar_bounds(const PanelView& view);
 // VR mask, the passthrough pointer and the laser's hover, which the click
 // watch and grabbing read, all use these, so a pull on any of them counts
 // as one on the keyboard (R319). The move handle is the mask's own.
+// Where the laser hits the keyboard, in panel coordinates: the case and the
+// open menu, flick preview and shortcut bar; under Background Disabled
+// (R380) only the key groups, controls, emoji grid, dictation editor and
+// candidates, merged into at most max_laser_areas less `reserved`
+// rectangles (SteamVR's intersection mask). Too many: each group's bounding
+// rectangle (fallback 1), else the whole case (fallback 2).
+struct LaserAreas {
+    std::vector<Rect> areas;
+    int fallback{};
+};
+// OpenVR's k_unMaxOverlayIntersectionMaskPrimitivesCount (vr.cpp checks it).
+constexpr std::size_t max_laser_areas = 32;
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved = 0);
+// laser_areas() with room kept for the move handle; the one set every hit
+// test uses: SteamVR's mask, the passthrough pointer, a shell's forwarded
+// pointer and the simulator.
 std::vector<Rect> pointer_bounds(const PanelView& view);
 bool takes_pointer(const PanelView& view, double x, double y);
 // What the bar repaints when only its buttons' or the picker's states

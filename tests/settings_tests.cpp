@@ -1273,17 +1273,17 @@ void legacy_background_surface_tests() {
         auto values =
             json_ptr(json_tokener_parse(R"({"background_surface":"disabled","hide_numpad":true})"));
         require(app.host_settings_set(values.get(), 1).first.empty(),
-                "protocol 1 accepts the legacy disabled background surface");
+                "protocol 1 accepts the disabled background surface");
         const auto settings = app.host_settings();
         require(std::string(json_object_get_string(
-                    json_object_object_get(settings.get(), "background_surface"))) == "invisible" &&
-                    app.view().case_opacity == 0 && app.view().hide_numpad,
-                "the legacy surface becomes invisible and other settings in the request apply");
+                    json_object_object_get(settings.get(), "background_surface"))) == "disabled" &&
+                    app.view().case_opacity == 0 && app.view().click_through && app.view().hide_numpad,
+                "Disabled is its own value again (R380), and other settings in the request apply");
         app.flush_settings();
         std::vector<std::string> errors;
         const auto saved = load_settings(directory.path, errors);
-        require(errors.empty() && saved.background_surface == "invisible" && saved.hide_numpad,
-                "the legacy surface saves in canonical form");
+        require(errors.empty() && saved.background_surface == "disabled" && saved.hide_numpad,
+                "and it saves as written");
         require(sink.events.empty(), "legacy settings compatibility sends no input");
     }
 }
@@ -1344,14 +1344,42 @@ void background_surface_setting() {
                 "keys keep their theme over a transparent case");
     }
     app.renderer.write_png("/tmp/framekeyboard-transparent-background.png");
-    // Disabled, which let the laser through the case's gaps, is gone.
-    app.show_settings();
-    click(app, "background-surface");
-    require(has(app.view(), "choose:background-surface:invisible") &&
-                !has(app.view(), "choose:background-surface:disabled"),
-            "Background offers no Disabled choice");
-    app.back();
-    app.back();
+    // Disabled (R380): drawn as Invisible, and the laser passes between key
+    // groups; a line under the row says how the two differ.
+    {
+        const auto invisible = app.renderer.rgba();
+        app.show_settings();
+        const auto labels = app.view().field_labels;
+        require(std::any_of(labels.begin(), labels.end(),
+                            [](const FieldLabel& label) {
+                                return label.text.starts_with("Invisible still takes the laser");
+                            }),
+                "a line under Background tells Invisible and Disabled apart");
+        select(app, "background-surface", "disabled");
+        click(app, "apply");
+        require(saved(app).background_surface == "disabled" && app.view().case_opacity == 0 &&
+                    app.view().click_through,
+                "Apply saves Disabled");
+        app.paint(1.6);
+        require(app.renderer.rgba() == invisible, "Disabled draws the keyboard exactly as Invisible");
+        const auto view = app.view();
+        const auto esc = panel_rect(
+            view, std::find_if(view.layout->keys.begin(), view.layout->keys.end(), [](const Key& k) {
+                      return k.id == "Escape";
+                  })->bounds);
+        const auto f1 = panel_rect(
+            view, std::find_if(view.layout->keys.begin(), view.layout->keys.end(), [](const Key& k) {
+                      return k.id == "F1";
+                  })->bounds);
+        const double gap_x = (esc.x + esc.width + f1.x) / 2, gap_y = esc.y + esc.height / 2;
+        require(!takes_pointer(view, gap_x, gap_y) && takes_pointer(view, esc.x + 4, gap_y),
+                "between Esc and F1 the laser passes; on Esc it does not");
+        app.show_settings();
+        require(takes_pointer(app.view(), gap_x, gap_y), "Settings takes the whole case");
+        select(app, "background-surface", "invisible");
+        click(app, "apply");
+        require(takes_pointer(app.view(), gap_x, gap_y), "Invisible takes the whole case again");
+    }
     // A message shows on an opaque card above the case, centred on it, as
     // the focus tooltip does; the transparent case under it stays clear.
     {
@@ -1408,15 +1436,15 @@ void background_surface_setting() {
                 "an unknown background surface is reported and the rest still loads");
     }
     {
-        // A saved Disabled, now removed, becomes Invisible, which looks the same.
+        // A saved Disabled is its own value again (R380), not Invisible.
         TemporaryDirectory edited;
         std::ofstream(edited.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
                R"("theme":"graphite"},"background_surface":"disabled"})";
         std::vector<std::string> errors;
         const auto loaded = load_settings(edited.path, errors);
-        require(loaded.background_surface == "invisible" && errors.empty(),
-                "a saved Disabled background loads as Invisible");
+        require(loaded.background_surface == "disabled" && errors.empty(),
+                "a saved Disabled background loads as Disabled");
     }
     // The reading line of a composing language: a plate behind its hint.
     {
@@ -4333,7 +4361,7 @@ void shortcut_invalid_note() {
         require(general != cards.end(), "the General card is in view");
         const auto card = general->bounds;
         app.move(0, std::max(card.x, 0.0) + 40, 300);
-        app.scroll(0, 0, 20);
+        app.scroll(0, 0, 40); // to the card's foot, under Background's line
         static double now = 960;
         for (int i = 0; i < 40; ++i) {
             app.tick(now += .05);
@@ -4344,7 +4372,8 @@ void shortcut_invalid_note() {
         });
     };
     app.show_settings();
-    require(has(app.view(), "shortcuts") && noted(), "Settings notes the unreadable file");
+    // Scrolled first: Background's line puts the switch below the fold.
+    require(noted() && has(app.view(), "shortcuts"), "Settings notes the unreadable file");
     app.back();
     click(app, "bar-toggle");
     open_editor(app);
@@ -4356,7 +4385,7 @@ void shortcut_invalid_note() {
     require(saved_shortcuts(app).profiles.size() == 1, "✓ saves the new bar");
     app.tick(950);
     app.show_settings();
-    require(has(app.view(), "shortcuts") && !noted(), "the save that worked ends the note");
+    require(!noted() && has(app.view(), "shortcuts"), "the save that worked ends the note");
 }
 ShortcutModel editor_model() {
     ShortcutModel model;
