@@ -151,13 +151,25 @@ static void switch_file(const char* name, bool present) {
     }
 }
 
-// The library's clock: the monotonic clock moved on by `clock_ahead_ms`, so a gap ends when the test
-// says. Exported, as the SDL functions are, for the library to look up; nothing of the library's.
+// The library reads the time with clock_gettime. This program exports its own, as it does SDL's
+// functions, so the library that ships binds its call here: the monotonic clock moved on by
+// `clock_ahead_ms`, so a wait ends when the test says; every other clock as it is.
 static uint64_t clock_ahead_ms;
-__attribute__((visibility("default"))) uint64_t framekeyboard_stream_test_clock_ms(void) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000) + clock_ahead_ms;
+__attribute__((visibility("default"))) int clock_gettime(clockid_t clock, struct timespec* time) {
+    static int (*real)(clockid_t, struct timespec*);
+    if (!real) {
+        real = (int (*)(clockid_t, struct timespec*))dlsym(RTLD_NEXT, "clock_gettime");
+    }
+    if (!real) {
+        return -1;
+    }
+    const int result = real(clock, time);
+    if (result == 0 && clock == CLOCK_MONOTONIC && clock_ahead_ms != 0) {
+        const uint64_t nanoseconds = (uint64_t)time->tv_nsec + (clock_ahead_ms % 1000) * 1000000u;
+        time->tv_sec += (time_t)(clock_ahead_ms / 1000 + nanoseconds / 1000000000u);
+        time->tv_nsec = (long)(nanoseconds % 1000000000u);
+    }
+    return result;
 }
 
 // A switch file with this content.

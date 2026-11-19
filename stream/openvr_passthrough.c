@@ -765,20 +765,7 @@ static void end_session(void) {
     }
 }
 
-typedef uint64_t (*ClockFn)(void);
-
 static uint64_t now_ms(void) {
-    // A test program defines this clock and exports it, as it does SDL's functions; the streaming
-    // client has none, and the monotonic clock counts.
-    static ClockFn test_clock;
-    static bool looked_up;
-    if (!looked_up) {
-        looked_up = true;
-        test_clock = (ClockFn)dlsym(RTLD_DEFAULT, "framekeyboard_stream_test_clock_ms");
-    }
-    if (test_clock) {
-        return test_clock();
-    }
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000);
