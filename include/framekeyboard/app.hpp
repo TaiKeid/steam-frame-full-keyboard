@@ -2036,6 +2036,7 @@ class App {
                                const ShortcutButton& button) const;
     // What a press on the macro does, as the line beside Repeat says it.
     std::string macro_sends(const ShortcutAction& action) const;
+    std::string wait_text(int ms) const;
     double editor_steps_limit() const;
     // The Run view (design, Settings and the editor): Script's list of the
     // scripts folder, read off the VR thread when the view shows it and on

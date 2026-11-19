@@ -17,7 +17,8 @@
     },
     "number": {
         "group": ",",
-        "group_min": 4
+        "group_min": 4,
+        "decimal": "."
     },
     "strings": {
         "button.additional-languages": {
@@ -448,6 +449,7 @@
         "shortcuts.editor.used-none": "No app uses this profile yet.",
         "shortcuts.editor.wait": "Wait",
         "shortcuts.editor.wait-for": "wait {time}",
+        "shortcuts.editor.seconds": "{number} s",
         "shortcuts.editor.while-held": "While held",
         "shortcuts.field.done": "Done",
         "shortcuts.field.label": "Label",

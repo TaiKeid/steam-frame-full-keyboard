@@ -16,7 +16,8 @@
   "plural": {},
   "number": {
     "group": ",",
-    "group_min": 4
+    "group_min": 4,
+    "decimal": "."
   },
   "strings": {
     "button.additional-languages": {
@@ -390,6 +391,7 @@
     "shortcuts.editor.run": "실행",
     "shortcuts.editor.script": "스크립트",
     "shortcuts.editor.script-gone": "스크립트 폴더에 더 이상 없음: {script}",
+    "shortcuts.editor.seconds": "{number}초",
     "shortcuts.editor.sends": "누를 때마다 한 번 보냄: {keys}",
     "shortcuts.editor.shortcut": "단축키",
     "shortcuts.editor.start": "시작",
@@ -942,6 +944,7 @@
     "shortcuts.editor.run": "00d60e31",
     "shortcuts.editor.script": "102acc10",
     "shortcuts.editor.script-gone": "8b126f42",
+    "shortcuts.editor.seconds": "025d9bf8",
     "shortcuts.editor.sends": "1b033825",
     "shortcuts.editor.shortcut": "5753ea37",
     "shortcuts.editor.start": "e4bb9f1e",

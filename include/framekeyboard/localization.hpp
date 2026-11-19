@@ -114,6 +114,9 @@ class Localization {
     std::string text(std::string_view key, const UiArgs& args = {}) const;
     std::string text(const UiText& message) const { return text(message.key, message.args); }
     std::string number(long long value) const;
+    // A number with `fraction` digits after the language's decimal mark ("0,5"
+    // in German), its whole part grouped as number() groups it.
+    std::string decimal(double value, int fraction) const;
     // Pango's family list for interface text in the chosen language.
     std::string fonts() const;
     const std::vector<std::string>& errors() const { return errors_; }
@@ -130,7 +133,7 @@ class Localization {
         std::vector<Node> options;
     };
     struct Locale {
-        std::string tag, name, native_name, fallback, fonts, group{","};
+        std::string tag, name, native_name, fallback, fonts, group{","}, decimal{"."};
         int group_min{4};
         std::vector<std::string> steam, posix;
         std::vector<std::pair<std::string, std::string>> plural; // category, CLDR rule

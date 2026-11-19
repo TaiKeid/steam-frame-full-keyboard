@@ -35,7 +35,7 @@ Translator notes per key are kept with the translation work outside the reposito
     "few": "v = 0 and i % 10 = 2..4 and i % 100 != 12..14",
     "many": "v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14"
   },
-  "number": {"group": " ", "group_min": 5},
+  "number": {"group": " ", "group_min": 5, "decimal": ","},
   "strings": {
     "setting.typing-suggestions": "Подсказки при вводе",
     "status.wait-for-typing": "Дождитесь окончания ввода и выберите снова.",
@@ -52,7 +52,7 @@ Translator notes per key are kept with the translation work outside the reposito
 - `font_families`: the fonts for interface text in this language (below).
 - `plural`: CLDR plural rules, one per category the language uses; `other` needs none. Only integer counts appear in the interface, so the operands are `n`, `i` and `v`, with `v = 0`.
 - `fallback`: optional, the language a variant falls back to before English (`es-419` → `es`).
-- `number`: the digit-grouping mark for counts such as 5,000, and from how many digits it applies (`group_min`, 4 by default; 5 in Polish or Spanish, where 1000 stays whole).
+- `number`: the digit-grouping mark for counts such as 5,000, and from how many digits it applies (`group_min`, 4 by default; 5 in Polish or Spanish, where 1000 stays whole); and the `decimal` mark, `.` by default, for the one number with a fraction, a macro wait's seconds (0.5 s, 0,5 s). Plural rules still see only integer counts.
 - `strings`: key to text, or key to a branch (below).
 - `sources`: for each translated key, the first 8 hex digits of the SHA-256 of the English text it was translated from, written by the check tool when a translation is accepted. A mismatch marks the translation stale.
 

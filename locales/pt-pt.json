@@ -24,7 +24,8 @@
   },
   "number": {
     "group": " ",
-    "group_min": 5
+    "group_min": 5,
+    "decimal": ","
   },
   "strings": {
     "button.additional-languages": {
@@ -400,6 +401,7 @@
     "shortcuts.editor.run": "Executar",
     "shortcuts.editor.script": "Script",
     "shortcuts.editor.script-gone": "{script} já não está na pasta de scripts.",
+    "shortcuts.editor.seconds": "{number} s",
     "shortcuts.editor.sends": "Envia {keys}, uma vez por cada toque.",
     "shortcuts.editor.shortcut": "Atalho",
     "shortcuts.editor.start": "Inicia",
@@ -952,6 +954,7 @@
     "shortcuts.editor.run": "00d60e31",
     "shortcuts.editor.script": "102acc10",
     "shortcuts.editor.script-gone": "8b126f42",
+    "shortcuts.editor.seconds": "025d9bf8",
     "shortcuts.editor.sends": "1b033825",
     "shortcuts.editor.shortcut": "5753ea37",
     "shortcuts.editor.start": "e4bb9f1e",

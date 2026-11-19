@@ -18,7 +18,8 @@
   "plural": {},
   "number": {
     "group": ",",
-    "group_min": 4
+    "group_min": 4,
+    "decimal": "."
   },
   "strings": {
     "button.additional-languages": {
@@ -392,6 +393,7 @@
     "shortcuts.editor.run": "執行",
     "shortcuts.editor.script": "指令碼",
     "shortcuts.editor.script-gone": "{script} 已不在指令碼資料夾中。",
+    "shortcuts.editor.seconds": "{number} 秒",
     "shortcuts.editor.sends": "每按一次傳送 {keys} 一次。",
     "shortcuts.editor.shortcut": "快速鍵",
     "shortcuts.editor.start": "啟動",
@@ -944,6 +946,7 @@
     "shortcuts.editor.run": "00d60e31",
     "shortcuts.editor.script": "102acc10",
     "shortcuts.editor.script-gone": "8b126f42",
+    "shortcuts.editor.seconds": "025d9bf8",
     "shortcuts.editor.sends": "1b033825",
     "shortcuts.editor.shortcut": "5753ea37",
     "shortcuts.editor.start": "e4bb9f1e",

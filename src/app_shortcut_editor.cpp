@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <glib.h>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -62,12 +63,6 @@ StepGeometry step_geometry(const Rect& well, double top, std::size_t index, doub
     g.time = {r.x + 204, r.y, 76, r.height};
     g.plus = {r.x + 284, r.y + 6, 40, 36};
     return g;
-}
-// The time a wait shows: 0.5 s, 2.0 s.
-std::string wait_text(int ms) {
-    char text[16];
-    std::snprintf(text, sizeof text, "%.1f s", ms / 1000.0);
-    return text;
 }
 // Where the editor's parts go on a case of `body`.
 struct EditorLayout {
@@ -645,6 +640,7 @@ namespace {
 // `only` (a lifted one), wherever the list would have it.
 std::vector<ShortcutStepView> steps_view(const EditorLayout& l, const ShortcutAction& action,
                                          double scroll, const std::string& family,
+                                         const std::function<std::string(int)>& wait_text,
                                          std::optional<std::size_t> only = {}) {
     std::vector<ShortcutStepView> rows;
     for (std::size_t i = 0; i < action.steps.size(); ++i) {
@@ -697,6 +693,11 @@ double App::editor_steps_limit() const {
     return std::max(0.0, content - l.steps_well.height);
 }
 // What a press on a macro does, for the line beside its Repeat row.
+// The time a wait shows, with the language's decimal mark and unit: 0.5 s,
+// 0,5 s, 0.5 秒; the same in the steps list and in what a press sends (R377).
+std::string App::wait_text(int ms) const {
+    return tr("shortcuts.editor.seconds", {{"number", localization_.decimal(ms / 1000.0, 1)}});
+}
 std::string App::macro_sends(const ShortcutAction& action) const {
     if (action.steps.empty()) {
         return tr("shortcuts.editor.macro-empty");
@@ -812,7 +813,8 @@ void App::append_shortcut_editor(PanelView& v) const {
             e.repeat_caption = tr("shortcuts.editor.repeat");
             e.wait_caption = tr("shortcuts.editor.wait");
             e.steps_well = l.steps_well;
-            e.steps = steps_view(l, action, editor_steps_scroll_.shown, localization_.fonts());
+            e.steps = steps_view(l, action, editor_steps_scroll_.shown, localization_.fonts(),
+                                 [this](int ms) { return wait_text(ms); });
             const double limit = editor_steps_limit();
             if (limit > 0) {
                 const auto& well = l.steps_well;
@@ -885,8 +887,9 @@ void App::append_shortcut_editor(PanelView& v) const {
         } else if (const auto* button = shortcut_editor_->selected_button();
                    d.step && button && d.index < button->action.steps.size()) {
             // The row the laser carries, drawn where it holds it.
-            auto rows = steps_view(l, button->action, editor_steps_scroll_.shown, localization_.fonts(),
-                                   d.index);
+            auto rows = steps_view(
+                l, button->action, editor_steps_scroll_.shown, localization_.fonts(),
+                [this](int ms) { return wait_text(ms); }, d.index);
             if (!rows.empty()) {
                 // Everything of the row moves with it: its time, − and +,
                 // chips and ✕ (R337).
