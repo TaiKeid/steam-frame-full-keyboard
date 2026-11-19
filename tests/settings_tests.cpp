@@ -5100,7 +5100,7 @@ void shortcut_apps() {
         const auto at = middle(rows[0].assign);
         capped.move(0, at.x, at.y);
         require(capped.view().bar_tooltip ==
-                    "128 apps have a profile already. Remove one in the editor first",
+                    "128 apps have a profile already. Remove one under Used for in the editor first",
                 "and say why");
         other.focus = {4, AppIdentity{AppIdentity::Kind::Program, "app5"}, "app5"};
         capped.tick(now += .1);

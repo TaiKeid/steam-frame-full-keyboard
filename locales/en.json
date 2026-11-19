@@ -382,7 +382,7 @@
         "setting.send-gap.type-default": "Type, {ms} ms (default)",
         "setting.shortcuts": "Shortcut bar",
         "setting.shortcuts.invalid":
-            "Your shortcuts file can't be read ({reason}). It is kept, as shortcuts.json.bad, when shortcuts are next saved.",
+            "Your shortcuts file can't be read ({reason}). Fix it and choose Reload config, or save new shortcuts, which keeps it as shortcuts.json.bad.",
         "setting.shortcuts.note": "Your own buttons above the keyboard: shortcuts, macros and scripts",
         "setting.start-with-steamos": "Start with SteamOS",
         "setting.streaming-support": "Streaming support",
@@ -588,7 +588,7 @@
         "tooltip.shortcuts-assign-dashboard":
             "Can't assign here: Steam's dashboard is in front, not an app",
         "tooltip.shortcuts-assign-full":
-            "128 apps have a profile already. Remove one in the editor first",
+            "128 apps have a profile already. Remove one under Used for in the editor first",
         "tooltip.shortcuts-assign-steam": "Can't assign here: Steam itself is in front, not an app",
         "tooltip.shortcuts-assign-steam-field":
             "Can't assign here: this is one of Steam's own text fields, not an app",
