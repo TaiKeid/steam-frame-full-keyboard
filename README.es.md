@@ -31,6 +31,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 - **Mantener abierto sobre apps** (Stay open over apps): el teclado se queda en su sitio cuando se cierra el panel, para escribir en ventanas que flotan en el mundo; apunta a una ventana flotante para hacer clic en ella con el láser de SteamVR.
 - **Modo de foco** (Focus mode): con el reemplazo nativo, el teclado sigue visible cuando se cierra un campo de texto, listo para el siguiente campo o app, y avisa cuando escribiría en una ventana que no puedes ver.
 - **Compatibilidad con streaming** (Streaming support): escribe en juegos y apps que Steam retransmite desde tu PC, con atajos y cualquier tecla, y desde un PC con Windows, texto en cualquier idioma. Consulta [juegos en streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Barra de atajos** (Shortcut bar): tus propios botones sobre el teclado, agrupados en perfiles. Un botón envía un atajo, ejecuta una macro de teclas y esperas, o inicia un script o un comando en el visor, y un perfil puede aparecer solo cuando su aplicación está en primer plano. Consulta [la barra de atajos](docs/shortcut-bar.md).
 - Escritura con el láser del mando, con clics hápticos y respuesta al pasar por encima, además de sonidos de tecla opcionales con seis efectos.
 - Muévelo con el asa de debajo del teclado o agarrándolo, cambia su tamaño desde cualquiera de las esquinas inferiores, cúrvalo a tu alrededor, ánclalo en su sitio y deja que la nivelación automática lo enderece después de moverlo.
 - Seguimiento del panel, posición guardada y recuperación volviendo a abrirlo para recentrarlo.
@@ -136,6 +137,16 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 **Si el teclado se ha alejado fuera de tu alcance, vuelve a abrir la app.** Cuando ya se está ejecutando, abrirla de nuevo recentra el teclado existente bajo el panel actual en lugar de abrir otro. Su tamaño se conserva. Si el panel está cerrado, el recentrado espera a que se abra.
 
 Al cerrarlo y volver a abrirlo se restauran la última posición, la rotación, el tamaño y el estado de Bloq Num. Mover o inclinar el panel arrastra el teclado consigo. **Nivelación automática** (Auto leveling), activada por defecto en General, endereza un teclado ligeramente torcido después de moverlo.
+
+## Barra de atajos
+
+Activa **Barra de atajos** (Shortcut bar) en Ajustes → **General** y aplica. Sobre el teclado aparece una barra con tus propios botones; pulsa un botón para usarlo. El botón de la barra de atajos en la barra de herramientas la oculta y la vuelve a mostrar.
+
+- La pestaña del extremo derecho de la barra abre el menú **Perfiles** (Profiles): elige un perfil para mostrarlo. **Gestionar** (Manage) abre el editor, donde creas los perfiles y sus botones.
+- Un botón es un **Atajo** (Shortcut), hasta cuatro combinaciones de teclas enviadas en orden, como Ctrl+K y luego S; una **Macro**, pasos de teclas y esperas repetidos **Una vez**, **Varias** veces o **Mantenido**; o **Ejecutar** (Run), que inicia un script de tu carpeta de scripts o un comando en el visor.
+- El botón junto a un perfil en el menú lo asigna a la aplicación en primer plano. Desde entonces la barra muestra ese perfil cada vez que esa aplicación está en primer plano, incluidos los juegos y aplicaciones transmitidos desde tu PC; el editor las lista en **Se usa para** (Used for).
+
+[La barra de atajos](docs/shortcut-bar.md) explica el editor, qué detiene una macro, los scripts y el streaming.
 
 ## Idiomas y personalización
 

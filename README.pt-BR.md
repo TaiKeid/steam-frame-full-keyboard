@@ -31,6 +31,7 @@ Para instalar pelo terminal, veja [Instalação manual](#instalação-manual).
 - **Manter aberto sobre apps** (Stay open over apps): o teclado fica no lugar quando o painel fecha, para digitar em janelas flutuando no mundo; aponte para uma janela flutuante para clicar nela com o laser do SteamVR.
 - **Modo de foco** (Focus mode): com a substituição nativa, o teclado continua aberto quando um campo de texto fecha, pronto para o próximo campo ou app, e avisa quando digitaria em uma janela que você não está vendo.
 - **Suporte a streaming** (Streaming support): digita em jogos e apps que o Steam transmite do seu PC, com atalhos e qualquer tecla, e de um PC com Windows, texto em qualquer idioma. Veja [jogos por streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Barra de atalhos** (Shortcut bar): seus próprios botões acima do teclado, agrupados em perfis. Um botão envia um atalho, executa uma macro de teclas e esperas, ou inicia um script ou comando no headset, e um perfil pode aparecer sozinho quando o aplicativo dele está em primeiro plano. Veja [a barra de atalhos](docs/shortcut-bar.md).
 - Digitação com o laser do controle, com cliques hápticos e retorno ao passar o laser, além de sons de tecla opcionais com seis efeitos.
 - Mova o teclado pela alça abaixo dele ou agarrando-o, redimensione-o por qualquer canto inferior, curve-o ao seu redor, fixe-o no lugar e deixe o nivelamento automático endireitá-lo depois de mover.
 - Acompanhamento do painel, posição salva e recuperação abrindo o app de novo para recentralizar.
@@ -136,6 +137,16 @@ Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituiç
 **Se o teclado se afastou para fora do seu alcance, abra o app de novo.** Quando ele já está em execução, abrir de novo recentraliza o teclado existente abaixo do painel atual, em vez de abrir um segundo. O tamanho é preservado. Se o painel estiver fechado, a recentralização espera até ele abrir.
 
 Fechar e reabrir restaura a última posição, rotação, tamanho e estado do Num Lock. Mover ou inclinar o painel leva o teclado junto. O **Nivelamento automático** (Auto leveling), ativado por padrão em Geral, endireita um teclado levemente torto depois que você o move.
+
+## Barra de atalhos
+
+Ative **Barra de atalhos** (Shortcut bar) em Configurações → **Geral** e aplique. Uma barra com seus próprios botões aparece acima do teclado; toque em um botão para usá-lo. O botão da barra de atalhos na barra de ferramentas oculta a barra e a mostra de novo.
+
+- A aba na ponta direita da barra abre o menu **Perfis** (Profiles): escolha um perfil para mostrá-lo. **Gerenciar** (Manage) abre o editor, onde você cria perfis e seus botões.
+- Um botão é um **Atalho** (Shortcut), até quatro combinações de teclas enviadas em ordem, como Ctrl+K e depois S; uma **Macro**, etapas de teclas e esperas repetidas **Uma vez**, **Várias** vezes ou enquanto **Segurado**; ou **Executar** (Run), que inicia um script da sua pasta de scripts ou um comando no headset.
+- O botão ao lado de um perfil no menu o atribui ao aplicativo em primeiro plano. A partir daí a barra mostra esse perfil sempre que esse aplicativo estiver em primeiro plano, incluindo jogos e aplicativos transmitidos do seu PC; o editor os lista em **Usado para** (Used for).
+
+[A barra de atalhos](docs/shortcut-bar.md) explica o editor, o que interrompe uma macro, os scripts e o streaming.
 
 ## Idiomas e personalização
 

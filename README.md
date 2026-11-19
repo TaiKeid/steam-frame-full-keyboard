@@ -31,6 +31,7 @@ To install from a terminal instead, see [Install manually](#install-manually).
 - **Stay open over apps**: the keyboard stays in place when the dashboard closes, for typing into windows floating in the world; point at a floating window to click it with SteamVR's laser.
 - **Focus mode**: with native replacement, the keyboard stays up when a text field closes, ready for the next field or app, and warns when it would type into a window you cannot see.
 - **Streaming support**: types into games and applications Steam streams from your PC, with shortcuts and every key, and from a Windows PC text in any language. See [streamed games](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Shortcut bar**: your own buttons above the keyboard, grouped into profiles. A button sends a shortcut, runs a macro of keys and waits, or starts a script or command on the headset, and a profile can show by itself whenever its app is in front. See [the shortcut bar](docs/shortcut-bar.md).
 - Controller laser typing with haptic clicks and hover feedback, plus optional key sounds with six effects.
 - Move it with the handle below the keyboard or by grabbing it, resize it from either bottom corner, curve it around you, pin it in place, and let auto leveling straighten it after a move.
 - Dashboard following, saved placement, and relaunch-to-recenter recovery.
@@ -136,6 +137,16 @@ For a manual update, quit Full Keyboard first. With native replacement enabled, 
 **If the keyboard has drifted out of reach, launch the app again.** When it is already running, another launch recenters the existing keyboard beneath the current dashboard instead of opening a second one. Its size is preserved. If the dashboard is closed, recentering waits until it opens.
 
 Closing and reopening restores the last position, rotation, size and Num Lock state. Moving or tilting the dashboard carries the keyboard with it. **Auto leveling**, on by default in General, straightens a slightly crooked keyboard after you move it.
+
+## Shortcut bar
+
+Turn on **Shortcut bar** in Settings → **General** and apply. A bar of your own buttons then sits above the keyboard; press a button to use it. The shortcut bar button in the toolbar hides the bar and shows it again.
+
+- The tab at the bar's right end opens the **Profiles** menu: choose a profile to show it. **Manage** opens the editor, where you make profiles and their buttons.
+- A button is a **Shortcut**, up to four key combinations sent in order, such as Ctrl+K then S; a **Macro**, steps of keys and waits repeated **Once**, a number of **Times** or **While held**; or **Run**, which starts a script from your scripts folder or a command on the headset.
+- The button beside a profile in the menu assigns it to the app in front. The bar then shows that profile whenever the app is in front again, games and applications streamed from your PC included; the editor lists them under **Used for**.
+
+[The shortcut bar](docs/shortcut-bar.md) covers the editor, what stops a macro, scripts and streams.
 
 ## Languages and customization
 
