@@ -125,9 +125,6 @@ typedef struct {
     bool first; // a commit's first step: once it is typed, Full Keyboard hears the commit started
     bool ack;   // a commit's last step: once it is typed, Full Keyboard hears whether all of it went
     uint32_t commit; // the commit's number, counted from Full Keyboard's 'Q'
-    // With "unicode-key-pairs": a character's own key event, its code point as the key code and no
-    // scancode (R369 probe). 0 for every other step.
-    uint32_t unicode;
     // A text: how long it waits after our keys are through (R369), read when its commit came; 0: none.
     uint16_t after_key_ms;
 } Queued;
@@ -162,7 +159,7 @@ static uint64_t next_connect_ms;
 // before it and that can still be on the way; a key-up only from when it was pushed. A text waits until
 // then and its after_key_ms more.
 static uint64_t keys_through_ms;
-static uint32_t last_down_key; // the previous key-down's scancode, or a code point's key code
+static unsigned last_down_key; // the previous key-down's scancode
 static bool any_key_down;
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
@@ -336,9 +333,9 @@ static uint32_t keycode_for(unsigned scancode) {
     return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
-// A key event pushed: when our keys are through to the PC, as estimated (keys_through_ms). `key` is the
-// scancode, or for a character's own key its code point with the top bit set.
-static void key_pushed_at(bool down, uint32_t key) {
+// A key event pushed, by its scancode: when our keys are through to the PC, as estimated
+// (keys_through_ms).
+static void key_pushed_at(bool down, unsigned scancode) {
     const uint64_t now = now_ms();
     // The same key again waits for the previous one only while that can still be on the way.
     const bool queued = keys_through_ms > now;
@@ -347,8 +344,8 @@ static void key_pushed_at(bool down, uint32_t key) {
     }
     if (down) {
         keys_through_ms +=
-            queued && any_key_down && key == last_down_key ? kSameKeyOnTheWayMs : kKeyOnTheWayMs;
-        last_down_key = key;
+            queued && any_key_down && scancode == last_down_key ? kSameKeyOnTheWayMs : kKeyOnTheWayMs;
+        last_down_key = scancode;
         any_key_down = true;
     }
 }
@@ -375,33 +372,6 @@ static bool push_key(unsigned scancode, unsigned mod, bool down) {
     return true;
 }
 
-// A character pressed as a key of its own ("unicode-key-pairs") and not yet released: let go of when
-// Full Keyboard goes away, as a held key is.
-static uint32_t unicode_held;
-
-// A character as a key event, as SDL's own SDL_SendKeyboardUnicodeKey makes one: the key code is the
-// code point. SDL also gives it a reserved scancode it adds to its own keymap; a pushed event cannot
-// add to the keymap, so the scancode is SDL_SCANCODE_UNKNOWN. Never a Windows virtual key.
-static bool push_unicode_key(uint32_t code, unsigned mod, bool down) {
-    if (!sdl_ready() || code == 0) {
-        return false;
-    }
-    SdlEvent event;
-    memset(&event, 0, sizeof event);
-    event.key.type = down ? kSdlKeyDown : kSdlKeyUp;
-    event.key.window_id = focused_window();
-    event.key.scancode = 0;
-    event.key.key = code;
-    event.key.mod = (uint16_t)mod;
-    event.key.down = down;
-    if (!push_event(&event)) {
-        return false;
-    }
-    unicode_held = down ? code : 0;
-    key_pushed_at(down, code | 0x80000000u);
-    return true;
-}
-
 static bool queue_has_room(unsigned items) {
     return queue_count + items <= kQueue;
 }
@@ -423,14 +393,6 @@ static bool queue_text(const unsigned char* bytes, size_t length, unsigned after
     queue[(queue_head + queue_count++) % kQueue] = (Queued){
         .text = copy, .length = (uint16_t)length, .typed = true, .after_key_ms = (uint16_t)after_key_ms};
     return true;
-}
-
-// One character's key-down and key-up ("unicode-key-pairs"), typed in order with the text around it.
-static void queue_unicode_pair(uint32_t code) {
-    for (int down = 1; down >= 0; --down) {
-        queue[(queue_head + queue_count++) % kQueue] =
-            (Queued){.text = NULL, .down = down != 0, .typed = true, .unicode = code};
-    }
 }
 
 static void queue_tap(unsigned scancode, bool shift) {
@@ -522,8 +484,7 @@ static size_t sequence_length(unsigned char lead) {
 }
 
 // How many queue entries validated UTF-8 takes, as queue_typing lays it out.
-static size_t typing_entries(const unsigned char* bytes, size_t length, bool unicode_keys,
-                             bool key_pairs) {
+static size_t typing_entries(const unsigned char* bytes, size_t length, bool unicode_keys) {
     size_t entries = 0;
     size_t i = 0;
     while (i < length) {
@@ -534,9 +495,6 @@ static size_t typing_entries(const unsigned char* bytes, size_t length, bool uni
             ++i;
         } else if (unicode_keys) {
             entries += kKeysPerCodePoint;
-            i += sequence_length(bytes[i]);
-        } else if (key_pairs) {
-            entries += 2; // its key-down and key-up
             i += sequence_length(bytes[i]);
         } else {
             ++entries; // a whole run of non-ASCII characters is one text
@@ -549,17 +507,13 @@ static size_t typing_entries(const unsigned char* bytes, size_t length, bool uni
 }
 
 // Queues validated UTF-8 in typing order: ASCII as key presses, everything else as text (or, with the
-// "unicode-keys" switch, as Unicode-entry key presses, or with "unicode-key-pairs", as each character's
-// own key-down and key-up). False when the queue cannot take all of it.
+// "unicode-keys" switch, as Unicode-entry key presses). False when the queue cannot take all of it.
 static bool queue_typing(const unsigned char* bytes, size_t length) {
-    // "unicode-keys" (Unicode entry for a Linux PC) wins over "unicode-key-pairs", the probe that
-    // presses each character as a key of its own (R369).
     const bool unicode_keys = switch_file("unicode-keys");
-    const bool key_pairs = !unicode_keys && switch_file("unicode-key-pairs");
     // How long a text waits after our keys are through: 150 ms, or "text-after-key"'s number, 0 (no
     // wait at all, as before) to 500 (R369).
     const unsigned after_key_ms = switch_milliseconds("text-after-key", 150, 0, 500);
-    if (queue_count + typing_entries(bytes, length, unicode_keys, key_pairs) > kQueue) {
+    if (queue_count + typing_entries(bytes, length, unicode_keys) > kQueue) {
         return false;
     }
     size_t i = 0;
@@ -580,16 +534,6 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
                 code = (code << 6) | (bytes[i + k] & 0x3F);
             }
             queue_code_point(code);
-            i += more + 1;
-            continue;
-        }
-        if (key_pairs) {
-            const size_t more = sequence_length(bytes[i]) - 1;
-            uint32_t code = bytes[i] & (0x3F >> more);
-            for (size_t k = 1; k <= more; ++k) {
-                code = (code << 6) | (bytes[i + k] & 0x3F);
-            }
-            queue_unicode_pair(code);
             i += more + 1;
             continue;
         }
@@ -731,8 +675,7 @@ static void pump_queue(void) {
         } else if (next.down) {
             restore_session_modifiers(next.mod, next.scancode);
         }
-        const bool pushed = next.unicode ? push_unicode_key(next.unicode, next.mod, next.down)
-                                         : push_key(next.scancode, next.mod, next.down);
+        const bool pushed = push_key(next.scancode, next.mod, next.down);
         if (next.down && held[next.scancode]) {
             lifted[next.scancode] = false; // down again, as typed text's capital puts Shift
         }
@@ -758,9 +701,6 @@ static void release_everything(void) {
         if (held[scancode]) {
             push_key(scancode, 0, false);
         }
-    }
-    if (unicode_held) {
-        push_unicode_key(unicode_held, 0, false);
     }
     memset(session_held, 0, sizeof session_held);
     memset(lifted, 0, sizeof lifted);
@@ -1082,9 +1022,8 @@ __attribute__((visibility("default"))) intptr_t VR_GetGenericInterface(const cha
 __attribute__((constructor)) static void fk_loaded(void) {
     // Switch files live next to this file: "off" (do nothing), "unicode-keys" (type non-ASCII as
     // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam) and
-    // "unicode-key-pairs" (a probe: each non-ASCII character as a key press and release of its own;
-    // "unicode-keys" wins when both are there) and "text-after-key" (how many milliseconds a text
-    // waits after our keys are through, 0 to 500, instead of 150; 0 turns the wait off).
+    // "text-after-key" (how many milliseconds a text waits after our keys are through, 0 to 500,
+    // instead of 150; 0 turns the wait off).
     Dl_info info;
     if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
         const char* slash = strrchr(info.dli_fname, '/');
