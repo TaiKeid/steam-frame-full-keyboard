@@ -5,6 +5,7 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/shortcuts.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -297,6 +298,38 @@ void shortcut_editor() {
     require(hits(view, body.x + 2, body.y + body.height - 2) && laser_areas(view).areas[0] == body,
             "the shortcut editor takes the whole case");
 }
+// R386: SteamVR's mask follows a press's hold without a repaint. A press on
+// a toolbar button slid off it and let go in a gap is canceled and draws
+// nothing, yet the case must give the gaps back that frame.
+void mask_follows_presses() {
+    for (const char* surface : {"disabled", "visible"}) {
+        const bool disabled = std::string(surface) == "disabled";
+        Rig rig({"en-us-full", "en-us", false, false, surface});
+        rig.app->take_mask_change();
+        const auto view = rig.view();
+        const auto button = std::find_if(view.controls.begin(), view.controls.end(), [](const Control& c) {
+            return c.style != ControlStyle::MenuItem && c.bounds.width > 0;
+        });
+        require(button != view.controls.end(), "a toolbar button");
+        const auto& r = button->bounds;
+        const auto body = panel_case_bounds(view);
+        const double gap_x = body.x + 2, gap_y = body.y + body.height - 2;
+        rig.app->move(0, r.x + r.width / 2, r.y + r.height / 2);
+        rig.app->down(0, r.x + r.width / 2, r.y + r.height / 2, rig.now);
+        require(rig.app->take_mask_change() == disabled,
+                std::string(surface) + ": the press masks at once only under Disabled");
+        rig.app->move(0, gap_x, gap_y);
+        rig.tick();
+        rig.app->paint(rig.now);
+        require(!rig.app->take_mask_change(), std::string(surface) + ": nothing changes while it is held");
+        rig.app->up(0, gap_x, gap_y);
+        rig.tick();
+        require(!rig.app->paint(rig.now), std::string(surface) + ": the canceled release draws nothing");
+        require(rig.app->take_mask_change() == disabled,
+                std::string(surface) + ": yet under Disabled the mask gives the gaps back");
+        require(!rig.app->take_mask_change(), std::string(surface) + ": once");
+    }
+}
 // Visible, Semi-transparent and Invisible keep the case under the laser as
 // before: the case first, then the menus and the bar, nothing else.
 void other_backgrounds() {
@@ -327,6 +360,7 @@ int main() {
         flick_pages();
         shortcut_editor();
         other_backgrounds();
+        mask_follows_presses();
         std::cout << "Laser areas passed\n";
         return 0;
     } catch (const std::exception& error) {

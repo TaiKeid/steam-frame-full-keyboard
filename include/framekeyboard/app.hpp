@@ -306,6 +306,11 @@ class App {
     // Fixed diagnostic text for why replacement_ready() is false.
     const char* replacement_block() const;
     bool take_native_fallback();
+    // Background Disabled: true once each time the whole case starts or stops
+    // taking the laser (whole_case_held), so the VR loop sends SteamVR a new
+    // mask that frame even when nothing is repainted, as a press canceled off
+    // its button and let go in a gap draws nothing (R386).
+    bool take_mask_change();
     // X hides instead of exiting: with replacement, or under a shell.
     bool resident_replacement() const {
         return options_.mode == Mode::Vr && (settings_.replace_native_keyboard || hosted());
@@ -1409,6 +1414,10 @@ class App {
     // Pointers whose press began on the keyboard and goes on (R380).
     std::set<unsigned> laser_presses_;
     void hold_laser(unsigned pointer, bool held);
+    // Under Background Disabled the whole case takes the laser: a press that
+    // began on the keyboard goes on, or the skin tone popup is open.
+    bool whole_case_held() const;
+    bool mask_held_{}; // whole_case_held() when take_mask_change() last looked
     std::string swipe_prepared_; // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};

@@ -1649,8 +1649,7 @@ PanelView App::build_view(bool picker) const {
     if (settings_.background_surface == "disabled") {
         v.click_through = true;
         v.laser_key_areas = &all_key_areas(v);
-        // The skin tone popup, left open after its press, holds the case too.
-        v.pointer_held = !laser_presses_.empty() || (emoji_open_ && emoji_.popup_open());
+        v.pointer_held = whole_case_held();
     }
     v.key_outlines = debug_card(options_) && debug_key_outlines_;
     // Between letters a press can start a swipe whenever one on a letter
@@ -1675,15 +1674,20 @@ PanelView App::build_view(bool picker) const {
 void App::hold_laser(unsigned pointer, bool held) {
     // While any press that began on the keyboard goes on, the whole case
     // takes the laser, so a swipe past a block's edge stays on it (R380).
-    const bool before = laser_presses_.empty();
+    // The mask follows through take_mask_change(), not a repaint (R386).
     if (held) {
         laser_presses_.insert(pointer);
     } else {
         laser_presses_.erase(pointer);
     }
-    if (before != laser_presses_.empty() && settings_.background_surface == "disabled") {
-        dirty = true; // a new mask with the next frame
-    }
+}
+bool App::whole_case_held() const {
+    // The skin tone popup, left open after its press, holds the case too.
+    return !laser_presses_.empty() || (emoji_open_ && emoji_.popup_open());
+}
+bool App::take_mask_change() {
+    const bool held = settings_.background_surface == "disabled" && whole_case_held();
+    return std::exchange(mask_held_, held) != held;
 }
 const std::vector<KeyArea>* App::key_areas(const PanelView& view) const {
     // The flick page keeps its gaps, and so do its picker and dictation mode.

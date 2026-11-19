@@ -4991,8 +4991,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // A state change that redraws no pixel, like a sub-pixel glide step or
         // an image drawn off-screen, uploads nothing: each upload of the whole
         // texture costs milliseconds.
+        // Background Disabled: the whole case starting or stopping to take the
+        // laser masks again this frame, painted or not (R386).
+        const bool remask = app.take_mask_change();
         if (lifecycle.visible() && repaint && app.paint(now)) {
             panel.submit(app.renderer, app.view());
+        } else if (remask && lifecycle.visible()) {
+            panel.mask(app.view());
         }
         // A move keeps the whole case under the laser while it lasts (R380).
         if (panel.held() != drag.active()) {
