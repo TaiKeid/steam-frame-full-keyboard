@@ -2465,6 +2465,12 @@ LaserAreas laser_areas(const PanelView& view, std::size_t reserved) {
     if (view.dictation) {
         pieces.push_back(view.dictation->bounds);
     }
+    // A status too long to show whole scrolls only under the laser. One that
+    // fits stays open: its line spans the wide space between the toolbar's
+    // button groups, and dictation mode shows a status most of the time.
+    if (dictation_status_scrolls(view)) {
+        pieces.push_back(dictation_status_bounds(view));
+    }
     if (view.candidates) {
         pieces.push_back(view.candidates->area);
         if (view.candidates->list) {
@@ -2836,6 +2842,7 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
 }
 // Narrower than this, no word of a status would fit.
 constexpr double min_status_width = 40;
+constexpr double status_font_size = 15;
 // The editor covers the status line, so it moves up into the toolbar row,
 // between the left buttons and the next control or the counter.
 Rect dictation_status_line(const PanelView& view) {
@@ -4708,6 +4715,15 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
 }
+bool dictation_status_scrolls(const PanelView& view) {
+    if (!view.dictation || view.settings || view.status_card || view.status.empty()) {
+        return false;
+    }
+    // Measured once per text and font (interface_text_width keeps it).
+    const auto line = dictation_status_line(view);
+    return line.width >= min_status_width &&
+           interface_text_width(view.status, status_font_size, view.interface_font) > 1.8 * line.width;
+}
 bool PanelRenderer::drawn_by_itself(const PanelView& view, const Key& key, const KeyMarks& marks) const {
     const auto amount = animations_.find(key.id), lift = hovers_.find(key.id);
     const auto ring = lock_rings_.find(key.id);
@@ -4953,20 +4969,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // the microphone's bars move, so the text is measured once.
         std::optional<Rect> status_line;
         double status_overflow = 0;
-        if (status_shown && (status_measured_ != view.status || status_font_ != view.interface_font)) {
-            auto* measure = cairo_create(surface_);
-            grey_text(measure);
-            status_width_ = text_width(measure, view.status, 15, view.interface_font);
-            cairo_destroy(measure);
-            status_measured_ = view.status;
-            status_font_ = view.interface_font;
-        }
-        if (!choice && status_shown) {
-            const auto line = dictation_status_line(view);
-            if (status_width_ > 1.8 * line.width) {
-                status_line = line;
-                status_overflow = status_width_ - (line.width - 8);
-            }
+        if (!choice && dictation_status_scrolls(view)) {
+            status_line = dictation_status_line(view);
+            status_overflow = interface_text_width(view.status, status_font_size, view.interface_font) -
+                              (status_line->width - 8);
         }
         const std::string hovered = choice ? choice->id : status_line ? "status: " + view.status : "";
         if (status_line) {
@@ -6443,11 +6449,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         if (status_shown) {
             const auto line = dictation_status_line(view);
-            case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
+            case_plate(cr, view, line, view.status, status_font_size, PANGO_ALIGN_LEFT);
             if (marquee_status) {
-                scrolled_label(cr, view.status, line, 15, view.interface_font, t.legend, marquee_shift);
+                scrolled_label(cr, view.status, line, status_font_size, view.interface_font, t.legend, marquee_shift);
             } else {
-                interface_label(cr, view.status, line, 15, view.interface_font, t.legend, false,
+                interface_label(cr, view.status, line, status_font_size, view.interface_font, t.legend, false,
                                 PANGO_ALIGN_LEFT, true);
             }
         }

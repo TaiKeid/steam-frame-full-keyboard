@@ -199,6 +199,23 @@ void keyboard_views() {
                 name(c) + ": Settings takes the whole case");
     }
 }
+// R385: dictation mode's status takes the laser only while it is too long to
+// show whole, the case that scrolls under the laser; one that fits leaves
+// the wide space between the toolbar's button groups open.
+void status_line(PanelView view, const std::string& what) {
+    const auto line = dictation_status_bounds(view);
+    const double x = line.x + line.width / 2, y = line.y + line.height / 2;
+    view.status_card = false;
+    view.status = "Listening";
+    require(!dictation_status_scrolls(view) && !hits(view, x, y),
+            what + ": a status that fits lets the laser pass");
+    view.status.clear();
+    for (int i = 0; i < 12; ++i) {
+        view.status += "The dictation server could not be reached. ";
+    }
+    require(dictation_status_scrolls(view) && hits(view, x, y) && laser_areas(view, 1).fallback == 0,
+            what + ": a status too long for its line takes the laser, so it can scroll");
+}
 // The emoji picker and dictation mode over a full and the flick layout.
 void other_views() {
     for (const Case& c : {Case{"en-us-full", "en-us", false, true}, Case{"en-us-full", "en-us", true, false},
@@ -237,6 +254,7 @@ void other_views() {
             const auto& editor = view.dictation->bounds;
             require(hits(view, editor.x + editor.width / 2, editor.y + editor.height / 2),
                     name(c) + ": the editor takes the laser");
+            status_line(view, name(c));
         }
     }
 }
@@ -293,6 +311,11 @@ void other_backgrounds() {
         }
         require(areas.fallback == 0 && areas.areas == before, name(c) + ": the case takes the laser as before");
         require(!view.click_through, name(c) + ": not click-through");
+        // A long dictation status adds nothing here: the case already has it.
+        auto dictating = view;
+        dictating.dictation = DictationView{};
+        dictating.status = std::string(400, 'x');
+        require(laser_areas(dictating, 1).areas == before, name(c) + ": a long status adds no area");
     }
 }
 } // namespace

@@ -828,6 +828,10 @@ double interface_text_width(const std::string& text, double size, const std::str
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
 // Where dictation mode's status line sits in the toolbar row.
 Rect dictation_status_bounds(const PanelView& view);
+// Dictation mode shows a status too long for two lines of its room: it sits
+// on one line and scrolls under the laser, so it takes the laser even under
+// Background Disabled (laser_areas).
+bool dictation_status_scrolls(const PanelView& view);
 // Background Semi-transparent: the case's opacity, half on a dark theme;
 // a light theme's pale case reads far brighter, so it keeps only 15%.
 double semi_transparent_case_opacity(const Theme& theme);
@@ -930,8 +934,6 @@ class PanelRenderer {
     double marquee_since_{}, marquee_shown_{-1};
     // A status too long for its gap scrolls under the laser. Once the laser
     // leaves, the pass under way ends here and the text returns to its start.
-    std::string status_measured_, status_font_;
-    double status_width_{};
     bool status_scrolling_{};
     std::optional<double> status_scroll_end_;
     cairo_surface_t* surface_{};
