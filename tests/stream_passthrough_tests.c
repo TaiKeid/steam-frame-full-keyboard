@@ -130,6 +130,12 @@ static bool is_key(int index, uint32_t scancode, uint16_t mod, uint8_t down) {
            pushed[index].down == down && pushed[index].window_id == 5;
 }
 
+// A character's own key event ("unicode-key-pairs"): no scancode, the code point as the key code.
+static bool is_unicode_key(int index, uint32_t code, uint8_t down) {
+    return index < pushed_count && pushed[index].scancode == 0 && pushed[index].key == code &&
+           pushed[index].down == down && pushed[index].text[0] == '\0' && pushed[index].window_id == 5;
+}
+
 static char directory[64]; // private to this run: the socket and the switch files
 
 static const char* in_directory(const char* name) {
@@ -758,6 +764,67 @@ int main(int argc, char** argv) {
           "the waiting commit is withdrawn, the typing one is not");
     close(keyboard);
     idle_pump();
+
+    // R369 probe: with "unicode-key-pairs", each non-ASCII character is a key-down and a key-up of its
+    // own, key code = code point, no scancode, in order with the ASCII taps, and no text event; without
+    // it, a text as before; with "unicode-keys" too, Unicode entry wins.
+    {
+        keyboard = accept_keyboard(server);
+        check(keyboard >= 0, "library reconnected for key pairs");
+        unsigned char reply[8];
+        send(keyboard, "Q", 1, MSG_NOSIGNAL);
+        idle_pump();
+        check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y',
+              "answers asked for");
+        switch_file("unicode-key-pairs", true);
+        pushed_count = 0;
+        const char mixed[] = "Ta\xd0\x91\xd0\xb1!"; // a, Cyrillic Be, be, exclamation mark
+        check(send(keyboard, mixed, sizeof mixed - 1, 0) == (ssize_t)sizeof mixed - 1, "a mixed commit");
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 10 && is_key(0, 4, 0, 1) && is_key(1, 4, 0, 0) &&
+                  is_unicode_key(2, 0x411, 1) && is_unicode_key(3, 0x411, 0) &&
+                  is_unicode_key(4, 0x431, 1) && is_unicode_key(5, 0x431, 0) && is_key(6, 225, 1, 1) &&
+                  is_key(7, 30, 1, 1) && is_key(8, 30, 1, 0) && is_key(9, 225, 0, 0),
+              "the ASCII taps and each character's own key pair, in order, no text");
+        check(answered(keyboard, 'S', 0) && answered(keyboard, 'A', 0), "the commit's start and finish");
+        pushed_count = 0;
+        const char repeated[] = "T\xd0\x91\xd0\x91";
+        check(send(keyboard, repeated, sizeof repeated - 1, 0) == (ssize_t)sizeof repeated - 1,
+              "a repeated character");
+        for (int i = 0; i < 4; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 4 && is_unicode_key(0, 0x411, 1) && is_unicode_key(1, 0x411, 0) &&
+                  is_unicode_key(2, 0x411, 1) && is_unicode_key(3, 0x411, 0),
+              "two full pairs");
+        check(answered(keyboard, 'S', 1) && answered(keyboard, 'A', 1), "answered too");
+        // Both switches: Unicode entry (Ctrl+Shift+U) wins.
+        switch_file("unicode-keys", true);
+        pushed_count = 0;
+        check(send(keyboard, "T\xd0\xbf", 3, 0) == 3, "a character with both switches");
+        idle_pump();
+        check(pushed_count >= 4 && is_key(0, 224, 0x40, 1) && is_key(1, 225, 0x41, 1),
+              "Unicode entry wins");
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        switch_file("unicode-keys", false);
+        // Without the switch: a text, as before.
+        switch_file("unicode-key-pairs", false);
+        pushed_count = 0;
+        check(send(keyboard, mixed, sizeof mixed - 1, 0) == (ssize_t)sizeof mixed - 1,
+              "the same commit");
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 7 && is_key(0, 4, 0, 1) && is_key(1, 4, 0, 0) &&
+                  is_text(2, "\xd0\x91\xd0\xb1"),
+              "without the switch the characters go as one text");
+        close(keyboard);
+        idle_pump();
+    }
 
     close(server);
     for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",

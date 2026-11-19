@@ -110,6 +110,9 @@ typedef struct {
     bool first; // a commit's first step: once it is typed, Full Keyboard hears the commit started
     bool ack;   // a commit's last step: once it is typed, Full Keyboard hears whether all of it went
     uint32_t commit; // the commit's number, counted from Full Keyboard's 'Q'
+    // With "unicode-key-pairs": a character's own key event, its code point as the key code and no
+    // scancode (R369 probe). 0 for every other step.
+    uint32_t unicode;
 } Queued;
 
 static void* overlay_table[kOverlayFunctions];
@@ -289,6 +292,32 @@ static bool push_key(unsigned scancode, unsigned mod, bool down) {
     return true;
 }
 
+// A character pressed as a key of its own ("unicode-key-pairs") and not yet released: let go of when
+// Full Keyboard goes away, as a held key is.
+static uint32_t unicode_held;
+
+// A character as a key event, as SDL's own SDL_SendKeyboardUnicodeKey makes one: the key code is the
+// code point. SDL also gives it a reserved scancode it adds to its own keymap; a pushed event cannot
+// add to the keymap, so the scancode is SDL_SCANCODE_UNKNOWN. Never a Windows virtual key.
+static bool push_unicode_key(uint32_t code, unsigned mod, bool down) {
+    if (!sdl_ready() || code == 0) {
+        return false;
+    }
+    SdlEvent event;
+    memset(&event, 0, sizeof event);
+    event.key.type = down ? kSdlKeyDown : kSdlKeyUp;
+    event.key.window_id = focused_window();
+    event.key.scancode = 0;
+    event.key.key = code;
+    event.key.mod = (uint16_t)mod;
+    event.key.down = down;
+    if (!push_event(&event)) {
+        return false;
+    }
+    unicode_held = down ? code : 0;
+    return true;
+}
+
 static bool queue_has_room(unsigned items) {
     return queue_count + items <= kQueue;
 }
@@ -310,6 +339,14 @@ static bool queue_text(const unsigned char* bytes, size_t length) {
     queue[(queue_head + queue_count++) % kQueue] =
         (Queued){.text = copy, .length = (uint16_t)length, .typed = true};
     return true;
+}
+
+// One character's key-down and key-up ("unicode-key-pairs"), typed in order with the text around it.
+static void queue_unicode_pair(uint32_t code) {
+    for (int down = 1; down >= 0; --down) {
+        queue[(queue_head + queue_count++) % kQueue] =
+            (Queued){.text = NULL, .down = down != 0, .typed = true, .unicode = code};
+    }
 }
 
 static void queue_tap(unsigned scancode, bool shift) {
@@ -401,7 +438,8 @@ static size_t sequence_length(unsigned char lead) {
 }
 
 // How many queue entries validated UTF-8 takes, as queue_typing lays it out.
-static size_t typing_entries(const unsigned char* bytes, size_t length, bool unicode_keys) {
+static size_t typing_entries(const unsigned char* bytes, size_t length, bool unicode_keys,
+                             bool key_pairs) {
     size_t entries = 0;
     size_t i = 0;
     while (i < length) {
@@ -412,6 +450,9 @@ static size_t typing_entries(const unsigned char* bytes, size_t length, bool uni
             ++i;
         } else if (unicode_keys) {
             entries += kKeysPerCodePoint;
+            i += sequence_length(bytes[i]);
+        } else if (key_pairs) {
+            entries += 2; // its key-down and key-up
             i += sequence_length(bytes[i]);
         } else {
             ++entries; // a whole run of non-ASCII characters is one text
@@ -424,10 +465,14 @@ static size_t typing_entries(const unsigned char* bytes, size_t length, bool uni
 }
 
 // Queues validated UTF-8 in typing order: ASCII as key presses, everything else as text (or, with the
-// "unicode-keys" switch, as Unicode-entry key presses). False when the queue cannot take all of it.
+// "unicode-keys" switch, as Unicode-entry key presses, or with "unicode-key-pairs", as each character's
+// own key-down and key-up). False when the queue cannot take all of it.
 static bool queue_typing(const unsigned char* bytes, size_t length) {
+    // "unicode-keys" (Unicode entry for a Linux PC) wins over "unicode-key-pairs", the probe that
+    // presses each character as a key of its own (R369).
     const bool unicode_keys = switch_file("unicode-keys");
-    if (queue_count + typing_entries(bytes, length, unicode_keys) > kQueue) {
+    const bool key_pairs = !unicode_keys && switch_file("unicode-key-pairs");
+    if (queue_count + typing_entries(bytes, length, unicode_keys, key_pairs) > kQueue) {
         return false;
     }
     size_t i = 0;
@@ -448,6 +493,16 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
                 code = (code << 6) | (bytes[i + k] & 0x3F);
             }
             queue_code_point(code);
+            i += more + 1;
+            continue;
+        }
+        if (key_pairs) {
+            const size_t more = sequence_length(bytes[i]) - 1;
+            uint32_t code = bytes[i] & (0x3F >> more);
+            for (size_t k = 1; k <= more; ++k) {
+                code = (code << 6) | (bytes[i + k] & 0x3F);
+            }
+            queue_unicode_pair(code);
             i += more + 1;
             continue;
         }
@@ -585,7 +640,8 @@ static void pump_queue(void) {
         } else if (next.down) {
             restore_session_modifiers(next.mod, next.scancode);
         }
-        const bool pushed = push_key(next.scancode, next.mod, next.down);
+        const bool pushed = next.unicode ? push_unicode_key(next.unicode, next.mod, next.down)
+                                         : push_key(next.scancode, next.mod, next.down);
         if (next.down && held[next.scancode]) {
             lifted[next.scancode] = false; // down again, as typed text's capital puts Shift
         }
@@ -611,6 +667,9 @@ static void release_everything(void) {
         if (held[scancode]) {
             push_key(scancode, 0, false);
         }
+    }
+    if (unicode_held) {
+        push_unicode_key(unicode_held, 0, false);
     }
     memset(session_held, 0, sizeof session_held);
     memset(lifted, 0, sizeof lifted);
@@ -917,8 +976,10 @@ __attribute__((visibility("default"))) intptr_t VR_GetGenericInterface(const cha
 }
 
 __attribute__((constructor)) static void fk_loaded(void) {
-    // Switch files live next to this file: "off" (do nothing) and "unicode-keys" (type non-ASCII as
-    // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam).
+    // Switch files live next to this file: "off" (do nothing), "unicode-keys" (type non-ASCII as
+    // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam) and
+    // "unicode-key-pairs" (a probe: each non-ASCII character as a key press and release of its own;
+    // "unicode-keys" wins when both are there).
     Dl_info info;
     if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
         const char* slash = strrchr(info.dli_fname, '/');
