@@ -392,6 +392,18 @@ int main(int argc, char** argv) {
                 shot(bars, "shortcut-editor");
                 popups(bars, "");
                 macro_view(bars, "");
+                // The questions: leaving with a change, and deleting a profile
+                // that has buttons.
+                click(bars, "shortcuts-new-profile");
+                click(bars, "shortcuts-popup-done"); // its name, as offered
+                click(bars, "shortcuts-back");
+                shot(bars, "shortcut-editor-leave-question");
+                click(bars, "confirm-cancel"); // Discard: leaves unsaved
+                open_editor(bars);
+                click(bars, "shortcuts-row-0");
+                click(bars, "shortcuts-delete");
+                shot(bars, "shortcut-editor-delete-question");
+                click(bars, "confirm-cancel");
                 click(bars, "shortcuts-back");
                 // The Desktop app the terminal profile is assigned to: its
                 // profile shows, its assign button lit in the menu; Used for

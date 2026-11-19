@@ -4244,16 +4244,24 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             interface_label(cr, c.label,
                             {c.bounds.x + 48, c.bounds.y, c.bounds.width - 56, c.bounds.height}, 21,
                             view.interface_font, ink, false, PANGO_ALIGN_LEFT);
-        } else if (c.id == "shortcuts-back" || c.id == "shortcuts-save" || c.id == "shortcuts-record" ||
-                   c.id == "shortcuts-clear") {
+        } else if (c.id == "shortcuts-record") {
+            // The red dot, then the label centered in the room right of it, so
+            // a longer word than Record shrinks there rather than running under
+            // the dot.
+            auto cap = c;
+            cap.label.clear();
+            editor_button(cr, view, cap);
+            cairo_new_path(cr);
+            cairo_arc(cr, c.bounds.x + 30, c.bounds.y + c.bounds.height / 2, 6, 0,
+                      2 * 3.141592653589793);
+            source(cr, c.enabled ? t.error : quiet);
+            cairo_fill(cr);
+            const Color ink = !c.enabled ? disabled_legend(t) : c.selected ? t.latched_legend : t.legend;
+            interface_label(cr, c.label,
+                            {c.bounds.x + 44, c.bounds.y, c.bounds.width - 52, c.bounds.height}, 21,
+                            view.interface_font, ink);
+        } else if (c.id == "shortcuts-back" || c.id == "shortcuts-save" || c.id == "shortcuts-clear") {
             editor_button(cr, view, c);
-            if (c.id == "shortcuts-record") {
-                cairo_new_path(cr);
-                cairo_arc(cr, c.bounds.x + 30, c.bounds.y + c.bounds.height / 2, 6, 0,
-                          2 * 3.141592653589793);
-                source(cr, c.enabled ? t.error : quiet);
-                cairo_fill(cr);
-            }
         }
     }
     if (!e.used_hint.empty()) {

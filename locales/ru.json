@@ -411,7 +411,7 @@
     "shortcuts.editor.starts-command": "Запускает {command}",
     "shortcuts.editor.starts-script": "Запускает {script}.",
     "shortcuts.editor.steps": "Шаги",
-    "shortcuts.editor.strip-hint": "Перетащите, чтобы изменить порядок; бросьте за пределами, чтобы удалить",
+    "shortcuts.editor.strip-hint": "Перетаскивание — порядок, за пределы — удаление",
     "shortcuts.editor.then": ", затем ",
     "shortcuts.editor.times": "Несколько",
     "shortcuts.editor.title": "Изменить сочетания клавиш",

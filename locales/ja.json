@@ -391,7 +391,7 @@
     "shortcuts.editor.script": "スクリプト",
     "shortcuts.editor.script-gone": "{script} はスクリプトフォルダにもうありません。",
     "shortcuts.editor.sends": "押すたびに {keys} を 1 回送ります。",
-    "shortcuts.editor.shortcut": "ショートカット",
+    "shortcuts.editor.shortcut": "キー操作",
     "shortcuts.editor.start": "起動",
     "shortcuts.editor.starts-command": "起動：{command}",
     "shortcuts.editor.starts-script": "{script} を起動します。",

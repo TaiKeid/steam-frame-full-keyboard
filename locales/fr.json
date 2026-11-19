@@ -399,7 +399,7 @@
     "shortcuts.editor.starts-command": "Lance {command}",
     "shortcuts.editor.starts-script": "Lance {script}.",
     "shortcuts.editor.steps": "Étapes",
-    "shortcuts.editor.strip-hint": "Glissez pour réordonner, déposez hors de la bande pour supprimer",
+    "shortcuts.editor.strip-hint": "Glissez pour trier, déposez dehors pour supprimer",
     "shortcuts.editor.then": ", puis ",
     "shortcuts.editor.times": "Plusieurs",
     "shortcuts.editor.title": "Modifier les raccourcis",
