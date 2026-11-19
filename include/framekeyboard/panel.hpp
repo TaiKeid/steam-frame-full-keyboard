@@ -793,6 +793,13 @@ Rect candidate_list_area(const PanelView& view);
 // layout's own height for a view without either. The emoji picker opens at
 // it, in the same case.
 double unbanded_layout_height(const PanelView& view);
+// How much taller, in layout units, a layout may grow under the normal
+// toolbar so that its keys keep the pixels `view` gives them under the
+// band's taller toolbar (or its room kept), at the same scale. Dictation
+// mode grows by it and no more: unbanded_layout_height would also take in
+// the case's sub-pixel slack and move the keys off the normal layout's
+// whole pixels.
+double band_toolbar_room(const PanelView& view);
 // A candidate's label width, as the band draws it.
 double candidate_text_width(const std::string& text, const std::string& family);
 // A label's text width at `size`, as interface labels draw it; for laying

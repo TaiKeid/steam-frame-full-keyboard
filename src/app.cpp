@@ -7593,8 +7593,8 @@ void App::refresh_dictation_layout() {
     PanelView banded = main;
     banded.ime_band = japanese() || cjk_;
     banded.ime_room = !banded.ime_band;
-    dictation_layout_ = dictation_layout(*main.layout, visible_layout_width(main),
-                                         unbanded_layout_height(banded) - main.layout->height);
+    dictation_layout_ =
+        dictation_layout(*main.layout, visible_layout_width(main), band_toolbar_room(banded));
     for (auto& key : dictation_layout_.layout.keys) {
         if (key.id == "Dictation-send") {
             key.label = tr("dictation.send-key");

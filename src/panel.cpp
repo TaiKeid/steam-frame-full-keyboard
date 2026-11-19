@@ -196,11 +196,15 @@ constexpr double candidate_font_size = 21, reading_font_size = 24;
 struct Placement {
     double scale, x, y;
 };
+// The toolbar the keys sit under: taller with the Japanese band or its room.
+double keys_toolbar_height(const PanelView& view) {
+    return two_row_band(view)               ? ime_two_row_height
+           : view.ime_band || view.ime_room ? ime_toolbar_height
+                                            : normal_toolbar_height;
+}
 Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
-    const double toolbar_height = two_row_band(view)               ? ime_two_row_height
-                                  : view.ime_band || view.ime_room ? ime_toolbar_height
-                                                                   : normal_toolbar_height;
+    const double toolbar_height = keys_toolbar_height(view);
     // A page keeping the reading line's room lays its keys out as the
     // line's page does, the second toolbar row in the line's place.
     const double height = case_height(view);
@@ -2356,6 +2360,17 @@ double unbanded_layout_height(const PanelView& view) {
     const double room =
         case_height(view) - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
     return std::max(view.layout->height, room / placement(view).scale);
+}
+double band_toolbar_room(const PanelView& view) {
+    // Under the normal toolbar, a layout this much taller is centered as
+    // `view` centers its own, with its keys as far down: what the case
+    // leaves beyond that (reading_case_room's whole pixels) stays split
+    // above and below them, as it is in `view`.
+    // The taller layout's height in one sum, less the layout's own (an exact
+    // difference): its keys' scale then comes out as `view`'s to the last
+    // bit, so the case and the toolbar laid out from it stay put too.
+    const double scale = placement(view).scale, height = view.layout->height;
+    return (height * scale + keys_toolbar_height(view) - normal_toolbar_height) / scale - height;
 }
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
     const double margin = theme.padding;
