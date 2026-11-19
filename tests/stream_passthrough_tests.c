@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 enum {
@@ -153,6 +154,25 @@ static void switch_file(const char* name, bool present) {
         }
     } else {
         unlink(in_directory(name));
+    }
+}
+
+// The library's clock: the monotonic clock moved on by `clock_ahead_ms`, so a gap ends when the test
+// says. Exported, as the SDL functions are, for the library to look up; nothing of the library's.
+static uint64_t clock_ahead_ms;
+__attribute__((visibility("default"))) uint64_t framekeyboard_stream_test_clock_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000) + clock_ahead_ms;
+}
+
+// A switch file with this content.
+static void switch_content(const char* name, const char* content) {
+    FILE* file = fopen(in_directory(name), "w");
+    check(file != NULL, "switch file written");
+    if (file) {
+        fputs(content, file);
+        fclose(file);
     }
 }
 
@@ -826,9 +846,110 @@ int main(int argc, char** argv) {
         idle_pump();
     }
 
+    // R369 probe: with "text-per-character", each non-ASCII character of a run is its own text, in
+    // order, ASCII taps where they stand, and the next step waits the file's milliseconds after each.
+    {
+        keyboard = accept_keyboard(server);
+        check(keyboard >= 0, "library reconnected for texts per character");
+        unsigned char reply[8];
+        send(keyboard, "Q", 1, MSG_NOSIGNAL);
+        idle_pump();
+        check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y',
+              "answers asked for");
+        const char word[] = "Ta\xd0\x91\xd0\xb1\xd0\xb2!"; // a, three Cyrillic letters, exclamation mark
+        // Without the switch: one text for the run, as before.
+        pushed_count = 0;
+        check(send(keyboard, word, sizeof word - 1, 0) == (ssize_t)sizeof word - 1, "a word sent");
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 7 && is_key(0, 4, 0, 1) && is_text(2, "\xd0\x91\xd0\xb1\xd0\xb2") &&
+                  is_key(3, 225, 1, 1),
+              "without the switch the run is one text");
+        check(answered(keyboard, 'S', 0) && answered(keyboard, 'A', 0), "answered");
+        // With it, no gap: three texts, one a pump, in order, the taps where they stand.
+        switch_content("text-per-character", "0\n");
+        pushed_count = 0;
+        check(send(keyboard, word, sizeof word - 1, 0) == (ssize_t)sizeof word - 1, "the word again");
+        idle_pump();
+        check(pushed_count == 2 && is_key(0, 4, 0, 1) && is_key(1, 4, 0, 0), "the tap first");
+        idle_pump();
+        check(pushed_count == 3 && is_text(2, "\xd0\x91") && answered(keyboard, 'S', 1),
+              "the first character alone, the commit started");
+        idle_pump();
+        idle_pump();
+        check(pushed_count == 5 && is_text(3, "\xd0\xb1") && is_text(4, "\xd0\xb2"),
+              "then each of the others");
+        idle_pump();
+        idle_pump();
+        check(pushed_count == 9 && is_key(5, 225, 1, 1) && answered(keyboard, 'A', 1),
+              "then the tap after it");
+        // A gap: the next step waits that long after each character, and not much longer.
+        switch_content("text-per-character", "100");
+        pushed_count = 0;
+        check(send(keyboard, "T\xd0\x91\xd0\xb1", 5, 0) == 5, "two characters with a gap");
+        idle_pump();
+        check(pushed_count == 1 && is_text(0, "\xd0\x91"), "the first");
+        clock_ahead_ms += 80;
+        idle_pump();
+        check(pushed_count == 1, "the second waits for the gap");
+        clock_ahead_ms += 30;
+        idle_pump();
+        check(pushed_count == 2 && is_text(1, "\xd0\xb1"), "then goes");
+        clock_ahead_ms += 300;
+        idle_pump();
+        answered(keyboard, 'S', 2);
+        answered(keyboard, 'A', 2);
+        // The number: empty or not a number is 60, more than 250 is 250, spaces around it are fine.
+        const struct {
+            const char* content;
+            unsigned waits;
+        } numbers[] = {{"", 60},      {"abc", 60}, {"12x", 60}, {"500", 250}, {"99999999999999", 250},
+                       {" 30 \n", 30}};
+        for (size_t n = 0; n < sizeof numbers / sizeof numbers[0]; ++n) {
+            switch_content("text-per-character", numbers[n].content);
+            pushed_count = 0;
+            check(send(keyboard, "T\xd0\x91\xd0\xb1", 5, 0) == 5, "two characters");
+            idle_pump();
+            clock_ahead_ms += numbers[n].waits - 15;
+            idle_pump();
+            check(pushed_count == 1, "the gap the file says holds the second back");
+            clock_ahead_ms += 20;
+            idle_pump();
+            check(pushed_count == 2, "until it has passed");
+            clock_ahead_ms += 300;
+            idle_pump();
+            answered(keyboard, 'S', (uint32_t)(3 + n));
+            answered(keyboard, 'A', (uint32_t)(3 + n));
+        }
+        // A whole packet's worth of two-byte characters is taken.
+        switch_content("text-per-character", "0");
+        static char full[2000];
+        full[0] = 'T';
+        for (int i = 1; i + 1 < (int)sizeof full; i += 2) {
+            full[i] = '\xd0';
+            full[i + 1] = '\x91';
+        }
+        pushed_count = 0;
+        check(send(keyboard, full, sizeof full - 1, 0) == (ssize_t)sizeof full - 1, "a full packet");
+        idle_pump();
+        check(pushed_count == 1 && is_text(0, "\xd0\x91") && answered(keyboard, 'S', 9),
+              "a full packet is accepted and starts");
+        // Full Keyboard gone mid-word: the rest goes, nothing comes later.
+        close(keyboard);
+        idle_pump();
+        pushed_count = 0;
+        for (int i = 0; i < 5; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 0, "the rest of the word is dropped with the keyboard");
+        switch_file("text-per-character", false);
+    }
+
     close(server);
-    for (const char** name = (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so",
-                                             "off", "unicode-keys", NULL};
+    for (const char** name =
+             (const char*[]){"framekeyboard-stream.sock", "framekeyboard-stream.so", "off",
+                             "unicode-keys", "unicode-key-pairs", "text-per-character", NULL};
          *name; ++name) {
         unlink(in_directory(*name));
     }

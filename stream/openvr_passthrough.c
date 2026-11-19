@@ -113,7 +113,15 @@ typedef struct {
     // With "unicode-key-pairs": a character's own key event, its code point as the key code and no
     // scancode (R369 probe). 0 for every other step.
     uint32_t unicode;
+    // With "text-per-character": a text typed one code point at a time, each its own text event, the
+    // next step held back `gap_ms` after each (R369 probe). `sent` bytes of it are typed; it stays
+    // first in line until all are.
+    bool per_character;
+    uint16_t sent;
+    uint16_t gap_ms;
 } Queued;
+
+static uint64_t now_ms(void);
 
 static void* overlay_table[kOverlayFunctions];
 static PollFn real_poll;
@@ -138,6 +146,8 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
+// The next step waits until then: the gap after a character typed alone (R369 probe).
+static uint64_t next_step_ms;
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
 // refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
@@ -159,6 +169,45 @@ static bool switch_file(const char* name) {
     return directory[0] != '\0' &&
            snprintf(path, sizeof path, "%s/%s", directory, name) < (int)sizeof path &&
            access(path, F_OK) == 0;
+}
+
+// A switch file's content as a decimal number of milliseconds, clamped to `low`..`high`: `fallback`
+// when it is empty, unreadable or not a number. Spaces and a line break around it are allowed.
+static unsigned switch_milliseconds(const char* name, unsigned fallback, unsigned low, unsigned high) {
+    char path[512];
+    if (directory[0] == '\0' ||
+        snprintf(path, sizeof path, "%s/%s", directory, name) >= (int)sizeof path) {
+        return fallback;
+    }
+    FILE* file = fopen(path, "r");
+    if (!file) {
+        return fallback;
+    }
+    char text[16];
+    const size_t length = fread(text, 1, sizeof text - 1, file);
+    fclose(file);
+    text[length] = '\0';
+    const char* at = text;
+    while (*at == ' ' || *at == '\t') {
+        ++at;
+    }
+    if (*at < '0' || *at > '9') {
+        return fallback;
+    }
+    unsigned long value = 0;
+    while (*at >= '0' && *at <= '9') {
+        value = value * 10 + (unsigned long)(*at++ - '0');
+        if (value > high) {
+            value = high; // and no overflow, however long
+        }
+    }
+    while (*at == ' ' || *at == '\t' || *at == '\r' || *at == '\n') {
+        ++at;
+    }
+    if (*at != '\0') {
+        return fallback;
+    }
+    return value < low ? low : (unsigned)value;
 }
 
 // Whole, well-formed UTF-8 only: a cut or malformed sequence is never typed.
@@ -330,14 +379,17 @@ static void queue_key(unsigned scancode, unsigned mod, bool down, bool typed) {
                                                             .typed = typed};
 }
 
-static bool queue_text(const unsigned char* bytes, size_t length) {
+static bool queue_text(const unsigned char* bytes, size_t length, bool per_character, unsigned gap_ms) {
     char* copy = malloc(length);
     if (!copy) {
         return false;
     }
     memcpy(copy, bytes, length);
-    queue[(queue_head + queue_count++) % kQueue] =
-        (Queued){.text = copy, .length = (uint16_t)length, .typed = true};
+    queue[(queue_head + queue_count++) % kQueue] = (Queued){.text = copy,
+                                                            .length = (uint16_t)length,
+                                                            .typed = true,
+                                                            .per_character = per_character,
+                                                            .gap_ms = (uint16_t)gap_ms};
     return true;
 }
 
@@ -472,6 +524,11 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
     // presses each character as a key of its own (R369).
     const bool unicode_keys = switch_file("unicode-keys");
     const bool key_pairs = !unicode_keys && switch_file("unicode-key-pairs");
+    // "text-per-character" comes after both: each code point of a run its own text, the next step held
+    // back by the file's number of milliseconds (60 when it has none, at most 250). A probe: combining
+    // marks and joiners go apart from their base here; a final shape must decide that (R369).
+    const bool per_character = !unicode_keys && !key_pairs && switch_file("text-per-character");
+    const unsigned gap_ms = per_character ? switch_milliseconds("text-per-character", 60, 0, 250) : 0;
     if (queue_count + typing_entries(bytes, length, unicode_keys, key_pairs) > kQueue) {
         return false;
     }
@@ -510,7 +567,7 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
         while (end < length && bytes[end] >= 0x80) {
             end += sequence_length(bytes[end]);
         }
-        if (!queue_text(bytes + i, end - i)) {
+        if (!queue_text(bytes + i, end - i, per_character, gap_ms)) {
             return false;
         }
         i = end;
@@ -597,9 +654,38 @@ static void consumed(const Queued* step, bool pushed) {
 // Types the next step: one text, or key events up to and including the next release, so a tap lands in
 // one pump and the PC sees typing paced a frame apart.
 static void pump_queue(void) {
+    if (queue_count != 0 && now_ms() < next_step_ms) {
+        return; // the gap after a character of a "text-per-character" text
+    }
     while (queue_count != 0) {
         if (queue[queue_head].text && text_slots_busy()) {
             return; // it stays first in line until SDL's client has taken some texts
+        }
+        if (queue[queue_head].per_character) {
+            // One code point, a 4-byte one too, as its own text; the rest waits for later steps.
+            Queued* head = &queue[queue_head];
+            const size_t step = sequence_length((unsigned char)head->text[head->sent]);
+            const bool pushed = push_text((const unsigned char*)head->text + head->sent, step);
+            head->sent = (uint16_t)(head->sent + step);
+            if (head->gap_ms != 0) {
+                next_step_ms = now_ms() + head->gap_ms;
+            }
+            if (head->sent < head->length) {
+                if (head->typed && !pushed) {
+                    commit_failed = true;
+                }
+                if (head->first) {
+                    send_answer('S', head->commit); // with its first character
+                    head->first = false;
+                }
+                return;
+            }
+            Queued done = *head;
+            queue_head = (queue_head + 1) % kQueue;
+            --queue_count;
+            free(done.text);
+            consumed(&done, pushed);
+            return;
         }
         Queued next = queue[queue_head];
         queue_head = (queue_head + 1) % kQueue;
@@ -673,6 +759,7 @@ static void release_everything(void) {
     }
     memset(session_held, 0, sizeof session_held);
     memset(lifted, 0, sizeof lifted);
+    next_step_ms = 0; // nothing waits for a gap now
     overflowed = false;
     dropped_mods = 0;
 }
@@ -734,7 +821,20 @@ static void end_session(void) {
     }
 }
 
+typedef uint64_t (*ClockFn)(void);
+
 static uint64_t now_ms(void) {
+    // A test program defines this clock and exports it, as it does SDL's functions; the streaming
+    // client has none, and the monotonic clock counts.
+    static ClockFn test_clock;
+    static bool looked_up;
+    if (!looked_up) {
+        looked_up = true;
+        test_clock = (ClockFn)dlsym(RTLD_DEFAULT, "framekeyboard_stream_test_clock_ms");
+    }
+    if (test_clock) {
+        return test_clock();
+    }
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (uint64_t)now.tv_sec * 1000u + (uint64_t)(now.tv_nsec / 1000000);
@@ -979,7 +1079,9 @@ __attribute__((constructor)) static void fk_loaded(void) {
     // Switch files live next to this file: "off" (do nothing), "unicode-keys" (type non-ASCII as
     // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam) and
     // "unicode-key-pairs" (a probe: each non-ASCII character as a key press and release of its own;
-    // "unicode-keys" wins when both are there).
+    // "unicode-keys" wins when both are there) and "text-per-character" (a probe: each non-ASCII
+    // character as its own text, the next step held back by the file's number of milliseconds, 60
+    // without one, at most 250; the two before it win).
     Dl_info info;
     if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
         const char* slash = strrchr(info.dli_fname, '/');
