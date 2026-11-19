@@ -849,20 +849,23 @@ int main(int argc, char** argv) {
         idle_pump();
     }
 
-    // R369: a text waits 150 ms after the last key event pushed, a tap's or the session's; key steps
-    // never wait. "text-after-key" changes the time: 0 is no wait, at most 500, junk is 150.
+    // R369: a text waits until our key events are estimated through (80 ms per key-down, from when it
+    // can start; a key-up from when it is pushed), a tap's or the session's, and 150 ms more; key
+    // steps never wait. "text-after-key" changes the 150: 0 turns the wait off, at most 500, junk is
+    // 150.
     {
         switch_file("text-after-key", false);
         keyboard = accept_keyboard(server);
         check(keyboard >= 0, "library reconnected for the wait after keys");
-        clock_ahead_ms += 1000; // no key event of ours lately
+        // The sections above pushed many keys, each 80 ms on the way in the estimate: well past them.
+        clock_ahead_ms += 3600 * 1000;
         unsigned char reply[8];
         send(keyboard, "Q", 1, MSG_NOSIGNAL);
         idle_pump();
         check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y',
               "answers asked for");
         uint32_t commit = 0;
-        // A tap, then a text in the same commit: the text waits 150 ms after the tap.
+        // A tap, then a text in the same commit: the text waits 80 + 150 ms after the tap.
         const char tap_then_text[] = "T \xd0\x91\xd0\xb1"; // a space, then a word
         pushed_count = 0;
         check(send(keyboard, tap_then_text, sizeof tap_then_text - 1, 0) ==
@@ -872,7 +875,7 @@ int main(int argc, char** argv) {
         check(pushed_count == 2 && is_key(0, 44, 0, 1) && is_key(1, 44, 0, 0) &&
                   answered(keyboard, 'S', commit),
               "the space goes, the commit started");
-        clock_ahead_ms += 140;
+        clock_ahead_ms += 220;
         idle_pump();
         check(pushed_count == 2, "the word waits behind the space");
         clock_ahead_ms += 15;
@@ -903,7 +906,7 @@ int main(int argc, char** argv) {
         check(pushed_count == 3 && is_key(1, 44, 0, 1) && is_key(2, 44, 0, 0), "the tap right after it");
         idle_pump();
         check(pushed_count == 3, "the second text waits");
-        clock_ahead_ms += 155;
+        clock_ahead_ms += 235;
         idle_pump();
         check(pushed_count == 4 && is_text(3, "\xd0\xb1") && answered(keyboard, 'A', commit),
               "then goes");
@@ -918,9 +921,52 @@ int main(int argc, char** argv) {
         check(send(keyboard, "T\xd0\x91", 3, 0) == 3, "a text right after Enter");
         idle_pump();
         check(pushed_count == 0, "waits behind the session's key");
-        clock_ahead_ms += 155;
+        clock_ahead_ms += 235;
         idle_pump();
         check(pushed_count == 1 && is_text(0, "\xd0\x91"), "then goes");
+        answered(keyboard, 'S', commit);
+        answered(keyboard, 'A', commit);
+        ++commit;
+        // Six taps, one a pump, then a text: it waits until all six are through, 6 x 80 ms from the
+        // first, and 150 more; not just 150 after the last tap.
+        clock_ahead_ms += 1000;
+        const char six_taps[] = "Tabcdef\xd0\x91";
+        pushed_count = 0;
+        check(send(keyboard, six_taps, sizeof six_taps - 1, 0) == (ssize_t)sizeof six_taps - 1,
+              "six letters and a word");
+        for (int i = 0; i < 6; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 12, "the six taps, one a pump");
+        clock_ahead_ms += 200; // 150 after the last tap, near enough
+        idle_pump();
+        check(pushed_count == 12, "the text waits longer than 150 after the last tap");
+        clock_ahead_ms += 6 * 80 + 150 - 200 - 10;
+        idle_pump();
+        check(pushed_count == 12, "until all six are through");
+        clock_ahead_ms += 20;
+        idle_pump();
+        check(pushed_count == 13 && is_text(12, "\xd0\x91"), "and 150 more");
+        answered(keyboard, 'S', commit);
+        answered(keyboard, 'A', commit);
+        ++commit;
+        // A key held down long: the text waits only 150 after its release.
+        clock_ahead_ms += 1000;
+        const unsigned char shift_down[6] = {'K', 225, 0, 0, 0, 1}, shift_up[6] = {'K', 225, 0, 2, 0, 0};
+        send(keyboard, shift_down, sizeof shift_down, MSG_NOSIGNAL);
+        idle_pump();
+        clock_ahead_ms += 500;
+        send(keyboard, shift_up, sizeof shift_up, MSG_NOSIGNAL);
+        idle_pump();
+        pushed_count = 0;
+        check(send(keyboard, "T\xd0\x91", 3, 0) == 3, "a text after a long press");
+        idle_pump();
+        clock_ahead_ms += 140;
+        idle_pump();
+        check(pushed_count == 0, "waits 150 after the release");
+        clock_ahead_ms += 20;
+        idle_pump();
+        check(pushed_count == 1 && is_text(0, "\xd0\x91"), "and no longer");
         answered(keyboard, 'S', commit);
         answered(keyboard, 'A', commit);
         ++commit;
@@ -928,7 +974,8 @@ int main(int argc, char** argv) {
         const struct {
             const char* content;
             unsigned waits;
-        } numbers[] = {{"0", 0}, {"80", 80}, {"junk", 150}, {"", 150}, {"900", 500}, {" 40\n", 40}};
+        } numbers[] = {{"0", 0},       {"80", 80 + 80},   {"junk", 80 + 150},
+                       {"", 80 + 150}, {"900", 80 + 500}, {" 40\n", 80 + 40}}; // after the space's down
         for (size_t n = 0; n < sizeof numbers / sizeof numbers[0]; ++n) {
             switch_content("text-after-key", numbers[n].content);
             clock_ahead_ms += 1000;
@@ -968,7 +1015,7 @@ int main(int argc, char** argv) {
         send(keyboard, withdraw, sizeof withdraw, MSG_NOSIGNAL);
         idle_pump();
         check(answered(keyboard, 'D', second), "the commit not started is withdrawn");
-        clock_ahead_ms += 200;
+        clock_ahead_ms += 300;
         idle_pump();
         check(pushed_count == 3 && is_text(2, "\xd0\x91\xd0\xb1") && answered(keyboard, 'A', commit),
               "the waiting text of the started commit still goes");

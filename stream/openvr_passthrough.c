@@ -17,9 +17,11 @@
 // private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
 // other keyboard keep their stock behaviour.
 //
-// A text never follows a key event of ours closely (R369): on the way to a Windows PC a key-up can be
-// held back some 60 ms, and a text that arrives behind it there comes with mouse-button presses that
-// lock the PC's clicking. So a text waits 150 ms after the last key event pushed ("text-after-key").
+// A text never follows key events of ours closely (R369): on the way to a Windows PC each key is held
+// some 62 ms (46 to 117, n=51 in a capture), the next one's down coming out with the previous one's up,
+// so taps pushed a frame apart arrive a key at a time; a text that arrives behind keys still on the way
+// comes with mouse-button presses that lock the PC's clicking. So a text waits until our keys are
+// estimated through, kKeyOnTheWayMs per key-down, and 150 ms more ("text-after-key").
 //
 // Nothing here stores or logs what is typed.
 #define _GNU_SOURCE
@@ -70,6 +72,10 @@ enum {
     kModLeftShift = 0x0001,  // SDL_KMOD_LSHIFT
     kModLeftCtrl = 0x0040,   // SDL_KMOD_LCTRL
     kProtocol = 1,
+    // How long a key-down of ours holds the way to a Windows PC (R369). In a capture each key was held
+    // 46 to 117 ms on the way (median 62, n=51), the next key's down coming out with the previous
+    // one's up; 80 keeps most of them covered.
+    kKeyOnTheWayMs = 80,
 };
 
 typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
@@ -117,7 +123,7 @@ typedef struct {
     // With "unicode-key-pairs": a character's own key event, its code point as the key code and no
     // scancode (R369 probe). 0 for every other step.
     uint32_t unicode;
-    // A text: how long after the last key event pushed it waits (R369), read when its commit came.
+    // A text: how long it waits after our keys are through (R369), read when its commit came; 0: none.
     uint16_t after_key_ms;
 } Queued;
 
@@ -146,10 +152,10 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
-// When a key event was last pushed to SDL, down or up, typed or the session's: a text waits for a
-// while after it (R369). None yet: nothing waits.
-static uint64_t last_key_ms;
-static bool key_pushed;
+// When our key events are estimated to be through to the PC (R369): each key-down pushed holds the way
+// kKeyOnTheWayMs from when it can start, a key-up only from when it was pushed. A text waits until
+// then and its after_key_ms more.
+static uint64_t keys_through_ms;
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
 // refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
@@ -322,6 +328,17 @@ static uint32_t keycode_for(unsigned scancode) {
     return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
+// A key event pushed: when our keys are through to the PC, as estimated (keys_through_ms).
+static void key_pushed_at(bool down) {
+    const uint64_t now = now_ms();
+    if (keys_through_ms < now) {
+        keys_through_ms = now;
+    }
+    if (down) {
+        keys_through_ms += kKeyOnTheWayMs;
+    }
+}
+
 // A key counts as down or up only once SDL has taken the event: a release it refuses is tried again at
 // the next clean-up (R249).
 static bool push_key(unsigned scancode, unsigned mod, bool down) {
@@ -340,8 +357,7 @@ static bool push_key(unsigned scancode, unsigned mod, bool down) {
         return false;
     }
     held[scancode] = down;
-    last_key_ms = now_ms();
-    key_pushed = true;
+    key_pushed_at(down);
     return true;
 }
 
@@ -368,8 +384,7 @@ static bool push_unicode_key(uint32_t code, unsigned mod, bool down) {
         return false;
     }
     unicode_held = down ? code : 0;
-    last_key_ms = now_ms();
-    key_pushed = true;
+    key_pushed_at(down);
     return true;
 }
 
@@ -527,8 +542,8 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
     // presses each character as a key of its own (R369).
     const bool unicode_keys = switch_file("unicode-keys");
     const bool key_pairs = !unicode_keys && switch_file("unicode-key-pairs");
-    // How long a text waits after the last key event pushed: 150 ms, or "text-after-key"'s number,
-    // 0 (no wait, as before) to 500 (R369).
+    // How long a text waits after our keys are through: 150 ms, or "text-after-key"'s number, 0 (no
+    // wait at all, as before) to 500 (R369).
     const unsigned after_key_ms = switch_milliseconds("text-after-key", 150, 0, 500);
     if (queue_count + typing_entries(bytes, length, unicode_keys, key_pairs) > kQueue) {
         return false;
@@ -659,9 +674,9 @@ static void pump_queue(void) {
         if (queue[queue_head].text && text_slots_busy()) {
             return; // it stays first in line until SDL's client has taken some texts
         }
-        if (queue[queue_head].text && key_pushed &&
-            now_ms() < last_key_ms + queue[queue_head].after_key_ms) {
-            return; // it stays first in line until a key event of ours can no longer be on the way
+        if (queue[queue_head].text && queue[queue_head].after_key_ms != 0 &&
+            now_ms() < keys_through_ms + queue[queue_head].after_key_ms) {
+            return; // it stays first in line until our keys are through, and a while more
         }
         Queued next = queue[queue_head];
         queue_head = (queue_head + 1) % kQueue;
@@ -1055,7 +1070,7 @@ __attribute__((constructor)) static void fk_loaded(void) {
     // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam) and
     // "unicode-key-pairs" (a probe: each non-ASCII character as a key press and release of its own;
     // "unicode-keys" wins when both are there) and "text-after-key" (how many milliseconds a text
-    // waits after a key event of ours, 0 to 500, instead of 150).
+    // waits after our keys are through, 0 to 500, instead of 150; 0 turns the wait off).
     Dl_info info;
     if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
         const char* slash = strrchr(info.dli_fname, '/');
