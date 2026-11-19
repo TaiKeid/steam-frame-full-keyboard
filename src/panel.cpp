@@ -2353,14 +2353,6 @@ std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& 
     }
     return damage;
 }
-double unbanded_layout_height(const PanelView& view) {
-    if (!view.ime_band && !view.ime_room) {
-        return view.layout->height;
-    }
-    const double room =
-        case_height(view) - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
-    return std::max(view.layout->height, room / placement(view).scale);
-}
 double band_toolbar_room(const PanelView& view) {
     // Under the normal toolbar, a layout this much taller is centered as
     // `view` centers its own, with its keys as far down: what the case

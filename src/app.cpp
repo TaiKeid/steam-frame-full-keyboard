@@ -7273,8 +7273,10 @@ void App::open_emoji() {
     const auto main = geometry();
     emoji_width_ = visible_layout_width(main);
     // Over the Japanese band it opens in the same case, at the same scale,
-    // taking the band's room for its grid.
-    emoji_layout_ = emoji_layout(*main.layout, emoji_width_, unbanded_layout_height(main));
+    // taking the band's room for its grid; the keys it keeps stay on their
+    // pixels (R374).
+    emoji_layout_ =
+        emoji_layout(*main.layout, emoji_width_, main.layout->height + band_toolbar_room(main));
     ++layouts_rebuilt_;
     emoji_open_ = true;
     const auto picker = geometry();
