@@ -239,6 +239,33 @@ struct Headset {
     }
 };
 
+// R370: SteamVR's laser mode is held for the whole stream typing session,
+// whatever happens meanwhile, and only then; elsewhere it is on only while a
+// passthrough ray points at a floating window.
+void the_stream_sink_holds_the_laser() {
+    using L = StreamLaser;
+    require(L::sink(true, true, true) && !L::sink(false, true, true) && !L::sink(true, false, true) &&
+                !L::sink(true, true, false),
+            "the sink: passthrough, a stream's request, active");
+    // Sink on: held, with or without a ray at a window.
+    require(L::window_laser(true, false, true, true, false), "held while typing into a stream");
+    // A drag by the handle or by grip, a resize, a bend or a swipe off the
+    // panel: the ray is on the keyboard or nowhere, not at a window.
+    require(L::window_laser(true, false, true, true, false), "held through a drag inside the sink");
+    require(L::window_laser(true, false, true, false, false), "held while the panel is hidden");
+    require(L::window_laser(true, false, true, true, true), "held while the headset is blocked");
+    // The dashboard opening ends the sink (no passthrough): its own laser.
+    require(!L::window_laser(L::sink(false, true, true), false, false, true, false),
+            "the dashboard opening ends the hold");
+    // Sink off: only while pointing at a window, with the panel shown and
+    // the headset worn, as before.
+    require(!L::window_laser(false, false, true, true, false), "no stream, not pointing: off");
+    require(L::window_laser(false, true, true, true, false), "no stream, pointing at a window: on");
+    require(!L::window_laser(false, true, true, false, false) &&
+                !L::window_laser(false, true, true, true, true) &&
+                !L::window_laser(false, true, false, true, false),
+            "no stream: off when hidden, blocked or in the dashboard");
+}
 void targets_keep_their_own_keys() {
     for (const auto [old_local, new_local] :
          {std::pair{true, false}, {false, true}, {true, true}, {false, false}}) {
@@ -1640,6 +1667,7 @@ void watchdog_fallback_is_request_scoped() {
 int main() {
     try {
         overlay_watchdog_slows_in_standby();
+        the_stream_sink_holds_the_laser();
         targets_keep_their_own_keys();
         late_work_cannot_cross_targets();
         same_target_changes_keep_accepted_text();

@@ -1255,28 +1255,32 @@ class SceneCursors {
     }
     std::array<Dot, 2> dots_{};
 };
-// SteamVR's own laser outside the dashboard, only while a passthrough ray
-// points at a floating window, so a trigger pull there is a real click on
-// Gamescope's overlay and focuses that window. Our own ray cannot click
-// another app's overlay. SteamVR turns its system-wide laser mode on while any visible
-// overlay with mouse input has MakeOverlaysInteractiveIfVisible, as Steam's
-// keyboard over games does; this overlay carries that flag, a transparent
-// speck far below the floor, so the laser never lands on our keyboard.
+// SteamVR's own laser outside the dashboard: while a passthrough ray points
+// at a floating window, so a trigger pull there is a real click on
+// Gamescope's overlay and focuses that window (our own ray cannot click
+// another app's overlay), and for the whole of typing into a stream (R370),
+// so a trigger pull on a key never reaches the PC as a gamepad's click.
+// SteamVR turns its system-wide laser mode on while any visible overlay with
+// mouse input has MakeOverlaysInteractiveIfVisible, as Steam's keyboard over
+// games does; this overlay carries that flag, a transparent speck far below
+// the floor, so the laser never lands on it. StreamLaser::window_laser
+// decides when it shows.
 class WindowLaser {
   public:
-    // Kept on briefly after the ray leaves, so the laser does not flicker at
-    // a window's edge or vanish just before a pull.
-    void update(bool pointing, double now) {
-        if (pointing) {
+    // Whether a ray points at a floating window: kept true briefly after the
+    // ray leaves, so the laser does not flicker at a window's edge or vanish
+    // just before a pull.
+    bool pointing(bool at_window, double now) {
+        if (at_window) {
             until_ = now + .3;
         }
-        set(pointing || now < until_);
+        return at_window || now < until_;
     }
+    void forget_pointing() { until_ = 0; }
+    void show(bool shown) { set(shown); }
     bool on() const { return on_; }
-    void off() {
-        until_ = 0;
-        set(false);
-    }
+    // False once the overlay could not be made: nothing can hold the laser.
+    bool available() const { return !failed_; }
 
   private:
     void set(bool on) {
@@ -2158,6 +2162,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     CornerResizers resizers;
     CurveBarController bars;
     bool native_input_failed = false;
+    // The panel's SteamVR mouse input as last applied (R370's log lines).
+    bool native_mouse = false;
     auto set_native_input = [&](bool enabled, bool force = false) {
         const bool panel_ready = panel.set_native_input(enabled, force);
         const bool corners_ready = resizers.set_native_input(enabled, force);
@@ -2169,6 +2175,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else {
             native_input_failed = false;
         }
+        native_mouse = enabled && panel_ready;
     };
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false}, replacement_worn{true};
@@ -2295,6 +2302,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
     WindowLaser window_laser;
+    // A passthrough ray at a floating window, with its linger (WindowLaser).
+    bool window_pointing = false;
+    // SteamVR's laser mode held for the stream sink, as last logged (R370).
+    bool laser_held = false;
+    // Whether the sink's line about the panel's input has been logged for the
+    // input's state (native_mouse).
+    std::optional<bool> sink_input_logged;
     // Gamescope's keyboard focus while the panel shows in the dashboard.
     std::unique_ptr<KeyboardFocusProbe> focus_probe;
     DashboardFocus dashboard_focus;
@@ -3774,12 +3788,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // the PC. While it types into a stream the panel takes the laser too,
         // as Steam's keyboard does; its events stay unused, since the loop
         // below skips them while the keyboard's own pointer has the input.
-        if (const bool sink = scene_input && native.stream && native.active; sink != stream_sink) {
+        if (const bool sink = StreamLaser::sink(scene_input, native.stream, native.active);
+            sink != stream_sink) {
             stream_sink = sink;
-            std::cout << (sink ? "Panel takes SteamVR's laser while typing into a stream.\n"
-                               : "Panel leaves SteamVR's laser.\n")
-                      << std::flush;
             update_native_input(true);
+            if (sink) {
+                // SteamVR's laser mode is held from this frame on (R370).
+                window_laser.show(true);
+            } else {
+                std::cout << "Panel leaves SteamVR's laser.\n" << std::flush;
+            }
+            sink_input_logged.reset();
         }
         // Disable after this frame's dashboard/scene/forwarded mode is known.
         // Only fresh presentation below may re-enable the SDK mouse path.
@@ -4353,7 +4372,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     }
                 }
             }
-            window_laser.update(on_window, now);
+            window_pointing = window_laser.pointing(on_window, now);
             // A trigger pulled outside the panel may click another field or cursor
             // position in the app, even with a hand that never pointed at the
             // keyboard. Treat it as the laser leaving, before any key from this
@@ -4500,7 +4519,36 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         if (headset_input.blocked() || !(scene_input && lifecycle.visible()) || done || app.quitting()) {
-            window_laser.off(); // Passthrough only; the dashboard has its own laser.
+            // Pointing at a window counts in passthrough only; the dashboard has
+            // its own laser. A stream sink's hold stays (R370).
+            window_laser.forget_pointing();
+            window_pointing = false;
+        }
+        {
+            const bool ending = done || app.quitting();
+            const bool held = stream_sink && !ending;
+            window_laser.show(!ending &&
+                              StreamLaser::window_laser(stream_sink, window_pointing, scene_input,
+                                                        lifecycle.visible(), headset_input.blocked()));
+            if (held != laser_held) {
+                laser_held = held;
+                std::cout << (!held ? "SteamVR's laser mode no longer held for a stream.\n"
+                              : window_laser.available()
+                                  ? "SteamVR's laser mode held for the stream.\n"
+                                  : "SteamVR's laser mode can't be held for the stream: "
+                                    "no window laser.\n")
+                          << std::flush;
+            }
+            // Whether the panel has SteamVR's laser during the sink, written
+            // once each way, after its input method was applied.
+            if (stream_sink && sink_input_logged != native_mouse) {
+                sink_input_logged = native_mouse;
+                std::cout << (native_mouse
+                                  ? "Panel takes SteamVR's laser while typing into a stream.\n"
+                                  : "Panel doesn't take SteamVR's laser yet: hidden, headset off "
+                                    "or input not applied.\n")
+                          << std::flush;
+            }
         }
         if (done || app.quitting()) {
             break;

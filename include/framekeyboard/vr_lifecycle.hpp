@@ -52,6 +52,28 @@ class HeadsetInputGuard {
     bool worn_, blocked_, resumed_{};
 };
 
+// SteamVR's system-wide laser mode outside the dashboard (R370). It is on only
+// while a visible overlay with mouse input asks for it; while it is off, the
+// controllers are a gamepad for a stream from a PC, and the PC's desktop layout
+// turns a trigger pull into a mouse click there. The keyboard's window-laser
+// overlay asks for it.
+struct StreamLaser {
+    // Typing into a stream with the keyboard's own pointer: the panel takes
+    // SteamVR's laser too, so a key press is never also the stream's click.
+    static bool sink(bool scene_input, bool stream_request, bool request_active) {
+        return scene_input && stream_request && request_active;
+    }
+    // Whether the window-laser overlay shows: for the sink's whole duration,
+    // whatever else happens meanwhile (a drag, a resize, a bend, a swipe off the
+    // panel, a hand that stops pointing, the panel hidden, the headset blocked);
+    // otherwise only while a passthrough ray points at a floating window, with
+    // the panel showing, the headset worn and the dashboard closed.
+    static bool window_laser(bool sink, bool pointing_window, bool scene_input, bool visible,
+                             bool blocked) {
+        return sink || (pointing_window && scene_input && visible && !blocked);
+    }
+};
+
 // App-side cancellation must be mirrored by the runtime overlay's mouse gate.
 // Each overlay handle owns a cache; a failed runtime update is never remembered
 // as applied, and wake can explicitly reapply None after runtime recovery.
