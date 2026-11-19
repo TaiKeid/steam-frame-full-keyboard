@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <utility>
 #include <vector>
 #include <xkbcommon/xkbcommon.h>
@@ -101,6 +102,12 @@ class ShortcutRunner {
     // Advances the run. True when it ended in this call, for a redraw.
     bool tick(double now);
     bool running() const { return active_; }
+    // R372: how far a run planned to take longer than long_run_seconds has come, 0 to 1: over the
+    // whole run for Once and for a count, over the pass under way for While held. From the run's real
+    // position (passes and steps done, time into the current wait), so it never runs ahead of a slow
+    // delivery and never goes back within a sweep. None for a shorter run or none running.
+    std::optional<double> progress(double now) const;
+    static constexpr double long_run_seconds = .5;
     End end() const { return end_; }
     // Probe only (shortcut-target-probe): the gap between combinations for
     // this runner. The keyboard always keeps shortcut_key_gap.

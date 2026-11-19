@@ -594,6 +594,70 @@ void macros() {
                 "an activation in the Desktop during a wait ends the run");
     }
 }
+// R372: a run planned past half a second shows how far it has come: over the whole run for Once and
+// a count, over each pass for While held; never ahead of delivery, never back, full at the end.
+void progress() {
+    {
+        // 0.4 s planned: no progress shown.
+        Rig rig;
+        rig.runner.start(macro({wait_of(400), keys_of({{{}, "KeyA"}})}), 0);
+        rig.tick(.1);
+        require(!rig.runner.progress(.1), "a run of 0.5 s or less shows none");
+    }
+    {
+        // Once: a wait of 0.3 s, a key, a wait of 0.3 s: planned 0.63 s.
+        Rig rig;
+        rig.runner.start(macro({wait_of(300), keys_of({{{}, "KeyA"}}), wait_of(300)}), 0);
+        double last = -1;
+        bool rising = true;
+        for (double now = .005; rig.runner.running() && now < 1; now += .005) {
+            rig.tick(now);
+            if (const auto p = rig.runner.progress(now)) {
+                rising = rising && *p >= last;
+                last = *p;
+            }
+        }
+        require(rising && last > .95, "it rises with the run and is full at its end");
+        require(!rig.runner.progress(1), "and goes with it");
+    }
+    {
+        // A slow delivery: the key waits for its acknowledgement, and the progress waits with it.
+        Rig rig;
+        rig.sink.slow = true;
+        rig.runner.start(macro({keys_of({{{}, "KeyA"}}), wait_of(600)}), 0);
+        rig.tick(.005);
+        const auto before = rig.runner.progress(.5);
+        require(before && *before == 0, "nothing done while the first key is not delivered");
+        rig.acknowledge(.5);
+        rig.tick(.8);
+        const auto after = rig.runner.progress(.8);
+        require(after && *after > 0 && *after < 1, "then it runs on from the delivery");
+    }
+    {
+        // Times 3 of 0.2 s a pass: planned 0.6 s, one sweep for the whole run.
+        Rig rig;
+        rig.runner.start(macro({wait_of(200)}, {MacroRepeat::Mode::Times, 3}), 0);
+        rig.tick(.25);
+        const auto first = rig.runner.progress(.25);
+        rig.tick(.45);
+        const auto second = rig.runner.progress(.45);
+        require(first && second && *first > .3 && *first < .5 && *second > *first && *second < .8,
+                "a count's passes make one sweep");
+    }
+    {
+        // While held, 0.6 s a pass: a sweep each pass, back to the start for the next.
+        Rig rig;
+        rig.runner.start(macro({wait_of(600)}, {MacroRepeat::Mode::WhileHeld, 0}), 0);
+        rig.runner.hold();
+        rig.tick(.5);
+        const auto late = rig.runner.progress(.5);
+        rig.tick(.7);
+        const auto next = rig.runner.progress(.7);
+        require(late && next && *late > .7 && *next < .3, "While held sweeps once a pass");
+        rig.runner.release();
+        run_out(rig, .7, 2);
+    }
+}
 int main() {
     try {
         order_and_spacing();
@@ -602,6 +666,7 @@ int main() {
         whole_or_refused();
         letters();
         stops();
+        progress();
         std::cout << "Shortcut runner order, spacing, refusal, letters and stops passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

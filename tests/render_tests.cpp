@@ -1553,6 +1553,28 @@ void shortcut_bar(const char* theme_id, double opacity) {
     }
     view.shortcut_bar = bar({});
     compare.frame(view, phase("the menu closes").c_str());
+    // R372: a long run's stroke around its button's border repaints only the bar, as a full repaint
+    // draws it, and moves on as the run does.
+    {
+        auto running = bar({});
+        running.buttons[1].running = true;
+        view.shortcut_bar = running;
+        compare.frame(view, phase("a running button").c_str());
+        const auto before = compare.incremental.rgba();
+        for (const int px : {40, 41, 200}) {
+            running.buttons[1].progress_px = px;
+            view.shortcut_bar = running;
+            compare.frame(view, phase("a long run's progress").c_str());
+            if (!within(compare.incremental.damage(), g.plate)) {
+                throw std::runtime_error(phase("a long run's progress repaints only the bar"));
+            }
+        }
+        if (compare.incremental.rgba() == before) {
+            throw std::runtime_error(phase("a long run's progress is drawn"));
+        }
+        view.shortcut_bar = bar({});
+        compare.frame(view, phase("the run ends").c_str());
+    }
     // The picker's tooltip and a message stand above the bar.
     view.bar_tooltip = "Choose a profile";
     view.bar_tooltip_at = g.picker;

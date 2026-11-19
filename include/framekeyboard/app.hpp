@@ -1822,6 +1822,8 @@ class App {
         std::size_t button{};
     };
     std::optional<ShortcutRun> shortcut_run_;
+    // Its progress in whole pixels of its button's border (R372), -1 for none.
+    int run_progress_px_ = -1;
     // The focus last given to profile_choice_: Gamescope's window and its
     // app's identity. A change of either is a change of focus, which stops
     // a run too; the identity is kept only while that app has the keys.

@@ -4823,6 +4823,33 @@ void bar_presses_and_holds() {
     run_to(now + 2);
     require(count(KEY_A) == 2 && !app.view().shortcut_bar->buttons[0].running,
             "a Times button pressed again only stops its run");
+
+    // R372: a long run's stroke around its button grows with it, in whole pixels of the
+    // border; a tick that leaves its end where it was repaints nothing for it.
+    press(thrice_button);
+    release(thrice_button);
+    const double border = bar_border_pixels(thrice_button);
+    int last = -1, moves = 0;
+    bool still = false;
+    for (const double end = now + 3; now < end; now += .002) {
+        app.dirty = false;
+        app.tick(now);
+        const auto shown = app.view().shortcut_bar->buttons[0];
+        if (!shown.running) {
+            require(shown.progress_px == -1, "the stroke goes with the run");
+            break;
+        }
+        require(shown.progress_px >= last && shown.progress_px <= border, "the stroke only grows");
+        if (shown.progress_px != last) {
+            require(app.dirty, "a stroke that moves repaints");
+            ++moves;
+        } else {
+            still = still || !app.dirty;
+        }
+        last = shown.progress_px;
+    }
+    require(count(KEY_A) == 5 && moves > 100 && last >= .95 * border && still,
+            "the stroke goes round as the run does, nearly closed as it ends");
 }
 // R337: a lifted Wait row carries its time, − and + and ✕ with it.
 void lifted_step_moves_whole() {

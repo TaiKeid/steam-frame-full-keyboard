@@ -186,6 +186,7 @@ void App::append_shortcut_bar(PanelView& v) const {
         shown.pressed = pressed(target);
         shown.running = shortcut_run_ && shortcut_runner_.running() &&
                         shortcut_run_->profile == bar->id && shortcut_run_->button == i;
+        shown.progress_px = shown.running ? run_progress_px_ : -1;
         view.buttons.push_back(std::move(shown));
     }
     view.more_before = scroll > .5;
@@ -569,6 +570,20 @@ void App::tick_shortcut_bar(double now) {
     }
     if (shortcut_runner_.tick(now)) {
         dirty = true; // Its button goes dark.
+    }
+    // A long run's progress, in whole pixels of its button's border: a redraw only when the stroke's
+    // end moves by one (R372).
+    int progress_px = -1;
+    if (const auto* bar = shown_profile(); bar && shortcut_run_ && shortcut_runner_.running()) {
+        if (const auto progress = shortcut_runner_.progress(now)) {
+            const auto g = bar_geometry(bar->buttons.size());
+            progress_px =
+                static_cast<int>(*progress * bar_border_pixels({0, 0, g.button_width, g.button_height}));
+        }
+    }
+    if (progress_px != run_progress_px_) {
+        run_progress_px_ = progress_px;
+        dirty = true;
     }
     if (shortcut_run_ && !shortcut_runner_.running()) {
         shortcut_run_.reset();

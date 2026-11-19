@@ -1,6 +1,8 @@
 #include "framekeyboard/shortcut_runner.hpp"
+
 #include "framekeyboard/input.hpp"
 #include "framekeyboard/output.hpp"
+#include <algorithm>
 
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -239,5 +241,34 @@ bool ShortcutRunner::advance(double now) {
 }
 bool ShortcutRunner::tick(double now) {
     return active_ && advance(now);
+}
+std::optional<double> ShortcutRunner::progress(double now) const {
+    if (!active_ || steps_.empty()) {
+        return {};
+    }
+    // A step's planned time: a wait's own, a combination's gap before the next (key_gap_).
+    const auto planned = [&](const Step& step) {
+        return step.kind == Step::Kind::Wait ? step.wait : key_gap_;
+    };
+    double pass = 0, done = 0;
+    for (std::size_t i = 0; i < steps_.size(); ++i) {
+        pass += planned(steps_[i]);
+        if (i < next_) {
+            done += planned(steps_[i]);
+        }
+    }
+    if (in_flight_ && next_ > 0) {
+        done -= planned(steps_[next_ - 1]); // not delivered yet
+    }
+    if (waiting_ && next_ < steps_.size()) {
+        done += std::clamp(now - done_at_, 0.0, steps_[next_].wait);
+    }
+    // While held: each pass is a sweep of its own; otherwise the whole run is one.
+    const double total = holds_ ? pass : pass * static_cast<double>(passes_);
+    if (total <= long_run_seconds) {
+        return {};
+    }
+    const double reached = holds_ ? done : static_cast<double>(pass_) * pass + done;
+    return std::clamp(reached / total, 0.0, 1.0);
 }
 } // namespace framekeyboard

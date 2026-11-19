@@ -3533,8 +3533,13 @@ void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::
     cairo_translate(cr, r.x, r.y);
     cairo_scale(cr, scale, scale);
     cairo_new_path(cr);
-    draw_keycap(cr, t, tone, {0, 0, r.width / scale, r.height / scale}, amount, lift, fill,
-                lift > 0 || amount > 0);
+    const auto cap = draw_keycap(cr, t, tone, {0, 0, r.width / scale, r.height / scale}, amount, lift,
+                                 fill, lift > 0 || amount > 0);
+    if (button.progress_px >= 0) {
+        // A long run's progress: a stroke clockwise around the border from the top center, as a
+        // modifier's lock ring is drawn (R372).
+        draw_lock_ring(cr, t, cap, std::min(1.0, button.progress_px / bar_border_pixels(r)), 1);
+    }
     cairo_new_path(cr);
     cairo_restore(cr);
     const Rect face{r.x, r.y + amount * t.travel * scale, r.width, r.height};

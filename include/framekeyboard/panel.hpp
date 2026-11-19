@@ -254,6 +254,10 @@ cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, 
                                       const LanguageMap& keymap, int width, int height);
 void record_label_fits(std::vector<LabelFit>* into);
 struct PanelView;
+// The length of a bar button's border in pixels, which a long run's stroke measures (R372).
+inline double bar_border_pixels(const Rect& bounds) {
+    return 2 * (bounds.width + bounds.height);
+}
 // The shortcut bar above the case (docs/shortcut-bar-design.md), in panel
 // coordinates, as App built it: the renderer only draws it, and nothing it
 // draws acts. Its parts take the laser through shortcut_bar_bounds().
@@ -265,6 +269,10 @@ struct ShortcutBarView {
         Rect bounds;       // where it is after scrolling; `strip` clips it
         bool hovered{}, pressed{}, enabled{true};
         bool running{}; // its run is under way: lit, as a latched key
+        // A long run's progress (R372): how many pixels of the border's length (bar_border_pixels)
+        // its stroke has reached, clockwise from the top center; -1 for none. Whole pixels, so the
+        // bar repaints only when the stroke's end moves by one.
+        int progress_px{-1};
         bool run{};     // a Run button: the >_ mark in its top right corner
     };
     bool operator==(const ShortcutBarView&) const = default;
