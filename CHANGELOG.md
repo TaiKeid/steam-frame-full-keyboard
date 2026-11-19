@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Typing a non-Latin language, such as Russian, into a game or desktop streamed from a Windows PC could leave mouse buttons held on the PC, so clicks stopped working there; it happened most surely after swiping a word or changing a swiped word to another candidate. Full Keyboard now waits until the keys it sent before a text are through to the PC before sending the text.
+- With the keyboard opened by the stream's keyboard button, key presses could also click on the PC where its pointer was. SteamVR's laser mode is now held for the whole time you type into a stream, so the controllers' triggers no longer reach the PC as mouse buttons while you type.
+
 ## 0.19.1: Small polishing and bugfixes
 
 - Shift, Ctrl, Alt, AltGr and the left Frame icon now lock after half a second held instead of a second: the ring shows from 0.15 s, is fully in by 0.25 s and closes at 0.6 s. A double tap still locks within 0.3 s.
