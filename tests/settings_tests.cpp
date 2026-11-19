@@ -4825,11 +4825,13 @@ void bar_presses_and_holds() {
             "a Times button pressed again only stops its run");
 
     // R372: a long run's stroke around its button grows with it, in whole pixels of the
-    // border; a tick that leaves its end where it was repaints nothing for it.
+    // border; a tick that leaves its end where it was repaints nothing for it. R375: while it
+    // moves it repaints at most once per 33 ms, here on the test clock's 2 ms ticks.
     press(thrice_button);
     release(thrice_button);
     const double border = bar_border_pixels(thrice_button);
     int last = -1, moves = 0;
+    double moved_at = -1;
     bool still = false;
     for (const double end = now + 3; now < end; now += .002) {
         app.dirty = false;
@@ -4842,13 +4844,18 @@ void bar_presses_and_holds() {
         require(shown.progress_px >= last && shown.progress_px <= border, "the stroke only grows");
         if (shown.progress_px != last) {
             require(app.dirty, "a stroke that moves repaints");
+            // Closing to full paints at once.
+            require(last < 0 || shown.progress_px == static_cast<int>(border) ||
+                        now - moved_at >= .033 - 1e-9,
+                    "at most once per 33 ms");
             ++moves;
+            moved_at = now;
         } else {
             still = still || !app.dirty;
         }
         last = shown.progress_px;
     }
-    require(count(KEY_A) == 5 && moves > 100 && last >= .95 * border && still,
+    require(count(KEY_A) == 5 && moves > 15 && moves < 40 && last >= .95 * border && still,
             "the stroke goes round as the run does, nearly closed as it ends");
 }
 // R337: a lifted Wait row carries its time, − and + and ✕ with it.

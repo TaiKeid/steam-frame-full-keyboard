@@ -107,6 +107,10 @@ class ShortcutRunner {
     // position (passes and steps done, time into the current wait), so it never runs ahead of a slow
     // delivery and never goes back within a sweep. None for a shorter run or none running.
     std::optional<double> progress(double now) const;
+    // The time progress() sweeps over, in seconds: what the run really waits (waits, and the key
+    // gap between two combinations), for the whole run or, While held, for the pass under way.
+    // 0 when nothing runs.
+    double planned() const;
     static constexpr double long_run_seconds = .5;
     End end() const { return end_; }
     // Probe only (shortcut-target-probe): the gap between combinations for
@@ -114,6 +118,8 @@ class ShortcutRunner {
     void set_key_gap(double seconds) { key_gap_ = seconds; }
 
   private:
+    double step_time(std::size_t i, bool first_pass) const;
+    double pass_time(bool first_pass) const;
     struct Step {
         enum class Kind { Chord, Wait };
         Kind kind{Kind::Chord};

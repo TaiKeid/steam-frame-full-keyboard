@@ -572,17 +572,22 @@ void App::tick_shortcut_bar(double now) {
         dirty = true; // Its button goes dark.
     }
     // A long run's progress, in whole pixels of its button's border: a redraw only when the stroke's
-    // end moves by one (R372).
-    int progress_px = -1;
+    // end moves by one (R372), and at most once per progress_repaint_interval while it moves (R375).
+    // It shows, closes and goes at once.
+    int progress_px = -1, full_px = -1;
     if (const auto* bar = shown_profile(); bar && shortcut_run_ && shortcut_runner_.running()) {
         if (const auto progress = shortcut_runner_.progress(now)) {
             const auto g = bar_geometry(bar->buttons.size());
-            progress_px =
-                static_cast<int>(*progress * bar_border_pixels({0, 0, g.button_width, g.button_height}));
+            const double border = bar_border_pixels({0, 0, g.button_width, g.button_height});
+            progress_px = static_cast<int>(*progress * border);
+            full_px = static_cast<int>(border);
         }
     }
-    if (progress_px != run_progress_px_) {
+    const bool due = progress_px < 0 || run_progress_px_ < 0 || progress_px == full_px ||
+                     now - run_progress_painted_ >= progress_repaint_interval;
+    if (progress_px != run_progress_px_ && due) {
         run_progress_px_ = progress_px;
+        run_progress_painted_ = now;
         dirty = true;
     }
     if (shortcut_run_ && !shortcut_runner_.running()) {

@@ -605,7 +605,8 @@ void progress() {
         require(!rig.runner.progress(.1), "a run of 0.5 s or less shows none");
     }
     {
-        // Once: a wait of 0.3 s, a key, a wait of 0.3 s: planned 0.63 s.
+        // Once: a wait of 0.3 s, a key, a wait of 0.3 s: planned 0.6 s (a key after a wait goes at
+        // once, and a wait counts from the key's delivery).
         Rig rig;
         rig.runner.start(macro({wait_of(300), keys_of({{{}, "KeyA"}}), wait_of(300)}), 0);
         double last = -1;
@@ -617,7 +618,8 @@ void progress() {
                 last = *p;
             }
         }
-        require(rising && last > .95, "it rises with the run and is full at its end");
+        // It ends as its last wait runs out, in the tick after the last one seen: within a tick of full.
+        require(rising && last >= 1 - .005 / .6 - 1e-9, "it rises with the run and is full at its end");
         require(!rig.runner.progress(1), "and goes with it");
     }
     {
@@ -643,6 +645,59 @@ void progress() {
         const auto second = rig.runner.progress(.45);
         require(first && second && *first > .3 && *first < .5 && *second > *first && *second < .8,
                 "a count's passes make one sweep");
+    }
+    {
+        // R375: the total is what the run really waits. A gap of 30 ms only between two
+        // combinations; none before a wait, after one, at the start or at the end.
+        const auto planned = [](const ShortcutAction& action, double now = .001) {
+            Rig rig;
+            rig.runner.start(action, 0);
+            rig.tick(now);
+            return rig.runner.planned();
+        };
+        const auto near = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+        std::vector<ShortcutChord> twenty;
+        for (int i = 0; i < 20; ++i) {
+            twenty.push_back({{}, i % 2 ? "KeyA" : "KeyB"});
+        }
+        require(near(planned(macro({keys_of(twenty)})), 19 * .03), "only keys: the gaps between them");
+        require(near(planned(macro({wait_of(300), wait_of(400)})), .7), "only waits: their sum");
+        require(near(planned(macro({keys_of({{{}, "KeyA"}}), wait_of(300),
+                                    keys_of({{{}, "KeyB"}, {{}, "KeyC"}}), wait_of(200)})),
+                     .3 + .03 + .2),
+                "a mix: waits, and a gap only between two keys");
+        // A, wait, B three times: the first pass 0.1 s, each later one 0.13 s (B, then A).
+        require(near(planned(macro({keys_of({{{}, "KeyA"}}), wait_of(100), keys_of({{{}, "KeyB"}})},
+                                   {MacroRepeat::Mode::Times, 3})),
+                     .1 + 2 * .13),
+                "a count: a gap between passes only after a key");
+        Rig rig;
+        rig.runner.start(macro({keys_of({{{}, "KeyA"}}), wait_of(600), keys_of({{{}, "KeyB"}})},
+                               {MacroRepeat::Mode::WhileHeld, 0}),
+                         0);
+        rig.runner.hold();
+        rig.tick(.001);
+        require(near(rig.runner.planned(), .6), "While held: the first pass's own time");
+        run_out(rig, .001, .7);
+        require(near(rig.runner.planned(), .63), "and a later pass's, the gap after B included");
+        rig.runner.release();
+        run_out(rig, .7, 2);
+        require(rig.runner.planned() == 0, "nothing when the run is over");
+        // A count that ends on a key closes its stroke: full before the run ends.
+        Rig closing;
+        closing.runner.start(
+            macro({wait_of(200), keys_of({{{}, "KeyA"}, {{}, "KeyB"}})}, {MacroRepeat::Mode::Times, 3}),
+            0);
+        double last = -1;
+        for (double now = .005; closing.runner.running() && now < 2; now += .005) {
+            closing.tick(now);
+            if (const auto p = closing.runner.progress(now)) {
+                require(*p >= last, "a count's stroke never goes back");
+                last = *p;
+            }
+        }
+        // 0.23 s a pass, 0.69 s in all: within the 5 ms tick before the end of full.
+        require(last >= 1 - .005 / .69 - 1e-9, "a count's stroke closes as the run ends");
     }
     {
         // While held, 0.6 s a pass: a sweep each pass, back to the start for the next.

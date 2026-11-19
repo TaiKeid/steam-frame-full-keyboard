@@ -1824,6 +1824,9 @@ class App {
     std::optional<ShortcutRun> shortcut_run_;
     // Its progress in whole pixels of its button's border (R372), -1 for none.
     int run_progress_px_ = -1;
+    double run_progress_painted_{}; // when run_progress_px_ last changed (R375)
+    // A moving stroke repaints its button at most this often: about 30 times a second.
+    static constexpr double progress_repaint_interval = .033;
     // The focus last given to profile_choice_: Gamescope's window and its
     // app's identity. A change of either is a change of focus, which stops
     // a run too; the identity is kept only while that app has the keys.

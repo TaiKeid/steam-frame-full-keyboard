@@ -242,33 +242,56 @@ bool ShortcutRunner::advance(double now) {
 bool ShortcutRunner::tick(double now) {
     return active_ && advance(now);
 }
-std::optional<double> ShortcutRunner::progress(double now) const {
-    if (!active_ || steps_.empty()) {
-        return {};
+// What step i really waits before it acts, as advance() runs it: a wait its
+// own time, counted from the step before; a combination the key gap after a
+// combination, nothing after a wait or at the run's start. The run ends on
+// its last delivery, with no gap after it.
+double ShortcutRunner::step_time(std::size_t i, bool first_pass) const {
+    const auto& step = steps_[i];
+    if (step.kind == Step::Kind::Wait) {
+        return step.wait;
     }
-    // A step's planned time: a wait's own, a combination's gap before the next (key_gap_).
-    const auto planned = [&](const Step& step) {
-        return step.kind == Step::Kind::Wait ? step.wait : key_gap_;
-    };
-    double pass = 0, done = 0;
+    const auto& before = i > 0 ? steps_[i - 1] : steps_.back(); // a later pass follows the last step
+    const bool after_chord = (i > 0 || !first_pass) && before.kind == Step::Kind::Chord;
+    return after_chord ? key_gap_ : 0.0;
+}
+double ShortcutRunner::pass_time(bool first_pass) const {
+    double time = 0;
     for (std::size_t i = 0; i < steps_.size(); ++i) {
-        pass += planned(steps_[i]);
-        if (i < next_) {
-            done += planned(steps_[i]);
-        }
+        time += step_time(i, first_pass);
     }
-    if (in_flight_ && next_ > 0) {
-        done -= planned(steps_[next_ - 1]); // not delivered yet
-    }
-    if (waiting_ && next_ < steps_.size()) {
-        done += std::clamp(now - done_at_, 0.0, steps_[next_].wait);
+    return time;
+}
+double ShortcutRunner::planned() const {
+    if (!active_ || steps_.empty()) {
+        return 0;
     }
     // While held: each pass is a sweep of its own; otherwise the whole run is one.
-    const double total = holds_ ? pass : pass * static_cast<double>(passes_);
+    if (holds_) {
+        return pass_time(pass_ == 0);
+    }
+    return pass_time(true) + pass_time(false) * static_cast<double>(passes_ - 1);
+}
+std::optional<double> ShortcutRunner::progress(double now) const {
+    const double total = planned();
     if (total <= long_run_seconds) {
         return {};
     }
-    const double reached = holds_ ? done : static_cast<double>(pass_) * pass + done;
+    const bool first_pass = pass_ == 0;
+    double reached =
+        holds_ || first_pass ? 0 : pass_time(true) + pass_time(false) * static_cast<double>(pass_ - 1);
+    for (std::size_t i = 0; i < next_ && i < steps_.size(); ++i) {
+        reached += step_time(i, first_pass);
+    }
+    // The step it is on: a wait or a gap under way, from the last delivery or
+    // the last wait's end. Nothing while a combination is still on its way.
+    if (!in_flight_ && next_ < steps_.size()) {
+        const bool wait = steps_[next_].kind == Step::Kind::Wait;
+        const double time = step_time(next_, first_pass);
+        if ((wait && waiting_) || (!wait && time > 0)) {
+            reached += std::clamp(now - done_at_, 0.0, time);
+        }
+    }
     return std::clamp(reached / total, 0.0, 1.0);
 }
 } // namespace framekeyboard
