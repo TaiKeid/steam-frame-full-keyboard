@@ -1185,6 +1185,50 @@ void app_names() {
     const auto answered = none.take();
     require(answered && answered->name.empty(), "without a source, an answer at once, with no name");
 }
+// R371: a macro's count stays while the editor is open: Times 30, Once, Times shows 30 again. Only
+// Times saves a count, and a remembered count alone changes nothing.
+void repeat_editing() {
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"p",
+         "P",
+         {macro_button({{MacroStep::Kind::Wait, {}, 200}}, {MacroRepeat::Mode::Times, 30}),
+          macro_button({{MacroStep::Kind::Wait, {}, 200}})}});
+    ShortcutEditor editor(model, nullptr);
+    editor.select_button(0);
+    const auto repeat = [&] { return editor.selected_button()->action.repeat; };
+    // As the Repeat row does: the mode changed, the count as it is.
+    const auto choose = [&](MacroRepeat::Mode mode) {
+        auto next = repeat();
+        next.mode = mode;
+        editor.set_repeat(next);
+    };
+    choose(MacroRepeat::Mode::Once);
+    require(editor.saved().profiles[0].buttons[0].action.repeat ==
+                    MacroRepeat{MacroRepeat::Mode::Once, 0} &&
+                editor.changed(),
+            "Once saves no count");
+    choose(MacroRepeat::Mode::WhileHeld);
+    choose(MacroRepeat::Mode::Times);
+    require(repeat() == MacroRepeat{MacroRepeat::Mode::Times, 30} && !editor.changed(),
+            "Times shows the count again; nothing changed");
+    // A macro saved as Once: Times starts at the smallest count; back to Once, the count it
+    // remembers alone changes nothing.
+    editor.select_button(1);
+    choose(MacroRepeat::Mode::Times);
+    require(repeat() == MacroRepeat{MacroRepeat::Mode::Times, shortcut_limits::repeat_min},
+            "a macro that never had a count starts at the smallest");
+    auto more = repeat();
+    more.count = 7;
+    editor.set_repeat(more);
+    choose(MacroRepeat::Mode::Once);
+    require(repeat().count == 7 && !editor.changed(), "a remembered count alone is no change");
+    choose(MacroRepeat::Mode::Times);
+    require(repeat().count == 7 && editor.changed(), "and comes back with Times");
+    const auto file = parse_shortcuts(serialize_shortcuts(editor.saved()));
+    require(file.profiles[0].buttons[1].action.repeat == MacroRepeat{MacroRepeat::Mode::Times, 7},
+            "Times is saved with its count");
+}
 // Run in the editor's copy: Script and Command each keep their content while
 // the editor is open; only the chosen one is saved.
 void run_editing() {
@@ -1253,6 +1297,7 @@ int main() {
         ties();
         stream_apps();
         run_editing();
+        repeat_editing();
         app_names();
         app_name_record();
         std::cout << "Shortcut file, limits, saving and which bar shows passed.\n";

@@ -137,6 +137,8 @@ ShortcutModel ShortcutEditor::saved() const {
             if (action.kind != ShortcutAction::Kind::Macro) {
                 action.steps.clear();
                 action.repeat = {};
+            } else if (action.repeat.mode != MacroRepeat::Mode::Times) {
+                action.repeat.count = 0; // remembered for Times while editing (set_repeat), not saved
             }
             // Run keeps the one chosen of Script and Command.
             if (action.kind != ShortcutAction::Kind::Run || action.command_chosen) {
@@ -220,10 +222,10 @@ void ShortcutEditor::move_step(std::size_t from, std::size_t to) {
 }
 void ShortcutEditor::set_repeat(MacroRepeat repeat) {
     if (auto* action = macro()) {
+        // Once and While held keep the count for while the editor is open, so Times shows it again
+        // (R371); saved() leaves it out, as the file has a count only for Times.
         if (repeat.mode == MacroRepeat::Mode::Times) {
             repeat.count = std::clamp(repeat.count, limits::repeat_min, limits::repeat_max);
-        } else {
-            repeat.count = 0;
         }
         action->repeat = repeat;
     }
