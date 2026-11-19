@@ -508,7 +508,8 @@ struct PanelView {
     // key groups to what is behind (laser_areas). laser_key_areas are where
     // the keys take it, as Extended key collision has them whether or not
     // it is on; pointer_held, a press that began on the keyboard and goes
-    // on, gives the whole case back until it ends.
+    // on, or an open skin tone popup, Profiles menu or candidate list, gives
+    // the whole case back until it ends (App::whole_case_held).
     bool click_through{};
     const std::vector<KeyArea>* laser_key_areas{};
     bool pointer_held{};

@@ -1415,7 +1415,8 @@ class App {
     std::set<unsigned> laser_presses_;
     void hold_laser(unsigned pointer, bool held);
     // Under Background Disabled the whole case takes the laser: a press that
-    // began on the keyboard goes on, or the skin tone popup is open.
+    // began on the keyboard goes on, or the skin tone popup, the bar's
+    // Profiles menu or the candidate list is open.
     bool whole_case_held() const;
     bool mask_held_{}; // whole_case_held() when take_mask_change() last looked
     std::string swipe_prepared_; // Layout, language and word list in swipe_.

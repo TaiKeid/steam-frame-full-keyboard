@@ -1682,8 +1682,12 @@ void App::hold_laser(unsigned pointer, bool held) {
     }
 }
 bool App::whole_case_held() const {
-    // The skin tone popup, left open after its press, holds the case too.
-    return !laser_presses_.empty() || (emoji_open_ && emoji_.popup_open());
+    // The skin tone popup, left open after its press, holds the case too,
+    // and so do the bar's Profiles menu and the open candidate list: a
+    // click beside them closes them (down), as under the other Backgrounds,
+    // instead of reaching the window behind while they stay open (R387).
+    return !laser_presses_.empty() || (emoji_open_ && emoji_.popup_open()) || bar_menu_ ||
+           (candidate_list_ && candidates_.open());
 }
 bool App::take_mask_change() {
     const bool held = settings_.background_surface == "disabled" && whole_case_held();

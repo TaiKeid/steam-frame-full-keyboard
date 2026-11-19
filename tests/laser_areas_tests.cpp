@@ -3,6 +3,7 @@
 // it gives for every bundled layout and the views over it.
 #include "bundled_profiles.hpp"
 #include "framekeyboard/app.hpp"
+#include "framekeyboard/japanese.hpp"
 #include "framekeyboard/shortcuts.hpp"
 
 #include <algorithm>
@@ -34,9 +35,24 @@ struct TemporaryDirectory {
     }
 };
 struct Sink : KeySink {
-    void send(int, int) override {}
+    int sent = 0; // keys and text that reached the field
+    void send(int, int) override { ++sent; }
     bool text_available() override { return true; }
-    bool commit_text(const std::string&) override { return true; }
+    bool commit_text(const std::string&) override {
+        ++sent;
+        return true;
+    }
+};
+// Every reading converts at once to more candidates than the row shows.
+struct ManyCandidates : JapaneseConverter {
+    std::vector<Segment> convert(const std::string& reading) override {
+        std::vector<std::string> candidates{reading};
+        for (int i = 0; i < 40; ++i) {
+            candidates.push_back("可" + std::to_string(i));
+        }
+        return {{reading, candidates}};
+    }
+    std::vector<Segment> resize(int, int) override { return {}; }
 };
 // A stand-in dictation helper: it answers a pause and nothing else, so the
 // mode opens without audio or the network.
@@ -65,7 +81,7 @@ struct Rig {
     Sink sink;
     std::unique_ptr<App> app;
     double now = 100;
-    explicit Rig(const Case& c) {
+    explicit Rig(const Case& c, JapaneseComposer::Factory converter = {}) {
         std::ofstream(directory.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":")" << c.layout << R"(","language":")" << c.language
             << R"(","theme":"graphite"},"hide_numpad":)" << (c.hide ? "true" : "false")
@@ -88,6 +104,10 @@ struct Rig {
         options.input = InputBackend::Ei;
         options.start_enabled = true;
         options.dictation_helper = directory.path / "helper.py";
+        if (converter) {
+            options.japanese_converter = std::move(converter);
+            options.wait_for_japanese = true; // Answers as the step that asks.
+        }
         app = std::make_unique<App>(options, sink);
         tick();
     }
@@ -330,6 +350,64 @@ void mask_follows_presses() {
         require(!rig.app->take_mask_change(), std::string(surface) + ": once");
     }
 }
+// R387: the bar's Profiles menu and the open candidate list take the whole
+// case while open, so a pull beside them closes them and types nothing,
+// rather than reaching the window behind; closed, the gaps are open again.
+void open_menus() {
+    const auto tap = [](Rig& rig, double x, double y) {
+        rig.app->move(0, x, y);
+        rig.app->down(0, x, y, rig.now);
+        rig.app->up(0, x, y);
+        rig.tick();
+    };
+    const auto corner = [](const PanelView& view) {
+        const auto body = panel_case_bounds(view);
+        return std::pair{body.x + 2, body.y + body.height - 2};
+    };
+    {
+        Rig rig({"en-us-full", "en-us", false, true});
+        const auto [gx, gy] = corner(rig.view());
+        rig.app->take_mask_change();
+        const auto picker = rig.view().shortcut_bar->picker;
+        tap(rig, picker.x + picker.width / 2, picker.y + picker.height / 2);
+        require(rig.view().shortcut_bar->menu.has_value(), "the Profiles menu opens");
+        require(rig.view().pointer_held && hits(rig.view(), gx, gy) && rig.app->take_mask_change(),
+                "the open Profiles menu takes the whole case, masked at once");
+        tap(rig, gx, gy);
+        require(!rig.view().shortcut_bar->menu && rig.sink.sent == 0,
+                "a pull in a gap closes the menu and types nothing");
+        require(!rig.view().pointer_held && !hits(rig.view(), gx, gy) && rig.app->take_mask_change(),
+                "closed, the gaps pass the laser again");
+    }
+    {
+        Rig rig({"en-us-full", "ja-romaji"}, [] { return std::make_unique<ManyCandidates>(); });
+        rig.press("KeyK");
+        rig.press("KeyA");
+        rig.tick(5);
+        const auto [gx, gy] = corner(rig.view());
+        require(!rig.view().pointer_held && !hits(rig.view(), gx, gy),
+                "candidates showing, the list closed: the gaps pass the laser");
+        rig.app->take_mask_change();
+        const auto view = rig.view();
+        const auto open = std::find_if(view.controls.begin(), view.controls.end(), [](const Control& c) {
+            return c.action.kind == ControlKind::CandidateList;
+        });
+        require(open != view.controls.end(), "∨ shows beside the candidates");
+        tap(rig, open->bounds.x + open->bounds.width / 2, open->bounds.y + open->bounds.height / 2);
+        const auto listed = rig.view();
+        require(listed.candidates && listed.candidates->list && !listed.candidates->list->contains(gx, gy),
+                "∨ opens the list, away from the case's corner");
+        require(listed.pointer_held && hits(listed, gx, gy) && rig.app->take_mask_change(),
+                "the open candidate list takes the whole case, masked at once");
+        tap(rig, gx, gy);
+        const auto closed = rig.view();
+        require(closed.candidates && !closed.candidates->list && rig.sink.sent == 0 &&
+                    closed.preedit == "か",
+                "a pull in a gap closes the list, choosing nothing");
+        require(!closed.pointer_held && !hits(closed, gx, gy) && rig.app->take_mask_change(),
+                "closed, the gaps pass the laser again");
+    }
+}
 // Visible, Semi-transparent and Invisible keep the case under the laser as
 // before: the case first, then the menus and the bar, nothing else.
 void other_backgrounds() {
@@ -361,6 +439,7 @@ int main() {
         shortcut_editor();
         other_backgrounds();
         mask_follows_presses();
+        open_menus();
         std::cout << "Laser areas passed\n";
         return 0;
     } catch (const std::exception& error) {
