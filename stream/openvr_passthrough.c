@@ -19,9 +19,12 @@
 //
 // A text never follows key events of ours closely (R369): on the way to a Windows PC each key is held
 // some 62 ms (46 to 117, n=51 in a capture), the next one's down coming out with the previous one's up,
-// so taps pushed a frame apart arrive a key at a time; a text that arrives behind keys still on the way
-// comes with mouse-button presses that lock the PC's clicking. So a text waits until our keys are
-// estimated through, kKeyOnTheWayMs per key-down, and 150 ms more ("text-after-key").
+// so taps pushed a frame apart arrive a key at a time, and the same key again takes about twice that; a
+// text that arrives behind keys still on the way comes with mouse-button presses that lock the PC's
+// clicking. So a text waits until our keys are estimated through (kKeyOnTheWayMs a key-down,
+// kSameKeyOnTheWayMs for the same key again) and 150 ms more ("text-after-key"). The rule is about what
+// the library pushes, whichever feature of Full Keyboard sent it: typed letters, swiped words, changed
+// candidates, suggestions, emoji, input methods, dictation.
 //
 // Nothing here stores or logs what is typed.
 #define _GNU_SOURCE
@@ -72,10 +75,12 @@ enum {
     kModLeftShift = 0x0001,  // SDL_KMOD_LSHIFT
     kModLeftCtrl = 0x0040,   // SDL_KMOD_LCTRL
     kProtocol = 1,
-    // How long a key-down of ours holds the way to a Windows PC (R369). In a capture each key was held
-    // 46 to 117 ms on the way (median 62, n=51), the next key's down coming out with the previous
-    // one's up; 80 keeps most of them covered.
-    kKeyOnTheWayMs = 80,
+    // How long a key-down of ours holds the way to a Windows PC (R369). In the PC's captures each key
+    // was held 46 to 117 ms on the way (median 62, n=51), and the next different key's down came out
+    // with the previous one's up: 75 covers most of them. The same key again waited 46 to 69 ms more
+    // after the previous up, about 122 ms a tap (9 Backspaces took 1035 ms): 140.
+    kKeyOnTheWayMs = 75,
+    kSameKeyOnTheWayMs = 140,
 };
 
 typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
@@ -153,9 +158,12 @@ static unsigned dropped_mods;
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
 // When our key events are estimated to be through to the PC (R369): each key-down pushed holds the way
-// kKeyOnTheWayMs from when it can start, a key-up only from when it was pushed. A text waits until
+// kKeyOnTheWayMs from when it can start, kSameKeyOnTheWayMs when it is the same key as the key-down
+// before it and that can still be on the way; a key-up only from when it was pushed. A text waits until
 // then and its after_key_ms more.
 static uint64_t keys_through_ms;
+static uint32_t last_down_key; // the previous key-down's scancode, or a code point's key code
+static bool any_key_down;
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
 // refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
@@ -328,14 +336,20 @@ static uint32_t keycode_for(unsigned scancode) {
     return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
-// A key event pushed: when our keys are through to the PC, as estimated (keys_through_ms).
-static void key_pushed_at(bool down) {
+// A key event pushed: when our keys are through to the PC, as estimated (keys_through_ms). `key` is the
+// scancode, or for a character's own key its code point with the top bit set.
+static void key_pushed_at(bool down, uint32_t key) {
     const uint64_t now = now_ms();
-    if (keys_through_ms < now) {
+    // The same key again waits for the previous one only while that can still be on the way.
+    const bool queued = keys_through_ms > now;
+    if (!queued) {
         keys_through_ms = now;
     }
     if (down) {
-        keys_through_ms += kKeyOnTheWayMs;
+        keys_through_ms +=
+            queued && any_key_down && key == last_down_key ? kSameKeyOnTheWayMs : kKeyOnTheWayMs;
+        last_down_key = key;
+        any_key_down = true;
     }
 }
 
@@ -357,7 +371,7 @@ static bool push_key(unsigned scancode, unsigned mod, bool down) {
         return false;
     }
     held[scancode] = down;
-    key_pushed_at(down);
+    key_pushed_at(down, scancode);
     return true;
 }
 
@@ -384,7 +398,7 @@ static bool push_unicode_key(uint32_t code, unsigned mod, bool down) {
         return false;
     }
     unicode_held = down ? code : 0;
-    key_pushed_at(down);
+    key_pushed_at(down, code | 0x80000000u);
     return true;
 }
 

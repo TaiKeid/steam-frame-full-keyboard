@@ -1688,7 +1688,8 @@ class Lifecycle(unittest.TestCase):
             channel.close()
 
     def test_stream_key_time_estimate(self):
-        # R369: the helper estimates when our keys are through as the library does, 80 ms a key-down.
+        # R369: the helper estimates when our keys are through at the library's longest time per
+        # key-down, so its waits never fall short of the library's.
         self.assertEqual(bridge.StreamChannel.typed_key_downs("ab C!\n"), 1 + 1 + 1 + 2 + 2 + 1)
         self.assertEqual(bridge.StreamChannel.typed_key_downs("\u0431\u0432"), 0, "non-ASCII is a text")
         with tempfile.TemporaryDirectory(dir=os.environ.get("XDG_RUNTIME_DIR")) as directory:
@@ -1792,7 +1793,8 @@ class Lifecycle(unittest.TestCase):
                 packet(op="text", request=2, id=5, text="ij")  # commit 4
                 self.assertEqual(library.recv(64), b"Tij", "and the session goes on: the retry is sent")
                 # R369: a text behind keys starts late by design, as the library holds it until they are
-                # through; its start wait grows by their time. Five presses: 5 x 80 ms more.
+                # through; its start wait grows by their time, counted at the library's longest per
+                # key-down (STREAM_KEY_ON_THE_WAY). Five presses: 5 x 140 ms more.
                 for _ in range(5):
                     packet(op="stream-key", request=2, code=30, value=1)
                     packet(op="stream-key", request=2, code=30, value=0)

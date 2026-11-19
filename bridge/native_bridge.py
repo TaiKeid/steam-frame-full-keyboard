@@ -122,10 +122,11 @@ STREAM_TEXT_BYTES = 2000
 STREAM_TEXT_START = 2.0
 STREAM_TEXT_FINISH = 1.0
 STREAM_TEXT_WAIT_PER_BYTE = 0.1
-# The library holds a text back until our keys are through to a Windows PC, which takes about this long
-# for each key-down (its kKeyOnTheWayMs, R369): a text behind many keys, such as a candidate's
-# Backspaces, starts late by design. Its waits grow by the keys' time, estimated as the library does.
-STREAM_KEY_ON_THE_WAY = 0.08
+# The library holds a text back until our keys are through to a Windows PC (R369): 75 ms a key-down,
+# 140 ms when it is the same key again (its kKeyOnTheWayMs, kSameKeyOnTheWayMs), so a text behind many
+# keys, such as a candidate's Backspaces, starts late by design. Its waits grow by the keys' time,
+# counted at the longer of the two for every key-down so they never fall short of the library's.
+STREAM_KEY_ON_THE_WAY = 0.14
 # Shifted characters the library types as Shift and a key: two key-downs.
 STREAM_SHIFTED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ~!@#$%^&*()_+{}|:\"<>?")
 # SDL scancodes (USB HID usages) of the named keys a remote session can press, and whether Shift is

@@ -849,10 +849,10 @@ int main(int argc, char** argv) {
         idle_pump();
     }
 
-    // R369: a text waits until our key events are estimated through (80 ms per key-down, from when it
-    // can start; a key-up from when it is pushed), a tap's or the session's, and 150 ms more; key
-    // steps never wait. "text-after-key" changes the 150: 0 turns the wait off, at most 500, junk is
-    // 150.
+    // R369: a text waits until our key events are estimated through (75 ms a key-down, 140 for the same
+    // key again, from when it can start; a key-up from when it is pushed), a tap's or the session's, and
+    // 150 ms more; key steps never wait. "text-after-key" changes the 150: 0 turns the wait off, at most
+    // 500, junk is 150.
     {
         switch_file("text-after-key", false);
         keyboard = accept_keyboard(server);
@@ -865,7 +865,7 @@ int main(int argc, char** argv) {
         check(recv(keyboard, reply, sizeof reply, MSG_DONTWAIT) == 1 && reply[0] == 'Y',
               "answers asked for");
         uint32_t commit = 0;
-        // A tap, then a text in the same commit: the text waits 80 + 150 ms after the tap.
+        // A tap, then a text in the same commit: the text waits 75 + 150 ms after the tap.
         const char tap_then_text[] = "T \xd0\x91\xd0\xb1"; // a space, then a word
         pushed_count = 0;
         check(send(keyboard, tap_then_text, sizeof tap_then_text - 1, 0) ==
@@ -927,7 +927,7 @@ int main(int argc, char** argv) {
         answered(keyboard, 'S', commit);
         answered(keyboard, 'A', commit);
         ++commit;
-        // Six taps, one a pump, then a text: it waits until all six are through, 6 x 80 ms from the
+        // Six taps, one a pump, then a text: it waits until all six are through, 6 x 75 ms from the
         // first, and 150 more; not just 150 after the last tap.
         clock_ahead_ms += 1000;
         const char six_taps[] = "Tabcdef\xd0\x91";
@@ -941,12 +941,88 @@ int main(int argc, char** argv) {
         clock_ahead_ms += 200; // 150 after the last tap, near enough
         idle_pump();
         check(pushed_count == 12, "the text waits longer than 150 after the last tap");
-        clock_ahead_ms += 6 * 80 + 150 - 200 - 10;
+        clock_ahead_ms += 6 * 75 + 150 - 200 - 10;
         idle_pump();
         check(pushed_count == 12, "until all six are through");
         clock_ahead_ms += 20;
         idle_pump();
         check(pushed_count == 13 && is_text(12, "\xd0\x91"), "and 150 more");
+        answered(keyboard, 'S', commit);
+        answered(keyboard, 'A', commit);
+        ++commit;
+        // Nine taps of one key, one a pump, then a text, as a candidate's Backspaces: the same key again
+        // costs 140 ms, so the text waits 75 + 8 x 140 + 150 from the first.
+        clock_ahead_ms += 3000;
+        const char nine_taps[] = "Taaaaaaaaa\xd0\x91";
+        pushed_count = 0;
+        check(send(keyboard, nine_taps, sizeof nine_taps - 1, 0) == (ssize_t)sizeof nine_taps - 1,
+              "nine taps of one key and a word");
+        for (int i = 0; i < 9; ++i) {
+            idle_pump();
+        }
+        check(pushed_count == 18, "the nine taps, one a pump");
+        clock_ahead_ms += 6 * 75 + 150; // past what six different keys would need
+        idle_pump();
+        check(pushed_count == 18, "the same key again costs more");
+        clock_ahead_ms += 75 + 8 * 140 + 150 - (6 * 75 + 150) - 10;
+        idle_pump();
+        check(pushed_count == 18, "until all nine are through");
+        clock_ahead_ms += 20;
+        idle_pump();
+        check(pushed_count == 19 && is_text(18, "\xd0\x91"), "and 150 more");
+        answered(keyboard, 'S', commit);
+        answered(keyboard, 'A', commit);
+        ++commit;
+        // Typing suggestions: each is the rest of a word and a Space. Back to back: the first text goes
+        // at once, its Space is not delayed, the second text waits for that Space and 150 more.
+        clock_ahead_ms += 3000;
+        const char suggestion[] = "T\xd0\x91\xd0\xb1 ";
+        pushed_count = 0;
+        check(send(keyboard, suggestion, sizeof suggestion - 1, 0) == (ssize_t)sizeof suggestion - 1,
+              "a suggestion");
+        check(send(keyboard, suggestion, sizeof suggestion - 1, 0) == (ssize_t)sizeof suggestion - 1,
+              "another right behind it");
+        idle_pump();
+        check(pushed_count == 1 && is_text(0, "\xd0\x91\xd0\xb1"), "the first text at once");
+        idle_pump();
+        check(pushed_count == 3 && is_key(1, 44, 0, 1) && is_key(2, 44, 0, 0),
+              "its Space in the next step, without a wait");
+        clock_ahead_ms += 75 + 150 - 10;
+        idle_pump();
+        check(pushed_count == 3, "the second text waits for the Space");
+        clock_ahead_ms += 20;
+        idle_pump();
+        check(pushed_count == 4 && is_text(3, "\xd0\x91\xd0\xb1"), "and 150 more");
+        idle_pump();
+        check(pushed_count == 6, "then its Space");
+        for (int k = 0; k < 2; ++k) {
+            answered(keyboard, 'S', commit);
+            answered(keyboard, 'A', commit);
+            ++commit;
+        }
+        // A session key tapped (Backspace, released 30 ms later), then a suggestion: its text waits for
+        // that key and 150 more.
+        clock_ahead_ms += 3000;
+        const unsigned char back_down[6] = {'K', 42, 0, 0, 0, 1}, back_up[6] = {'K', 42, 0, 0, 0, 0};
+        pushed_count = 0;
+        send(keyboard, back_down, sizeof back_down, MSG_NOSIGNAL);
+        idle_pump();
+        clock_ahead_ms += 30;
+        send(keyboard, back_up, sizeof back_up, MSG_NOSIGNAL);
+        idle_pump();
+        check(pushed_count == 2, "the user's Backspace");
+        check(send(keyboard, suggestion, sizeof suggestion - 1, 0) == (ssize_t)sizeof suggestion - 1,
+              "a suggestion after it");
+        idle_pump();
+        check(pushed_count == 2, "its text waits");
+        clock_ahead_ms += 75 + 150 - 30 - 10;
+        idle_pump();
+        check(pushed_count == 2, "until the Backspace is through");
+        clock_ahead_ms += 20;
+        idle_pump();
+        check(pushed_count == 3 && is_text(2, "\xd0\x91\xd0\xb1"), "and 150 more");
+        idle_pump();
+        check(pushed_count == 5, "then the Space, at once");
         answered(keyboard, 'S', commit);
         answered(keyboard, 'A', commit);
         ++commit;
@@ -974,8 +1050,8 @@ int main(int argc, char** argv) {
         const struct {
             const char* content;
             unsigned waits;
-        } numbers[] = {{"0", 0},       {"80", 80 + 80},   {"junk", 80 + 150},
-                       {"", 80 + 150}, {"900", 80 + 500}, {" 40\n", 80 + 40}}; // after the space's down
+        } numbers[] = {{"0", 0},       {"80", 75 + 80},   {"junk", 75 + 150},
+                       {"", 75 + 150}, {"900", 75 + 500}, {" 40\n", 75 + 40}}; // after the space's down
         for (size_t n = 0; n < sizeof numbers / sizeof numbers[0]; ++n) {
             switch_content("text-after-key", numbers[n].content);
             clock_ahead_ms += 1000;

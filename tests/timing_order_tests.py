@@ -39,7 +39,7 @@ SPECS = (
     ("stream text per byte", PY, r"\bSTREAM_TEXT_WAIT_PER_BYTE\s*=\s*" + NUMBER, 1, 1),
     # R369: how long the library counts each of our key-downs on the way before a text, and the
     # helper's and the app's copies of it for their waits.
-    ("library key on the way", LIBRARY, r"\bkKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
+    ("library key on the way", LIBRARY, r"\bkSameKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
     ("stream key on the way", PY, r"\bSTREAM_KEY_ON_THE_WAY\s*=\s*" + NUMBER, 1, 1),
     ("app stream key on the way", CPP, r"\bstream_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
     # The app's stream text wait is base + per byte * size, from the same send time.
@@ -153,7 +153,7 @@ class TimingOrdering(unittest.TestCase):
     def test_key_allowance_shorter_than_the_library_is_rejected(self):
         sources = dict(self.sources)
         sources[PY] = re.sub(r"(STREAM_KEY_ON_THE_WAY\s*=\s*)" + NUMBER,
-                             lambda match: match[1] + "0.05", sources[PY], flags=re.MULTILINE)
+                             lambda match: match[1] + "0.1", sources[PY], flags=re.MULTILINE)
         with self.assertRaisesRegex(AssertionError, "library key on the way <= stream key on the way"):
             check_ordering(sources)
 
