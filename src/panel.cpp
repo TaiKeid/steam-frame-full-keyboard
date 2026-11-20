@@ -249,6 +249,21 @@ Rect clip_bounds(cairo_t* cr) {
     cairo_clip_extents(cr, &left, &top, &right, &bottom);
     return {left, top, right - left, bottom - top};
 }
+// Whether `r` lies wholly inside a panel with rounded corners of `radius`:
+// the panel is convex, so its four corners do (R418).
+bool inside_rounded(const Rect& r, const Rect& panel, double radius) {
+    const auto inside = [&](double x, double y) {
+        if (x < panel.x || y < panel.y || x > panel.x + panel.width || y > panel.y + panel.height) {
+            return false;
+        }
+        // The nearest corner's arc, where the point lies in that corner's square.
+        const double cx = std::clamp(x, panel.x + radius, panel.x + panel.width - radius);
+        const double cy = std::clamp(y, panel.y + radius, panel.y + panel.height - radius);
+        return std::hypot(x - cx, y - cy) <= radius;
+    };
+    return inside(r.x, r.y) && inside(r.x + r.width, r.y) && inside(r.x, r.y + r.height) &&
+           inside(r.x + r.width, r.y + r.height);
+}
 // Whether a panel with rounded corners hides all of `r`: inside it, and in
 // the band between its top and bottom corners or between its side ones.
 bool hidden_under(const Rect& r, const Rect& panel, double radius) {
@@ -2557,12 +2572,6 @@ std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, c
         !now.shortcut_bar->menu || before.settings || now.settings) {
         return {};
     }
-    // On a theme with key edges, a key the menu covers drew one pixel row past
-    // a row pass's clip, which no full paint has: the menu repaints whole
-    // there, as before R404 (R418).
-    if (now.theme && now.theme->edge) {
-        return {};
-    }
     const auto& a = *before.shortcut_bar->menu;
     const auto& b = *now.shortcut_bar->menu;
     // Everything but its rows' states and places, the thumb and Manage's
@@ -2607,6 +2616,14 @@ std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, c
         damage.push_back(pixel_bounds(b.manage, 1));
     }
     std::erase_if(damage, [](const Rect& r) { return r.width <= 0 || r.height <= 0; });
+    // Each pass lies inside the menu's opaque plate, clear of its rounded
+    // corners and shadow, where the keys draw nothing (R418); else it all
+    // repaints.
+    const double radius = now.theme ? now.theme->radius + 4 : 4;
+    if (std::any_of(damage.begin(), damage.end(),
+                    [&](const Rect& r) { return !inside_rounded(r, b.bounds, radius); })) {
+        return {};
+    }
     return damage;
 }
 std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before, const PanelView& now) {
@@ -6298,7 +6315,13 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
             cairo_fill(cr);
         }
-        if (!view.settings && !view.shortcut_editor) {
+        // A pass inside the Profiles menu's opaque plate shows none of the
+        // keys under it: they aren't drawn, so no legend's glyphs, which can
+        // reach a row past a clip that cuts through them (R419), show (R418).
+        const bool under_menu = !full && pass.size() == 1 && view.shortcut_bar &&
+                                view.shortcut_bar->menu && !view.settings &&
+                                inside_rounded(pass[0], view.shortcut_bar->menu->bounds, t.radius + 4);
+        if (!view.settings && !view.shortcut_editor && !under_menu) {
             const auto p = placement(view);
             cairo_save(cr);
             cairo_translate(cr, p.x, p.y);

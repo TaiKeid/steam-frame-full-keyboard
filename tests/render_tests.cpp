@@ -2282,8 +2282,7 @@ void shortcut_menu_repaints(const char* theme) {
     compare.frame(app.view(), "the menu opens");
     const auto partial = [&](const std::string& phase) {
         const bool painted = compare.frame(app.view(), phase.c_str());
-        // A theme with key edges repaints the menu whole (R418).
-        if (painted && compare.incremental.damage().empty() && !app.view().theme->edge) {
+        if (painted && compare.incremental.damage().empty()) {
             throw std::runtime_error(phase + ": repainted whole");
         }
     };
@@ -2522,7 +2521,10 @@ int main() {
         shortcut_popup(true);
         // R415: the default, a light, a neon and the High Contrast theme.
         for (const char* theme : {"graphite", "porcelain", "neon", "contrast"}) {
+            // The menu before and after the editor: a legend's glyphs escaped a
+            // clip only with the glyph cache as the editor left it (R418, R419).
             try {
+                shortcut_menu_repaints(theme);
                 shortcut_editor_repaints(theme);
                 shortcut_menu_repaints(theme);
             } catch (const std::exception& error) {
