@@ -6302,6 +6302,56 @@ void stick_scrolls_bar() {
     click(app, "bar-toggle");
     require(!app.view().shortcut_bar && !app.stick_scrolls(), "the bar hidden by hand: no stick");
 }
+// R408: a preview starts no Run program; a VR run, as the simulator's,
+// does. In a temporary home only.
+void run_buttons_preview() {
+    TemporaryDirectory directory, home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const auto marker = home.path / "marker";
+    ShortcutButton command;
+    command.label = "Mark";
+    command.action.kind = ShortcutAction::Kind::Run;
+    command.action.command = "echo x >> '" + marker.string() + "'";
+    ShortcutModel model;
+    model.profiles.push_back({"r", "Run", {command}});
+    model.free_profile = "r";
+    write_shortcuts(directory.path, model);
+    for (const auto mode : {Mode::Preview, Mode::Vr}) {
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = mode;
+        options.input = mode == Mode::Vr ? InputBackend::Uinput : InputBackend::None;
+        options.start_enabled = true;
+        options.target_language = "en-us";
+        CaptureSink sink;
+        App app(options, sink);
+        double now = 3100;
+        app.tick(now);
+        require(app.view().shortcut_bar && !app.view().shortcut_bar->buttons.empty() &&
+                    app.view().shortcut_bar->buttons[0].enabled,
+                "the Run button shows, enabled");
+        const auto at = middle(app.view().shortcut_bar->buttons[0].bounds);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now);
+        app.up(0, at.x, at.y);
+        for (int i = 0; i < 400 && !fs::exists(marker); ++i) {
+            usleep(5000);
+            app.tick(now += .01);
+        }
+        if (mode == Mode::Preview) {
+            require(!fs::exists(marker) &&
+                        app.view().status.find("could not start") == std::string::npos,
+                    "a preview starts no Run program, and reports no failure");
+        } else {
+            require(fs::exists(marker), "a VR run, as the simulator's, starts it");
+        }
+    }
+    setenv("HOME", old_home.c_str(), 1);
+}
 // Run buttons (design, Run): never disabled for lack of a target, one start
 // per press with more presses waiting for its report, and a failed start's
 // status naming the button. In a temporary home only.
@@ -7425,6 +7475,7 @@ int main() {
         shortcut_kept_name_refresh();
         stick_scrolls_bar();
         run_buttons();
+        run_buttons_preview();
         run_editor();
         shortcut_save_too_large();
         run_script_past_list();

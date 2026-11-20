@@ -1,6 +1,6 @@
 # Desktop simulator
 
-The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing reaches other applications or the system clipboard, and only learning keeps typed words on disk, in the simulator's own settings folder: Japanese and Chinese conversions and typing suggestions' words.
+The simulator runs Full Keyboard in a window on a Linux PC, typing into a text field above it. It is for trying the keyboard without a Steam Frame: for native speakers checking Japanese and Korean input, and for AI agents that drive it through computer use. It runs the keyboard's own code, the same as on the headset, but everything it types stays in its own field. Nothing it types reaches other applications or the system clipboard, but a shortcut bar Run button made in it starts a real program on the PC, as on the headset. Only learning keeps typed words on disk, in the simulator's own settings folder: Japanese and Chinese conversions and typing suggestions' words.
 
 It runs on Linux x86-64. Windows and browser versions may follow.
 

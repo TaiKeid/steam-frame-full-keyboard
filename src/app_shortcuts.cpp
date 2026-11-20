@@ -1002,6 +1002,13 @@ void App::start_run_button(const std::string& profile, std::size_t index, const 
         })) {
         return;
     }
+    // A preview has no side effects, and its config folder may be the user's
+    // own: its Run buttons start nothing. The simulator, a VR run, keeps
+    // them (R408).
+    if (options_.mode == Mode::Preview) {
+        std::cerr << "Preview: Run buttons start no program\n";
+        return;
+    }
     LaunchRequest request;
     request.script = button.action.script;
     request.command = button.action.command;

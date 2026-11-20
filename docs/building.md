@@ -72,7 +72,7 @@ cmake --preset host -DOPENVR_LIBRARY=/absolute/path/to/libopenvr_api.so
 
 CTest reports unavailable `korean-input` and `chinese-input` suites as **Skipped**, not passed. For release validation on Frame, set `FRAMEKEYBOARD_TEST_CJK_REQUIRED=1`; unavailable engines then fail. Copy `engines/` beside transferred test executables. Run `python3 tests/engine_loading_tests.py build/host/language-tests` to check missing-module recovery in isolated copies.
 
-The preview uses the same renderer, key state, and settings as VR but never injects OS input. `scripts/preview.sh` serves the older HTML layout study, not the application.
+The preview uses the same renderer, key state, and settings as VR but never injects OS input, and its shortcut bar Run buttons start no program. `scripts/preview.sh` serves the older HTML layout study, not the application.
 
 The [desktop simulator](simulator.md) types into a text field of its own, for trying the keyboard without a Steam Frame. The `simulator` preset (`cmake --preset simulator`, then `cmake --build --preset simulator`) builds only it, without SteamVR or Vulkan (`-DFRAMEKEYBOARD_VR=OFF`), taking swipe typing and Mozc from `FRAMEKEYBOARD_EXECUTORCH_HOST` and `FRAMEKEYBOARD_MOZC_HOST` as the host preset does. `scripts/simulator-appimage.sh` packs it as an AppImage; its variables are listed under [AppImage](simulator.md#appimage).
 
