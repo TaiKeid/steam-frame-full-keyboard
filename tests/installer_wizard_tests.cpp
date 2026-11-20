@@ -4,7 +4,9 @@
 #include "../src/installer/installer.hpp"
 #include "framekeyboard/config.hpp"
 #include <cairo.h>
+#include <cstdint>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -190,6 +192,25 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         const auto choices = run.finish(0);
         require(!choices.shortcuts && !choices.shortcuts_asked,
                 "and Finish saves nothing for it, leaving the setting as loaded");
+    }
+    // 0.18.x has Streaming support only; 0.17.x and 0.16.x no optional page.
+    {
+        Run run(profiles, localization, {"0.20.0", "0.18.0"}, 1);
+        require(run.installer.wizard_pages() == 6 && run.installer.feature(5) == I::streaming_feature &&
+                    run.page_of(I::curved_feature) < 0 && run.page_of(I::shortcuts_feature) < 0,
+                "0.18.0 offers Streaming support's page alone");
+        const auto choices = run.finish(0);
+        require(!choices.curved && !choices.shortcuts_asked && choices.streaming,
+                "and saves only the answers its pages asked");
+    }
+    for (const char* older : {"0.17.0", "0.16.0"}) {
+        Run run(profiles, localization, {"0.20.0", older}, 1);
+        require(run.installer.wizard_pages() == 5 && run.page_of(I::curved_feature) < 0 &&
+                    run.page_of(I::shortcuts_feature) < 0 && run.page_of(I::streaming_feature) < 0,
+                std::string(older) + " offers no optional page");
+        const auto choices = run.finish(0);
+        require(!choices.curved && !choices.shortcuts_asked && !choices.streaming,
+                std::string(older) + " saves none of their answers");
     }
     // Streaming support still needs Replace native keyboard.
     {

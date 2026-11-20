@@ -226,7 +226,7 @@ Like every Settings change, these edits are saved by Apply and discarded by Back
 
 ## Shortcut bar
 
-General → Shortcut bar is saved as the optional boolean `shortcuts`, defaulting to false. The toolbar's shortcut bar button is saved at once as `shortcuts_switch`, defaulting to true; while it is false the bar stays hidden. See [the shortcut bar](shortcut-bar.md) for using it.
+General → Shortcut bar is saved as the optional boolean `shortcuts`, defaulting to false; on a first install the [installer](installer.md) asks, No preselected. The toolbar's shortcut bar button is saved at once as `shortcuts_switch`, defaulting to true; while it is false the bar stays hidden. See [the shortcut bar](shortcut-bar.md) for using it.
 
 Profiles, buttons and app assignments are in `shortcuts.json` beside `config.json`, readable by you alone. The keyboard writes it whole into a new file, synced to disk, which then replaces the old one; the editor's ✓ writes it, and so do an assignment in the menu and a profile picked there. You may edit it by hand; Reload config reads it again, and `framekeyboard --check` reports whether it is valid beside the layouts, languages and themes.
 
