@@ -51,7 +51,19 @@ def poll_interval(state, standby=False):
     return ACTIVE_POLL
 
 
-def install_expression(source, token, external_supported, expires, adopt_open=False):
+# Developer switch, off by default: while this file exists in the runtime folder,
+# each install reads Steam's keyboard status from its notification even where
+# the older interface's store exists, to try that path. Nothing is written.
+STATUS_NOTIFICATION_FILE = "framekeyboard-status-notification"
+
+
+def status_notification_forced():
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return bool(runtime) and os.path.isabs(runtime) and \
+        os.path.isfile(os.path.join(runtime, STATUS_NOTIFICATION_FILE))
+
+
+def install_expression(source, token, external_supported, expires, adopt_open=False, status_notification=False):
     reference = f"globalThis.{GLOBAL}"
     # Python and CEF run on the same device. A command queued beyond its local
     # deadline must not install hooks later, even if CDP cleanup cannot get through.
@@ -59,7 +71,7 @@ def install_expression(source, token, external_supported, expires, adopt_open=Fa
             f"if ({reference}) {{ if (!{reference}.bridge.expired()) return false; "
             f"{reference}.bridge.dispose(); delete {reference}; }} "
             f"const bridge = ({source})(globalThis, undefined, {str(external_supported).lower()}, "
-            f"{ADOPT_OPEN_MS if adopt_open else 0}); "
+            f"{ADOPT_OPEN_MS if adopt_open else 0}, {str(status_notification is True).lower()}); "
             f"if (Date.now() >= {expires}) {{ bridge.dispose(); return null; }} "
             f"{reference} = {{token: {json.dumps(token)}, bridge}}; return true; }})()")
 
@@ -939,7 +951,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         install_attempted = True
         result = client.evaluate(install_expression(source, token, guard is not None,
                                                    int((time.time() + INSTALL_TIMEOUT) * 1000),
-                                                   adopt_open),
+                                                   adopt_open, status_notification_forced()),
                                  timeout=INSTALL_TIMEOUT)
         if result is None:
             raise TimeoutError()  # The expression itself rejected a late installation.

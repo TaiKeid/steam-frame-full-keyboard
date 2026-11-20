@@ -802,6 +802,70 @@ class Lifecycle(unittest.TestCase):
         subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(payload), text=True,
                        check=True, timeout=5)
 
+    @unittest.skipUnless(shutil.which("node"), "Node required for production install-expression regression")
+    def test_only_the_developer_switch_forces_the_status_notification(self):
+        source = "(function(root, store, external, adoptOpenMs, forceNotification) { " \
+                 "root.forced.push(forceNotification); return {expired: () => true, dispose() {}}; })"
+        payload = [bridge.install_expression(source, "plain", True, 2000),
+                   bridge.install_expression(source, "forced", True, 2000, status_notification=True)]
+        script = r"""
+            const assert = require('node:assert/strict'), vm = require('node:vm');
+            const p = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+            const root = {forced: []}; root.Date = {now: () => 0};
+            const context = vm.createContext(root);
+            for (const expression of p) assert.equal(vm.runInContext(expression, context), true);
+            assert.deepEqual(root.forced, [false, true]);
+        """
+        subprocess.run([shutil.which("node"), "-e", script], input=json.dumps(payload), text=True,
+                       check=True, timeout=5)
+
+    def test_the_status_notification_switch_is_a_runtime_file_read_at_each_install(self):
+        with tempfile.TemporaryDirectory() as runtime:
+            switch = Path(runtime) / bridge.STATUS_NOTIFICATION_FILE
+            for environment, present, forced in (({"XDG_RUNTIME_DIR": runtime}, False, False),
+                                                 ({"XDG_RUNTIME_DIR": runtime}, True, True),
+                                                 ({}, True, False),
+                                                 ({"XDG_RUNTIME_DIR": "relative"}, True, False)):
+                with self.subTest(environment=environment, present=present):
+                    switch.unlink(missing_ok=True)
+                    if present:
+                        switch.write_text("")
+                    with patch.dict(os.environ, environment, clear=True):
+                        self.assertEqual(bridge.status_notification_forced(), forced)
+            switch.unlink()
+            switch.mkdir()
+            with patch.dict(os.environ, {"XDG_RUNTIME_DIR": runtime}, clear=True):
+                self.assertFalse(bridge.status_notification_forced(), "only a file turns it on")
+            switch.rmdir()
+            # The helper reads it when it installs the bridge.
+            for present in (False, True):
+                if present:
+                    switch.write_text("")
+                calls = []
+                real = bridge.install_expression
+
+                def recorded(*args, **kwargs):
+                    calls.append(args[5] if len(args) > 5 else kwargs.get("status_notification", False))
+                    return real(*args, **kwargs)
+
+                class Installing(FakeCDP):
+                    def evaluate(self, expression, timeout=.4, waiting=None):
+                        if "const bridge =" in expression:
+                            raise TimeoutError()
+                        return super().evaluate(expression, timeout)
+                parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                parent.settimeout(1)
+                with patch.dict(os.environ, {"XDG_RUNTIME_DIR": runtime}), \
+                        patch.object(bridge, "install_expression", recorded):
+                    worker = threading.Thread(target=bridge.run, args=(child, Installing, None, lambda: None))
+                    worker.start()
+                    try:
+                        self.receive(parent, "unavailable")
+                    finally:
+                        parent.close()
+                        worker.join(1)
+                self.assertEqual(calls, [present], "each install passes the switch as it is then")
+
     def test_helper_accepts_only_the_adopt_flag_as_an_extra_argument(self):
         for extra, accepted in (([], True), (["--adopt-open"], True), (["--adopt"], False),
                                 (["--adopt-open", "--adopt-open"], False)):

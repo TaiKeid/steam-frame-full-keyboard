@@ -7,7 +7,8 @@ const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-    "button-summon", "update-native-close", "status-mismatch"]);
+    "button-summon", "update-native-close", "status-mismatch", "status-store",
+    "status-notification"]);
 const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
 const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
 assert(sessionCodes, "native session-code parser anchor must match the production function");
@@ -89,7 +90,8 @@ class NavTree {
     TakeFocus() { if (this.doc) this.doc.activeElement = this.doc.body; return true; }
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
-    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false, registryWithoutStore = false) {
+    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false, registryWithoutStore = false,
+    forceNotification = undefined) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -233,7 +235,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
     }
     const oldFocus = root.vrGamepadInput.FocusItemUnderMouse;
     const bridge = factory(root, production || statusOnly || registryWithoutStore ? undefined : store, external,
-        adoptOpenMs);
+        adoptOpenMs, forceNotification);
     function checkOwnership() {
         const s = bridge.diagnostics();
         assert.equal(wrongTarget.length, 0, "replacement input never reaches the global background-app sink");
@@ -382,6 +384,36 @@ function seesUnnotifiedOpen(f) {
     f.notify(true, 13, false, MAIN);
     assert(f.step().eligible, "registry without the store: the notification opens a session");
     f.bridge.dispose();
+}
+
+// Each install records which source it uses, once, so a user's log tells
+// which interface their Steam has.
+for (const [name, f, code] of [
+    ["old interface", fixture(false, true), "status-store"],
+    ["new interface", fixture(false, false, false, false, false, false, 0, null, true), "status-notification"],
+    ["registry without the store",
+        fixture(false, false, false, false, false, false, 0, null, false, true), "status-notification"],
+]) {
+    owned(f);
+    const sources = f.step().events.filter(e => e.code.startsWith("status-"));
+    assert.deepEqual(Array.from(sources, e => e.code), [code], `${name}: one line names the source`);
+    f.bridge.dispose();
+}
+// The developer switch takes the notification path on the old interface,
+// without consulting its registry. Only an explicit true does.
+{
+    const f = fixture(false, true, false, false, false, false, 0, null, false, false, true);
+    assert(!seesUnnotifiedOpen(f), "the switch reads Steam's notification instead of the store");
+    f.notify(true, 13, false, MAIN);
+    const s = f.step();
+    assert(s.eligible && s.events.some(e => e.code === "status-notification"),
+        "the switch's session comes from the notification");
+    f.bridge.dispose();
+    for (const value of [false, 1, "true"]) {
+        const g = fixture(false, true, false, false, false, false, 0, null, false, false, value);
+        assert(seesUnnotifiedOpen(g), `the switch stays off for ${JSON.stringify(value)}`);
+        g.bridge.dispose();
+    }
 }
 
 // On the old interface, the notification is compared with the store Steam's
@@ -1083,7 +1115,7 @@ for (const deferred of [false, true]) {
     assert(!f.nativeOpen() && !f.calls.includes("native-show"));
     assert(!f.bridge.diagnostics().expectedClose, "the close marker cannot outlive its request");
     assert.deepEqual(Array.from(f.bridge.diagnostics().events, e => e.code),
-        ["begin", "button-summon", "acknowledged", "steam-closed"],
+        ["status-store", "begin", "button-summon", "acknowledged", "steam-closed"],
         "events retain transitions that happen between polls");
     f.bridge.dispose();
 }

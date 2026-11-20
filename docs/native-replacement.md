@@ -24,6 +24,11 @@ store Steam's handler has just updated, and logs `status-mismatch`, without
 values, the first time they differ in an install; nothing else changes. A Frame
 on that interface thereby proves the notification's shape the newer interface
 depends on.
+Each install also logs `status-store` or `status-notification`, the source it
+uses, which tells which interface the user's Steam has. For development, an
+empty file named `framekeyboard-status-notification` in the runtime folder
+(`$XDG_RUNTIME_DIR`) makes each later install use the notification even where
+the store exists; removing the file, or a reboot, turns that off again.
 
 ## When it runs
 

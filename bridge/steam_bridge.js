@@ -1,6 +1,6 @@
 // Evaluated only in Steam's SharedJSContext. Never read field or clipboard text.
 // Native presentation is closed; input stays bound to the owning Steam window.
-(function installNativeBridge(root, testStore, externalSupported, adoptOpenMs) {
+(function installNativeBridge(root, testStore, externalSupported, adoptOpenMs, forceNotification) {
     "use strict";
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
     const now = () => root.performance.now();
@@ -10,8 +10,10 @@
     // is mirrored from Steam's own status notification, which is what updates
     // that store. Before the first notification the keyboard is treated as
     // closed, leaving any presentation Steam opened before this install native.
+    // forceNotification, a developer switch, takes the notification path even
+    // where the store exists, to try it on the older interface.
     let store = testStore;
-    if (!store && root.webpackChunksteamui) {
+    if (!store && forceNotification !== true && root.webpackChunksteamui) {
         let require;
         const chunks = root.webpackChunksteamui;
         if (typeof chunks.push !== "function") throw Error("steam-ui-unavailable");
@@ -835,6 +837,9 @@
                 try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
                 if (replay) oldWindowShow.call(windowApi);
             });
+        // One line per install says which source is in use, and so which
+        // interface the user's Steam has.
+        record(fromStore ? "status-store" : "status-notification");
         inspect();
         timer = root.setInterval(() => {
             try {

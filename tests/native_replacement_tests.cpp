@@ -705,9 +705,6 @@ void sanitized_diagnostics() {
     require(output.str() == first, "repeated event sequences log each transition once");
     state(100.1, R"([null,42,"PRIVATE_SENTINEL",{"id":6,"request":4,"code":"PRIVATE_SENTINEL"}])");
     require(output.str() == first, "unknown and malformed diagnostic events are ignored");
-    state(100.1, R"([{"id":7,"request":4,"code":"status-mismatch"}])");
-    require(output.str() == first + "[native-replacement] status-mismatch\n",
-            "a status code describes the interface and is logged without a request");
     for (int i = 0; i < 3; ++i) {
         put(peer, R"({"op":"unavailable","reason":"debugger-unavailable","text":"PRIVATE_SENTINEL"})");
         replacement.poll(100.2);
@@ -746,7 +743,7 @@ void sanitized_diagnostics() {
         require(prefix == "[native-replacement]" &&
                     std::set<std::string>{"helper-start", "available", "begin", "acknowledged",
                                           "owner-changed", "owner-hidden", "debugger-unavailable",
-                                          "helper-unavailable", "status-mismatch"}
+                                          "helper-unavailable"}
                         .contains(code),
                 "every logged code belongs to the fixed diagnostic set");
         ++count;
@@ -788,6 +785,41 @@ void lost_bridge_events_are_logged() {
                 output.str().find("[native-replacement] begin request=3") != std::string::npos,
             "a gap is logged and the events after it are still handled");
     replacement.update(false, false, 0, false, 201);
+    close(peer);
+}
+// The bridge's status codes describe its Steam interface, not a request: the
+// source each install uses, and a notification that differed from the store.
+void status_codes_are_logged_without_a_request() {
+    std::ostringstream output;
+    struct Capture {
+        std::streambuf* previous;
+        explicit Capture(std::ostream& out) : previous(std::cout.rdbuf(out.rdbuf())) {}
+        ~Capture() { std::cout.rdbuf(previous); }
+    } capture(output);
+    Local local;
+    int peer = -1;
+    NativeReplacement replacement(local, -1, [&] {
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                "status-code fixture socketpair");
+        peer = pair[1];
+        return pair[0];
+    });
+    replacement.update(true, false, 0, false, 300);
+    auto state = [&](double now, const std::string& events) {
+        put(peer, R"({"op":"state","version":1,"events":)" + events + "}");
+        replacement.poll(now);
+    };
+    state(300, "[]"); // The first state logs "available".
+    int id = 0;
+    for (const std::string code : {"status-store", "status-notification", "status-mismatch"}) {
+        const auto before = output.str();
+        ++id;
+        state(300 + 2 * id, R"([{"id":)" + std::to_string(id) + R"(,"request":1,"code":")" + code + R"("}])");
+        require(output.str() == before + "[native-replacement] " + code + "\n",
+                (code + " is logged without a request").c_str());
+    }
+    replacement.update(false, false, 0, false, 310);
     close(peer);
 }
 // A key held in a Steam field when the helper fails: releasing it afterwards
@@ -1762,6 +1794,7 @@ int main(int argc, char** argv) {
         sanitized_diagnostics();
         failure_reason_survives_a_late_release();
         lost_bridge_events_are_logged();
+        status_codes_are_logged_without_a_request();
         named_key_repeats();
         paragraph_breaks();
         app_commit();
