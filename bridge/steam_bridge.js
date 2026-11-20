@@ -4,11 +4,17 @@
     "use strict";
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
     const now = () => root.performance.now();
+    // The store that holds Steam's shared VR keyboard state is module-private.
+    // Older Steam UIs (webpack) expose a registry that reaches it; current ones
+    // (Vite bundles, Steam Frame 0.5.10 and later) do not. There, the same state
+    // is mirrored from Steam's own status notification, which is what updates
+    // that store. Before the first notification the keyboard is treated as
+    // closed, leaving any presentation Steam opened before this install native.
     let store = testStore;
-    if (!store) {
+    if (!store && root.webpackChunksteamui) {
         let require;
         const chunks = root.webpackChunksteamui;
-        if (!chunks || typeof chunks.push !== "function") throw Error("steam-ui-unavailable");
+        if (typeof chunks.push !== "function") throw Error("steam-ui-unavailable");
         const id = Symbol("framekeyboard");
         chunks.push([[id], {}, r => { require = r; }]);
         const index = chunks.findIndex(c => c[0]?.[0] === id);
@@ -25,14 +31,23 @@
     const popup = root.g_PopupManager?.GetPopupForVROverlayKey?.("valve.steam.gamepadui.keyboard");
     const win = popup?.m_popup || popup?.window;
     const windowApi = win?.SteamClient?.Window;
+    const keyboardApi = root.SteamClient?.OpenVR?.Keyboard;
     const steamManagers = () => {
         const windows = root.SteamUIStore?.WindowStore?.SteamUIWindows;
         return Array.isArray(windows) ? windows.map(w => w?.VirtualKeyboardManager).filter(Boolean) : [];
     };
     const managers = steamManagers();
-    if (!store?.m_VRKeyboardState || !win?.document || !windowApi || !managers.length ||
-        typeof windowApi.ShowWindow !== "function" || typeof windowApi.BringToFront !== "function")
+    if (!win?.document || !windowApi || !managers.length ||
+        typeof windowApi.ShowWindow !== "function" || typeof windowApi.BringToFront !== "function" ||
+        !store?.m_VRKeyboardState && typeof keyboardApi?.RegisterForStatus !== "function")
         throw Error("steam-hooks-unavailable");
+    // Steam's notification order is open, flags, initial text, app id, dispatch
+    // and overlay key. The initial text is never kept.
+    let mirroredStatus = null;
+    function rememberStatus(open, flags, dispatch, key) {
+        mirroredStatus = {open: open === true, key: typeof key === "string" ? key : "",
+            dispatch: dispatch === true, flags: Number.isInteger(flags) ? flags : 0};
+    }
     function nativeStatus() {
         // VRKeyboardStatus also contains initial text. Read only these raw metadata fields.
         if (testStore) {
@@ -40,17 +55,19 @@
             return {open: s.bIsOpen, key: s.sOverlayKey, dispatch: s.bDispatchEventsToSteamVR,
                 flags: s.bMinimal ? 13 : 0};
         }
-        const s = store.m_VRKeyboardState;
-        if (typeof s?.m_bIsOpen !== "boolean") throw Error("steam-status-changed");
-        return {open: s.m_bIsOpen, key: s.m_sOpenForOverlayKey,
-            dispatch: s.m_bDispatchEventsToSteamVR, flags: s.m_eVRKeyboardFlags};
+        if (store?.m_VRKeyboardState) {
+            const s = store.m_VRKeyboardState;
+            if (typeof s.m_bIsOpen !== "boolean") throw Error("steam-status-changed");
+            return {open: s.m_bIsOpen, key: s.m_sOpenForOverlayKey,
+                dispatch: s.m_bDispatchEventsToSteamVR, flags: s.m_eVRKeyboardFlags};
+        }
+        return mirroredStatus || {open: false, key: "", dispatch: false, flags: 0};
     }
     // Window-level hooks; each owner keeps its own, and each provider API is
     // hooked once for all the owners that share it.
     const hooks = [], owners = [], apis = new Map();
     // Windows opened after installation whose hooks failed: they stay native.
     const refused = new WeakSet();
-    const keyboardApi = root.SteamClient?.OpenVR?.Keyboard;
     const externalHide = keyboardApi?.Hide;
     // Frame-local windows: Gamescope app windows, and games Steam runs locally,
     // whose window overlay is named after their app ID (docked, pinned or theater).
@@ -706,8 +723,12 @@
             if (!open && logical?.owner.manager === this) {
                 // Consume exactly the close reaction caused by this request's
                 // Hide. Keep acquisition pending if status arrives first.
+                // Without the shared store (Vite Steam UI) the status
+                // notification arrives after this reaction, so the pending
+                // close is still ours when the mirror shows the keyboard open.
                 if (closingNative && expectedClose?.owner === owner &&
-                    expectedClose.request === request && !nativeStatus().open) {
+                    expectedClose.request === request &&
+                    (!store?.m_VRKeyboardState || !nativeStatus().open)) {
                     expectedClose = null;
                     inspect();
                     return;
@@ -779,11 +800,14 @@
             catch (_) { dispose(); }
             return original.apply(this, args);
         });
-        // Ignore every callback argument, including initial field text.
+        // Ignore every callback argument except the status metadata, including
+        // initial field text, which is never read.
         const keyboard = root.SteamClient?.OpenVR?.Keyboard;
-        if (typeof keyboard?.RegisterForStatus === "function") subscription = keyboard.RegisterForStatus(() => {
-            try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
-        });
+        if (typeof keyboard?.RegisterForStatus === "function") subscription = keyboard.RegisterForStatus(
+            (open, flags, _text, _appID, dispatch, key) => {
+                rememberStatus(open, flags, dispatch, key);
+                try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
+            });
         inspect();
         timer = root.setInterval(() => {
             try {
