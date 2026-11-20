@@ -6417,7 +6417,9 @@ void dashboard_unknown_keeps_focus() {
 }
 // The name of the script row lit as chosen, or empty.
 std::string control_selected_script(App& app) {
-    for (const auto& row : app.view().shortcut_editor->scripts) {
+    // Bound first: optional's -> keeps no temporary alive for the loop (R402).
+    const auto view = app.view();
+    for (const auto& row : view.shortcut_editor->scripts) {
         if (row.chosen) {
             return row.name;
         }
@@ -6526,7 +6528,8 @@ void run_editor() {
         fs::remove(folder / "c.sh");
         tap_control(app, "shortcuts-refresh");
         require(settle([&] {
-                    const auto& rows = app.view().shortcut_editor->scripts;
+                    const auto view = app.view();
+                    const auto& rows = view.shortcut_editor->scripts;
                     return rows.size() == 7 && rows[2].name == "c.sh" && rows[2].missing &&
                            rows[2].chosen;
                 }),
@@ -6623,7 +6626,8 @@ void run_script_past_list() {
         return done();
     };
     const auto last = [&] {
-        const auto& rows = app.view().shortcut_editor->scripts;
+        const auto view = app.view();
+        const auto& rows = view.shortcut_editor->scripts;
         return rows.empty() ? ShortcutEditorView::ScriptRow{} : rows.back();
     };
     require(settle([&] { return app.view().shortcut_editor->scripts.size() == 65; }) &&

@@ -2,6 +2,7 @@
 // keyboard typing into it through the simulator's pointer routing.
 #include "simulator/simulator.hpp"
 #include <algorithm>
+#include <chrono>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -434,9 +435,12 @@ void typing_suggestions() {
     press(simulator, "KeyH");
     press(simulator, "KeyE");
     press(simulator, "KeyL");
-    // The word list loads on a thread of its own, slower in a sanitizer build.
-    for (int i = 0; i < 300 && chips(simulator).empty(); ++i) {
+    // The word list loads on a thread of its own, much slower in a sanitizer
+    // build: waited for in real time, not in simulated ticks (R402).
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (chips(simulator).empty() && std::chrono::steady_clock::now() < deadline) {
         wait(simulator);
+        usleep(10000);
     }
     require(all_start(chips(simulator), "hel"), "completions of the typed word show");
     const double x = Simulator::field_bounds.x + 15, y = Simulator::field_bounds.y + 30;

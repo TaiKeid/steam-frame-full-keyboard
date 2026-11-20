@@ -354,7 +354,8 @@ int main(int argc, char** argv) {
                     tour_scripts.erase(tour_scripts.begin() + 3);
                     click(app, "shortcuts-refresh");
                     wait_for(app, [&] {
-                        const auto& rows = app.view().shortcut_editor->scripts;
+                        const auto view = app.view();
+                        const auto& rows = view.shortcut_editor->scripts;
                         return rows.size() == 6 && rows[3].missing;
                     });
                     shot(app, "shortcut-editor-run-missing" + suffix);
