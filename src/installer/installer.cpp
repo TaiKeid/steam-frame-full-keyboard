@@ -465,6 +465,7 @@ void Installer::activate(const Hit& hit) {
             auto choices = choices_;
             choices.curved = choice(curved_feature);
             choices.shortcuts = choice(shortcuts_feature);
+            choices.shortcuts_asked = shortcuts_page();
             choices.streaming = choice(streaming_feature);
             backend_.finish(choices, restart_ && restart_offered());
         } else {

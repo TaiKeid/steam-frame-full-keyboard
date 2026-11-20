@@ -57,6 +57,9 @@ struct Release {
 struct Choices {
     bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true},
         curved{true}, shortcuts{false}, streaming{true};
+    // Whether the shortcut bar's page was offered, so its answer is saved:
+    // a version without the bar asks nothing, and its setting stays as loaded.
+    bool shortcuts_asked{};
 };
 // Sets the answers into the keyboard's settings, as Finish saves them.
 // Streaming support is left for Finish, which sets it up after saving.

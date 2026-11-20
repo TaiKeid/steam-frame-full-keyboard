@@ -142,7 +142,8 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         }
         // Untouched: No for the bar, Yes for every other page.
         const auto choices = run.finish(0);
-        require(!choices.shortcuts, "the shortcut bar's page starts at No");
+        require(!choices.shortcuts && choices.shortcuts_asked,
+                "the shortcut bar's page starts at No, and its No is saved");
         require(choices.replace_native && choices.swipe && choices.suggestions &&
                     choices.pull_for_shift && choices.numpad && choices.curved && choices.streaming,
                 "every other page keeps Yes");
@@ -181,7 +182,9 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         require(run.installer.wizard_pages() == 7 && run.page_of(I::shortcuts_feature) < 0 &&
                     run.installer.feature(6) == I::streaming_feature,
                 "0.19.0 skips the shortcut bar's page");
-        require(!run.finish(0).shortcuts, "and Finish saves no Yes for it");
+        const auto choices = run.finish(0);
+        require(!choices.shortcuts && !choices.shortcuts_asked,
+                "and Finish saves nothing for it, leaving the setting as loaded");
     }
     // Streaming support still needs Replace native keyboard.
     {
@@ -197,20 +200,29 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
     }
 }
 
-// What Finish saves: Yes turns the bar on, No leaves it as it was.
+// What Finish saves: the bar's answer either way when its page was offered,
+// as every other page's; without the page the setting stays as loaded (R423).
 void saved_settings() {
     in::Choices choices;
+    choices.shortcuts_asked = true;
     fk::Settings settings;
     in::apply_choices(settings, choices);
     require(!settings.shortcuts && settings.curved_keyboard && settings.swipe_typing,
             "the default choices leave the bar off and turn the others on");
     settings.shortcuts = true;
     in::apply_choices(settings, choices);
-    require(settings.shortcuts, "No leaves a bar turned on before as it was");
-    fk::Settings fresh;
+    require(!settings.shortcuts, "No turns off a bar a kept config had on");
     choices.shortcuts = true;
-    in::apply_choices(fresh, choices);
-    require(fresh.shortcuts, "Yes turns the bar on");
+    in::apply_choices(settings, choices);
+    require(settings.shortcuts, "Yes turns the bar on");
+    // A version without the page asked nothing: neither on nor off is written.
+    in::Choices unasked;
+    for (const bool kept : {true, false}) {
+        fk::Settings loaded;
+        loaded.shortcuts = kept;
+        in::apply_choices(loaded, unasked);
+        require(loaded.shortcuts == kept, "without its page the bar stays as loaded");
+    }
 }
 } // namespace
 

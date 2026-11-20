@@ -35,10 +35,11 @@ void apply_choices(Settings& settings, const Choices& choices) {
     settings.hide_numpad = !choices.numpad;
     // Off for a release without it, which ignores the setting anyway.
     settings.curved_keyboard = choices.curved;
-    // Only Yes changes anything: No leaves the bar as it was, off unless
-    // turned on before.
-    if (choices.shortcuts) {
-        settings.shortcuts = true;
+    // Its answer either way, as Finish lists it, when its page was offered:
+    // a kept config's bar goes off with a No. Without the page the setting
+    // stays as loaded. The profiles in shortcuts.json are never touched.
+    if (choices.shortcuts_asked) {
+        settings.shortcuts = choices.shortcuts;
     }
 }
 namespace {
