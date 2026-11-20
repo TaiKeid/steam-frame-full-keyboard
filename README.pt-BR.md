@@ -140,7 +140,7 @@ Fechar e reabrir restaura a última posição, rotação, tamanho e estado do Nu
 
 ## Barra de atalhos
 
-Ative **Barra de atalhos** (Shortcut bar) em Configurações → **Geral** e aplique. Uma barra com seus próprios botões aparece acima do teclado; toque em um botão para usá-lo. O botão da barra de atalhos na barra de ferramentas oculta a barra e a mostra de novo.
+Ative **Barra de atalhos** (Shortcut bar) em Configurações → **Geral** e aplique, ou responda Sim no instalador; senão ela fica desativada, pois a pergunta do instalador começa em Não. Uma barra com seus próprios botões aparece acima do teclado; toque em um botão para usá-lo. O botão da barra de atalhos na barra de ferramentas oculta a barra e a mostra de novo.
 
 - A aba na ponta direita da barra abre o menu **Perfis** (Profiles): escolha um perfil para mostrá-lo. **Gerenciar** (Manage) abre o editor, onde você cria perfis e seus botões.
 - Um botão é um **Atalho** (Shortcut), até quatro combinações de teclas enviadas em ordem, como Ctrl+K e depois S; uma **Macro**, etapas de teclas e esperas repetidas **Uma vez**, **Várias** vezes ou enquanto **Segurado**; ou **Executar** (Run), que inicia um script da sua pasta de scripts ou um comando no headset.

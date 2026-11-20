@@ -140,7 +140,7 @@ Closing and reopening restores the last position, rotation, size and Num Lock st
 
 ## Shortcut bar
 
-Turn on **Shortcut bar** in Settings → **General** and apply. A bar of your own buttons then sits above the keyboard; press a button to use it. The shortcut bar button in the toolbar hides the bar and shows it again.
+Turn on **Shortcut bar** in Settings → **General** and apply, or answer Yes in the installer; it stays off unless you do, as the installer's question starts at No. A bar of your own buttons then sits above the keyboard; press a button to use it. The shortcut bar button in the toolbar hides the bar and shows it again.
 
 - The tab at the bar's right end opens the **Profiles** menu: choose a profile to show it. **Manage** opens the editor, where you make profiles and their buttons.
 - A button is a **Shortcut**, up to four key combinations sent in order, such as Ctrl+K then S; a **Macro**, steps of keys and waits repeated **Once**, a number of **Times** or **While held**; or **Run**, which starts a script from your scripts folder or a command on the headset.

@@ -140,7 +140,7 @@ Schließen und erneutes Öffnen stellt die letzte Position, Drehung, Größe und
 
 ## Tastenkürzel-Leiste
 
-Schalten Sie **Tastenkürzel-Leiste** (Shortcut bar) in den Einstellungen unter **Allgemein** (General) ein und übernehmen Sie. Über der Tastatur erscheint dann eine Leiste mit Ihren eigenen Schaltflächen; drücken Sie eine Schaltfläche, um sie zu benutzen. Die Schaltfläche der Tastenkürzel-Leiste in der Werkzeugleiste blendet die Leiste aus und wieder ein.
+Schalten Sie **Tastenkürzel-Leiste** (Shortcut bar) in den Einstellungen unter **Allgemein** (General) ein und übernehmen Sie, oder antworten Sie im Installer mit Ja; sonst bleibt sie aus, denn die Frage des Installers steht zuerst auf Nein. Über der Tastatur erscheint dann eine Leiste mit Ihren eigenen Schaltflächen; drücken Sie eine Schaltfläche, um sie zu benutzen. Die Schaltfläche der Tastenkürzel-Leiste in der Werkzeugleiste blendet die Leiste aus und wieder ein.
 
 - Der Reiter am rechten Ende der Leiste öffnet das Menü **Profile** (Profiles): Wählen Sie ein Profil, um es anzuzeigen. **Verwalten** (Manage) öffnet den Editor, in dem Sie Profile und ihre Schaltflächen anlegen.
 - Eine Schaltfläche ist ein **Kürzel** (Shortcut), bis zu vier Tastenkombinationen, die nacheinander gesendet werden, etwa Ctrl+K, dann S; ein **Makro** (Macro), Schritte aus Tasten und Wartezeiten, **Einmal**, **Mehrmals** oder **Gedrückt** wiederholt; oder **Ausführen** (Run), das ein Skript aus Ihrem Skriptordner oder einen Befehl auf dem Headset startet.

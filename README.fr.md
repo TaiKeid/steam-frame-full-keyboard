@@ -140,7 +140,7 @@ Fermer et rouvrir restaure la dernière position, la rotation, la taille et l'é
 
 ## Barre de raccourcis
 
-Activez **Barre de raccourcis** (Shortcut bar) dans Paramètres → **Général** (General) et appliquez. Une barre de vos propres boutons s'affiche alors au-dessus du clavier ; appuyez sur un bouton pour l'utiliser. Le bouton de la barre de raccourcis dans la barre d'outils la masque et l'affiche à nouveau.
+Activez **Barre de raccourcis** (Shortcut bar) dans Paramètres → **Général** (General) et appliquez, ou répondez Oui dans l'installateur ; sinon elle reste désactivée, car la question de l'installateur commence sur Non. Une barre de vos propres boutons s'affiche alors au-dessus du clavier ; appuyez sur un bouton pour l'utiliser. Le bouton de la barre de raccourcis dans la barre d'outils la masque et l'affiche à nouveau.
 
 - L'onglet au bout droit de la barre ouvre le menu **Profils** (Profiles) : choisissez un profil pour l'afficher. **Gérer** (Manage) ouvre l'éditeur, où vous créez les profils et leurs boutons.
 - Un bouton est un **Raccourci** (Shortcut), jusqu'à quatre combinaisons de touches envoyées dans l'ordre, comme Ctrl+K puis S ; une **Macro**, des étapes de touches et d'attentes répétées **Une fois**, **Plusieurs** fois ou tant qu'il est **Maintenu** ; ou **Exécuter** (Run), qui lance un script de votre dossier de scripts ou une commande sur le casque.

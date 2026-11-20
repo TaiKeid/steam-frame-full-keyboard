@@ -140,7 +140,7 @@ Al cerrarlo y volver a abrirlo se restauran la última posición, la rotación, 
 
 ## Barra de atajos
 
-Activa **Barra de atajos** (Shortcut bar) en Ajustes → **General** y aplica. Sobre el teclado aparece una barra con tus propios botones; pulsa un botón para usarlo. El botón de la barra de atajos en la barra de herramientas la oculta y la vuelve a mostrar.
+Activa **Barra de atajos** (Shortcut bar) en Ajustes → **General** y aplica, o responde Sí en el instalador; si no, sigue desactivada, porque la pregunta del instalador empieza en No. Sobre el teclado aparece una barra con tus propios botones; pulsa un botón para usarlo. El botón de la barra de atajos en la barra de herramientas la oculta y la vuelve a mostrar.
 
 - La pestaña del extremo derecho de la barra abre el menú **Perfiles** (Profiles): elige un perfil para mostrarlo. **Gestionar** (Manage) abre el editor, donde creas los perfiles y sus botones.
 - Un botón es un **Atajo** (Shortcut), hasta cuatro combinaciones de teclas enviadas en orden, como Ctrl+K y luego S; una **Macro**, pasos de teclas y esperas repetidos **Una vez**, **Varias** veces o **Mantenido**; o **Ejecutar** (Run), que inicia un script de tu carpeta de scripts o un comando en el visor.
