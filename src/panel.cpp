@@ -2745,8 +2745,24 @@ std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before,
     // light reach below it, inside the strip's well.
     const auto drawn = [&](const Control& c) {
         auto r = c.bounds;
+        double margin = 2;
         if (c.id.starts_with("shortcuts-button-")) {
             r = {r.x - 2, b.strip_well.y, r.width + 4, b.strip_well.height};
+            margin = 0;
+        }
+        // A chip's ✕ lies on its rounded end: the whole chip repaints, so no
+        // pass edge falls on that end's anti-aliasing (R416).
+        if (c.id.starts_with("shortcuts-tie-")) {
+            const double cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+            for (const auto* chips : {&a.ties, &b.ties}) {
+                for (const auto& chip : *chips) {
+                    if (chip.bounds.contains(cx, cy)) {
+                        r = {chip.bounds.x - 2, chip.bounds.y - 2, chip.bounds.width + 4,
+                             chip.bounds.height + 4};
+                        margin = 0;
+                    }
+                }
+            }
         }
         if (c.clip) {
             const double left = std::max(r.x, c.clip->x), top = std::max(r.y, c.clip->y);
@@ -2754,7 +2770,7 @@ std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before,
             const double bottom = std::min(r.y + r.height, c.clip->y + c.clip->height);
             r = {left, top, right - left, bottom - top};
         }
-        area(r, c.id.starts_with("shortcuts-button-") ? 0 : 2);
+        area(r, margin);
     };
     std::map<std::string, const Control*> old_controls, new_controls;
     for (const auto& c : before.controls) {
