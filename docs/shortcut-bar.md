@@ -59,7 +59,7 @@ A Run button has a small `>_` mark in its top right corner, so it is told apart 
 
 Only the keys you recorded are sent: a Shift you tapped on the keyboard first is not added to them, and a modifier you hold or locked is let up for the shortcut. A reading or word still being composed goes to the app first.
 
-A button whose keys can't be sent where the keyboard types is dimmed, as Cut is in a terminal: in Steam's own text fields, which take only a few keys, and while Steam's dashboard has the keys. Run buttons are never dimmed for that. A button with nothing to send or start yet is dimmed too.
+A button whose keys can't be sent where the keyboard types is dimmed, as Cut is in a terminal: in Steam's own text fields, which take only a few keys. While Steam's dashboard has the keys, a button stays lit and a press does what a key press does there: Focus mode's icon shakes, or a line asks you to click the window first. Run buttons are never dimmed for that. A button with nothing to send or start yet is dimmed too.
 
 ### Repeat
 
@@ -118,7 +118,7 @@ With [Streaming support](streamed-games.md#through-steams-own-streaming-streamin
 - Labels, profile names, recorded keys, commands and script names are never logged.
 - For an app you assign, its ID (a Steam ID, a program's file name or a Desktop app's ID) and its name are saved in `shortcuts.json`.
 - Names found for Steam games and Desktop apps are kept, with their IDs, in `~/.cache/framekeyboard/app-names.json`, at most 256, also for apps you did not assign. They are never logged.
-- Window titles are not read. Nothing in a shell's protocol or the instance socket can add, change or press a button.
+- The bar never uses window titles to tell apps apart. Nothing in a shell's protocol or the instance socket can add, change or press a button.
 
 ## Limits
 
