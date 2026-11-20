@@ -47,9 +47,10 @@ class OutputController : public KeySink, public TextOutput {
     // the characters of a commit, or before the text went out.
     bool retry_uncertain() const { return retry_uncertain_; }
     bool admit(bool produces_output) { return admit(produces_output, now_); }
-    // `first_repeat`: how long a held key waits before it repeats.
+    // `first_repeat`: how long a held key waits before it repeats. `stream_paced`: into a stream
+    // session it repeats only at stream_key_on_the_way (stream_paced_key, R420).
     void native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code, double now,
-                      double first_repeat = .5);
+                      double first_repeat = .5, bool stream_paced = false);
     bool text_press(unsigned pointer, const std::string& text, double now) override;
     void release(unsigned pointer);
     void release_modifier(int code);
@@ -138,6 +139,7 @@ class OutputController : public KeySink, public TextOutput {
         std::size_t next{};
         int repeat_code{};
         double first_repeat{.5};
+        bool stream_paced{}; // native_press's
         bool held{}, started{}, waiting{}, repeat{}, paced{};
         // The target took this text and is delivering it. Only then is its
         // delivered-character count about this entry rather than an earlier one.
@@ -177,10 +179,12 @@ class OutputController : public KeySink, public TextOutput {
     // only stream_key_gap later (drain).
     double last_key_at_{-1};
     static constexpr double stream_key_gap = .02;
-    // A held key's repeat: into a stream session no faster than the stream passes the same key
-    // again, so at most one tap is still on the way when it is let go (R420).
-    double repeat_gap() const {
-        return target_.stream_session_target() ? stream_key_on_the_way : key_repeat_gap;
+    // A held key's repeat: an editing or navigation key into a stream session no faster than the
+    // stream passes the same key again, so at most one tap is still on the way when it is let go
+    // (R420). Keys that type something keep their speed, as everywhere else.
+    double repeat_gap(const Entry& held) const {
+        return held.stream_paced && target_.stream_session_target() ? stream_key_on_the_way
+                                                                    : key_repeat_gap;
     }
     // A paced composition must let the compositor's temporary keymap settle
     // between chunks. Keep this debt across cancellation and explicit retries.

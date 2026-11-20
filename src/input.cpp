@@ -181,6 +181,17 @@ const std::string& key_name(int code) {
     const auto found = names.find(code);
     return found == names.end() ? none : found->second;
 }
+bool stream_paced_key(int code, bool num_lock) {
+    // By logical key (key_codes): one list to read and change.
+    static const std::set<std::string> paced{"Backspace", "Delete",    "ArrowLeft", "ArrowRight",
+                                             "ArrowUp",   "ArrowDown", "Home",      "End",
+                                             "PageUp",    "PageDown"};
+    // With Num Lock off: End, Down, Page Down, Left, Right, Home, Up, Page Up and Delete.
+    static const std::set<std::string> numpad{"Numpad1", "Numpad2", "Numpad3", "Numpad4",      "Numpad6",
+                                              "Numpad7", "Numpad8", "Numpad9", "NumpadDecimal"};
+    const auto& name = key_name(code);
+    return paced.contains(name) || (!num_lock && numpad.contains(name));
+}
 bool is_modifier(int code) {
     return code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL || code == KEY_LEFTSHIFT ||
            code == KEY_RIGHTSHIFT || code == KEY_LEFTALT || code == KEY_RIGHTALT ||
@@ -643,7 +654,8 @@ bool KeyboardState::down(unsigned pointer, const Key& key, double now, bool loca
         acquire(key_value);
     }
     if (output_) {
-        output_->native_press(pointer, press.codes, press.repeat_code, now);
+        output_->native_press(pointer, press.codes, press.repeat_code, now, .5,
+                              stream_paced_key(press.repeat_code, num_));
     }
     return true;
 }
@@ -660,7 +672,8 @@ bool KeyboardState::continue_native(unsigned pointer, int code, double now) {
     press.repeat_at = now + .04;
     acquire(code);
     if (output_) {
-        output_->native_press(pointer, press.codes, press.repeat_code, now, .04);
+        output_->native_press(pointer, press.codes, press.repeat_code, now, .04,
+                              stream_paced_key(code, num_));
     }
     return true;
 }
@@ -933,7 +946,9 @@ bool KeyboardState::tick(double now) {
             }
             // Never replay a backlog after a stall or sleep.
             press.repeat_at =
-                now + (sink_.stream_session_target() ? stream_key_on_the_way : key_repeat_gap);
+                now + (sink_.stream_session_target() && stream_paced_key(press.repeat_code, num_)
+                           ? stream_key_on_the_way
+                           : key_repeat_gap);
         }
     }
     return changed;

@@ -78,7 +78,7 @@ void OutputController::send(int code, int value) {
     }
 }
 void OutputController::native_press(unsigned pointer, const std::vector<int>& codes, int repeat_code,
-                                    double now, double first_repeat) {
+                                    double now, double first_repeat, bool stream_paced) {
     now_ = now;
     // After a failure nothing is queued until the next admit(): a chord
     // queued now, behind a direct hold that just failed (a modifier refused
@@ -90,6 +90,7 @@ void OutputController::native_press(unsigned pointer, const std::vector<int>& co
     entry->codes = codes;
     entry->repeat_code = repeat_code;
     entry->first_repeat = first_repeat;
+    entry->stream_paced = stream_paced;
     entry->held = true;
     active_[pointer] = entry;
     queue_.push_back(entry);
@@ -572,7 +573,7 @@ void OutputController::drain(bool fresh_tick) {
             release_codes(*entry);
         }
         if (auto owner = entry->owner.lock()) {
-            owner->repeat_at = now_ + repeat_gap();
+            owner->repeat_at = now_ + repeat_gap(*owner);
         }
     }
     window_ = 0; // The run is out; the next one belongs to the window then.
@@ -627,7 +628,7 @@ bool OutputController::tick(double now) {
                 queue_.push_back(entry);
                 ++queued_;
             }
-            held->repeat_at = now + repeat_gap();
+            held->repeat_at = now + repeat_gap(*held);
             if (!queue_.empty()) {
                 drain(true);
                 break;

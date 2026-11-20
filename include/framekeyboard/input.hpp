@@ -25,13 +25,19 @@ const char* shortcut_key(const std::string& action);
 // The logical key ID for an evdev code, such as "KeyA" or "Enter"; empty when unknown.
 const std::string& key_name(int code);
 bool is_modifier(int code);
+// Whether a held key repeats into a stream session only at stream_key_on_the_way (R420): one that
+// edits or moves, whose overrun can't be seen before it does harm. Keys that type a character, Enter
+// and Tab keep key_repeat_gap. The numpad's keys count while Num Lock is off (`num_lock`), as they
+// then act as the navigation keys.
+bool stream_paced_key(int code, bool num_lock);
 
 // How long one key-down of ours holds the way to a Windows PC in a stream session, the same key
 // again included (R369): the stream library's kSameKeyOnTheWayMs, as the helper's
-// STREAM_KEY_ON_THE_WAY. A held key repeats into a stream session no faster than that (R420), so its
-// taps never pile up inside the stream, where nothing of ours can take them back.
+// STREAM_KEY_ON_THE_WAY. A held editing or navigation key repeats into a stream session no faster
+// than that (R420, stream_paced_key), so its taps never pile up inside the stream, where nothing of
+// ours can take them back.
 inline constexpr double stream_key_on_the_way = .14;
-// How often a held key repeats into any other target.
+// How often a held key repeats into any other target, and a key that types a character everywhere.
 inline constexpr double key_repeat_gap = .04;
 // The sink receives Linux evdev codes. No renderer or profile can bypass this boundary.
 class KeySink {

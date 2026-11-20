@@ -346,10 +346,25 @@ void stream_run_target_change() {
         close(pair[1]);
     }
 }
-// R420: a held key repeats into a stream session no faster than the stream passes the same key
-// again (stream_key_on_the_way), so when it is let go at most one tap is still on the way and a text
-// right after it waits no longer than that. Into any other target it still repeats every 40 ms.
+// R420: a held editing or navigation key repeats into a stream session no faster than the stream
+// passes the same key again (stream_key_on_the_way), so when it is let go at most one tap is still on
+// the way and a text right after it waits no longer than that. A key that types a character keeps 40
+// ms there, and into any other target every key does.
 void stream_repeat_pace() {
+    // The one list, by logical key: editing and navigation keys, the numpad's while Num Lock is off.
+    for (const int code : {KEY_BACKSPACE, KEY_DELETE, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_HOME,
+                           KEY_END, KEY_PAGEUP, KEY_PAGEDOWN}) {
+        require(stream_paced_key(code, true) && stream_paced_key(code, false),
+                "editing and navigation keys are paced into a stream");
+    }
+    for (const int code :
+         {KEY_KP1, KEY_KP2, KEY_KP3, KEY_KP4, KEY_KP6, KEY_KP7, KEY_KP8, KEY_KP9, KEY_KPDOT}) {
+        require(stream_paced_key(code, false) && !stream_paced_key(code, true),
+                "the numpad's keys only while Num Lock is off");
+    }
+    for (const int code : {KEY_A, KEY_1, KEY_SPACE, KEY_COMMA, KEY_ENTER, KEY_TAB, KEY_KP5, KEY_KP0}) {
+        require(!stream_paced_key(code, false), "keys that type a character, Enter and Tab are not");
+    }
     // The stream-key packets waiting on the helper's end: the times of presses and repeats, and
     // the count of releases.
     const auto take_keys = [](int fd, double now, std::vector<double>& downs,
@@ -375,7 +390,21 @@ void stream_repeat_pace() {
     const char* stream_state =
         R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true,)"
         R"("stream":true})";
-    for (const int code : {KEY_BACKSPACE, KEY_DELETE, KEY_LEFT, KEY_SPACE, KEY_A}) {
+    // A key of the layout, pressed through the key state as the panel presses it.
+    const auto key = [](const char* action) {
+        Key result;
+        result.id = action;
+        result.action = action;
+        result.action_kind = ActionKind::Key;
+        return result;
+    };
+    for (const auto& [action, paced] :
+         std::initializer_list<std::pair<const char*, bool>>{{"Backspace", true},
+                                                             {"ArrowLeft", true},
+                                                             {"Delete", true},
+                                                             {"Numpad4", true},
+                                                             {"KeyA", false},
+                                                             {"Space", false}}) {
         Local local;
         int pair[2];
         require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "pace socketpair");
@@ -386,10 +415,11 @@ void stream_repeat_pace() {
             replacement.route(true);
             OutputController output(replacement);
             output.set_enabled(true);
+            KeyboardState keyboard(output); // Num Lock off
             std::vector<double> downs, repeats;
             int ups = 0;
             double now = 10, answered = 10;
-            output.native_press(1, {code}, code, now);
+            require(keyboard.down(1, key(action), now), "a key goes down");
             // Held two seconds at about 90 frames a second; the helper answers every tenth of one.
             for (const double until = now + 2; now < until;) {
                 now += .011;
@@ -398,18 +428,26 @@ void stream_repeat_pace() {
                     answered = now;
                 }
                 replacement.poll(now);
+                keyboard.tick(now);
                 output.tick(now);
                 take_keys(pair[1], now, downs, repeats, ups);
             }
-            output.release(1);
+            keyboard.up(1);
             take_keys(pair[1], now, downs, repeats, ups);
             require(downs.size() == 1 && ups == 1, "a held key goes down once and up once");
-            // The first repeat still waits half a second (counted from the press, seen a frame
-            // later); then one a same-key time: the press and 1.5 s / 0.14 s, about 12 taps.
+            require(!repeats.empty() && repeats.front() - downs.front() >= .5 - .011,
+                    "the first repeat still waits half a second");
+            if (!paced) {
+                // About 1.5 s / 44 ms.
+                require(repeats.size() >= 30 && repeats[1] - repeats[0] < key_repeat_gap + .012,
+                        "a key that types a character keeps its speed into a stream");
+                close(pair[1]);
+                continue;
+            }
+            // One a same-key time after the first: the press and 1.5 s / 0.14 s, about 12 taps.
             const auto taps = static_cast<double>(1 + repeats.size());
-            require(!repeats.empty() && repeats.front() - downs.front() >= .5 - .011 &&
-                        std::abs(taps - (1 + 1.5 / stream_key_on_the_way)) <= 1.5,
-                    "a held key into a stream sends about one tap a same-key time");
+            require(std::abs(taps - (1 + 1.5 / stream_key_on_the_way)) <= 1.5,
+                    "a held editing key into a stream sends about one tap a same-key time");
             for (std::size_t i = 1; i < repeats.size(); ++i) {
                 require(repeats[i] - repeats[i - 1] >= stream_key_on_the_way - 1e-9,
                         "and never repeats faster than the stream passes the same key");
@@ -434,26 +472,30 @@ void stream_repeat_pace() {
         }
         close(pair[1]);
     }
-    // Any other target: every 40 ms, after the same half second.
-    Local local;
-    OutputController output(local);
-    output.set_enabled(true);
-    double now = 10;
-    output.native_press(1, {KEY_BACKSPACE}, KEY_BACKSPACE, now);
-    std::vector<double> repeats;
-    for (const double until = now + 2; now < until;) {
-        now += .011;
-        const auto before = local.keys.size();
-        output.tick(now);
-        for (auto i = before; i < local.keys.size(); ++i) {
-            if (local.keys[i].second == 2) {
-                repeats.push_back(now);
+    // Any other target: every key every 40 ms, after the same half second.
+    for (const char* action : {"Backspace", "ArrowLeft"}) {
+        Local local;
+        OutputController output(local);
+        output.set_enabled(true);
+        KeyboardState keyboard(output);
+        double now = 10;
+        require(keyboard.down(1, key(action), now), "a key goes down locally");
+        std::vector<double> repeats;
+        for (const double until = now + 2; now < until;) {
+            now += .011;
+            const auto before = local.keys.size();
+            keyboard.tick(now);
+            output.tick(now);
+            for (auto i = before; i < local.keys.size(); ++i) {
+                if (local.keys[i].second == 2) {
+                    repeats.push_back(now);
+                }
             }
         }
+        keyboard.up(1);
+        require(repeats.size() >= 30 && repeats[1] - repeats[0] < key_repeat_gap + .012,
+                "a local target still repeats every 40 ms");
     }
-    output.release(1);
-    require(repeats.size() >= 30 && repeats[1] - repeats[0] < key_repeat_gap + .012,
-            "a local target still repeats every 40 ms");
 }
 // R421: a shortcut bar run into a stream, replayed through the logged sequence against the
 // replacement and the App, with the frame loop's part (vr.cpp) done here: a stream session's request
