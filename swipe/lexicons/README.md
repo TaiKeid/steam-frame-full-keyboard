@@ -119,13 +119,23 @@ is listed higher. A capitalized word at most 26 steps above its lowercase word
 is folded into it, so the subtitle count raises the lowercase word: sentence
 starts put "He" (193) six steps above "he" (187), and British "Our" (167) 26
 steps above "our" (141). Names sit further above ("John" 147, "john" 58) and
-keep the raise. Each list is built in two steps, and its offensive list is
-built again from the result:
+keep the raise. Rare words crowd together at the bottom of the scale, so a rare
+name can also sit close to a lowercase twin that is only noise ("Wikipedia" 98,
+"wikipedia" 78). A capital therefore folds only if its lowercase word is common
+in its own right: listed at 80 or above (`--fold-written-floor 80`), or given
+110 or above by the subtitles on the written scale
+(`--fold-written-spoken-floor 110`), which keeps spoken words such as "hi" (77,
+spoken 157) and "darling". These floors lie above the lowercase twins of names
+such as "Wikipedia", "Bianca", "Lakshmi", "Seine" and "Petra", and below the
+contractions "he's" (122) and "here's" (114), which the subtitle list doesn't
+count. Each list is built in two steps, and its offensive list is built again
+from the result:
 
 ```sh
 python3 -I tools/build_swipe_lexicon.py main_en_US__experimental.combined en-us.written.tsv
 python3 -I tools/build_swipe_lexicon.py en-us.written.tsv en-us.tsv --format tsv \
-    --blend en_50k.txt --fold-written-capitals 26 --header …
+    --blend en_50k.txt --fold-written-capitals 26 --fold-written-floor 80 \
+    --fold-written-spoken-floor 110 --header …
 ```
 
 Without `--fold-written-capitals`, the same two steps rebuild the earlier

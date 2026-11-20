@@ -243,7 +243,10 @@ void english_case() {
     // the blend used to give the subtitle count to the capital: each key keeps
     // only its commonest spelling, so "he", "no" and "so" came out capitalized
     // in mid-sentence. The lists fold such capitals before the blend.
-    const auto check = [](const char* language, std::initializer_list<const char*> lowercase) {
+    // A capital folds only if its lowercase word is common in its own right, so
+    // rarer names whose lowercase twin is noise keep their capital.
+    const auto check = [](const char* language, std::initializer_list<const char*> lowercase,
+                          const char* name_key, const char* name) {
         std::ifstream input(swipe_lexicon_path({}, {}, language));
         require(input.good(), std::string("the bundled list is beside the tests: ") + language);
         const auto list = WordList::parse(input);
@@ -252,11 +255,15 @@ void english_case() {
             require(found && found->spelling == word,
                     std::string(language) + " offers " + word + " in lowercase");
         }
-        const auto name = list.find("john");
-        require(name && name->spelling == "John", std::string(language) + " keeps John capitalized");
+        for (const auto& [key, spelling] :
+             {std::pair<const char*, const char*>{"john", "John"}, {name_key, name}}) {
+            const auto found = list.find(key);
+            require(found && found->spelling == spelling,
+                    std::string(language) + " keeps " + spelling + " capitalized");
+        }
     };
-    check("en-us", {"he", "no", "so"});
-    check("en-gb", {"how", "our"});
+    check("en-us", {"he", "no", "so"}, "seine", "Seine");
+    check("en-gb", {"how", "our"}, "wikipedia", "Wikipedia");
 }
 
 void features() {

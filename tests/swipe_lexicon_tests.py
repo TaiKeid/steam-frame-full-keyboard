@@ -88,6 +88,34 @@ with tempfile.TemporaryDirectory() as folder:
     expect(folded['John'] == plain['John'] and folded['john'] == 58,
            'a name keeps the raise and its lowercase twin stays as it was')
 
+# Rare words crowd at the bottom of the written scale, so a rare name can sit
+# close to a lowercase twin that is only noise. With the floors, a capital folds
+# only if its lowercase word is common in its own right: listed high enough in
+# the written list, or spoken often enough in the subtitles.
+expect(tool.fold_written_capitals({'Wikipedia': 98, 'wikipedia': 78, 'He': 193, 'he': 187}, 26,
+                                  lambda lower: lower == 'he')
+       == {'Wikipedia': 98, 'wikipedia': 78, 'he': 193},
+       'a capital whose lowercase twin is not common stays')
+with tempfile.TemporaryDirectory() as folder:
+    source, subtitles, output = (Path(folder) / name for name in ('written.tsv', 'subtitles.txt', 'out.tsv'))
+    # Written: "he" common, "hi" rare but spoken, "bianca" rare and rarely spoken.
+    source.write_text('the\t222\nHe\t193\nhe\t187\nHi\t93\nhi\t77\nBianca\t74\nbianca\t50\n', encoding='utf-8')
+    subtitles.write_text('the 1000000\nhe 400000\nhi 300000\nbianca 20\n', encoding='utf-8')
+
+    def floors(*options):
+        subprocess.run([sys.executable, '-I', sys.argv[1], str(source), str(output), '--format', 'tsv',
+                        '--blend', str(subtitles), '--fold-written-capitals', '26', *options],
+                       check=True, capture_output=True)
+        return tool.from_tsv(output)
+    common = floors('--fold-written-floor', '80', '--fold-written-spoken-floor', '200')
+    expect('He' not in common and 'Hi' in common and 'Bianca' in common,
+           'a lowercase word listed above the written floor folds its capital; others stay')
+    spoken = floors('--fold-written-floor', '80', '--fold-written-spoken-floor', '150')
+    expect('He' not in spoken and 'Hi' not in spoken and spoken['hi'] > 93 and 'Bianca' in spoken,
+           'a lowercase word the subtitles give the spoken floor folds too, and takes the raise')
+    everything = floors()
+    expect(not {'He', 'Hi', 'Bianca'} & set(everything), 'without floors every capital in the window folds')
+
 # The shipped Spanish list carries the fold, and keeps the accented pronoun and
 # names. The runtime keeps one spelling per key, the commonest, so "Cruz" wins
 # over "cruz" only while it is still listed.
@@ -120,8 +148,10 @@ def offered(name):
 # The shipped English lists offer common words in lowercase mid-sentence,
 # and names capitalized.
 for name, lowercase, names in (
-        ('en-us.tsv', "he no so he's here's new may", 'John York American English August Trump'),
-        ('en-gb.tsv', 'how our new may', 'John York American English August')):
+        ('en-us.tsv', "he no so he's here's new may",
+         'John York American English August Trump Wikipedia Bianca Hanuman Seine Scrabble Petra Pasteur'),
+        ('en-gb.tsv', 'how our new may',
+         'John York American English August Wikipedia Bianca Lakshmi Scrabble Petra Pasteur')):
     spellings = offered(name)
     for word in lowercase.split():
         expect(spellings.get(word) == word, f'{name} offers {word} in lowercase, not {spellings.get(word)}')

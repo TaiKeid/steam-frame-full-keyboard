@@ -23,7 +23,10 @@ lowercase still count as sentence-initial (default 20).
 
 --fold-written-capitals N folds, before the blend, a capitalized word at most N
 steps above its lowercase word in the written list, so the subtitle count
-raises the lowercase word (English "He" over "he").
+raises the lowercase word (English "He" over "he"). --fold-written-floor F and
+--fold-written-spoken-floor S fold it only if the lowercase word is common in
+its own right: listed at F or above, or given S or above by the subtitles on
+the written scale. Without them every such capital folds.
 
 --turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
 --script keeps only words in one script, as Bulgarian, Macedonian, Greek,
@@ -147,7 +150,7 @@ def fold_initial_capitals(entries, steps=DEFAULT_CAPITAL_FOLD_STEPS):
     return folded
 
 
-def fold_written_capitals(entries, steps):
+def fold_written_capitals(entries, steps, common=None):
     """Fold "He" into "he" when "He" is listed at most `steps` above it.
 
     For a list about to be blended. Subtitle lists are lowercase, so the blend
@@ -157,11 +160,17 @@ def fold_written_capitals(entries, steps):
     is a name (John 147, john 58) and keeps the raise. A capital below its
     lowercase word is left listed: the raise already goes to the lowercase
     word, and the runtime offers only the commonest spelling.
+
+    Rare words crowd together at the bottom of the scale, so a rare name can
+    sit within `steps` of a lowercase twin that is only noise (Wikipedia 98,
+    wikipedia 78). `common`, given the lowercase word, says whether it is a
+    word in its own right; only then does the capital fold.
     """
     folded = dict(entries)
     for word, frequency in entries.items():
         lower = lower_initial(word)
-        if lower != word and lower in entries and entries[lower] <= frequency <= entries[lower] + steps:
+        if lower != word and lower in entries and entries[lower] <= frequency <= entries[lower] + steps and \
+                (common is None or common(lower)):
             folded[lower] = frequency
             del folded[word]
     return folded
@@ -212,7 +221,7 @@ BLEND_CALIBRATION_WORDS = 5000
 
 
 def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None,
-                    steps=DEFAULT_CAPITAL_FOLD_STEPS):
+                    steps=DEFAULT_CAPITAL_FOLD_STEPS, written_fold=None):
     """Raise words to their film-subtitle frequency; add the missing ones.
 
     Subtitle counts go on the same 0-255 log scale, shifted by the median
@@ -222,7 +231,11 @@ def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None,
     lowercase_capitals, a word listed only with an initial capital (Dutch Hoi,
     from sentence starts) takes the lowercase spelling when the subtitles use
     it about as often (see fold_initial_capitals). transliterate converts
-    each subtitle word first, or returns None to skip it.
+    each subtitle word first, or returns None to skip it. written_fold, as
+    (steps, written floor, spoken floor), first folds capitals as
+    fold_written_capitals does, a lowercase word counting as common when it is
+    listed at the written floor or above, or its subtitle frequency on the
+    written scale reaches the spoken floor; a floor of None is no condition.
     """
     counts = {}
     with open(path, encoding="utf-8") as source:
@@ -241,6 +254,22 @@ def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None,
     ranked = sorted(subtitle, key=lambda word: -subtitle[word])[:BLEND_CALIBRATION_WORDS]
     shared = [entries[spellings[fold_case(w)]] - subtitle[w] for w in ranked if fold_case(w) in spellings]
     offset = statistics.median(shared) if shared else 0
+    if written_fold:
+        # Folding keeps each key's frequency, so the offset is the same either way.
+        fold_steps, written_floor, spoken_floor = written_fold
+        conditional = written_floor is not None or spoken_floor is not None
+
+        def common(lower):
+            spoken = subtitle.get(lower)
+            return (written_floor is not None and entries[lower] >= written_floor or
+                    spoken_floor is not None and spoken is not None and
+                    round(spoken + offset) >= spoken_floor)
+        entries = fold_written_capitals(entries, fold_steps, common if conditional else None)
+        spellings = {}
+        for word, frequency in entries.items():
+            key = fold_case(word)
+            if key not in spellings or frequency > entries[spellings[key]]:
+                spellings[key] = word
     blended = dict(entries)
     added = raised = 0
     for word, frequency in subtitle.items():
@@ -329,6 +358,18 @@ def main():
         metavar="N",
         help="before the blend, fold a capitalized word at most N steps above its lowercase word",
     )
+    parser.add_argument(
+        "--fold-written-floor",
+        type=int,
+        metavar="F",
+        help="with --fold-written-capitals: the lowercase word is common if listed at F or above",
+    )
+    parser.add_argument(
+        "--fold-written-spoken-floor",
+        type=int,
+        metavar="S",
+        help="with --fold-written-capitals: or if the subtitles give it S or above on the written scale",
+    )
     parser.add_argument("--turkic-case", action="store_true", help="lowercase I to ı and İ to i")
     parser.add_argument("--respell", action="append", default=[], metavar="FROM=TO", help="replace a letter")
     parser.add_argument("--script", choices=sorted(SCRIPTS), help="keep only words in this script")
@@ -342,6 +383,9 @@ def main():
         parser.error("--fold-initial-capitals-steps must be zero or more")
     if args.fold_written_capitals is not None and (args.fold_written_capitals < 0 or not args.blend):
         parser.error("--fold-written-capitals needs --blend and zero or more steps")
+    if (args.fold_written_floor is not None or args.fold_written_spoken_floor is not None) and \
+            args.fold_written_capitals is None:
+        parser.error("--fold-written-floor and --fold-written-spoken-floor need --fold-written-capitals")
     global TURKIC_CASE
     TURKIC_CASE = args.turkic_case
 
@@ -355,12 +399,12 @@ def main():
         entries = from_jieba(args.source, args.minimum_count)
     script = "cyrillic" if args.serbian_cyrillic else args.script
     if args.blend:
-        if args.fold_written_capitals is not None:
-            entries = fold_written_capitals(entries, args.fold_written_capitals)
         transliterate = serbian_cyrillic if args.serbian_cyrillic else None
+        written_fold = None if args.fold_written_capitals is None else (
+            args.fold_written_capitals, args.fold_written_floor, args.fold_written_spoken_floor)
         entries = blend_subtitles(
             entries, args.blend, args.fold_initial_capitals, transliterate,
-            args.fold_initial_capitals_steps
+            args.fold_initial_capitals_steps, written_fold
         )
     if args.respell:
         entries = respelled(entries, args.respell)
