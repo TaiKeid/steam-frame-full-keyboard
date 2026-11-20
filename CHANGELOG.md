@@ -9,6 +9,7 @@
 - Key rows on every bundled layout are now as far apart as keys in a row, so the keyboard is a little shorter: full layouts are 400 units tall instead of 416, and Settings and the emoji picker follow. A layout of your own copied from an earlier version keeps its old rows and still works, though its case's foot then moves when Settings opens; copy the bundled file again to take the new rows (see [layouts](docs/configuration.md#layouts-and-styles)).
 - Typing a non-Latin language, such as Russian, into a game or desktop streamed from a Windows PC could leave mouse buttons held on the PC, so clicks stopped working there; it happened most surely after swiping a word or changing a swiped word to another candidate. Full Keyboard now waits until the keys it sent before a text are through to the PC before sending the text.
 - With the keyboard opened by the stream's keyboard button, key presses could also click on the PC where its pointer was. SteamVR's laser mode is now held for the whole time you type into a stream, so the controllers' triggers no longer reach the PC as mouse buttons while you type.
+- Swipe typing and typing suggestions in Spanish typed "El" for the article "el": the word list ranked the sentence-initial capital one step above the lowercase word, and both swipe alternatives and suggestions keep one case variant, so "el" was never offered. The list now folds "El" into "el"; "él" stays an alternative and names such as "Cruz" stay capitalized. Thanks to @jlsalvador for the fix (#20).
 
 ## 0.19.1: Small polishing and bugfixes
 

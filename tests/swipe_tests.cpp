@@ -1,5 +1,6 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/swipe.hpp"
+#include "framekeyboard/word_suggestions.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -218,6 +219,22 @@ void lexicon_paths() {
     log_probs = emissions(path_of(de, U"strase"), steps);
     words = sharp.decode(log_probs, steps, swipe_max_keys + 1, 5);
     require(!words.empty() && words[0].word == "straße", "ß decodes from S");
+}
+
+void spanish_article() {
+    std::ifstream input(swipe_lexicon_path({}, {}, "es-es"));
+    require(input.good(), "the bundled Spanish list is beside the tests");
+    const auto list = WordList::parse(input);
+    // "El" (213) and "el" (212) share one key; each key keeps only its
+    // commonest spelling, so the sentence-initial capital used to win and the
+    // article could not be typed. The list folds "El" into "el".
+    const auto article = list.find("el");
+    require(article && article->spelling == "el",
+            "el is listed lowercase, not only its sentence-initial El");
+    const auto pronoun = list.find("él");
+    require(pronoun && pronoun->spelling == "él", "the accented pronoun stays");
+    const auto name = list.find("cruz");
+    require(name && name->spelling == "Cruz", "a name above its lowercase stays capitalised");
 }
 
 void features() {
@@ -2522,6 +2539,7 @@ int main(int argc, char** argv) {
         keyboard_geometry();
         dvorak_geometry();
         lexicon_paths();
+        spanish_article();
         features();
         disabled_by_default();
         languages_popup_marks();

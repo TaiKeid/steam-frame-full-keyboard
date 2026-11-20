@@ -493,6 +493,10 @@ if(BUILD_TESTING)
         # Rows as far apart as keys in a row, no overlaps, all within size.
         add_test(NAME layout-geometry COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/layout_geometry_tests.py" "${CMAKE_CURRENT_SOURCE_DIR}/layouts")
+        # The swipe word list builder's capital fold, and the bundled Spanish list.
+        add_test(NAME swipe-lexicons COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/swipe_lexicon_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_swipe_lexicon.py")
     endif()
     add_executable(word-suggestions-tests tests/word_suggestions_tests.cpp)
     target_link_libraries(word-suggestions-tests PRIVATE keyboard_core)
