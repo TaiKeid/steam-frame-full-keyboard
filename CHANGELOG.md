@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Native keyboard replacement works again on Steam Frame 0.5.10. That update moved Steam's interface from webpack chunks to Vite modules and removed the registry the bridge used to read Steam's shared VR keyboard state, so it reported the interfaces as incompatible and every request fell back to Steam's keyboard. The bridge now takes that state from Steam's own keyboard status notification, the same one that keeps Steam's keyboard state current, and never reads the initial field text it carries. A keyboard Steam opened before the first notification stays native until dismissed; after an in-app update, a keyboard the outgoing version left open is also left to Steam until dismissed instead of being taken over.
+
 ## 0.19.1: Small polishing and bugfixes
 
 - Shift, Ctrl, Alt, AltGr and the left Frame icon now lock after half a second held instead of a second: the ring shows from 0.15 s, is fully in by 0.25 s and closes at 0.6 s. A double tap still locks within 0.3 s.

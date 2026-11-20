@@ -89,7 +89,7 @@ class NavTree {
     TakeFocus() { if (this.doc) this.doc.activeElement = this.doc.body; return true; }
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
-    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null) {
+    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -97,6 +97,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
     const calls = [], deliveries = [], wrongTarget = [], nodes = new Set();
     const status = {bIsOpen: open, bMinimal: true, sOverlayKey: MAIN, bDispatchEventsToSteamVR: false};
     Object.defineProperty(status, "sInitialText", {get() { throw Error("must not read field text"); }});
+    // Steam's status notification also carries initial field text. The bridge
+    // may take the arguments but must never read that one.
+    const initialText = new Proxy({}, {get() { throw Error("must not read notification text"); }});
     const controllerText = value => { // Backspace uses Steam's existing ControllerKeyboardSendText mapping.
         root.SteamClient.Input.ControllerKeyboardSendText(value);
     };
@@ -145,7 +148,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
                 pendingCloses.push(() => reaction.manager.SetVRKeyboardOpenForThisInstance(false));
             else reaction.manager.SetVRKeyboardOpenForThisInstance(open);
         }
-        if (notify) { observer?.(); tick?.(); }
+        if (notify) { observer?.(status.bIsOpen, status.bMinimal ? 13 : 0, initialText, 0,
+            status.bDispatchEventsToSteamVR, status.sOverlayKey); tick?.(); }
     }
     const keyboard = {
         Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
@@ -184,7 +188,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         vrGamepadInput: {FocusItemUnderMouse(tree) {
             if (dom && tree?.Root?.Element?.contains(dom.doc.body)) dom.doc.activeElement = dom.doc.body;
         }, TakeFocusIfNothingIsFocused() {}, m_NullNavTree: new NavTree(() => false)}};
-    if (production) {
+    if (production && !statusOnly) {
         const require = key => key === "store" ? {store} : key === "decoy" ?
             {store: {VRKeyboardStatus: {}}} : {controllerText};
         require.m = {...(discoveryProbe ? {decoy: function() { return "get VRKeyboardStatus()"; }} : {}),
@@ -228,7 +232,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
     const oldFocus = root.vrGamepadInput.FocusItemUnderMouse;
-    const bridge = factory(root, production ? undefined : store, external, adoptOpenMs);
+    const bridge = factory(root, production || statusOnly ? undefined : store, external, adoptOpenMs);
     function checkOwnership() {
         const s = bridge.diagnostics();
         assert.equal(wrongTarget.length, 0, "replacement input never reaches the global background-app sink");
@@ -304,6 +308,32 @@ function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
     assert(s.local && s.eligible && !f.nativeOpen(), "close the complete external native presentation");
     assert(f.step(s.request).active);
     return s.request;
+}
+
+// Steam Frame 0.5.10 moved the Steam UI from webpack chunks to Vite modules.
+// The module registry that held Steam's shared VR keyboard store is gone, so
+// the bridge takes the same status from Steam's own keyboard notification, the
+// channel that updates that store. Only its metadata is kept.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    assert.equal(f.root.webpackChunksteamui, undefined, "the Vite UI exposes no module registry");
+    assert(f.alive() && f.observing(), "a Vite Steam UI installs the bridge without the store");
+    const idle = f.bridge.diagnostics();
+    assert(!idle.nativeOpen && idle.idle, "before the first notification the keyboard counts as closed");
+    const request = owned(f);
+    assert(f.step(request).active, "Steam's notification opens a working session");
+    assert.equal(f.bridge.send(request, "a"), true, "text reaches the retained field");
+    assert(f.step(request).active);
+    f.bridge.dispose();
+}
+// A native keyboard Steam opened before the first notification stays native.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    const s = f.step();
+    assert(f.nativeOpen() && !s.eligible && !f.bridge.diagnostics().session,
+        "an already-open keyboard is left to Steam");
+    f.bridge.dispose();
 }
 
 // A game Steam runs locally names its window overlay after its app ID, docked,
@@ -1543,10 +1573,14 @@ function notReadyFor(f, ms) {
 // properties. Include the seed/trace on failure so every discovered sequence can
 // become a focused regression. No real endpoint or user text is involved.
 let deadlineChecks = 0, laterDeadlineChecks = 0;
-for (let seed = 1; seed <= 128; ++seed) {
+// The 128 original walks keep the webpack store path; 48 more use a Vite-style
+// UI without it. Both must satisfy the same safety properties.
+for (const statusOnly of [false, true])
+for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
     let random = seed, previousRequest = 0;
     const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
-    const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0), trace = [];
+    const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0, false, false, 0, null, statusOnly),
+        trace = [];
     const opened = key => f.status({bIsOpen: true, sOverlayKey: key,
         bMinimal: true, bDispatchEventsToSteamVR: false});
     // Keep the deadline in the test, independently of the bridge's timer. A new
