@@ -5,6 +5,7 @@
 #include "framekeyboard/stream_app.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -1137,6 +1138,15 @@ void app_info_names() {
     auto upper = fixture;
     upper.strings = {"AppInfo", "COMMON", "Name", "type", "other"};
     require(name_from(upper.build()) == "Example Game", "its keys compared without case");
+    // Both spellings of each key in the table, each used by some entry: either gives the name (R407).
+    auto both = fixture;
+    both.strings = {"appinfo", "common", "name", "type", "other", "AppInfo", "Common", "Name"};
+    for (const auto& keys : std::vector<std::array<std::int32_t, 3>>{{0, 1, 2}, {5, 6, 7}, {0, 6, 7}}) {
+        both.entries = {{4000010, other},
+                        {4000020, F::map(keys[0]) + F::map(keys[1]) + F::text(keys[2], "Example Game") +
+                                      F::end() + F::end() + F::end()}};
+        require(name_from(both.build()) == "Example Game", "a table with both spellings names it");
+    }
     auto magic = fixture;
     magic.magic = 0x07564428;
     require(name_from(magic.build()).empty(), "another version: no name");

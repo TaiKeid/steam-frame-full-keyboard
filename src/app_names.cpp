@@ -148,8 +148,8 @@ class AppInfo {
         file_.seekg(static_cast<std::streamoff>(at));
         return static_cast<bool>(file_.read(reinterpret_cast<char*>(&value), sizeof value));
     }
-    // The string table's indices of the three keys, compared without case; the rest of the table is
-    // only walked past.
+    // The string table's indices of the three keys, compared without case. Every spelling is kept,
+    // a few at most, as the table may hold "name" and "Name" both, each used by other entries (R407).
     bool find_keys(std::uint64_t table) {
         std::uint32_t count = 0;
         if (!read_at(table, count)) {
@@ -170,16 +170,16 @@ class AppInfo {
                 text.push_back(static_cast<char>(std::tolower(c)));
             }
             for (int k = 0; k < 3; ++k) {
-                if (keys_[k] < 0 && text == wanted[k]) {
-                    keys_[k] = static_cast<std::int32_t>(index);
+                if (text == wanted[k] && keys_[k].size() < key_spellings) {
+                    keys_[k].push_back(static_cast<std::int32_t>(index));
                 }
             }
-            if (keys_[0] >= 0 && keys_[1] >= 0 && keys_[2] >= 0) {
-                count_ = count;
-                return true;
-            }
         }
-        return false;
+        count_ = count;
+        return !keys_[0].empty() && !keys_[1].empty() && !keys_[2].empty();
+    }
+    bool is_key(int k, std::int32_t index) const {
+        return std::find(keys_[k].begin(), keys_[k].end(), index) != keys_[k].end();
     }
     // appinfo / common / name in an entry's binary VDF: the string, or empty.
     std::string find_name(const std::string& data) {
@@ -214,7 +214,7 @@ class AppInfo {
                 if (++depth > 64) {
                     return {};
                 }
-                if (matched == depth - 1 && matched < 2 && key == keys_[matched]) {
+                if (matched == depth - 1 && matched < 2 && is_key(matched, key)) {
                     ++matched;
                 }
                 continue;
@@ -223,7 +223,7 @@ class AppInfo {
                 if (end == std::string::npos) {
                     return {};
                 }
-                if (matched == 2 && depth == 2 && key == keys_[2]) {
+                if (matched == 2 && depth == 2 && is_key(2, key)) {
                     return data.substr(at, end - at);
                 }
                 at = end + 1;
@@ -263,7 +263,9 @@ class AppInfo {
     std::ifstream file_;
     std::uintmax_t size_{};
     bool ok_{};
-    std::int32_t keys_[3]{-1, -1, -1};
+    // Spellings kept per key: the few case variants a table could hold.
+    static constexpr std::size_t key_spellings = 8;
+    std::vector<std::int32_t> keys_[3];
     std::uint32_t count_{};
 };
 // A Steam ID's name from the app cache under the first of `roots` that has one: none when the name
