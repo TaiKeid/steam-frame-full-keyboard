@@ -2498,18 +2498,22 @@ bool takes_pointer(const PanelView& view, double x, double y) {
     const auto areas = pointer_bounds(view);
     return std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
 }
-std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now) {
+std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now, bool menu_apart) {
     if (!before.shortcut_bar || !now.shortcut_bar || before.shortcut_bar == now.shortcut_bar ||
         before.settings || now.settings) {
         return {};
     }
     const auto& a = *before.shortcut_bar;
     const auto& b = *now.shortcut_bar;
-    // Everything but the states and the buttons' scrolled places must match.
-    const auto still = [](ShortcutBarView v) {
+    // Everything but the states and the buttons' scrolled places must match,
+    // and the menu, when its own damage covers it.
+    const auto still = [&](ShortcutBarView v) {
         v.buttons.clear();
         v.more_before = v.more_after = false;
         v.picker_hovered = v.picker_pressed = false;
+        if (menu_apart) {
+            v.menu.reset();
+        }
         return v;
     };
     if (still(a) != still(b)) {
@@ -2541,10 +2545,270 @@ std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& 
         damage.push_back(pixel_bounds(b.picker, 1));
     }
     // The menu lies over keys, whose own repaints would cut through its rows'
-    // text with their clips: a change in it repaints whole.
-    if (a.menu != b.menu) {
+    // text with their clips: a change in it repaints whole, unless
+    // shortcut_menu_damage takes it.
+    if (a.menu != b.menu && !menu_apart) {
         return {};
     }
+    return damage;
+}
+std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, const PanelView& now) {
+    if (!before.shortcut_bar || !now.shortcut_bar || !before.shortcut_bar->menu ||
+        !now.shortcut_bar->menu || before.settings || now.settings) {
+        return {};
+    }
+    const auto& a = *before.shortcut_bar->menu;
+    const auto& b = *now.shortcut_bar->menu;
+    // Everything but its rows' states and places, the thumb and Manage's
+    // states must match.
+    const auto still = [](ShortcutBarView::Menu m) {
+        m.rows.clear();
+        m.thumb.reset();
+        m.manage_hovered = m.manage_pressed = false;
+        return m;
+    };
+    if (still(a) != still(b)) {
+        return {};
+    }
+    std::vector<Rect> damage;
+    const auto in_list = [&](const Rect& r) {
+        const double top = std::max(r.y, b.list.y);
+        const double bottom = std::min(r.y + r.height, b.list.y + b.list.height);
+        return pixel_bounds({r.x, top, r.width, std::max(0.0, bottom - top)});
+    };
+    const bool same_places =
+        a.rows.size() == b.rows.size() &&
+        std::equal(a.rows.begin(), a.rows.end(), b.rows.begin(), [](const auto& x, const auto& y) {
+            return x.bounds == y.bounds && x.assign == y.assign && x.name == y.name;
+        });
+    if (!same_places) {
+        damage.push_back(pixel_bounds(b.list)); // scrolled: every row moves
+    } else {
+        for (std::size_t i = 0; i < b.rows.size(); ++i) {
+            if (a.rows[i] != b.rows[i]) {
+                damage.push_back(in_list(b.rows[i].bounds));
+            }
+        }
+    }
+    if (a.thumb != b.thumb) {
+        for (const auto* thumb : {&a.thumb, &b.thumb}) {
+            if (*thumb) {
+                damage.push_back(pixel_bounds(**thumb, 1));
+            }
+        }
+    }
+    if (a.manage_hovered != b.manage_hovered || a.manage_pressed != b.manage_pressed) {
+        damage.push_back(pixel_bounds(b.manage, 1));
+    }
+    std::erase_if(damage, [](const Rect& r) { return r.width <= 0 || r.height <= 0; });
+    return damage;
+}
+std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before, const PanelView& now) {
+    if (!before.shortcut_editor || !now.shortcut_editor || before.settings || now.settings ||
+        before.shortcut_field || now.shortcut_field) {
+        return {};
+    }
+    const auto& a = *before.shortcut_editor;
+    const auto& b = *now.shortcut_editor;
+    // Everything but what a hover, a scroll or a carried item changes must match.
+    const auto still = [](ShortcutEditorView e) {
+        e.lifted_row.reset();
+        e.lifted_button.reset();
+        e.lifted_step.reset();
+        e.profiles_thumb.reset();
+        e.used_thumb.reset();
+        e.steps_thumb.reset();
+        e.scripts_thumb.reset();
+        e.drop_row.reset();
+        e.ties.clear();
+        e.scripts.clear();
+        e.steps.clear();
+        e.chords.clear();
+        e.chords_before = e.chords_after = e.more_before = e.more_after = false;
+        e.explanation.clear(); // what the laser or a carried item explains, in its own box
+        if (e.popup) {
+            e.popup->chords.clear();
+            e.popup->chords_before = e.popup->chords_after = false;
+        }
+        return e;
+    };
+    if (still(a) != still(b)) {
+        return {};
+    }
+    std::vector<Rect> damage;
+    const auto area = [&](const Rect& r, double margin) {
+        if (r.width > 0 && r.height > 0) {
+            damage.push_back(pixel_bounds(r, margin));
+        }
+    };
+    const auto moved = [&](const auto& old_place, const auto& new_place, double margin) {
+        if (old_place != new_place) {
+            for (const auto* place : {&old_place, &new_place}) {
+                if (*place) {
+                    area(**place, margin);
+                }
+            }
+        }
+    };
+    // A carried row, button or step, where it was and where it is, its
+    // shadow included, grown to every control or text it touches: its edge
+    // must not cut through their text, which a clip draws differently.
+    const auto clipped_bounds = [](const Control& c) {
+        auto r = c.bounds;
+        if (c.clip) {
+            const double left = std::max(r.x, c.clip->x), top = std::max(r.y, c.clip->y);
+            const double right = std::min(r.x + r.width, c.clip->x + c.clip->width);
+            const double bottom = std::min(r.y + r.height, c.clip->y + c.clip->height);
+            r = {left, top, std::max(0.0, right - left), std::max(0.0, bottom - top)};
+        }
+        return r;
+    };
+    std::vector<Rect> texts{b.explanation_bounds,
+                            b.used_chips,
+                            {b.used.x, b.used.y, b.used.width, 34},
+                            {b.column.x, b.column.y, b.column.width, b.profiles_list.y - b.column.y}};
+    for (const auto* controls : {&before.controls, &now.controls}) {
+        for (const auto& c : *controls) {
+            if (const auto r = clipped_bounds(c); r.width > 0 && r.height > 0) {
+                texts.push_back(r);
+            }
+        }
+    }
+    // Passed last: a later pass whose edge crossed a carried item would draw
+    // its edge differently.
+    std::vector<Rect> carried;
+    const auto lifted = [&](const auto& old_item, const auto& new_item) {
+        if (old_item == new_item) {
+            return;
+        }
+        for (const auto* item : {&old_item, &new_item}) {
+            if (!*item) {
+                continue;
+            }
+            auto r = pixel_bounds((*item)->bounds, tone_shadow + 1);
+            for (bool grew = true; grew;) {
+                grew = false;
+                for (const auto& text : texts) {
+                    const auto t = pixel_bounds(text, 1);
+                    if (overlaps(t, r) && (t.x < r.x || t.y < r.y || t.x + t.width > r.x + r.width ||
+                                           t.y + t.height > r.y + r.height)) {
+                        const double left = std::min(r.x, t.x), top = std::min(r.y, t.y);
+                        r = {left, top, std::max(r.x + r.width, t.x + t.width) - left,
+                             std::max(r.y + r.height, t.y + t.height) - top};
+                        grew = true;
+                    }
+                }
+            }
+            carried.push_back(r);
+        }
+    };
+    // A carried button is drawn through a group, whose gradient rounds a
+    // shade differently where a pass begins than in a full paint, on light
+    // themes: it repaints whole, as it did.
+    if (a.lifted_button != b.lifted_button) {
+        return {};
+    }
+    lifted(a.lifted_row, b.lifted_row);
+    lifted(a.lifted_step, b.lifted_step);
+    moved(a.drop_row, b.drop_row, 1);
+    for (const auto& [old_thumb, new_thumb] :
+         {std::pair{&a.profiles_thumb, &b.profiles_thumb}, std::pair{&a.used_thumb, &b.used_thumb},
+          std::pair{&a.steps_thumb, &b.steps_thumb}, std::pair{&a.scripts_thumb, &b.scripts_thumb}}) {
+        moved(*old_thumb, *new_thumb, 1);
+    }
+    // A scrolled list: its clip, inside which every row is drawn.
+    if (a.explanation != b.explanation) {
+        area(b.explanation_bounds, 2);
+    }
+    if (a.ties != b.ties) {
+        area(b.used_chips, 0);
+    }
+    if (a.scripts != b.scripts) {
+        area(b.scripts_well, 0);
+    }
+    if (a.steps != b.steps) {
+        area(b.steps_well, 0);
+    }
+    if (a.chords != b.chords || a.chords_before != b.chords_before || a.chords_after != b.chords_after) {
+        area(b.chords_strip, 0);
+    }
+    if (a.more_before != b.more_before || a.more_after != b.more_after) {
+        area(b.strip_well, 0);
+    }
+    if (a.popup && b.popup &&
+        (a.popup->chords != b.popup->chords || a.popup->chords_before != b.popup->chords_before ||
+         a.popup->chords_after != b.popup->chords_after)) {
+        area(b.popup->well, 0);
+    }
+    // Controls that moved, changed, came or went, and those the laser
+    // entered or left: each where it is drawn. A strip button's side and
+    // light reach below it, inside the strip's well.
+    const auto drawn = [&](const Control& c) {
+        auto r = c.bounds;
+        if (c.id.starts_with("shortcuts-button-")) {
+            r = {r.x - 2, b.strip_well.y, r.width + 4, b.strip_well.height};
+        }
+        if (c.clip) {
+            const double left = std::max(r.x, c.clip->x), top = std::max(r.y, c.clip->y);
+            const double right = std::min(r.x + r.width, c.clip->x + c.clip->width);
+            const double bottom = std::min(r.y + r.height, c.clip->y + c.clip->height);
+            r = {left, top, right - left, bottom - top};
+        }
+        area(r, c.id.starts_with("shortcuts-button-") ? 0 : 2);
+    };
+    std::map<std::string, const Control*> old_controls, new_controls;
+    for (const auto& c : before.controls) {
+        old_controls[c.id] = &c;
+    }
+    for (const auto& c : now.controls) {
+        new_controls[c.id] = &c;
+    }
+    // A clipped control that moved scrolled with its list: the list's well
+    // repaints whole, the fades at its edges included, which a clip at the
+    // list's own edge would cut.
+    const auto well = [&](const Rect& clip) {
+        if (clip == b.strip) {
+            return b.strip_well;
+        }
+        if (b.popup && b.popup->well.contains(clip.x, clip.y)) {
+            return b.popup->well;
+        }
+        return clip;
+    };
+    for (const auto& [id, c] : old_controls) {
+        const auto found = new_controls.find(id);
+        if (found == new_controls.end() || *found->second != *c) {
+            const auto* other = found == new_controls.end() ? nullptr : found->second;
+            if (other && c->clip && other->clip == c->clip && other->bounds != c->bounds) {
+                area(well(*c->clip), 0);
+                continue;
+            }
+            drawn(*c);
+            if (other) {
+                drawn(*other);
+            }
+        }
+    }
+    for (const auto& [id, c] : new_controls) {
+        if (!old_controls.contains(id)) {
+            drawn(*c);
+        }
+    }
+    for (const auto* hovered : {&before.hovered_controls, &now.hovered_controls}) {
+        const auto* other =
+            hovered == &before.hovered_controls ? &now.hovered_controls : &before.hovered_controls;
+        for (const auto& id : *hovered) {
+            if (other->contains(id)) {
+                continue;
+            }
+            for (const auto* controls : {&old_controls, &new_controls}) {
+                if (const auto found = controls->find(id); found != controls->end()) {
+                    drawn(*found->second);
+                }
+            }
+        }
+    }
+    damage.insert(damage.end(), carried.begin(), carried.end());
     return damage;
 }
 double band_toolbar_room(const PanelView& view) {
@@ -5052,11 +5316,30 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     const auto theme_hover = previous_ ? theme_hover_damage(previous_->view, view) : std::vector<Rect>{};
     // The shortcut bar repaints its own buttons, or the strip when it
     // scrolled; anything else in it, or the bar coming or going, repaints all.
-    const auto bar_damage = previous_ ? shortcut_bar_damage(previous_->view, view) : std::vector<Rect>{};
-    const bool bar_changed =
-        previous_ && previous_->view.shortcut_bar != view.shortcut_bar && bar_damage.empty();
+    // The Profiles menu repaints the rows a hover changed, or its list when it scrolled (R404),
+    // in passes of their own: a key's pass would cut through its rows' text. A tooltip
+    // coming or going over it repaints whole.
+    const auto menu_damage = previous_ && shown_tooltip(previous_->view) == shown_tooltip(view)
+                                 ? shortcut_menu_damage(previous_->view, view)
+                                 : std::optional<std::vector<Rect>>{};
+    const auto bar_damage = previous_
+                                ? shortcut_bar_damage(previous_->view, view, menu_damage.has_value())
+                                : std::vector<Rect>{};
+    // The bar differs by its menu alone, which menu_damage covers.
+    const bool only_menu = menu_damage && [&] {
+        auto a = *previous_->view.shortcut_bar, b = *view.shortcut_bar;
+        a.menu.reset();
+        b.menu.reset();
+        return a == b;
+    }();
+    // The shortcut editor repaints what its laser, a scroll or a carried item
+    // changed, as Settings and the bar do; anything else in it repaints all.
+    const auto editor_damage =
+        previous_ ? shortcut_editor_damage(previous_->view, view) : std::optional<std::vector<Rect>>{};
+    const bool bar_changed = previous_ && previous_->view.shortcut_bar != view.shortcut_bar &&
+                             bar_damage.empty() && !only_menu;
     const bool controls_changed =
-        previous_ && theme_cards.empty() &&
+        previous_ && theme_cards.empty() && !editor_damage &&
         without_candidates(previous_->view.controls) != without_candidates(view.controls);
     const bool scene_changed =
         !previous_ || previous_->layout != *view.layout || previous_->theme != t ||
@@ -5064,8 +5347,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked ||
         previous_->locked != view.keyboard->locked_modifiers() || controls_changed || bar_changed ||
-        // The shortcut editor and its fields repaint whole while they show.
-        view.shortcut_editor || previous_->view.shortcut_editor ||
+        // The shortcut editor repaints whole but for its own damage, its fields always.
+        ((view.shortcut_editor || previous_->view.shortcut_editor) && !editor_damage) ||
         previous_->view.shortcut_field != view.shortcut_field || previous_->view.status != view.status ||
         previous_->view.settings != view.settings || previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
@@ -5743,6 +6026,18 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
         }
     }
+    if (!full && menu_damage) {
+        for (const auto& r : *menu_damage) {
+            damage.push_back(r);
+        }
+    }
+    if (!full && editor_damage) {
+        // Straight to the passes: the editor covers the keys, and its rows'
+        // text must not be cut by a key's own pass.
+        for (const auto& r : *editor_damage) {
+            damage.push_back(r);
+        }
+    }
     if (!full) {
         for (const auto* areas : {&theme_cards, &theme_hover, &bar_damage}) {
             for (const auto& area : *areas) {
@@ -5796,7 +6091,8 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         for (const auto& control : view.controls) {
             if (previous_->view.hovered_controls.contains(control.id) !=
                     view.hovered_controls.contains(control.id) &&
-                (theme_hover.empty() || !control.id.starts_with(theme_card_prefix))) {
+                (theme_hover.empty() || !control.id.starts_with(theme_card_prefix)) &&
+                !(editor_damage && control.id.starts_with(shortcut_editor_prefix))) {
                 full = true;
             }
         }

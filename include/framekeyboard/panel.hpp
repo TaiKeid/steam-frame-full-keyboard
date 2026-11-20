@@ -778,7 +778,19 @@ bool takes_pointer(const PanelView& view, double x, double y);
 // when the bar did not change, or when anything else in it did, the open
 // menu included (it lies over keys), which a full repaint covers. Bar
 // buttons never force a full repaint by their hover alone.
-std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now);
+// `menu_apart`: shortcut_menu_damage covers the open menu, so a change in it
+// alone is no reason to repaint whole.
+std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now,
+                                      bool menu_apart = false);
+// What the open Profiles menu repaints when only its rows' hover and press,
+// their scrolled places, its thumb or Manage's states changed; none when
+// anything else in it did, or it opened or closed.
+std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, const PanelView& now);
+// What the shortcut editor repaints when only hovers, scrolled lists, carried
+// items and their markers changed: each changed control, list clip, thumb
+// and carried item, old and new. Empty when nothing changed; none (a full
+// repaint) when anything else did, a popup opening or closing included.
+std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before, const PanelView& now);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);

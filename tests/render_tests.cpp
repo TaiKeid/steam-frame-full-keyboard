@@ -2064,6 +2064,245 @@ void shortcut_popup(bool narrow) {
     tap_control("shortcuts-popup-cancel");
     compare.frame(app.view(), phase("canceled").c_str());
 }
+// R404: the shortcut editor repaints only what a hover, a scroll or a carried
+// item changed, and each such paint matches a full one pixel for pixel.
+void shortcut_editor_repaints() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutProfile games{"g", "Games", {}};
+    for (int i = 0; i < 14; ++i) {
+        ShortcutButton button;
+        button.label = "Key " + std::to_string(i);
+        button.action.chords = {{{"ControlLeft"}, "KeyA"}};
+        games.buttons.push_back(button);
+    }
+    ShortcutButton macro;
+    macro.label = "Macro";
+    macro.action.kind = ShortcutAction::Kind::Macro;
+    for (int i = 0; i < 9; ++i) {
+        MacroStep step;
+        if (i % 3 == 1) {
+            step.kind = MacroStep::Kind::Wait;
+            step.wait_ms = 500;
+        } else {
+            step.keys = {{{"ShiftLeft"}, "KeyB"}, {{}, "Enter"}};
+        }
+        macro.action.steps.push_back(step);
+    }
+    games.buttons.insert(games.buttons.begin(), macro);
+    ShortcutButton run;
+    run.label = "Run";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.script = "script-03.sh";
+    games.buttons.insert(games.buttons.begin() + 1, run);
+    model.profiles.push_back(games);
+    for (int i = 1; i < 10; ++i) {
+        model.profiles.push_back({"p" + std::to_string(i), "Profile " + std::to_string(i), {}});
+    }
+    for (int i = 0; i < 5; ++i) {
+        model.apps.push_back({{AppIdentity::Kind::Desktop, "org.example.App" + std::to_string(i)},
+                              "Example App Number " + std::to_string(i),
+                              "g"});
+    }
+    model.free_profile = "g";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    options.script_list = [](const std::filesystem::path&) {
+        std::vector<std::string> names;
+        for (int i = 0; i < 20; ++i) {
+            names.push_back("script-" + std::string(i < 10 ? "0" : "") + std::to_string(i) + ".sh");
+        }
+        return names;
+    };
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+    };
+    const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    Comparison compare;
+    compare.frame(app.view(), "the editor opens");
+    // A place in the case with nothing under it, away from the move handle.
+    const auto body = panel_case_bounds(app.view());
+    const auto away = [&] { app.move(0, body.x + body.width - 30, body.y + body.height - 30); };
+    // A frame that must have repainted only part of the panel.
+    const auto partial = [&](const std::string& phase) {
+        const bool painted = compare.frame(app.view(), phase.c_str());
+        if (painted && compare.incremental.damage().empty()) {
+            throw std::runtime_error(phase + ": repainted whole");
+        }
+    };
+    const auto over = [&](const std::string& id) {
+        const auto r = control_named(app.view(), id).bounds;
+        app.move(0, r.x + r.width / 2, r.y + r.height / 2);
+    };
+    // Hover: the laser across the editor's controls, one at a time.
+    for (const char* id : {"shortcuts-row-1", "shortcuts-row-2", "shortcuts-row-0", "shortcuts-rename",
+                           "shortcuts-delete", "shortcuts-new-profile", "shortcuts-button-3",
+                           "shortcuts-button-4", "shortcuts-back", "shortcuts-save", "shortcuts-tie-0",
+                           "shortcuts-tie-1", "shortcuts-kind-1", "shortcuts-label"}) {
+        over(id);
+        partial(std::string("hover over ") + id);
+    }
+    away();
+    partial("the laser off every control");
+    // Scrolling: each list eases to its target, a frame a tick.
+    const auto ease = [&](const std::string& phase) {
+        for (int i = 0; i < 20; ++i) {
+            app.tick(now += 1.0 / 60);
+            partial(phase + " " + std::to_string(i));
+        }
+    };
+    const auto scroll_over = [&](const Rect& r, double dx, double dy, const std::string& phase) {
+        app.move(0, r.x + r.width / 2, r.y + r.height / 2);
+        compare.frame(app.view(), (phase + ": the laser over it").c_str());
+        app.scroll(0, dx, dy);
+        ease(phase);
+    };
+    scroll_over(app.view().shortcut_editor->profiles_list, 0, 1, "the profiles scroll");
+    scroll_over(app.view().shortcut_editor->strip_well, 1, 0, "the strip scrolls");
+    scroll_over(app.view().shortcut_editor->used_chips, 0, 1, "the Used for chips scroll");
+    // A macro's steps, then a Run button's scripts.
+    scroll_over(app.view().shortcut_editor->strip_well, -1, 0, "the strip scrolls back");
+    tap_control("shortcuts-button-0");
+    away();
+    compare.frame(app.view(), "the macro");
+    scroll_over(app.view().shortcut_editor->steps_well, 0, 1, "the steps scroll");
+    tap_control("shortcuts-button-1");
+    away();
+    for (int i = 0; i < 200 && app.view().shortcut_editor->scripts.size() < 20; ++i) {
+        usleep(2000);
+        app.tick(now += 1.0 / 60);
+    }
+    compare.frame(app.view(), "the Run button's scripts");
+    scroll_over(app.view().shortcut_editor->steps_well, 0, 1, "the scripts scroll");
+    // Carried: a profile's row up and down its own place, a button along the strip.
+    const auto carry = [&](const std::string& id, double dx, double dy, const std::string& phase,
+                           bool off_its_place = false) {
+        const auto r = control_named(app.view(), id).bounds;
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        compare.frame(app.view(), (phase + ": pressed").c_str());
+        for (int step = 1; step <= 6; ++step) {
+            app.move(0, x + dx * step / 6, y + dy * step / 6);
+            if (off_its_place) {
+                compare.frame(app.view(), (phase + " " + std::to_string(step)).c_str());
+            } else {
+                partial(phase + " " + std::to_string(step));
+            }
+        }
+        app.up(0, x + dx, y + dy);
+        compare.frame(app.view(), (phase + ": let go").c_str());
+    };
+    scroll_over(app.view().shortcut_editor->profiles_list, 0, -5, "the profiles scroll back");
+    // Selected first: a lift selects what it carries, its profile's first
+    // button for a row, which repaints whole.
+    tap_control("shortcuts-row-0");
+    away();
+    compare.frame(app.view(), "a profile selected");
+    carry("shortcuts-row-0", 0, 22, "a row carried");
+    tap_control("shortcuts-button-3");
+    away();
+    compare.frame(app.view(), "a button selected");
+    carry("shortcuts-button-3", 20, 0, "a button carried", true); // repaints whole
+    {
+        // Over another profile's row, which lights up; let go, Move and Copy, then a press elsewhere.
+        const auto from = control_named(app.view(), "shortcuts-button-3").bounds;
+        const auto to = control_named(app.view(), "shortcuts-row-1").bounds;
+        carry("shortcuts-button-3", to.x + to.width / 2 - (from.x + from.width / 2),
+              to.y + to.height / 2 - (from.y + from.height / 2), "a button carried to another profile",
+              true);
+        away();
+        app.down(0, body.x + body.width - 30, body.y + body.height - 30, now += .1);
+        app.up(0, body.x + body.width - 30, body.y + body.height - 30);
+        compare.frame(app.view(), "the button back in its place");
+    }
+    // A macro's step, carried within its row's place.
+    // Found by its label: the carries above moved buttons along the strip.
+    for (const auto& c : app.view().controls) {
+        if (c.id.starts_with("shortcuts-button-") && c.label == "Macro") {
+            tap(c.bounds);
+            break;
+        }
+    }
+    away();
+    compare.frame(app.view(), "the macro again");
+    carry("shortcuts-step-1", 0, 20, "a step carried");
+    // The Label popup: the laser across the mini keys.
+    tap_control("shortcuts-button-2");
+    tap_control("shortcuts-label");
+    compare.frame(app.view(), "the Label popup");
+    for (const char* key : {"KeyQ", "KeyW", "KeyE", "KeyR", "Space", "Enter", "Numpad1", "F12"}) {
+        over(std::string("shortcuts-popup-key-") + key);
+        partial(std::string("hover over the mini key ") + key);
+    }
+}
+// R404: the Profiles menu repaints the rows a hover changed and its list
+// when it scrolls, not the whole panel, matching a full paint.
+void shortcut_menu_repaints() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    for (int i = 0; i < 10; ++i) {
+        ShortcutButton button;
+        button.label = "Key " + std::to_string(i);
+        button.action.chords = {{{"ControlLeft"}, "KeyA"}};
+        model.profiles.push_back({"p" + std::to_string(i), "Profile " + std::to_string(i), {button}});
+    }
+    model.free_profile = "p0";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto picker = app.view().shortcut_bar->picker;
+    app.move(0, picker.x + picker.width / 2, picker.y + picker.height / 2);
+    app.down(0, picker.x + picker.width / 2, picker.y + picker.height / 2, now += .1);
+    app.up(0, picker.x + picker.width / 2, picker.y + picker.height / 2);
+    Comparison compare;
+    compare.frame(app.view(), "the menu opens");
+    const auto partial = [&](const std::string& phase) {
+        const bool painted = compare.frame(app.view(), phase.c_str());
+        if (painted && compare.incremental.damage().empty()) {
+            throw std::runtime_error(phase + ": repainted whole");
+        }
+    };
+    const auto opened = app.view();
+    const auto& menu = *opened.shortcut_bar->menu;
+    const auto rows = menu.rows;
+    for (std::size_t i = 0; i < 4 && i < rows.size(); ++i) {
+        const auto& r = rows[i].bounds;
+        app.move(0, r.x + 40, r.y + r.height / 2);
+        partial("hover over row " + std::to_string(i));
+    }
+    const auto manage = menu.manage;
+    app.move(0, manage.x + manage.width / 2, manage.y + manage.height / 2);
+    compare.frame(app.view(), "hover over Manage"); // its tooltip may come: whole
+    const auto list = menu.list;
+    app.move(0, list.x + 40, list.y + list.height / 2);
+    compare.frame(app.view(), "back over the list");
+    app.scroll(0, 0, 1);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += 1.0 / 60);
+        partial("the menu scrolls " + std::to_string(i));
+    }
+}
 // R331: four combinations of four keys each at the no-numpad width draw
 // nothing outside the case, in the editor or in its popup.
 void long_combinations_drawn() {
@@ -2277,6 +2516,8 @@ int main() {
         app_controls_drawn();
         shortcut_popup(false);
         shortcut_popup(true);
+        shortcut_editor_repaints();
+        shortcut_menu_repaints();
         long_combinations_drawn();
         macro_view(false);
         macro_view(true);
