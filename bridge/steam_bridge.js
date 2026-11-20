@@ -41,13 +41,19 @@
         typeof windowApi.ShowWindow !== "function" || typeof windowApi.BringToFront !== "function" ||
         !store?.m_VRKeyboardState && typeof keyboardApi?.RegisterForStatus !== "function")
         throw Error("steam-hooks-unavailable");
+    // Where the store is found, it stays the source for this install; a store
+    // whose state later goes missing is a changed store, not a reason to switch.
+    const fromStore = !!store?.m_VRKeyboardState;
     // Steam's notification order is open, flags, initial text, app id, dispatch
-    // and overlay key. The initial text is never kept.
+    // and overlay key. The initial text is never read. The other four are
+    // feature-checked as the store's fields are: a value of another type means
+    // a changed interface, and is never coerced into a default that could make
+    // a request eligible (dispatch false). Null until the first notification;
+    // CHANGED once one was malformed, which ends replacement.
+    const CHANGED = {};
     let mirroredStatus = null;
-    function rememberStatus(open, flags, dispatch, key) {
-        mirroredStatus = {open: open === true, key: typeof key === "string" ? key : "",
-            dispatch: dispatch === true, flags: Number.isInteger(flags) ? flags : 0};
-    }
+    const validStatus = (open, flags, dispatch, key) => typeof open === "boolean" &&
+        Number.isInteger(flags) && typeof dispatch === "boolean" && typeof key === "string";
     function nativeStatus() {
         // VRKeyboardStatus also contains initial text. Read only these raw metadata fields.
         if (testStore) {
@@ -55,12 +61,13 @@
             return {open: s.bIsOpen, key: s.sOverlayKey, dispatch: s.bDispatchEventsToSteamVR,
                 flags: s.bMinimal ? 13 : 0};
         }
-        if (store?.m_VRKeyboardState) {
+        if (fromStore) {
             const s = store.m_VRKeyboardState;
-            if (typeof s.m_bIsOpen !== "boolean") throw Error("steam-status-changed");
+            if (typeof s?.m_bIsOpen !== "boolean") throw Error("steam-status-changed");
             return {open: s.m_bIsOpen, key: s.m_sOpenForOverlayKey,
                 dispatch: s.m_bDispatchEventsToSteamVR, flags: s.m_eVRKeyboardFlags};
         }
+        if (mirroredStatus === CHANGED) throw Error("steam-status-changed");
         return mirroredStatus || {open: false, key: "", dispatch: false, flags: 0};
     }
     // Window-level hooks; each owner keeps its own, and each provider API is
@@ -728,7 +735,7 @@
                 // close is still ours when the mirror shows the keyboard open.
                 if (closingNative && expectedClose?.owner === owner &&
                     expectedClose.request === request &&
-                    (!store?.m_VRKeyboardState || !nativeStatus().open)) {
+                    (!fromStore || !nativeStatus().open)) {
                     expectedClose = null;
                     inspect();
                     return;
@@ -805,8 +812,15 @@
         const keyboard = root.SteamClient?.OpenVR?.Keyboard;
         if (typeof keyboard?.RegisterForStatus === "function") subscription = keyboard.RegisterForStatus(
             (open, flags, _text, _appID, dispatch, key) => {
-                rememberStatus(open, flags, dispatch, key);
+                const valid = validStatus(open, flags, dispatch, key);
+                if (!fromStore) mirroredStatus = valid ? {open, flags, dispatch, key} : CHANGED;
+                // A Show that Steam made for this notification ran before it, so
+                // it was judged on the previous status and may be held back.
+                // A malformed one ends replacement and gives that Show back,
+                // leaving Steam's keyboard as Steam has it.
+                const replay = !valid && !fromStore && interceptedShow && !disposed;
                 try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
+                if (replay) oldWindowShow.call(windowApi);
             });
         inspect();
         timer = root.setInterval(() => {

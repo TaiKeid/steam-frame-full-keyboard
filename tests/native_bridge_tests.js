@@ -259,6 +259,11 @@ function fixture(open = false, production = false, external = false, sharedApi =
             checkOwnership(); return s;
         },
         status(values, notify = true) { update(values, notify); checkOwnership(); },
+        // Steam's status notification with the given values, in Steam's order;
+        // `count` drops trailing arguments, as an interface that sends fewer would.
+        notify(open, flags, dispatch, key, count = 6) {
+            observer?.(...[open, flags, initialText, 0, dispatch, key].slice(0, count)); tick?.(); checkOwnership();
+        },
         now() { return time; },
         advance(ms, inspect = true) {
             time += ms;
@@ -334,6 +339,46 @@ function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
     assert(f.nativeOpen() && !s.eligible && !f.bridge.diagnostics().session,
         "an already-open keyboard is left to Steam");
     f.bridge.dispose();
+}
+
+// The notification is feature-checked as the store is: a missing or wrongly
+// typed value is a changed interface. It never yields a session, and it ends
+// replacement with Steam's keyboard as Steam has it, its window shown. Coercing
+// a missing dispatch flag to false made such a request eligible.
+for (const [name, open, flags, dispatch, key, count] of [
+    ["missing dispatch and key", true, 13, undefined, undefined, 4],
+    ["missing key", true, 13, false, undefined, 5],
+    ["dispatch as a number", true, 13, 0, MAIN, 6],
+    ["dispatch as a string", true, 13, "false", MAIN, 6],
+    ["open as a number", 1, 13, false, MAIN, 6],
+    ["flags as a string", true, "13", false, MAIN, 6],
+    ["fractional flags", true, 13.5, false, MAIN, 6],
+    ["key as an object", true, 13, false, {toString: () => MAIN}, 6],
+]) {
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.newTarget();
+    f.step();
+    // Steam opens its keyboard: its own handler and reaction run, then its
+    // window shows, judged on the previous status, then our callback.
+    f.status({bIsOpen: true}, false);
+    f.api.ShowWindow();
+    assert(!f.calls.includes("window-show"), `${name}: the window waits for the status`);
+    f.notify(open, flags, dispatch, key, count);
+    const s = f.step();
+    assert(s.unavailable && !f.alive(), `${name}: a malformed notification ends replacement`);
+    assert(!f.bridge.diagnostics().session, `${name}: it never yields a session`);
+    assert(f.nativeOpen() && f.manager.logicalOpen && !f.calls.includes("native-hide"),
+        `${name}: Steam's keyboard stays open for its field`);
+    assert(f.calls.includes("window-show"), `${name}: the held-back window shows`);
+    assert.equal(f.api.ShowWindow, f.oldShow, `${name}: the window hooks are removed`);
+}
+// A malformed notification while the keyboard is closed ends replacement too,
+// and shows nothing.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.step();
+    f.notify(false, 0, undefined, MAIN);
+    assert(f.step().unavailable && !f.calls.includes("window-show") && !f.nativeOpen());
 }
 
 // A game Steam runs locally names its window overlay after its app ID, docked,
