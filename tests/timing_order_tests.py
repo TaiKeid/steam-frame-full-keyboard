@@ -12,6 +12,7 @@ PLAIN = r"((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))"
 JS = "bridge/steam_bridge.js"
 PY = "bridge/native_bridge.py"
 CPP = "src/native_replacement.cpp"
+INPUT = "include/framekeyboard/input.hpp"
 VR = "src/vr.cpp"
 GUARD = "src/native_restore_guard.cpp"
 LIBRARY = "stream/openvr_passthrough.c"
@@ -38,10 +39,11 @@ SPECS = (
     ("stream text finish", PY, r"\bSTREAM_TEXT_FINISH\s*=\s*" + NUMBER, 1, 1),
     ("stream text per byte", PY, r"\bSTREAM_TEXT_WAIT_PER_BYTE\s*=\s*" + NUMBER, 1, 1),
     # R369: how long the library counts each of our key-downs on the way before a text, and the
-    # helper's and the app's copies of it for their waits.
+    # helper's and the app's copies of it for their waits; the app's also paces a held key's repeats
+    # into a stream (R420).
     ("library key on the way", LIBRARY, r"\bkSameKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
     ("stream key on the way", PY, r"\bSTREAM_KEY_ON_THE_WAY\s*=\s*" + NUMBER, 1, 1),
-    ("app stream key on the way", CPP, r"\bstream_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
+    ("app stream key on the way", INPUT, r"\bstream_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
     # The app's stream text wait is base + per byte * size, from the same send time.
     ("app stream text wait", CPP, r"pending_limit_\s*=\s*state_\.stream\s*\?\s*" + PLAIN + r"(?=\s*\+)", 1, 1),
     ("app stream text per byte", CPP,

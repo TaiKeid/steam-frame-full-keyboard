@@ -176,6 +176,11 @@ class OutputController : public KeySink, public TextOutput {
     // only stream_key_gap later (drain).
     double last_key_at_{-1};
     static constexpr double stream_key_gap = .02;
+    // A held key's repeat: into a stream session no faster than the stream passes the same key
+    // again, so at most one tap is still on the way when it is let go (R420).
+    double repeat_gap() const {
+        return target_.stream_session_target() ? stream_key_on_the_way : key_repeat_gap;
+    }
     // A paced composition must let the compositor's temporary keymap settle
     // between chunks. Keep this debt across cancellation and explicit retries.
     double last_text_at_{-1}, text_ready_at_{-1};

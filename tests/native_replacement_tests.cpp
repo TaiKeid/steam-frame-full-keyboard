@@ -345,6 +345,115 @@ void stream_run_target_change() {
         close(pair[1]);
     }
 }
+// R420: a held key repeats into a stream session no faster than the stream passes the same key
+// again (stream_key_on_the_way), so when it is let go at most one tap is still on the way and a text
+// right after it waits no longer than that. Into any other target it still repeats every 40 ms.
+void stream_repeat_pace() {
+    // The stream-key packets waiting on the helper's end: the times of presses and repeats, and
+    // the count of releases.
+    const auto take_keys = [](int fd, double now, std::vector<double>& downs,
+                              std::vector<double>& repeats, int& ups) {
+        char data[4096];
+        for (ssize_t size; (size = recv(fd, data, sizeof(data), MSG_DONTWAIT)) > 0;) {
+            auto* message =
+                json_tokener_parse(std::string(data, static_cast<std::size_t>(size)).c_str());
+            if (message && std::string(json_object_get_string(json_object_object_get(message, "op"))) ==
+                               "stream-key") {
+                const int value = json_object_get_int(json_object_object_get(message, "value"));
+                if (value == 1) {
+                    downs.push_back(now);
+                } else if (value == 2) {
+                    repeats.push_back(now);
+                } else {
+                    ++ups;
+                }
+            }
+            json_object_put(message);
+        }
+    };
+    const char* stream_state =
+        R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true,)"
+        R"("stream":true})";
+    for (const int code : {KEY_BACKSPACE, KEY_DELETE, KEY_LEFT, KEY_SPACE, KEY_A}) {
+        Local local;
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "pace socketpair");
+        {
+            NativeReplacement replacement(local, pair[0]);
+            put(pair[1], stream_state);
+            replacement.poll(10);
+            replacement.route(true);
+            OutputController output(replacement);
+            output.set_enabled(true);
+            std::vector<double> downs, repeats;
+            int ups = 0;
+            double now = 10, answered = 10;
+            output.native_press(1, {code}, code, now);
+            // Held two seconds at about 90 frames a second; the helper answers every tenth of one.
+            for (const double until = now + 2; now < until;) {
+                now += .011;
+                if (now - answered >= .1) {
+                    put(pair[1], stream_state);
+                    answered = now;
+                }
+                replacement.poll(now);
+                output.tick(now);
+                take_keys(pair[1], now, downs, repeats, ups);
+            }
+            output.release(1);
+            take_keys(pair[1], now, downs, repeats, ups);
+            require(downs.size() == 1 && ups == 1, "a held key goes down once and up once");
+            // The first repeat still waits half a second (counted from the press, seen a frame
+            // later); then one a same-key time: the press and 1.5 s / 0.14 s, about 12 taps.
+            const auto taps = static_cast<double>(1 + repeats.size());
+            require(!repeats.empty() && repeats.front() - downs.front() >= .5 - .011 &&
+                        std::abs(taps - (1 + 1.5 / stream_key_on_the_way)) <= 1.5,
+                    "a held key into a stream sends about one tap a same-key time");
+            for (std::size_t i = 1; i < repeats.size(); ++i) {
+                require(repeats[i] - repeats[i - 1] >= stream_key_on_the_way - 1e-9,
+                        "and never repeats faster than the stream passes the same key");
+            }
+            require(replacement.stream_keys_through() <= now + stream_key_on_the_way + 1e-9,
+                    "when it is let go, the estimate is at most one tap ahead");
+            // A text with no ASCII adds no taps of its own: it may wait 3.7 s and what is still on
+            // the way, so past 3.7 s and one tap it has failed.
+            require(!replacement.commit_text("\xd0\x91") && replacement.text_pending(),
+                    "a text right after it goes out");
+            const double sent = now;
+            for (answered = now; now < sent + 3.7 + stream_key_on_the_way + .05;) {
+                now += .05;
+                if (now - answered >= .1) {
+                    put(pair[1], stream_state);
+                    answered = now;
+                }
+                replacement.poll(now);
+            }
+            require(!replacement.commit_text("\xd0\x91") && !replacement.text_pending(),
+                    "and is not held back longer than one tap more");
+        }
+        close(pair[1]);
+    }
+    // Any other target: every 40 ms, after the same half second.
+    Local local;
+    OutputController output(local);
+    output.set_enabled(true);
+    double now = 10;
+    output.native_press(1, {KEY_BACKSPACE}, KEY_BACKSPACE, now);
+    std::vector<double> repeats;
+    for (const double until = now + 2; now < until;) {
+        now += .011;
+        const auto before = local.keys.size();
+        output.tick(now);
+        for (auto i = before; i < local.keys.size(); ++i) {
+            if (local.keys[i].second == 2) {
+                repeats.push_back(now);
+            }
+        }
+    }
+    output.release(1);
+    require(repeats.size() >= 30 && repeats[1] - repeats[0] < key_repeat_gap + .012,
+            "a local target still repeats every 40 ms");
+}
 // One frame's packet, as update() sends it.
 std::string take_frame(NativeReplacement& replacement, int fd, double now) {
     replacement.update(true, true, 2, false, now, true);
@@ -1791,6 +1900,7 @@ int main(int argc, char** argv) {
         transport();
         stream_keys();
         stream_run_target_change();
+        stream_repeat_pace();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();

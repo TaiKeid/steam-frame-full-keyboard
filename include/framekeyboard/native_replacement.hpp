@@ -66,6 +66,8 @@ class NativeReplacement : public KeySink {
     bool desktop_focused() const override { return local_.desktop_focused(); }
     void set_stream_paste(Clipboard* clipboard) override { local_.set_stream_paste(clipboard); }
     bool stream_focused() const override { return !remote_ && local_.stream_focused(); }
+    // When the stream keys sent are estimated through to the PC (R369), in the clock poll() was given.
+    double stream_keys_through() const { return stream_keys_through_; }
     // A Steam field is never a terminal, whatever app Gamescope has focused.
     EditKeys edit_keys() const override { return remote_ ? EditKeys::Standard : local_.edit_keys(); }
     bool edit_keys_known() const override { return remote_ || local_.edit_keys_known(); }

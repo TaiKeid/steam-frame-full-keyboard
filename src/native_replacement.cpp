@@ -19,10 +19,8 @@
 extern char** environ;
 namespace framekeyboard {
 namespace {
-// The time each of our key-downs holds the way to a Windows PC in a stream (R369): the library's longer
-// kSameKeyOnTheWayMs for every key-down, as the helper's STREAM_KEY_ON_THE_WAY, so a text's wait never
-// falls short of the library's.
-constexpr double stream_key_on_the_way = .14;
+// stream_key_on_the_way (input.hpp) counts the library's longer kSameKeyOnTheWayMs for every key-down,
+// so a text's wait never falls short of the library's.
 // The key-downs the stream library types for a text's ASCII: one a character, two with Shift.
 double stream_typed_downs(const std::string& text) {
     static const std::string shifted = "~!@#$%^&*()_+{}|:\"<>?";

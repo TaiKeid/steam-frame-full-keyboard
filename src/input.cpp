@@ -932,7 +932,8 @@ bool KeyboardState::tick(double now) {
                 sink_.send(press.repeat_code, 2);
             }
             // Never replay a backlog after a stall or sleep.
-            press.repeat_at = now + .04;
+            press.repeat_at =
+                now + (sink_.stream_session_target() ? stream_key_on_the_way : key_repeat_gap);
         }
     }
     return changed;

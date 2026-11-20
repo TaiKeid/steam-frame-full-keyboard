@@ -572,7 +572,7 @@ void OutputController::drain(bool fresh_tick) {
             release_codes(*entry);
         }
         if (auto owner = entry->owner.lock()) {
-            owner->repeat_at = now_ + .04;
+            owner->repeat_at = now_ + repeat_gap();
         }
     }
     window_ = 0; // The run is out; the next one belongs to the window then.
@@ -627,7 +627,7 @@ bool OutputController::tick(double now) {
                 queue_.push_back(entry);
                 ++queued_;
             }
-            held->repeat_at = now + .04;
+            held->repeat_at = now + repeat_gap();
             if (!queue_.empty()) {
                 drain(true);
                 break;
