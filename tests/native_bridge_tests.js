@@ -100,7 +100,7 @@ class NavTree {
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
     discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false, registryWithoutStore = false,
     forceNotification = undefined) {
-    let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
+    let time = 0, tick, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
     let nextTimer = 1, showKey = MAIN;
@@ -173,7 +173,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
             try {
                 while (turns.length) {
                     const next = turns.shift();
-                    observer?.(...argumentsOf({...status, ...next}));
+                    observer(...argumentsOf({...status, ...next}));
                     steamHandles(next);
                     // The bridge's timer can run only after the whole dispatch.
                     tick?.();
@@ -188,15 +188,24 @@ function fixture(open = false, production = false, external = false, sharedApi =
             // Per subscriber, Steam's handler takes every notification first
             // and ours follow later, each with the values it was sent with.
             if (queueing) queued.push(args);
-            else { observer?.(...args); tick?.(); }
+            else { observer(...args); tick?.(); }
         }
     }
+    const subscribers = [];
+    // Each subscriber in the order it subscribed, as Steam calls them.
+    const observer = (...args) => { for (const {fn} of subscribers.slice()) fn(...args); };
     let queueing = false, bridgeFirst = false, turning = false;
     const queued = [], turns = [];
     const keyboard = {
         Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
         Hide() { calls.push("native-hide"); if (!deferHide) update({bIsOpen: false}); },
-        RegisterForStatus(fn) { observer = fn; return {unregister() { observer = null; }}; }
+        // Steam keeps every subscriber: the bridge's own, and a watcher an
+        // outgoing bridge leaves for its successor.
+        RegisterForStatus(fn) {
+            const entry = {fn};
+            subscribers.push(entry);
+            return {unregister() { const i = subscribers.indexOf(entry); if (i >= 0) subscribers.splice(i, 1); }};
+        }
     };
     manager.m_ownerWindow = {SteamClient: {OpenVR: {Keyboard: keyboard}}};
     const oldManager = {...manager};
@@ -274,7 +283,7 @@ function fixture(open = false, production = false, external = false, sharedApi =
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
     const oldFocus = root.vrGamepadInput.FocusItemUnderMouse;
-    const bridge = factory(root, production || statusOnly || registryWithoutStore ? undefined : store, external,
+    let bridge = factory(root, production || statusOnly || registryWithoutStore ? undefined : store, external,
         adoptOpenMs, forceNotification);
     function checkOwnership() {
         const s = bridge.diagnostics();
@@ -293,7 +302,15 @@ function fixture(open = false, production = false, external = false, sharedApi =
             assert.equal(manager.logicalOpen, status.bIsOpen && status.sOverlayKey === key,
                 "without a session or restore, each Steam flag matches its native owner");
     }
-    return {bridge, root, oldFocus, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
+    return {get bridge() { return bridge; },
+        // The next version's bridge in the same Steam context, as after an
+        // in-app update: on the same interface, or on the notification path.
+        successor(adopt, notification = statusOnly) {
+            bridge = factory(root, production || notification || registryWithoutStore ? undefined : store, external,
+                adopt, notification && !statusOnly ? true : undefined);
+            return bridge;
+        },
+        root, oldFocus, calls, deliveries, wrongTarget, nodes, manager, other, dom, api, keyboard, oldKey, oldOpen, oldHide, oldShow,
         oldFront, oldFieldShow,
         nativeOpen() { return status.bIsOpen; },
         step(ack = 0, ready = true, fallback = false, advance = true, extra = {}) {
@@ -309,10 +326,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
         perSubscriber(on) { queueing = on; },
         // Delivery with our callback first, then Steam's handler and reactions.
         bridgeFirst(on) { bridgeFirst = on; },
-        deliver() { while (queued.length) { observer?.(...queued.shift()); tick?.(); } checkOwnership(); },
+        deliver() { while (queued.length) { observer(...queued.shift()); tick?.(); } checkOwnership(); },
         notify(open, flags, dispatch, key, count = 6) {
             const args = [open, flags, initialText, 0, dispatch, key, ...Array(Math.max(0, count - 6)).fill(0)];
-            observer?.(...args.slice(0, count)); tick?.(); checkOwnership();
+            observer(...args.slice(0, count)); tick?.(); checkOwnership();
         },
         now() { return time; },
         advance(ms, inspect = true) {
@@ -341,7 +358,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
         deferClose(value) { deferClose = value; },
         flushCloses() { while (pendingCloses.length) pendingCloses.shift()(); tick?.(); },
         alive() { return tick !== null; },
-        observing() { return !!observer; }, inspections() { return inspectionCalls; },
+        // The bridge's own subscription, not a hand-off watcher.
+        observing() { return subscribers.length > (root.__fullKeyboardNativeStatusV1?.subscription ? 1 : 0); },
+        subscribers() { return subscribers.length; }, inspections() { return inspectionCalls; },
         addWindow, closeWindow};
 }
 {
@@ -385,14 +404,154 @@ function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
     assert(f.step(request).active);
     f.bridge.dispose();
 }
-// A native keyboard Steam opened before the first notification stays native.
+// A keyboard Steam opens for an overlay we don't serve stays native.
 {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
     f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
     const s = f.step();
     assert(f.nativeOpen() && !s.eligible && !f.bridge.diagnostics().session,
-        "an already-open keyboard is left to Steam");
+        "a keyboard for another overlay is left to Steam");
     f.bridge.dispose();
+}
+// A Steam keyboard already open when the bridge installs, with no notification
+// since: on the notification path its status is unknown, so the bridge neither
+// hides nor holds it, with or without an update's adopt window, and doesn't
+// report it closed. The store path reads it open and leaves it to Steam.
+for (const statusOnly of [true, false]) for (const adopt of [0, 3000]) {
+    const name = `${statusOnly ? "notification" : "store"} path, adopt ${adopt}`;
+    const f = fixture(true, !statusOnly, false, false, false, false, adopt, null, statusOnly);
+    f.newTarget();
+    if (!statusOnly && adopt) {
+        // The store path adopts it: the reference the hand-off below follows.
+        f.step();
+        assert(f.step().eligible && !f.nativeOpen(), `${name}: adopted`);
+        f.bridge.dispose();
+        continue;
+    }
+    for (let i = 0; i < 4; ++i) {
+        f.step();
+        f.api.ShowWindow();
+        f.api.BringToFront();
+        f.advance(60);
+    }
+    const s = f.step();
+    assert.equal(f.nodes.size, 0, `${name}: Steam's keyboard is not made invisible`);
+    assert.equal(f.calls.filter(c => c === "window-show").length, 4, `${name}: its Shows pass`);
+    assert.equal(f.calls.filter(c => c === "focus").length, 4, `${name}: so does BringToFront`);
+    if (statusOnly) {
+        assert(!s.eligible && !f.bridge.diagnostics().session && f.nativeOpen() && !f.calls.includes("native-hide"),
+            `${name}: no session, and Steam's keyboard stays open`);
+        assert.equal(s.steam, null, `${name}: the status is unknown, not closed`);
+        // Steam's first notification then decides as for any request: a click
+        // in the field takes it over.
+        f.status({bIsOpen: true});
+        const next = f.step();
+        assert(next.eligible && !f.nativeOpen(), `${name}: the first notification decides`);
+    } else if (!adopt) assert(s.steam === true && !s.eligible, `${name}: the store reads it open, left to Steam`);
+    f.bridge.dispose();
+}
+
+// The first request after an install, before any notification. Steam first:
+// its Show runs while the status is unknown and passes, then our callback
+// takes the request and hides that window again in the same task. Bridge
+// first: our callback takes it before Steam's Show, which is held as usual.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.newTarget(); f.step();
+    f.status({bIsOpen: true}, false);
+    f.api.ShowWindow();
+    assert(f.calls.includes("window-show"), "Steam first: the first Show passes while the status is unknown");
+    f.notify(true, 13, false, MAIN);
+    const s = f.step();
+    assert(s.eligible && !f.nativeOpen() && f.nodes.size === 1, "and the session hides Steam's window at once");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.bridgeFirst(true);
+    f.newTarget(); f.step();
+    f.status({bIsOpen: true});
+    f.api.ShowWindow();
+    const s = f.step();
+    assert(s.eligible && !f.nativeOpen() && !f.calls.includes("window-show"),
+        "bridge first: the first request is taken before Steam's Show, which is held");
+    f.bridge.dispose();
+}
+// An in-app update: the outgoing bridge hands the request back to Steam and
+// leaves its last known status for the successor. Within the adopt window the
+// successor adopts the keyboard as the store path does, also when the outgoing
+// bridge read the store and the successor takes the notification path, as the
+// developer switch tries on the older interface.
+function handedOver(statusOnly, successorNotification) {
+    const f = fixture(false, !statusOnly, false, false, false, false, 0, null, statusOnly);
+    f.restoreAs(MAIN);
+    owned(f);
+    f.bridge.dispose();
+    assert(f.nativeOpen(), "the outgoing bridge hands the request back to Steam");
+    const handed = f.root.__fullKeyboardNativeStatusV1;
+    assert(handed?.open === true && handed.key === MAIN && !("text" in handed),
+        "it leaves open, flags, dispatch and key, never text");
+    return {f, successor: adopt => f.successor(adopt, successorNotification)};
+}
+for (const [statusOnly, successorNotification, name] of [[true, true, "notification to notification"],
+    [false, true, "store to notification"], [false, false, "store to store"]]) {
+    const {f, successor} = handedOver(statusOnly, successorNotification);
+    f.advance(1000, false);
+    successor(3000);
+    assert.equal(f.root.__fullKeyboardNativeStatusV1, undefined, `${name}: the successor takes the hand-off`);
+    assert.equal(f.subscribers(), 1, `${name}: the outgoing watcher is unsubscribed`);
+    newTargetAfterHandBack(f);
+    const s = f.step();
+    assert(s.eligible && !f.nativeOpen(), `${name}: the successor adopts the handed-back keyboard`);
+    assert(f.step(s.request).active, `${name}: and types into it`);
+    f.bridge.dispose();
+}
+function newTargetAfterHandBack(f) {
+    // Steam's handed-back field: the hand-back restored it.
+    if (!f.manager.m_ActiveElementProps) f.newTarget();
+}
+// Steam's keyboard changes while no bridge is installed: the watcher keeps the
+// hand-off current, so a keyboard dismissed in the gap is not adopted.
+{
+    const {f, successor} = handedOver(true, true);
+    f.status({bIsOpen: false});
+    assert.equal(f.root.__fullKeyboardNativeStatusV1.open, false, "the watcher records the close");
+    f.advance(1000, false);
+    successor(3000);
+    f.newTarget();
+    const s = f.step();
+    assert(!s.eligible && !f.bridge.diagnostics().session && !f.nativeOpen(), "nothing is adopted");
+    f.api.ShowWindow();
+    assert.equal(s.steam, false, "the closed status is known");
+    f.bridge.dispose();
+}
+// A stale hand-off, a malformed one, one outside an update and none at all
+// leave the successor with an unknown status: nothing hidden, nothing adopted.
+for (const [name, prepare, adopt] of [
+    // Older than any update's restart, as when its timer never ran.
+    ["stale", f => { f.root.__fullKeyboardNativeStatusV1.at = f.now() - 61000; }, 3000],
+    ["malformed", f => { f.root.__fullKeyboardNativeStatusV1.open = "true"; }, 3000],
+    ["outside an update", () => {}, 0],
+    ["absent, from an older version", f => { delete f.root.__fullKeyboardNativeStatusV1; }, 3000],
+]) {
+    const {f, successor} = handedOver(true, true);
+    prepare(f);
+    successor(adopt);
+    assert.equal(f.root.__fullKeyboardNativeStatusV1, undefined, `${name}: no hand-off is left behind`);
+    f.newTarget();
+    f.step(); f.api.ShowWindow();
+    const s = f.step();
+    assert(!s.eligible && f.nativeOpen() && f.nodes.size === 0 && f.calls.at(-1) === "window-show" && s.steam === null,
+        `${name}: Steam's keyboard stays visible and unknown, not adopted`);
+    f.bridge.dispose();
+}
+// The watcher ends by itself when no successor comes.
+{
+    const {f} = handedOver(true, true);
+    assert.equal(f.subscribers(), 1, "only the watcher stays subscribed");
+    f.advance(61000, false);
+    assert(f.root.__fullKeyboardNativeStatusV1 === undefined && f.subscribers() === 0,
+        "after its time it unsubscribes and the hand-off is gone");
 }
 
 // Both Steam interface builds are supported, picked at run time on every
@@ -526,6 +685,7 @@ for (const [name, flags, dispatch, key, count] of [
     ["key as an object", 13, false, {toString: () => MAIN}, 6],
 ]) {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.notify(false, 13, false, MAIN); // Steam's first notification makes the status known.
     f.newTarget();
     f.step();
     // Steam opens its keyboard, its handler first here: its store and reaction,
@@ -700,6 +860,7 @@ for (const statusOnly of [false, true]) {
 for (const [name, open, count] of [["open as a number", 1, 6], ["open as a string", "true", 6],
     ["no arguments", undefined, 0]]) {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.notify(false, 13, false, MAIN);
     f.newTarget();
     f.step();
     f.status({bIsOpen: true}, false);

@@ -3,14 +3,20 @@
 (function installNativeBridge(root, testStore, externalSupported, adoptOpenMs, forceNotification) {
     "use strict";
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100, STATUS_CHECK_MS = 50;
+    // The status a bridge leaves for its successor, in Steam's shared context:
+    // open, flags, dispatch and key, never text. It is kept current until a
+    // successor takes it or HANDOFF_MS pass, longer than an update's restart.
+    const HANDOFF = "__fullKeyboardNativeStatusV1", HANDOFF_MS = 60000;
     const now = () => root.performance.now();
     // The store that holds Steam's shared VR keyboard state is module-private.
     // Both Steam interface builds are supported, picked here on every install.
     // The older one (webpack) exposes a registry that reaches the store; the
     // one a newer Steam client brings (Vite bundles, seen on Frames after the
     // SteamOS 0.5.10 update) does not. There, the same state is mirrored from
-    // Steam's own status notification, which is what updates that store. Before the first notification the keyboard is treated as
-    // closed, leaving any presentation Steam opened before this install native.
+    // Steam's own status notification, which is what updates that store.
+    // Until the first notification, or a status the outgoing version handed
+    // over in an update, the state is unknown: nothing is hidden or held, so a
+    // keyboard Steam opened before this install stays visible and usable.
     // forceNotification, a developer switch, takes the notification path even
     // where the store exists, to try it on the older interface.
     let store = testStore;
@@ -62,6 +68,28 @@
         dispatch: v => typeof v === "boolean", key: v => typeof v === "string"};
     const typeName = v => v === null ? "null" :
         ["undefined", "boolean", "number", "string"].includes(typeof v) ? typeof v : "other";
+    // Unknown until Steam's first notification on the notification path.
+    const statusUnknown = () => !fromStore && mirroredStatus === null;
+    // A status handed over by an outgoing bridge: always taken out of the
+    // shared context, with its watcher unsubscribed, but used only in an
+    // update's adopt window and only where there is no store to read. Like a
+    // notification, it counts only with a boolean open flag.
+    {
+        const handed = root[HANDOFF];
+        if (handed !== undefined) {
+            delete root[HANDOFF];
+            const watcher = handed?.subscription;
+            if (handed && typeof handed === "object") handed.subscription = null;
+            try {
+                if (typeof watcher === "function") watcher();
+                else if (typeof watcher?.unregister === "function") watcher.unregister();
+            } catch (_) { /* An unsubscribed watcher changes nothing. */ }
+            const age = Number.isFinite(handed?.at) ? now() - handed.at : NaN;
+            if (!fromStore && Number.isFinite(adoptOpenMs) && adoptOpenMs > 0 && typeof handed?.open === "boolean" &&
+                age >= 0 && age <= HANDOFF_MS)
+                mirroredStatus = {open: handed.open, flags: handed.flags, dispatch: handed.dispatch, key: handed.key};
+        }
+    }
     function nativeStatus() {
         // VRKeyboardStatus also contains initial text. Read only these raw metadata fields.
         if (testStore) {
@@ -291,6 +319,8 @@
         return owner?.fieldHook && !fieldRequest(s);
     }
     function blocking() {
+        // Without a known status, Steam's keyboard may be open: leave it alone.
+        if (statusUnknown() && !logical) return false;
         return fresh() && !restoringUntil && (now() < closingUntil || !ignoreOpen &&
             (logical || !native.open || potential(native) && now() < rawDeadline));
     }
@@ -640,7 +670,8 @@
         return {version: VERSION, request, open: !!logical || !!native.open || !!handoff, eligible, idle: idle(),
             // Steam's keyboard serves a request left native, such as a web
             // page's field; not one the bridge is closing for its own reasons.
-            steam: !logical && !!native.open && ignoreOpen && now() >= closingUntil,
+            // Null, not false, while the status is unknown.
+            steam: statusUnknown() && !logical ? null : !logical && !!native.open && ignoreOpen && now() >= closingUntil,
             active: eligible && acknowledged === request && fresh(),
             local: !!logical?.owner.external && !logical.owner.stream,
             stream: !!logical?.owner.stream, multiline: multiline(logical),
@@ -675,10 +706,43 @@
             // bridge can take it over and close native again.
             if (!restoringOwner) unsubscribe();
             else if (!subscription) checkRestore(true);
+            handOver();
             for (const owner of owners) undoAll(owner.hooks);
             for (const shared of apis.values()) undoAll(shared.hooks);
             undoAll(hooks);
         }
+    }
+    // Leaves the last known status for a successor, as after an in-app update,
+    // which would otherwise not know a keyboard handed back to Steam is open.
+    // A watcher keeps it current while no bridge is subscribed; the successor
+    // or the HANDOFF_MS timer ends it. Nothing is left without a known status.
+    function handOver() {
+        let status;
+        try {
+            if (statusUnknown()) return;
+            status = nativeStatus();
+        } catch (_) { return; }
+        if (typeof keyboardApi?.RegisterForStatus !== "function" || typeof status.open !== "boolean") return;
+        const entry = {open: status.open, flags: status.flags, dispatch: status.dispatch, key: status.key, at: now(),
+            subscription: null};
+        const withdraw = () => {
+            if (root[HANDOFF] === entry) delete root[HANDOFF];
+            const watcher = entry.subscription;
+            entry.subscription = null;
+            try {
+                if (typeof watcher === "function") watcher();
+                else watcher?.unregister?.();
+            } catch (_) { /* Nothing more to stop. */ }
+        };
+        try {
+            // Indices 2 and 3, the initial text and app ID, are never touched.
+            entry.subscription = keyboardApi.RegisterForStatus((...args) => {
+                if (root[HANDOFF] !== entry || typeof args[0] !== "boolean") { withdraw(); return; }
+                Object.assign(entry, {open: args[0], flags: args[1], dispatch: args[4], key: args[5], at: now()});
+            });
+            root[HANDOFF] = entry;
+            root.setTimeout(withdraw, HANDOFF_MS);
+        } catch (_) { withdraw(); }
     }
     function undoAll(undo) {
         for (const step of undo.reverse()) step();
