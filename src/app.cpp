@@ -2672,9 +2672,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     dirty = true;
 }
 void App::suspend_input(bool asleep) {
-    end_field(false); // asleep or taken off: a shortcut editor field ends as Cancel
-    end_popup(false); // and so does the editor's popup
-    carry_.reset();
+    pause_editor_input(); // asleep or taken off: the editor's popup and field stay (R409)
     const char* reason = asleep ? "dictation.stopped-asleep" : "dictation.stopped-taken-off";
     // stop_send needs the existing retry suffix before cancel clears it. An
     // unacknowledged in-flight piece stays here marked uncertain, as on Esc.
@@ -2890,10 +2888,10 @@ void App::set_interaction_active(bool active) {
     // is the shell's to choose, and an open composition stays pending for the
     // same context; a context change or the lease running out discards it
     // (docs/integration.md, Presentation).
-    // A field typed or keys recorded for the shortcut editor end as Cancel.
-    end_field(false);
-    end_popup(false); // hiding ends the editor's popup as Cancel
-    carry_.reset();   // and a carried button goes back to its place
+    // The shortcut editor's popup and field stay open as they are, with
+    // what was typed or recorded in them (R409); only what a pointer holds
+    // ends, below and in pause_editor_input.
+    pause_editor_input();
     if (!hosted()) {
         close_emoji();
         // Reopened, it likely types into another field: quotes open again (R144).

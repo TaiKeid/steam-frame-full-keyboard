@@ -250,7 +250,7 @@ Labels are typed and keys are recorded without leaving the editor, on a mini key
 - Recording starts from nothing: Done replaces the button's combinations. A shortcut stops at four combinations, a macro's Keys step at 32.
 - Recorded keys are key strokes, stored by the key's name. Nothing is recorded as a character.
 - Labels in other languages are typed by renaming a button in place on the bar, which uses the real keyboard.
-- Hiding the keyboard or sleep ends the popup as Cancel.
+- Hiding the keyboard or sleep keeps the popup open as it was, with what was typed or recorded in it (R409). A mini key held down is let go and stops repeating, and a button waiting for Move or Copy goes back to its place.
 
 ## Renaming in place
 

@@ -2116,6 +2116,8 @@ class App {
         bool new_step{};
     };
     std::optional<EditorPopup> popup_;
+    // At a hide, sleep or the headset coming off: the popup and the field stay (R409).
+    void pause_editor_input();
     // A held Backspace, Delete or arrow repeats, as on the keyboard.
     struct PopupRepeat {
         unsigned pointer{};

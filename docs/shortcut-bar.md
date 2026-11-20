@@ -97,6 +97,7 @@ Labels, profile names and commands are typed, and keys recorded, on a small US k
 
 - Typing: Shift and Caps Lock give capitals and symbols. Enter or **Done** saves, Esc or **Cancel** cancels. In a label, Shift+Enter starts its second line.
 - Recording: tap modifiers, which stay lit, then a key: that is one combination, and the next can follow. A press on the chip of the lit modifiers, or **Done**, records them by themselves, as a tap of Super. The icon at the strip's right end takes back the last combination. **Done** replaces the button's keys with what you recorded; **Cancel** keeps what was there. A shortcut takes four combinations, a macro's Keys step 32.
+- Hiding the keyboard, or the headset sleeping, keeps the editor and an open popup as they are, with what you typed or recorded, until the keyboard shows again.
 - Num Lock and Caps Lock can't be recorded: on the keyboard they are its own switches and never reach an app. Numpad keys record as numpad keys.
 
 ## Scripts and commands

@@ -1505,6 +1505,19 @@ void App::open_popup(PopupKind kind, std::optional<std::size_t> step, bool new_s
     pressed_controls_.clear();
     dirty = true;
 }
+void App::pause_editor_input() {
+    // A hide, sleep or taking the headset off keeps the editor's popup and
+    // field open as they are: the text and its caret, the recorded keys,
+    // latches and Caps Lock (R409). What a pointer holds ends: a repeating
+    // mini key, a chips drag and a carried button, which goes back to its
+    // place. Mini keys act on their press, so no release records anything.
+    // end_input, which follows, lets go of pressed controls and a reading:
+    // dropped where it discards, never committed.
+    popup_repeat_.reset();
+    chips_drag_.reset();
+    carry_.reset();
+    dirty = true;
+}
 void App::end_popup(bool save) {
     if (!popup_) {
         return;

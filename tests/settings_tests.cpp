@@ -6996,20 +6996,26 @@ void used_for_chips_scroll() {
                 view.shortcut_editor->used_hint == "Shows when one of these apps is in front.",
             "one row: no thumb, and the hint");
 }
-// R403: with replacement on, closing the panel (the keyboard button, the
-// dashboard closing) and summoning it again resumes the editor with its
-// unsaved change. An open popup ends as Cancel, as at any hide.
+// R403, R409: with replacement on, closing the panel (the keyboard button,
+// the dashboard closing) and summoning it again resumes the editor as it
+// was: its unsaved change, and an open popup with what was typed or recorded
+// in it. Only what a pointer held ends: a mini key held down, a carried button.
 void editor_survives_close_and_summon() {
     TemporaryDirectory directory;
     Settings settings;
     settings.shortcuts = true;
     settings.replace_native_keyboard = true;
     save_settings(directory.path, settings);
+    ShortcutButton run;
+    run.label = "Run";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.command = "true";
     ShortcutModel model;
     model.profiles.push_back({"p",
                               "P",
                               {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}}),
-                               shortcut_button("One", {{{"ControlLeft"}, "KeyO"}})}});
+                               shortcut_button("One", {{{"ControlLeft"}, "KeyO"}}), run}});
+    model.profiles.push_back({"q", "Q", {shortcut_button("Z", {{{}, "KeyZ"}})}});
     model.free_profile = "p";
     write_shortcuts(directory.path, model);
     Options options;
@@ -7023,29 +7029,93 @@ void editor_survives_close_and_summon() {
     double now = 5400;
     app.tick(now);
     require(app.resident_replacement(), "replacement keeps the keyboard resident");
+    const auto hide_and_summon = [&] {
+        app.close_panel();
+        require(app.take_dismissal(), "the panel closes, resident");
+        app.tick(now += .1);
+        app.summon();
+        app.set_interaction_active(true); // shown again, as the VR loop does
+        app.tick(now += .1);
+    };
     open_editor(app);
     tap_control(app, "shortcuts-button-1");
     tap_control(app, "shortcuts-kind-1"); // unsaved: One becomes a macro
     tap_control(app, "shortcuts-label");
     tap_mini(app, "KeyX");
-    const auto before = app.view();
-    require(before.shortcut_editor && before.shortcut_editor->popup &&
-                before.shortcut_editor->popup->text == "Onex" &&
-                control(before, "shortcuts-kind-1").selected,
+    require(popup_text(app) == "Onex" && control(app.view(), "shortcuts-kind-1").selected,
             "an unsaved change and the Label popup, half typed");
-    app.close_panel();
-    require(app.take_dismissal(), "the panel closes, resident");
+    // A mini key held down at the hide: let go, and it repeats no more.
+    const auto backspace = middle(control(app.view(), "shortcuts-popup-key-Backspace").bounds);
+    app.move(0, backspace.x, backspace.y);
+    app.down(0, backspace.x, backspace.y, now);
+    require(popup_text(app) == "One" && app.view().shortcut_editor->popup->pressed.contains("Backspace"),
+            "Backspace held down deletes once");
+    hide_and_summon();
+    for (int i = 0; i < 100; ++i) {
+        app.tick(now += .02);
+    }
+    app.up(0, backspace.x, backspace.y); // the trigger let go after the hide: nothing more
+    auto view = app.view();
+    require(view.shortcut_editor && view.shortcut_editor->popup &&
+                view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Label &&
+                popup_text(app) == "One" && view.shortcut_editor->popup->pressed.empty(),
+            "summoned again: the Label popup with its text, the held key let go, no repeat");
+    tap_mini(app, "KeyY");
+    tap_control(app, "shortcuts-popup-done");
+    view = app.view();
+    require(!view.shortcut_editor->popup && control(view, "shortcuts-label").label == "Oney" &&
+                control(view, "shortcuts-kind-1").selected &&
+                saved_shortcuts(app).profiles[0].buttons[1].label == "One",
+            "its Done applies the label, typed across the hide; the draft keeps its change, unsaved");
+    // A Record popup with keys recorded, on the first button's shortcut.
+    tap_control(app, "shortcuts-button-0");
+    tap_control(app, "shortcuts-record");
+    tap_mini(app, "ControlLeft");
+    tap_mini(app, "KeyK");
+    tap_mini(app, "KeyS");
+    require(popup_chips(app.view()) == std::vector<std::string>{"Ctrl + K", "S"}, "two keys recorded");
+    hide_and_summon();
+    require(app.view().shortcut_editor->popup &&
+                popup_chips(app.view()) == std::vector<std::string>{"Ctrl + K", "S"},
+            "summoned again: the recording with its keys, nothing recorded by the hide");
+    tap_control(app, "shortcuts-popup-done");
+    view = app.view();
+    require(view.shortcut_editor->chords.size() == 2 &&
+                view.shortcut_editor->chords[0].text == "Ctrl + K",
+            "its Done records them");
+    // A Command popup, typed.
+    tap_control(app, "shortcuts-button-2");
+    tap_control(app, "shortcuts-command");
+    for (const char* key : {"Space", "KeyA"}) {
+        tap_mini(app, key);
+    }
+    require(popup_text(app) == "true a", "the command typed on");
+    hide_and_summon();
+    require(app.view().shortcut_editor->popup &&
+                app.view().shortcut_editor->popup->kind == ShortcutPopupView::Kind::Command &&
+                popup_text(app) == "true a",
+            "summoned again: the Command popup with its text");
+    app.suspend_input(true);
     app.tick(now += .1);
-    app.summon();
-    app.tick(now += .1);
-    const auto after = app.view();
-    require(after.shortcut_editor && !after.shortcut_editor->popup,
-            "summoned again: the editor, its popup ended as Cancel");
-    require(control(after, "shortcuts-button-1").selected &&
-                control(after, "shortcuts-kind-1").selected &&
-                strip_labels(after) == std::vector<std::string>{"Go", "One"} &&
-                saved_shortcuts(app).profiles[0].buttons[1].action.kind == ShortcutAction::Kind::Keys,
-            "the draft keeps its change, still unsaved; the label as before the popup");
+    require(app.view().shortcut_editor->popup && popup_text(app) == "true a",
+            "asleep and back: the Command popup with its text");
+    tap_control(app, "shortcuts-popup-cancel");
+    // A button dropped on another profile's row, waiting for Move or Copy at
+    // the hide, goes back to its place.
+    const auto start = middle(control(app.view(), "shortcuts-button-0").bounds);
+    const auto row = middle(control(app.view(), "shortcuts-row-1").bounds);
+    app.move(0, start.x, start.y);
+    app.down(0, start.x, start.y, now += .1);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, start.x + (row.x - start.x) * step / 8, start.y + (row.y - start.y) * step / 8);
+    }
+    app.up(0, row.x, row.y);
+    require(has(app.view(), "shortcuts-carry-move"), "a button carried to Q, Move and Copy offered");
+    hide_and_summon();
+    view = app.view();
+    require(!has(view, "shortcuts-carry-move") && !view.shortcut_editor->lifted_button &&
+                strip_labels(view) == std::vector<std::string>{"Go", "Oney", "Run"},
+            "summoned again: the carried button back in its place, nothing moved");
 }
 // R407: what only the editor uses goes when it closes, and comes back with
 // it: the Label popup's mini keyboard, and the Run list read again.
@@ -7540,9 +7610,11 @@ void shortcut_editor_settings() {
                 "a recording starts from nothing");
         app.set_interaction_active(false);
         app.set_interaction_active(true);
-        require(app.view().shortcut_editor && !app.view().shortcut_editor->popup &&
+        require(app.view().shortcut_editor && app.view().shortcut_editor->popup &&
+                    popup_chips(app.view()) == std::vector<std::string>{"Q"} &&
                     app.view().shortcut_editor->chords.size() == 4,
-                "hiding the keyboard ends a recording as Cancel");
+                "hiding the keyboard keeps a recording with its keys (R409)");
+        tap_control(app, "shortcuts-popup-cancel");
         tap_control(app, "shortcuts-clear");
         require(app.view().shortcut_editor->chords.empty(), "clear empties the shortcut");
         // The bar's name.
