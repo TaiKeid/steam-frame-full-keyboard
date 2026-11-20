@@ -397,7 +397,7 @@ void sink_tests() {
     backend.paused = false;
     router.set_on(false);
 
-    // Cancelled before it was written: it never goes out.
+    // Canceled before it was written: it never goes out.
     router.set_on(true);
     router.set_context("c-3");
     require(!router.commit_text("gone"), "queued");

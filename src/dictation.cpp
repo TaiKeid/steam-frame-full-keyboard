@@ -405,7 +405,7 @@ void Dictation::tick(double now, bool keep_alive) {
         } else {
             continue;
         }
-        // Packets sent before the helper saw a cancel belong to the cancelled
+        // Packets sent before the helper saw a cancel belong to the canceled
         // phrases; the socket keeps order, so `cancelled` ends them. A Test
         // result is not part of capture.
         if (cancels_ && event.kind != Event::Kind::Test && event.kind != Event::Kind::Download) {

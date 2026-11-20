@@ -71,7 +71,7 @@ void require(bool ok) {
 struct QuitSDL {
     ~QuitSDL() { SDL_Quit(); }
 };
-// Where the canvas sits in the window's pixels: as large as fits, centred.
+// Where the canvas sits in the window's pixels: as large as fits, centered.
 struct Placement {
     double x{}, y{}, scale{1};
 };
@@ -293,7 +293,7 @@ int main(int argc, char** argv) {
         // pointer motion far outside the window, while the drag and its
         // release go on in it. Such motions are ignored; unless the pointer
         // comes back inside or lets go within half a second, the release
-        // went elsewhere and the press is cancelled, as a lost laser is.
+        // went elsewhere and the press is canceled, as a lost laser is.
         std::optional<double> focus_lost_held;
         auto inside_window = [&](int x, int y) {
             int width = 1, height = 1;

@@ -44,7 +44,7 @@ bool OutputController::admit(bool produces_output, double now) {
         status(ui("output.not-sent-later-discarded"));
         return false;
     }
-    // A cancelled request may still have a Wayland sync outstanding. It has no
+    // A canceled request may still have a Wayland sync outstanding. It has no
     // owned result to consume or retry; keep B12/B14's explicit rejection.
     if (queue_.empty() && target_.output_blocked()) {
         status(ui(waiting_status));

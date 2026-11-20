@@ -1915,7 +1915,7 @@ class Lifecycle(unittest.TestCase):
 
     def test_guard_renews_only_while_armed(self):
         # An unarmed guard ignores renewals, so frames must not cost a guard
-        # round trip until a local request arms it, nor after it is cancelled.
+        # round trip until a local request arms it, nor after it is canceled.
         parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         parent.settimeout(1)
         guard = FakeGuard()

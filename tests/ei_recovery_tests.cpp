@@ -471,7 +471,7 @@ void desktop_entry() {
     });
     require(text.commits == std::vector<std::string>{"o"}, "ASCII typed through Gamescope");
 
-    // Cancelling (hiding, a target change) sends nothing more and releases
+    // Canceling (hiding, a target change) sends nothing more and releases
     // at once what the entry holds: U, then Ctrl and Shift.
     const auto run = [&](int steps) {
         for (int i = 0; i < steps; ++i) {

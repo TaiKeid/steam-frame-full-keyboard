@@ -245,7 +245,7 @@ class LibimeEngine final : public CjkEngine {
     }
     void type(char key) override {
         if (context_.empty() && front_.empty()) {
-            front_produced_ = false; // A new reading after an emptied/cancelled composition.
+            front_produced_ = false; // A new reading after an emptied/canceled composition.
         }
         if (context_.size() >= max_keys && !sentences_) {
             send_front();

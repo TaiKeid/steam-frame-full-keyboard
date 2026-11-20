@@ -16,7 +16,7 @@ namespace {
 
 constexpr double pi = 3.141592653589793;
 // The keyboard picture on Home: the case, 1600 x panel_height, at 56% and
-// centred. In the picture the case ends 588 pixels down, where its
+// centered. In the picture the case ends 588 pixels down, where its
 // reflection starts here. Setup slides it up.
 constexpr double picture_scale = .56, case_bottom = 588;
 constexpr Rect picture{(Installer::width - panel_width * picture_scale) / 2, 48,
@@ -35,7 +35,7 @@ constexpr double bar_scale = .9;
 // and the middle of each row from the digits down.
 constexpr double keys_left = 146, key_pitch = 63.6;
 constexpr std::array<double, 5> row_middle{232, 307, 381, 456, 531};
-// Home: Install and its version list's chevron, one control, centred.
+// Home: Install and its version list's chevron, one control, centered.
 constexpr Rect install_main{430, 554, 340, 76}, install_more{770, 554, 80, 76};
 // Setup's card: each page's picture on a stage to the left, its text to the
 // right, and Back, the page dots and Next along the bottom.
@@ -74,7 +74,7 @@ double phase(double t, double start, double length) {
     return std::clamp((t - start) / length, 0.0, 1.0);
 }
 
-// Three rows of letter keys centred in `area`, staggered as on a keyboard.
+// Three rows of letter keys centered in `area`, staggered as on a keyboard.
 struct Letters {
     double left, top, key, pitch;
     Letters(const Rect& area, double size, double spacing) : key(size), pitch(spacing) {
@@ -1139,7 +1139,7 @@ void Installer::paint_home() {
     }
     const Rect below{200, install_main.y + install_main.height + 10, 880, 36};
     if (loading) {
-        // The spinner leads the line, which stays centred.
+        // The spinner leads the line, which stays centered.
         const double w = std::min(below.width - 40, text_width(caption, 20));
         spinner(width / 2.0 - w / 2 - 18, below.y + below.height / 2, 9);
         text(caption, {below.x + 14, below.y, below.width, below.height}, 20, tone);
@@ -1370,7 +1370,7 @@ void Installer::paint_progress() {
         tone = theme_.error;
     }
     if (failed) {
-        // The reason and Try again, centred together under the bar.
+        // The reason and Try again, centered together under the bar.
         constexpr double retry_width = 210, between = 24;
         const double reason = std::min(card.width - retry_width - between, text_width(line, 20) + 12);
         const double x = (width - reason - between - retry_width) / 2;
@@ -1429,7 +1429,7 @@ void Installer::paint_wizard_page(int page) {
     }
     cairo_restore(cr_);
 
-    // The question, what it means and Yes/No, centred beside the stage.
+    // The question, what it means and Yes/No, centered beside the stage.
     constexpr double choice_height = 62, choice_width = 300, under_title = 14, over_choice = 30;
     const auto title = tr(page_keys[static_cast<std::size_t>(asks)].first);
     const auto explanation = tr(page_keys[static_cast<std::size_t>(asks)].second);
@@ -2153,7 +2153,7 @@ void Installer::paint_curve_demo(const Rect& s, double t) {
     cairo_pattern_destroy(flat_picture);
 
     // The left handle: it fades in as the laser arrives and out after it
-    // leaves; grey, half lit with the laser on it, white while held.
+    // leaves; gray, half lit with the laser on it, white while held.
     const auto handle = place(-(panel_width / 2 + 42) * mini_scale);
     const double shown =
         ease_in_out(phase(c, arrive - .3, .3)) * (1 - ease_in_out(phase(c, release + .2, .3)));
@@ -2192,7 +2192,7 @@ void Installer::paint_shortcuts_demo(const Rect& s, double t) {
     view.layout = &layout_;
     view.theme = &theme_;
     const auto g = shortcut_bar_geometry(view, labels.size());
-    // Panel coordinates to the stage: across, centred on the bar and its tab;
+    // Panel coordinates to the stage: across, centered on the bar and its tab;
     // down, the bar near the top and the keyboard's top rows under it.
     const double k = bar_scale;
     const double ox =

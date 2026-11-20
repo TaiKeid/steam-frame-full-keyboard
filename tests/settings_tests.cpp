@@ -1376,7 +1376,7 @@ void background_surface_setting() {
         click(app, "apply");
         require(takes_pointer(app.view(), gap_x, gap_y), "Invisible takes the whole case again");
     }
-    // A message shows on an opaque card above the case, centred on it, as
+    // A message shows on an opaque card above the case, centered on it, as
     // the focus tooltip does; the transparent case under it stays clear.
     {
         app.report_status(ui("status.num-lock-wait"));

@@ -155,7 +155,7 @@ void state_tests() {
         require(state.modifiers().empty(), "no modifier stays latched or held");
     }
     {
-        // Cancelling a held terminal Copy, as hiding does, releases every key.
+        // Canceling a held terminal Copy, as hiding does, releases every key.
         Capture sink;
         fk::KeyboardState state(sink);
         state.down(0, copy, 0, false, KEY_C, true,

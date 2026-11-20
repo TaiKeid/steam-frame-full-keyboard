@@ -702,7 +702,7 @@ void app_flow(bool ordered_replace) {
     app.up(0, sx, sy);
     require(!has_control(app.view(), "swipe-candidate-0"), "other input discards alternatives");
 
-    // Shift capitalizes; a cancelled decode never types.
+    // Shift capitalizes; a canceled decode never types.
     const auto [shx, shy] = key_point(app, "ShiftLeft");
     app.down(0, shx, shy, 5);
     app.up(0, shx, shy);
@@ -2141,7 +2141,7 @@ void toolbar_toggle() {
                                       [](const Control& item) { return item.id == "swipe-typing"; });
         require(row != view.controls.end() && !row->enabled, "and the option has nothing to reach");
     }
-    // A flick layout: greyed out and not reactive, even with a language that can swipe.
+    // A flick layout: grayed out and not reactive, even with a language that can swipe.
     config("ja-flick", english, true, "ja-flick-12");
     {
         TextSink sink;
@@ -2399,7 +2399,7 @@ int typing_flow() {
             require(typing_suggestions(app) == std::vector<std::string>{"world"},
                     "Backspace after Enter starts a new word");
             // Two hands: the other hand's press takes SteamVR's laser, and the
-            // first hand's pointer is cancelled after it.
+            // first hand's pointer is canceled after it.
             tap(app, "ArrowRight");
             type(app, "he");
             const auto [hx, hy] = key_point(app, "KeyL");

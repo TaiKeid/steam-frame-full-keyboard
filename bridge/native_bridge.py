@@ -1266,7 +1266,7 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                         if candidate:
                             # Dismissal and resummon can both occur between polls. A
                             # candidate has no logical owner, so any old lease must
-                            # be cancelled before the next exact target is armed.
+                            # be canceled before the next exact target is armed.
                             if guard.armed:
                                 guard.cancel()
                             # Without the streaming client's channel there is no way to type into the

@@ -114,7 +114,7 @@ Control show_choice(App& app, const std::string& field, const std::string& choic
 void choose(App& app, const std::string& field, const std::string& choice) {
     control(app, show_choice(app, field, choice).id);
 }
-// Centre of a key's hit area in panel coordinates.
+// Center of a key's hit area in panel coordinates.
 std::pair<double, double> key_centre(App& app, const std::string& id) {
     const auto view = app.view();
     double left = panel_width, top = panel_height, right = 0, bottom = 0;
@@ -2102,7 +2102,7 @@ void conversion_off_the_vr_thread() {
     click_key(app, "Backspace");
     // A key still held down when input ends that way, as on a change of
     // pointer, may never see its release: it ends behind its press, let go
-    // or cancelled, and never stays down. A ⌫ left down would repeat.
+    // or canceled, and never stays down. A ⌫ left down would repeat.
     for (const bool cancelled : {false, true}) {
         hold();
         click_key(app, "KeyS");
@@ -2278,7 +2278,7 @@ void conversion_off_the_vr_thread() {
         require(flick_sink.text == std::vector<std::string>{"〈かさま〉"} && reading() == "ち",
                 "〈かさま〉 is committed, then the flick types ち, its left kana");
         // A flick, which types on release, held behind 変換 while its
-        // pointer leaves the keyboard is cancelled in its turn.
+        // pointer leaves the keyboard is canceled in its turn.
         hold();
         flick(flick_app, "na", now += .01);
         flick_app.tick(now += .01);

@@ -59,7 +59,7 @@ CurveBarScan scan_curve_bars(const std::array<Transform, 2>& bars, double width,
                              const std::array<std::optional<Ray>, 2>& rays,
                              const std::function<bool(std::size_t)>& covered);
 // What a bar shows this frame: an opacity to ease toward and a light, 0 for
-// the movement handle's grey to 1 for white, or hidden at once.
+// the movement handle's gray to 1 for white, or hidden at once.
 struct CurveBarLook {
     double target{}, light{};
     bool hide{};

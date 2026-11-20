@@ -19,7 +19,7 @@ template <class Watch> class OffPanelHolds {
     }
     // The pointers whose keys must be released now. Holds whose key
     // `still_held(pointer)` no longer reports, because it was released back
-    // over the panel or cancelled, are dropped without a release.
+    // over the panel or canceled, are dropped without a release.
     template <class StillHeld> std::vector<unsigned> expired(double now, StillHeld still_held) {
         std::vector<unsigned> release;
         for (auto it = holds_.begin(); it != holds_.end();) {

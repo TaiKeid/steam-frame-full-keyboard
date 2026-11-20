@@ -15,7 +15,7 @@
 // The one wrapped call hands SDL a copy of the overlay function table whose PollNextOverlayEvent is
 // ours. It returns every event untouched and, once per event pump, types what Full Keyboard sent over a
 // private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
-// other keyboard keep their stock behaviour.
+// other keyboard keep their stock behavior.
 //
 // A text never follows key events of ours closely (R369): on the way to a Windows PC each key is held
 // some 62 ms (46 to 117, n=51 in a capture), the next one's down coming out with the previous one's up,
@@ -970,7 +970,7 @@ static bool fk_poll(uint64_t overlay, void* event, uint32_t size) {
             send(stream_socket, "F", 1, MSG_NOSIGNAL | MSG_DONTWAIT);
         }
     }
-    return true; // every event reaches SDL as it came: other keyboards keep their stock behaviour
+    return true; // every event reaches SDL as it came: other keyboards keep their stock behavior
 }
 
 static GetGenericInterfaceFn real_get_generic_interface(void) {

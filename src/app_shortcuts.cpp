@@ -137,7 +137,7 @@ ShortcutBarGeometry App::bar_geometry(std::size_t buttons) const {
 }
 Rect App::bar_button_bounds(const ShortcutBarGeometry& bar, std::size_t count, std::size_t index,
                             double scroll) const {
-    // One button sits centred in the two slots.
+    // One button sits centered in the two slots.
     const double x = count == 1 ? bar.strip.x + (bar.strip.width - bar.button_width) / 2
                                 : bar.strip.x + static_cast<double>(index) * bar.pitch - scroll;
     return {x, bar.button_top, bar.button_width, bar.button_height};

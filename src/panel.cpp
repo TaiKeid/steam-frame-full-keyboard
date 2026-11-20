@@ -165,7 +165,7 @@ constexpr double normal_toolbar_height = 96;
 constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 106,
                  ime_two_row_height = ime_toolbar_height + ime_band_height + ime_band_gap;
 // The reading line's top, in the flick band and on full layouts: the second
-// toolbar row's 42-pixel switches centred on its 44 pixels.
+// toolbar row's 42-pixel switches centered on its 44 pixels.
 constexpr double reading_line_top = second_row_top - 1;
 // The second toolbar row the reading line replaced: a full layout's case,
 // in every view of it, is at most that much shorter.
@@ -190,7 +190,7 @@ bool flick_layout(const PanelView& view) {
 constexpr double flick_icon_size = 18;
 // Cut, Copy and Paste: 32 units at a full-size layout's scale.
 constexpr double shortcut_icon_pixels = 34;
-// The reading line of a composing full layout, full width, centred.
+// The reading line of a composing full layout, full width, centered.
 bool reading_line(const PanelView& view) {
     return view.ime_band && !two_row_band(view) && !view.settings;
 }
@@ -223,7 +223,7 @@ Rect pixel_bounds(Rect r, double margin = 0) {
             std::ceil(r.y + r.height + margin) - top};
 }
 // Cells of the flick preview in panel coordinates: tap, left, up, right, down.
-// Square cells a little taller than the key, centred on it.
+// Square cells a little taller than the key, centered on it.
 std::optional<std::array<Rect, 5>> flick_cells(const PanelView& view) {
     if (!view.flick_preview || view.settings) {
         return {};
@@ -276,7 +276,7 @@ bool hidden_under(const Rect& r, const Rect& panel, double radius) {
     return inside && clear;
 }
 // The panel is a texture seen at any angle, with no fixed pixel layout, so
-// text is antialiased in grey even where the system's fonts ask for subpixel
+// text is antialiased in gray even where the system's fonts ask for subpixel
 // (colored) antialiasing, as SteamOS's do: that would fringe every legend
 // and, over a clear case, leave color above alpha in premultiplied pixels.
 // Measuring contexts take the same options, so their metrics match drawing.
@@ -610,7 +610,7 @@ void interface_label(cairo_t* cr, const std::string& text, Rect r, double size,
                      bool right_to_left = false, double below = 0) {
     constexpr double smallest = 9, step = .94;
     // Wholly outside this pass's clip, it would draw nothing: no layout is
-    // built (R293). The room is grown generously, as centred text may run
+    // built (R293). The room is grown generously, as centered text may run
     // past it. The interface tour, recording every label's fit, sees all.
     if (!label_fits) {
         const double reach = std::max(2 * size, r.height) + below;
@@ -1584,7 +1584,7 @@ Rect draw_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Rect& r
         cap_light(cr, t, face, t.radius, (1 - amount) * (1 + .5 * lift));
     }
     if (t.latched_finish == "neon" && !latched && amount > 0) {
-        // A pressed key lights the same tube, as far as it has travelled.
+        // A pressed key lights the same tube, as far as it has traveled.
         neon_tube(cr, t, face, t.radius, amount);
     }
     draw_edge(cr, t, face, t.radius, edge_lit, !disabled);
@@ -1882,7 +1882,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
                           ? key_code(key.action)
                           : 0;
     if (secondary.empty() && (shift == KEY_LEFTSHIFT || shift == KEY_RIGHTSHIFT)) {
-        // The arrow and the legend, centred together on the face.
+        // The arrow and the legend, centered together on the face.
         const double size = utility ? t.small_font_size : t.font_size;
         const double arrow = std::round(size * .75), gap = std::round(size * .35);
         const double width = text_width(cr, text, size, view.language->font);
@@ -2200,7 +2200,7 @@ ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t but
     g.plate = {left, top, plate_width, height};
     g.strip = {left + margin, top, strip_width, height};
     g.picker = {left + plate_width, top + (height - tab_height) / 2, tab_width, tab_height};
-    // The face and the side below it, centred in the plate.
+    // The face and the side below it, centered in the plate.
     g.button_top = top + (height - g.button_height - view.theme->depth * scale) / 2;
     g.scroll_limit = buttons > g.slots ? static_cast<double>(buttons) * g.pitch - gap - strip_width : 0;
     return g;
@@ -3222,7 +3222,7 @@ std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
 double above_case(const PanelView& view) {
     return view.shortcut_bar && !view.settings ? view.shortcut_bar->plate.y : panel_case_bounds(view).y;
 }
-// Where the tooltip may lie: above the case, centred on its button and kept
+// Where the tooltip may lie: above the case, centered on its button and kept
 // on the panel. Its card is as wide as its text, up to this. A toolbar's
 // tooltip keeps that place over the shortcut bar, drawn over it and taking
 // no pointer (pointer_bounds leaves it out); only the bar's own tooltips
@@ -3248,7 +3248,7 @@ constexpr double focus_tooltip_size = 21, focus_tooltip_pad = 18;
 double card_radius(const Theme& t) {
     return std::min(t.radius + 4, focus_tooltip_height / 2);
 }
-// The tooltip's card without its pointer: as wide as its text, centred on
+// The tooltip's card without its pointer: as wide as its text, centered on
 // the button, and wide enough for both corners and the pointer between them,
 // however short the text.
 std::optional<Rect> focus_tooltip_card(cairo_t* cr, const PanelView& view) {
@@ -3280,7 +3280,7 @@ void draw_card(cairo_t* cr, const Theme& t, const Rect& card) {
     cairo_stroke(cr);
 }
 // The keyboard's messages: a card above the case, at the focus tooltip's
-// height, centred on the case, or above the shortcut bar while it shows.
+// height, centered on the case, or above the shortcut bar while it shows.
 // Beside a tooltip in its row when both show, or above it when the panel has
 // no room beside it. Above the bar there is no room above the bar's own
 // tooltip: the card stays and that tooltip waits. A toolbar's tooltip stands
@@ -3954,7 +3954,7 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
               static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
     }
 }
-// A bar button's label: its one or two lines centred on the face, shrunk to
+// A bar button's label: its one or two lines centered on the face, shrunk to
 // fit its width down to 70%, then each line ends in an ellipsis.
 // `mark`: the Run mark's scale (draw_run_mark), 0 without one. A first line
 // that would reach into the mark moves the label down, within the face.
@@ -3992,7 +3992,7 @@ void bar_label(cairo_t* cr, const std::string& text, const Rect& face, double si
     if (mark > 0) {
         PangoRectangle ink{}, logical{};
         pango_layout_line_get_pixel_extents(pango_layout_get_line_readonly(layout, 0), &ink, &logical);
-        // The first line's ink, centred in the room as the layout places it.
+        // The first line's ink, centered in the room as the layout places it.
         const double right = face.x + 5 + (room + ink.width) / 2 + 1;
         const double mark_left = face.x + face.width - 23 * mark, mark_bottom = face.y + 19 * mark;
         int baseline = pango_layout_get_baseline(layout) / PANGO_SCALE;
@@ -4079,7 +4079,7 @@ void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::
     }
 }
 // Typed text in a recessed well with its caret at a byte offset: one line
-// left-aligned, or a label's one or two lines centred.
+// left-aligned, or a label's one or two lines centered.
 void draw_typed(cairo_t* cr, const PanelView& view, const Rect& r, const std::string& text,
                 std::size_t cursor, double size, bool centred) {
     const auto& t = *view.theme;

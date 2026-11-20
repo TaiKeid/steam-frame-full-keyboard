@@ -2642,7 +2642,7 @@ int main() {
             throw std::runtime_error("notice colors follow the legend unless the theme sets them");
         }
         // An alert icon stands apart from the legend and reads on the keycap in
-        // every bundled theme: orange, not the legend's grey, at 3:1 or more.
+        // every bundled theme: orange, not the legend's gray, at 3:1 or more.
         const auto luminance = [](Color c) {
             const auto channel = [](double v) {
                 return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4);

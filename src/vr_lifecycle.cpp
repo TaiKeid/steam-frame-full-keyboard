@@ -76,7 +76,7 @@ void VrLifecycle::begin_frame(const Frame& frame) {
     const bool remote = presentation_.remote();
     if (last_request_ != native.request || remote != frame.routed_remote) {
         effects_.stop_drag();
-        // The sink still addresses the old owner until every held/queued input is cancelled.
+        // The sink still addresses the old owner until every held/queued input is canceled.
         effects_.cancel_input();
         effects_.route_input(remote);
         last_request_ = native.request;

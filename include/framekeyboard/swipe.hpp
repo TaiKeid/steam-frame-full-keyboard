@@ -106,7 +106,7 @@ std::unique_ptr<SwipeEncoder> load_swipe_encoder(const fs::path& model);
 
 // Owns the encoder and lexicon on one worker thread, so module loading,
 // lexicon parsing and inference never run on the VR loop. Results carry the
-// request ID; callers ignore IDs they have cancelled.
+// request ID; callers ignore IDs they have canceled.
 class SwipeService {
   public:
     explicit SwipeService(SwipeEncoderFactory factory);

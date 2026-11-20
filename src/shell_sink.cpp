@@ -156,7 +156,7 @@ void ShellRouter::cancel_delivery() {
         inner_.cancel_delivery();
         return;
     }
-    // Nothing cancelled may still go out at the end of the frame.
+    // Nothing canceled may still go out at the end of the frame.
     in_flight_.reset();
     pending_.clear();
     modifiers_.clear();

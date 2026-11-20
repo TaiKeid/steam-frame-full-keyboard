@@ -739,7 +739,7 @@ void favorites_tests() {
     event = picker.up(1, fx, fy, now + .1);
     require(event.type == "s1" && !event.recent && !event.favorites, "a tap on a favorite types it");
 
-    // Cancelling a lift, as hiding or losing the laser does, changes nothing.
+    // Canceling a lift, as hiding or losing the laser does, changes nothing.
     lift(slot_center(0), now += 1);
     picker.cancel_pointer(1);
     view = picker.view();

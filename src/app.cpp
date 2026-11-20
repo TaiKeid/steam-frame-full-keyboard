@@ -3778,7 +3778,7 @@ void App::drop_held_input(bool discard_composition, bool cancel_delivery) {
     if (!discard_composition) {
         // A key still held may never see its release now: the pointer
         // switched, the headset came off or a grab took it. It ends behind
-        // its press where it was last, let go or cancelled as the presses
+        // its press where it was last, let go or canceled as the presses
         // that reached the keys, so it never stays down.
         for (const auto pointer : held_pointers_) {
             auto end = HeldInput::pointer_event(
@@ -6045,7 +6045,7 @@ void App::reopen_phrase() {
     reopen_.reset();
     // Anything queued since, such as a paste or dictated phrases, came after
     // the phrase, so Backspace would delete that instead. A phrase that
-    // failed, is kept for a retry or was cancelled may not be in the field.
+    // failed, is kept for a retry or was canceled may not be in the field.
     const auto count = static_cast<std::size_t>(g_utf8_strlen(phrase.text.c_str(), -1));
     // Phrases Type as I speak still has to type came after it too. Nor can
     // Backspaces be counted for a phrase with a character such as 🐈‍⬛.
@@ -6846,7 +6846,7 @@ void App::finish_swipe(bool wait) {
         return;
     }
     if (result->id != swipe_request_) {
-        return; // A cancelled request; the current one is still outstanding.
+        return; // A canceled request; the current one is still outstanding.
     }
     swipe_waiting_ = false;
     apply_swipe(*result);
@@ -8673,7 +8673,7 @@ void App::dictation_event(const Dictation::Event& event, double now) {
         break;
     case Kind::Text: {
         if (!pending_phrases_.erase(event.id)) {
-            break; // cancelled meanwhile
+            break; // canceled meanwhile
         }
         send_progress(now);
         if (event.device != device_fallback_) {

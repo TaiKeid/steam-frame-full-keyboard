@@ -969,7 +969,7 @@ class ScenePointer {
             input->GetInputSourceHandle("/user/hand/right", &hands_[1].source) == vr::VRInputError_None;
         return ready_;
     }
-    // Forget presses without reporting them; the caller has already cancelled input.
+    // Forget presses without reporting them; the caller has already canceled input.
     void reset() {
         for (auto& hand : hands_) {
             hand.armed = hand.held = false;
@@ -1796,7 +1796,7 @@ class CurveBars {
         return overlays_.set_native_input(enabled, force);
     }
     // Eases toward `target` opacity as a resizer does; `light` runs from the
-    // movement handle's idle grey at 0 to white at 1. A held bar stays opaque.
+    // movement handle's idle gray at 0 to white at 1. A held bar stays opaque.
     // `frame` is the bar's middle on the face (curve_bar_frame).
     void update(std::size_t side, const Transform& frame, double width, double target, double light,
                 double now, bool held = false) {
@@ -1817,7 +1817,7 @@ class CurveBars {
             look.width = width;
         }
         if (light != look.light) {
-            // The movement handle's idle grey, rgb(61, 68, 80), toward white.
+            // The movement handle's idle gray, rgb(61, 68, 80), toward white.
             auto channel = [&](double idle) { return static_cast<float>(idle + (1 - idle) * light); };
             overlay->SetOverlayColor(slot.handle, channel(61 / 255.0), channel(68 / 255.0),
                                      channel(80 / 255.0));
@@ -2636,7 +2636,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     std::uint64_t placement_universe = 0;
     PanelPlacement placement, displayed;
     // A pointer position no key or control reaches: the hover of a laser
-    // resting off the keys ends without cancelling its pointer.
+    // resting off the keys ends without canceling its pointer.
     constexpr std::pair<double, double> off_panel{-1e4, -1e4};
     // The panel's fade in and out (panel_motion.hpp). An exit keeps the overlay
     // shown, without input, until it has faded; fallback and shutdown cut it.

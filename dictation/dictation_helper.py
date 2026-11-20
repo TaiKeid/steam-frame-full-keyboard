@@ -755,7 +755,7 @@ class Download(threading.Thread):
             self.converter = subprocess.Popen([self.quantize, f16, output + ".part", "q4_0"],
                                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                               stderr=subprocess.DEVNULL)
-            if self.cancelled:  # cancelled while it was starting
+            if self.cancelled:  # canceled while it was starting
                 self.converter.kill()
             try:
                 code = self.converter.wait(timeout=QUANTIZE_TIMEOUT)
@@ -937,7 +937,7 @@ class Helper:
                 head.prompt = message["text"][-MAX_PROMPT:]
         elif op == "cancel":
             self.drop_all()
-            # Everything sent before this belongs to the cancelled phrases.
+            # Everything sent before this belongs to the canceled phrases.
             self.send("cancelled")
         elif op == "test":
             self.start_test(message)
@@ -1245,7 +1245,7 @@ class Helper:
             except queue.Empty:
                 return
             if not self.inflight or self.inflight[2] is not connection:
-                continue  # cancelled or timed out before it returned
+                continue  # canceled or timed out before it returned
             job, phrase, _ = self.inflight
             self.inflight = None
             if job == "test":

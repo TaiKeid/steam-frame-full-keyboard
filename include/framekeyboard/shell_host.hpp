@@ -72,7 +72,7 @@ class UpdateHandover {
     bool restarting() const { return restarting_; }
     // The shell has not read what is waiting in time.
     bool drain_expired(double now) const { return draining_ && now > deadline_; }
-    // Handed over, or the update was cancelled.
+    // Handed over, or the update was canceled.
     void end() { asking_ = draining_ = restarting_ = false; }
     // Not ready after all at `quiesced` or while draining, or the session
     // could not be drained: back to prepared, asked again later.

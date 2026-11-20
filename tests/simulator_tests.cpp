@@ -242,7 +242,7 @@ void wait(Simulator& simulator, double seconds = .1) {
         simulator.tick(clock_now);
     }
 }
-// A key's centre in canvas coordinates.
+// A key's center in canvas coordinates.
 std::pair<double, double> key_point(Simulator& simulator, const std::string& id) {
     auto& app = simulator.app();
     const auto view = app.view();
