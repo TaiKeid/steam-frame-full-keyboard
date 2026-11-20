@@ -1871,6 +1871,8 @@ class App {
     std::uint64_t stream_token_{};                // the finder's number for it
     std::optional<AppIdentity> stream_app_;
     void track_stream_session();
+    // The tick while the bar is off: results are drained, nothing is asked for (R398).
+    void idle_shortcut_bar(double now);
     bool stream_app_pending() const { return stream_session_ && !stream_app_; }
     // The bar's focus is a stream's app (R364). After its session ends, as
     // when the panel hides and the route goes local, Gamescope reports no

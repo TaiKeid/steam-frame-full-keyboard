@@ -543,8 +543,12 @@ void App::track_stream_session() {
             // saved under its ID's own name takes one kept before.
             const auto* tie = shortcuts_.tie(*stream_app_);
             const bool unnamed = !tie || tie->name == fallback_app_name(tie->app);
+            // Once per run of the keyboard, as from the menu (R376): a game
+            // whose name is never found isn't looked up at every request.
             if (const auto kept = recorded_app_name(name_record_, *stream_app_); kept.empty()) {
-                if (recorded_kind(*stream_app_) && unnamed) {
+                if (recorded_kind(*stream_app_) && unnamed &&
+                    looked_up_names_.insert({static_cast<int>(stream_app_->kind), stream_app_->id})
+                        .second) {
                     app_names_.request(*stream_app_);
                 }
             } else if (tie && unnamed && !shortcut_editor_) {
@@ -558,7 +562,34 @@ void App::track_stream_session() {
         }
     }
 }
+void App::idle_shortcut_bar(double now) {
+    bar_tick_ = now;
+    stop_shortcut_run();
+    shortcut_runner_.release();
+    bar_menu_ = false;
+    bar_press_.reset();
+    // Answers asked for before the bar went off are dropped: nothing is
+    // renamed or kept for it.
+    while (stream_apps_.take()) {
+    }
+    while (app_names_.take()) {
+    }
+    // Forgotten, so the bar turned on asks for the stream's app once. Its
+    // focus stays the one last taken: turned on, it is compared with the
+    // focus then, as at any tick.
+    stream_session_.reset();
+    stream_app_.reset();
+    stream_focus_held_ = false;
+    take_shortcuts_result();
+    take_started();
+}
 void App::tick_shortcut_bar(double now) {
+    // The bar off, hosted mode included: no stream's app is asked for, no
+    // name looked up or kept, and the focus isn't read (R398).
+    if (!shortcuts_enabled()) {
+        idle_shortcut_bar(now);
+        return;
+    }
     const double elapsed = bar_tick_ < 0 ? 0 : now - bar_tick_;
     bar_tick_ = now;
     track_stream_session();

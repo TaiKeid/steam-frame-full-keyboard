@@ -5645,6 +5645,88 @@ void shortcut_name_record() {
         require(renamed, "a tie under its ID's own name takes a name found later");
     }
 }
+// R398: with the bar off, a stream request asks for no app, looks up no
+// name and keeps none. Turned on during a stream, the bar asks for its app
+// once; a game whose name is never found is looked up once in the run.
+void shortcut_stream_bar_off() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = false;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto record = directory.path / "cache" / "app-names.json";
+    std::atomic<int> finds{}, lookups{}, unnamed_lookups{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = record;
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        ++lookups;
+        if (app.id == "4000040") {
+            ++unnamed_lookups;
+            return ""; // never found
+        }
+        return "Example Game";
+    };
+    std::mutex mutex;
+    std::string app_id = "4000020";
+    options.stream_clients = [&]() -> std::optional<std::vector<std::vector<std::string>>> {
+        ++finds;
+        std::lock_guard lock(mutex);
+        return std::vector<std::vector<std::string>>{{"/usr/bin/streaming_client", "--appid", app_id}};
+    };
+    struct StreamSink : CaptureSink {
+        bool stream{};
+        bool steam_field_target() const override { return stream; }
+        bool stream_session_target() const override { return stream; }
+    } sink;
+    double now = 1550;
+    const auto settle = [&](App& app) {
+        for (int i = 0; i < 100; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+    };
+    App app(options, sink);
+    app.tick(now);
+    std::uint64_t request = 0;
+    const auto stream = [&](const std::string& id) {
+        {
+            std::lock_guard lock(mutex);
+            app_id = id;
+        }
+        sink.stream = false;
+        app.set_native_request(0);
+        app.tick(now += .01);
+        sink.stream = true;
+        app.set_native_request(++request);
+        settle(app);
+    };
+    stream("4000020");
+    stream("4000030");
+    app.flush_settings();
+    require(finds == 0 && lookups == 0 && !std::filesystem::exists(record),
+            "the bar off: no stream app asked for, no name looked up, nothing kept");
+    // Turned on while the stream goes on: its app is asked for once.
+    app.show_settings();
+    click(app, "shortcuts");
+    click(app, "apply");
+    settle(app);
+    require(finds == 1, "turned on during a stream: its app is asked for once");
+    require(app.view().shortcut_bar.has_value(), "the bar shows");
+    // A game whose name is never found: one lookup across its requests.
+    stream("4000040");
+    stream("4000040");
+    stream("4000040");
+    require(finds == 4 && unnamed_lookups == 1,
+            "a game with no name is looked up once in the run, not at every request");
+}
 // R313: recording no longer offers F13–F24, but a file's still load, show
 // their chips and send.
 void shortcut_fkeys_from_file() {
@@ -7194,6 +7276,7 @@ int main() {
         shortcut_name_record();
         shortcut_fkeys_from_file();
         shortcut_stream_focus_held();
+        shortcut_stream_bar_off();
         shortcut_remote_play_tie();
         shortcut_window_class_name();
         shortcut_kept_name_refresh();
