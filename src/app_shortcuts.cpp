@@ -567,7 +567,9 @@ void App::idle_shortcut_bar(double now) {
     // renamed or kept for it.
     while (stream_apps_.take()) {
     }
-    while (app_names_.take()) {
+    while (auto answer = app_names_.take()) {
+        // Dropped, so asked again once the bar is on (R413).
+        looked_up_names_.erase({static_cast<int>(answer->app.kind), answer->app.id});
     }
     // Forgotten, so the bar turned on asks for the stream's app once. Its
     // focus stays the one last taken: turned on, it is compared with the

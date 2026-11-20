@@ -5969,6 +5969,75 @@ void shortcut_window_class_name() {
                 "a name kept before shows, and is looked up once in this run (R376)");
     }
 }
+// R413: a lookup whose answer lands while the bar is off is dropped, and
+// asked again once the bar is on.
+void shortcut_lookup_dropped_while_off() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity notes{AppIdentity::Kind::Desktop, "org.example.Notes"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    std::atomic<int> lookups{};
+    std::atomic<bool> released{false};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = directory.path / "cache" / "app-names.json";
+    options.app_names = [&](const AppIdentity&) -> std::string {
+        ++lookups;
+        while (!released) {
+            usleep(1000);
+        }
+        return "Example Notes";
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, notes, "notes"};
+    double now = 1870;
+    App app(options, sink);
+    const auto settle = [&] {
+        for (int i = 0; i < 100; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+    };
+    const auto toggle_bar = [&] {
+        app.show_settings();
+        click(app, "shortcuts");
+        click(app, "apply");
+    };
+    app.tick(now += .01);
+    tap_rect(app, app.view().shortcut_bar->picker); // the menu asks for the name
+    for (int i = 0; i < 1000 && lookups == 0; ++i) {
+        usleep(1000);
+    }
+    require(lookups == 1, "the menu looks the app up");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    toggle_bar();
+    require(!saved(app).shortcuts, "the bar turned off");
+    released = true;
+    settle(); // the answer lands with the bar off and is dropped
+    toggle_bar();
+    released = false;
+    app.tick(now += .01);
+    tap_rect(app, app.view().shortcut_bar->picker);
+    for (int i = 0; i < 1000 && lookups < 2; ++i) {
+        usleep(1000);
+    }
+    released = true;
+    require(lookups == 2, "turned on again, the menu asks once more");
+    settle();
+}
 // R406: a tie under its identity's own name whose kept name is that same
 // name is no rename: opening the menu over it again and again saves nothing.
 void shortcut_same_kept_name() {
@@ -7784,6 +7853,7 @@ int main() {
         shortcut_stream_focus_held();
         shortcut_stream_bar_off();
         shortcut_same_kept_name();
+        shortcut_lookup_dropped_while_off();
         shortcut_remote_play_tie();
         shortcut_window_class_name();
         shortcut_kept_name_refresh();
