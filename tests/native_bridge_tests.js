@@ -89,7 +89,7 @@ class NavTree {
     TakeFocus() { if (this.doc) this.doc.activeElement = this.doc.body; return true; }
 }
 function fixture(open = false, production = false, external = false, sharedApi = false, withDom = false,
-    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false) {
+    discoveryProbe = false, adoptOpenMs = 0, lateWindow = null, statusOnly = false, registryWithoutStore = false) {
     let time = 0, tick, observer, progress = 0, deferHide = false, deferClose = false, inspectionCalls = 0;
     const pendingCloses = [];
     const timeouts = new Map();
@@ -188,11 +188,11 @@ function fixture(open = false, production = false, external = false, sharedApi =
         vrGamepadInput: {FocusItemUnderMouse(tree) {
             if (dom && tree?.Root?.Element?.contains(dom.doc.body)) dom.doc.activeElement = dom.doc.body;
         }, TakeFocusIfNothingIsFocused() {}, m_NullNavTree: new NavTree(() => false)}};
-    if (production && !statusOnly) {
+    if (production && !statusOnly || registryWithoutStore) {
         const require = key => key === "store" ? {store} : key === "decoy" ?
             {store: {VRKeyboardStatus: {}}} : {controllerText};
         require.m = {...(discoveryProbe ? {decoy: function() { return "get VRKeyboardStatus()"; }} : {}),
-            store: function() { return "get VRKeyboardStatus()"; },
+            ...(registryWithoutStore ? {} : {store: function() { return "get VRKeyboardStatus()"; }}),
             keyboard: function() { return "SetVirtualKeyboardShownInternal ControllerKeyboardSendText"; }};
         if (discoveryProbe) require.m.unused = {toString() {
             throw Error("discovery must stop once a valid keyboard store is found");
@@ -232,7 +232,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
         reactions.push({manager: owner, key, previous: open && status.sOverlayKey === key});
     }
     const oldFocus = root.vrGamepadInput.FocusItemUnderMouse;
-    const bridge = factory(root, production || statusOnly ? undefined : store, external, adoptOpenMs);
+    const bridge = factory(root, production || statusOnly || registryWithoutStore ? undefined : store, external,
+        adoptOpenMs);
     function checkOwnership() {
         const s = bridge.diagnostics();
         assert.equal(wrongTarget.length, 0, "replacement input never reaches the global background-app sink");
@@ -338,6 +339,48 @@ function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
     const s = f.step();
     assert(f.nativeOpen() && !s.eligible && !f.bridge.diagnostics().session,
         "an already-open keyboard is left to Steam");
+    f.bridge.dispose();
+}
+
+// Both Steam interface builds are supported, picked at run time on every
+// install. Only the store shows a change Steam makes without a notification,
+// which tells the two sources apart here.
+function seesUnnotifiedOpen(f) {
+    f.newTarget(); f.step();
+    f.status({bIsOpen: true}, false);
+    return f.step().eligible;
+}
+// Old interface: the module registry reaches Steam's keyboard store, which
+// stays the source, as before the notification path existed.
+{
+    const f = fixture(false, true);
+    assert(f.root.webpackChunksteamui, "the old interface has the module registry");
+    assert(seesUnnotifiedOpen(f), "old interface: the store is read directly");
+    f.bridge.dispose();
+    const g = fixture(false, true);
+    const request = owned(g);
+    assert(g.bridge.send(request, "a") && g.step(request).active, "old interface: a session types");
+    g.bridge.dispose();
+}
+// New interface: no module registry, so the status comes from Steam's
+// notification alone.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    assert.equal(f.root.webpackChunksteamui, undefined, "the new interface has no module registry");
+    assert(!seesUnnotifiedOpen(f), "new interface: only a notification shows a change");
+    f.notify(true, 13, false, MAIN);
+    assert(f.step().eligible, "new interface: the notification opens a session");
+    f.bridge.dispose();
+}
+// A registry in which no module holds the store: an interface between the two.
+// The notification is Steam's own and feature-checked, so the bridge takes it,
+// as on the new interface, rather than refusing replacement.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, false, true);
+    assert(f.root.webpackChunksteamui && f.alive(), "a registry without the store still installs");
+    assert(!seesUnnotifiedOpen(f), "registry without the store: the notification is the source");
+    f.notify(true, 13, false, MAIN);
+    assert(f.step().eligible, "registry without the store: the notification opens a session");
     f.bridge.dispose();
 }
 
