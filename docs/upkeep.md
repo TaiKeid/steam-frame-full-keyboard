@@ -56,7 +56,7 @@ These are linked or used as the Frame provides them, never bundled:
 - Vulkan, SDL2 and SteamVR's `libopenvr_api.so`;
 - FUSE 3 (the installer's AppImage);
 - bubblewrap (`bwrap`), Mozc's sandbox where it is installed;
-- Python 3, 3.12 on the Frame (the dictation and update helpers);
+- Python 3 (the dictation and update helpers), 3.14 on SteamOS 0.5.10;
 - PipeWire and WirePlumber (`pw-record`, `pw-dump`, `pw-link`, and `libpipewire-0.3.so.0` for Haptic sounds);
 - the system fonts.
 
@@ -96,6 +96,17 @@ After any update above, run these in order and stop at the first failure:
    - dictation in editor mode and Type as I speak, on device and self-hosted, with and without a game.
 
 ## Last check
+
+2026-11-20, for 0.20.0:
+- **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, and every Chinese engine pin but extra-cmake-modules: zstd 1.5.7, fcitx5 5.1.23, libime 1.1.17, McBopomofo 3.1.1, OpenCC 1.4.2, the rime-cantonese ranks and Boost 1.92.0.
+- **ExecuTorch v1.6.0:** as for 0.19.0; the pin stays on v1.5.1.
+- **frame-perf-overlay:** upstream's head is still the one compared for 0.19.0; nothing to take.
+- **Mozc dictionary and kaomoji data:** upstream moved on, but none of the files the lists are built from changed (`dictionary0*.txt`, `suggestion_filter.txt`, the emoticon files); the pin stays.
+- **extra-cmake-modules v6.32.0:** used only while configuring the Chinese engines; the pin stays.
+- **Unicode emoji 18.0:** SteamOS still has Noto Color Emoji 2.051 (Unicode 17); the list stays at 17.0.
+- **SteamOS libraries:** checked on SteamOS 0.5.10 (beta): every library and file listed above is there. Its Python is 3.14, and none of our helpers imports a module that later Python versions removed. Releases still build against stable's libraries.
+- **Private behavior after that update:** exercised with development builds of this release: native replacement by the keyboard button, in Steam fields and for a stream's requests, on the older Steam interface and on the notification path through the developer switch; placement beside the dashboard; passthrough typing with a laser drag, resize and bend; typing into a stream from a Windows PC through Steam's streaming client, held keys and macros included; a streamed game shown by its name. Steam's app cache still has the version the reader expects (`0x07564429`), and Steam's SDL still asks for `FnTable:IVROverlay_026`.
+- **Not repeated since that update:** dictation with and without a game (the microphone filters), a local game's keyboard button, the Desktop's Konsole and Dolphin check, and the newer Steam interface where Steam has it.
 
 2026-11-15, for 0.19.1: the same as for 0.19.0 below. SteamOS (0.5.9, beta) and Steam (client of 2026-11-13) had not changed since, so the private-behavior checks were not due.
 
