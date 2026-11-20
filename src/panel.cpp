@@ -3443,10 +3443,12 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
         cairo_set_line_width(cr, 1);
         cairo_stroke(cr);
     }
-    // The light catch: a hairline just inside the bottom edge.
+    // The light catch: a hairline just inside the bottom edge, its width its
+    // own: one left by what was drawn before made it differ (R417).
     cairo_move_to(cr, r.x + radius, r.y + r.height - 1.5);
     cairo_line_to(cr, r.x + r.width - radius, r.y + r.height - 1.5);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .06);
+    cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
     return well;
 }
@@ -4265,6 +4267,8 @@ void editor_button(cairo_t* cr, const PanelView& view, const Control& c, double 
 // A macro step's kind, small, before its content: a keyboard for Keys, a
 // clock for Wait.
 void step_icon(cairo_t* cr, bool wait, double cx, double cy, Color color) {
+    // Its line width stays inside it (R417).
+    cairo_save(cr);
     cairo_new_path(cr);
     source(cr, color);
     cairo_set_line_width(cr, 1.6);
@@ -4274,6 +4278,7 @@ void step_icon(cairo_t* cr, bool wait, double cx, double cy, Color color) {
         cairo_line_to(cr, cx, cy);
         cairo_line_to(cr, cx + 4, cy + 3);
         cairo_stroke(cr);
+        cairo_restore(cr);
         return;
     }
     rounded(cr, {cx - 11, cy - 7, 22, 14}, 3);
@@ -4283,6 +4288,7 @@ void step_icon(cairo_t* cr, bool wait, double cx, double cy, Color color) {
     }
     cairo_rectangle(cr, cx - 5, cy + 1.5, 10, 2);
     cairo_fill(cr);
+    cairo_restore(cr);
 }
 // A row's handle: two columns of three dots, where a drag takes it.
 void grip_dots(cairo_t* cr, double cx, double cy, Color color) {
@@ -4603,11 +4609,13 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
     interface_label(cr, e.profiles_caption, {e.column.x + 12, e.column.y, e.column.width, 30}, 17,
                     view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
     // The line between the column and the rest.
+    cairo_save(cr);
     cairo_move_to(cr, std::round(e.divider) + .5, e.column.y);
     cairo_line_to(cr, std::round(e.divider) + .5, e.column.y + e.column.height);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
+    cairo_restore(cr);
     clipped(e.profiles_list, [&] {
         // The row a carried button would go to, lit as under the laser, a
         // little stronger.
@@ -4706,9 +4714,11 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
             cairo_line_to(cr, plus.x + 18, plus.y + plus.height / 2 + 9);
             cairo_move_to(cr, plus.x + 9, plus.y + plus.height / 2);
             cairo_line_to(cr, plus.x + 27, plus.y + plus.height / 2);
+            cairo_save(cr);
             source(cr, ink);
             cairo_set_line_width(cr, 2);
             cairo_stroke(cr);
+            cairo_restore(cr);
             interface_label(cr, c.label,
                             {c.bounds.x + 48, c.bounds.y, c.bounds.width - 56, c.bounds.height}, 21,
                             view.interface_font, ink, false, PANGO_ALIGN_LEFT);
@@ -4759,6 +4769,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                 const Color ink = !c.enabled   ? quiet
                                   : hovered(c) ? t.legend
                                                : mix(t.legend, t.surface, .35);
+                cairo_save(cr);
                 rounded(cr, {c.bounds.x + 1, c.bounds.y + 1, c.bounds.width - 2, c.bounds.height - 2},
                         t.radius);
                 const double dash[] = {5, 4};
@@ -4776,6 +4787,7 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                 cairo_line_to(cr, c.bounds.x + c.bounds.width / 2 + 10,
                               c.bounds.y + c.bounds.height / 2);
                 cairo_stroke(cr);
+                cairo_restore(cr);
             }
         });
         if (e.more_before) {
@@ -4811,11 +4823,14 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                             view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
             draw_well(cr, t, c.bounds);
             if (hovered(c)) {
+                // Its line width must not reach the wells drawn after it (R417).
+                cairo_save(cr);
                 rounded(cr, {c.bounds.x + .5, c.bounds.y + .5, c.bounds.width - 1, c.bounds.height - 1},
                         t.radius + 2);
                 cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .18);
                 cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
+                cairo_restore(cr);
             }
             // A line break shows as ↵.
             std::string shown = c.label;
@@ -4926,11 +4941,13 @@ void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
     rounded(cr, r, radius);
     source(cr, mix(t.bottom, t.surface, .25));
     cairo_fill(cr);
+    cairo_save(cr);
     cairo_move_to(cr, r.x + radius, r.y + 1.5);
     cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
     cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
+    cairo_restore(cr);
     const Color quiet = disabled_legend(t);
     const auto& h = menu.header;
     interface_label(cr, menu.title, {h.x + 8, h.y, menu.manage.x - h.x - 16, h.height}, 17,
