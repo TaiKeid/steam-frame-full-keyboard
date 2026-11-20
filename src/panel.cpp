@@ -2557,6 +2557,12 @@ std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, c
         !now.shortcut_bar->menu || before.settings || now.settings) {
         return {};
     }
+    // On a theme with key edges, a key the menu covers drew one pixel row past
+    // a row pass's clip, which no full paint has: the menu repaints whole
+    // there, as before R404 (R418).
+    if (now.theme && now.theme->edge) {
+        return {};
+    }
     const auto& a = *before.shortcut_bar->menu;
     const auto& b = *now.shortcut_bar->menu;
     // Everything but its rows' states and places, the thumb and Manage's
