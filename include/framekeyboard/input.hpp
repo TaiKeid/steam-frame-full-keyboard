@@ -81,6 +81,11 @@ class KeySink {
     // reach it, though the clipboard still cannot (steam_field_target stays
     // true for it). False for one of Steam's own fields.
     virtual bool stream_session_target() const { return false; }
+    // When the keys sent so far are estimated through to the target, in the
+    // frame loop's seconds: a stream session's, whose keys reach the PC only a
+    // while after they are handed on (R369). 0 where keys are through once
+    // delivered.
+    virtual double keys_through() const { return 0; }
     // Gamescope's focused window, which typed text reaches; 0 when unknown or
     // when text goes elsewhere, such as a Steam field or the shell. Never blocks.
     virtual std::uint32_t focused_window() const { return 0; }

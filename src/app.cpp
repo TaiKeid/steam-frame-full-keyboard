@@ -2086,7 +2086,7 @@ bool App::down(unsigned pointer, double x, double y, double now) {
 // A key pressed on the keyboard.
 bool App::press_key(unsigned pointer, const Key* key, double x, double y, double now, const PanelView& v,
                     bool gap) {
-    stop_shortcut_run(); // Any key stops a button's run.
+    stop_shortcut_run("a key was pressed"); // Any key stops a button's run.
     if (undo_held(pointer)) {
         finish_flick(); // In press order, as for any held flick below.
     }
@@ -2580,8 +2580,8 @@ void App::cancel_pointer(unsigned pointer, bool clicked) {
     hovered_.erase(pointer);
     dirty = true;
 }
-void App::cancel(bool discard_composition) {
-    end_input(discard_composition, true);
+void App::cancel(bool discard_composition, const char* run_end) {
+    end_input(discard_composition, true, run_end);
 }
 void App::release_input(bool discard_composition) {
     end_input(discard_composition, false);
@@ -2600,7 +2600,7 @@ void App::finish_held_taps(std::optional<unsigned> keep, bool undo) {
         type_swipe_tap(track);
     }
 }
-void App::end_input(bool discard_composition, bool cancel_delivery) {
+void App::end_input(bool discard_composition, bool cancel_delivery, const char* run_end) {
     if (!cancel_delivery) {
         // The target stays, so a held tap or flick types as if let go, in
         // order. ↶ is dropped: its Backspaces could outlive the reading.
@@ -2667,7 +2667,7 @@ void App::end_input(bool discard_composition, bool cancel_delivery) {
     shortcut_drag_.reset();
     chips_drag_.reset();
     if (cancel_delivery) {
-        stop_shortcut_run(); // Hiding, sleep, a target that went: sends nothing more.
+        stop_shortcut_run(run_end); // Hiding, sleep, a target that went: sends nothing more.
     }
     dirty = true;
 }
@@ -2687,7 +2687,7 @@ void App::suspend_input(bool asleep) {
     }
     // Release actual backend holds and queued actions. The editor and settings
     // drafts remain available; the VR gate retains its existing preedit policy.
-    cancel(false);
+    cancel(false, asleep ? "asleep" : "taken off");
     after_digit_ = false; // Taken off or asleep, the field may change (R158).
 }
 bool App::tick(double now) {
@@ -2965,8 +2965,8 @@ void App::tick_passing_status() {
     }
 }
 void App::show_settings() {
-    stop_shortcut_run(); // The bar hides in Settings.
-    close_emoji();       // Settings returns to the keyboard, not the picker.
+    stop_shortcut_run("Settings opened"); // The bar hides in Settings.
+    close_emoji();                        // Settings returns to the keyboard, not the picker.
     // An unfinished reading is in no field yet and the target keeps its
     // focus: it waits, out of sight, for the user to come back and go on.
     release_input(false);
@@ -4072,7 +4072,7 @@ void App::refresh_typing() {
         // Transport loss ends key ownership, but unsent composition stays for
         // an explicit retry once text delivery is available again.
         const auto stop = [&] {
-            cancel(false);
+            cancel(false, "no typing target");
             output_.set_enabled(false);
             after_digit_ = false; // The target went: no digit before (R158).
         };
@@ -4777,8 +4777,8 @@ void App::place_candidates(std::vector<std::string> texts, int selected) {
     dirty |= candidates_.view() != before;
 }
 void App::pick_candidate(int index) {
-    stop_shortcut_run();  // A commit stops a button's run, as a key does (R324).
-    after_digit_ = false; // A candidate's text follows the digit (R137).
+    stop_shortcut_run("a candidate was picked"); // A commit stops a button's run, as a key does (R324).
+    after_digit_ = false;                        // A candidate's text follows the digit (R137).
     try {
         if (cjk_) {
             choose_cjk(index);
@@ -5290,7 +5290,7 @@ void App::apply_settings() {
 void App::action(const ControlAction& command) {
     // Any button acted on stops a shortcut button's run, as a key does
     // (design, Macro; R324).
-    stop_shortcut_run();
+    stop_shortcut_run("a button was pressed");
     if (japanese_holding() && !replaying_input_) {
         // A button pressed while Japanese input waits goes in its turn:
         // the language button or Settings after a 変換 and Enter still
@@ -7485,7 +7485,7 @@ void App::apply_emoji_event(const EmojiPicker::Event& event) {
     }
 }
 bool App::type_emoji(const std::string& text) {
-    stop_shortcut_run(); // An emoji stops a button's run, as a key does (R324).
+    stop_shortcut_run("an emoji was typed"); // An emoji stops a button's run, as a key does (R324).
     if (preview_input()) {
         return true; // The preview cannot type; it still remembers the emoji.
     }
@@ -7539,7 +7539,7 @@ void App::open_dictation() {
     if (!commit_composition()) {
         return;
     }
-    stop_shortcut_run(); // The bar hides in dictation mode.
+    stop_shortcut_run("dictation mode opened"); // The bar hides in dictation mode.
     close_emoji();
     // A Type as I speak session still recognizing, from before the switch was
     // turned off, ends here: speech in the editor waits for Send, so none of

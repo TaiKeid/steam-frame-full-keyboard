@@ -2612,7 +2612,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         App& app;
         ~ReleaseBeforeVrShutdown() {
             try {
-                app.cancel();
+                app.cancel(true, "Full Keyboard is closing");
             } catch (...) {
             }
         }
@@ -2730,7 +2730,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         app.background_start(),
         {
             .stop_drag = [&] { stop_drag(); },
-            .cancel_input = [&] { app.cancel(); },
+            .cancel_input = [&] { app.cancel(true, "the request, its route or the focus changed"); },
             .clear_pointers =
                 [&] {
                     set_native_input(false);
@@ -3606,7 +3606,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     shell_hide("lease");
                     end_forwarded();
                     app.set_context(std::nullopt);
-                    app.cancel();
+                    app.cancel(true, "the shell's lease expired");
                 }
             }
             if (app.quitting()) {
@@ -3826,6 +3826,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // text already accepted for the same target.
             stop_drag();
             app.release_input(false);
+            if (!scene) {
+                app.dashboard_opened();
+            }
             clear_sound_pointers(now);
             hovered_devices.fill(false);
             on_own_controls.fill(0);
@@ -5341,7 +5344,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     } else {
         replacement.update(false, false, 0, false, monotonic_seconds());
     }
-    app.cancel();
+    app.cancel(true, "Full Keyboard is closing");
     if (displayed.ready()) {
         placement_writer.save(placement_to_save());
     }

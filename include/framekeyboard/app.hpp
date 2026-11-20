@@ -212,7 +212,13 @@ class App {
                (address_repeat_ && address_repeat_->pointer == pointer) ||
                (reading_repeat_ && reading_repeat_->pointer == pointer);
     }
-    void cancel(bool discard_composition = true);
+    // `run_end`: why a shortcut bar run ends with it, for the journal (R421).
+    void cancel(bool discard_composition = true, const char* run_end = "input canceled");
+    // SteamVR's laser left the scene for the dashboard. Over a stream the
+    // dashboard takes the user's keys though the session goes on a while, so
+    // a shortcut bar run into the stream ends (R421); anywhere else the
+    // dashboard's focus, once known, ends it.
+    void dashboard_opened();
     // As cancel(), for a change of pointer, view or placement that keeps the
     // target: presses end, but text and keys already accepted still arrive,
     // and a held tap or flick types as if let go.
@@ -1554,7 +1560,8 @@ class App {
     bool dictation_available() const;
     bool editor_editable() const;
     std::string test_address() const;
-    void end_input(bool discard_composition, bool cancel_delivery);
+    // `run_end`: with cancel_delivery, why a shortcut bar run ends (stop_shortcut_run).
+    void end_input(bool discard_composition, bool cancel_delivery, const char* run_end = "");
     // Types what a pointer other than `keep` holds that types on release: a
     // kana flick, a key flick, or a tap that never became a swipe. A swipe
     // stays; so does a held ↶ unless `undo`, as its Backspaces need the reading.
@@ -1973,7 +1980,9 @@ class App {
     std::optional<ScrollRoom> bar_scroll_room(double x, double y) const;
     void tick_shortcut_bar(double now);
     void press_shortcut_button(std::size_t index, double now);
-    void stop_shortcut_run();
+    // Ends a run under way, saying why in the journal (R421): a fixed reason, never a label, key,
+    // app or profile.
+    void stop_shortcut_run(const char* reason);
     // Run buttons (design, Run): a press starts one program off the VR
     // thread; more presses on that button wait until its start is
     // reported, taken on a tick. A failed start shows a status naming the

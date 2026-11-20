@@ -72,7 +72,7 @@ A running button stays lit. A run planned to take longer than half a second also
 A run stops, sending nothing more, when:
 
 - you press its button again, or anything else on the keyboard or the bar: a key, another button, the menu's tab, a row or an assign button;
-- another window comes to the front, a dialog of the same app included, or where the keyboard types goes away; in a stream from your PC, when that stream ends or another begins;
+- another window comes to the front, a dialog of the same app included, or where the keyboard types goes away; in a stream from your PC, when that stream ends or another begins, or the dashboard opens over it;
 - the keyboard hides, Settings or dictation mode opens, or the headset sleeps;
 - a step can't be delivered.
 

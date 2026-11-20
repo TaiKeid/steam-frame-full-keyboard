@@ -82,7 +82,7 @@ void App::load_shortcuts(bool reloading) {
     }
     shortcuts_ = std::move(loaded.model);
     // A file loaded anew may lack the profile a run or a press was on.
-    stop_shortcut_run();
+    stop_shortcut_run("shortcuts reloaded");
     bar_press_.reset();
     bar_menu_ = false;
 }
@@ -329,7 +329,7 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
                 rehold = true;
             } else {
                 stopped = own;
-                stop_shortcut_run();
+                stop_shortcut_run(own ? "its button was pressed again" : "another button was pressed");
             }
         }
         // A While held macro starts on press and runs while this press holds;
@@ -351,7 +351,7 @@ bool App::bar_down(unsigned pointer, const std::string& target, double x, double
     }
     // The picker, a menu row, an assign button or Manage: any press
     // on the bar that acts stops a run, as a key does (R340).
-    stop_shortcut_run();
+    stop_shortcut_run("the bar was pressed");
     bar_press_ = BarPress{pointer, target, x, 0, now, false, false, {}, false};
     dirty = true;
     return false;
@@ -528,7 +528,7 @@ void App::track_stream_session() {
         // app goes with it, and a run stops, as for another app (R359).
         stream_session_ = session;
         stream_app_.reset();
-        stop_shortcut_run();
+        stop_shortcut_run("the stream session changed");
         if (session) {
             stream_apps_.request(++stream_token_);
         }
@@ -559,7 +559,7 @@ void App::track_stream_session() {
 }
 void App::idle_shortcut_bar(double now) {
     bar_tick_ = now;
-    stop_shortcut_run();
+    stop_shortcut_run("the shortcut bar is off");
     shortcut_runner_.release();
     bar_menu_ = false;
     bar_press_.reset();
@@ -597,6 +597,16 @@ void App::tick_shortcut_bar(double now) {
         shortcut_runner_.release();
     }
     if (shortcut_runner_.tick(now)) {
+        // Ended by itself (R421): how, never what it sent.
+        const auto end = shortcut_runner_.end();
+        std::cout << "Shortcut bar run "
+                  << (end == ShortcutRunner::End::Finished ? "finished"
+                      : end == ShortcutRunner::End::Failed
+                          ? "failed: a combination could not be sent"
+                          : "canceled: the output dropped it or the keys "
+                            "went to another target")
+                  << ".\n"
+                  << std::flush;
         dirty = true; // Its button goes dark.
     }
     // A long run's progress, in whole pixels of its button's border: a redraw only when the stroke's
@@ -643,7 +653,7 @@ void App::tick_shortcut_bar(double now) {
     } else if (focus.window != bar_focus_.window || focus.app != bar_focus_.app) {
         bar_focus_ = std::move(focus);
         bar_focus_serial_ = output_.focus_serial();
-        stop_shortcut_run();
+        stop_shortcut_run("another app has the keys");
         adopt_long_program_tie();
         adopt_remote_play_tie();
         profile_choice_.focus(shortcuts_, bar_focus_.app);
@@ -661,7 +671,7 @@ void App::tick_shortcut_bar(double now) {
     if (const auto serial = output_.focus_serial();
         dashboard_focus_known_ && serial != bar_focus_serial_) {
         bar_focus_serial_ = serial;
-        stop_shortcut_run();
+        stop_shortcut_run("another window has the keys");
         dirty = true;
     }
     if (!bar_shown()) {
@@ -1035,6 +1045,22 @@ void App::press_shortcut_button(std::size_t index, double now) {
     lose_word();
     if (shortcut_runner_.start(action, now)) {
         shortcut_run_ = ShortcutRun{profile_id, index};
+        // What kind of run, into what kind of target (R421): no label, key, app or profile.
+        std::cout << "Shortcut bar run started: ";
+        if (action.kind == ShortcutAction::Kind::Keys) {
+            std::cout << "shortcut";
+        } else if (action.repeat.mode == MacroRepeat::Mode::Times) {
+            std::cout << "macro, " << action.repeat.count << " times";
+        } else {
+            std::cout << (action.repeat.mode == MacroRepeat::Mode::WhileHeld ? "macro, while held"
+                                                                             : "macro, once");
+        }
+        std::cout << ", into "
+                  << (output_.stream_session_target() ? "a stream session"
+                      : output_.steam_field_target()  ? "a Steam field"
+                                                      : "a local window")
+                  << ".\n"
+                  << std::flush;
     } else {
         // Refused as a key would be: its status, or a queue too full for
         // the whole sequence. Without typing the status already says why.
@@ -1098,8 +1124,16 @@ void App::take_started() {
         pending_starts_.erase(start);
     }
 }
-void App::stop_shortcut_run() {
+void App::dashboard_opened() {
+    if (output_.stream_session_target()) {
+        stop_shortcut_run("the dashboard opened over the stream");
+    }
+}
+void App::stop_shortcut_run(const char* reason) {
     if (shortcut_runner_.running() || shortcut_run_) {
+        if (shortcut_runner_.running()) {
+            std::cout << "Shortcut bar run stopped: " << reason << ".\n" << std::flush;
+        }
         shortcut_runner_.stop();
         shortcut_run_.reset();
         dirty = true;

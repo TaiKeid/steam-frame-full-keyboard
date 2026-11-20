@@ -34,6 +34,9 @@ class ShortcutOutput {
     // Beside the window: changes on each activation inside SteamOS's Desktop
     // (KeySink::focus_serial).
     virtual std::uint64_t focus_serial() const = 0;
+    // When the keys delivered are through to the target (KeySink::keys_through): later than their
+    // delivery only for a stream session. 0 when through once delivered.
+    virtual double keys_through() const { return 0; }
     virtual std::uint64_t completed() const = 0;
     virtual std::size_t pending_entries() const = 0;
     virtual std::uint64_t failures() const = 0;
@@ -53,6 +56,7 @@ class QueuedShortcutOutput final : public ShortcutOutput {
     int shortcut_code(xkb_keysym_t symbol, int fallback) override;
     std::uint32_t focused_window() const override;
     std::uint64_t focus_serial() const override;
+    double keys_through() const override;
     std::uint64_t completed() const override;
     std::size_t pending_entries() const override;
     std::uint64_t failures() const override;

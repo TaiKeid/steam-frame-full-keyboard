@@ -50,6 +50,7 @@ class NativeReplacement : public KeySink {
     // The routed request is a stream session, whose keys go out as presses
     // and releases (send's stream_key), not one of Steam's fields.
     bool stream_session_target() const override { return remote_ && state_.active && state_.stream; }
+    double keys_through() const override { return stream_session_target() ? stream_keys_through_ : 0; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
     // On Steam's route each request is a target of its own: another stream,

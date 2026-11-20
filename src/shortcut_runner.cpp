@@ -28,6 +28,9 @@ std::uint32_t QueuedShortcutOutput::focused_window() const {
 std::uint64_t QueuedShortcutOutput::focus_serial() const {
     return output_.focus_serial();
 }
+double QueuedShortcutOutput::keys_through() const {
+    return output_.keys_through();
+}
 std::uint64_t QueuedShortcutOutput::completed() const {
     return output_.completed();
 }
@@ -190,8 +193,11 @@ bool ShortcutRunner::advance(double now) {
                 return false;
             }
             in_flight_ = false;
-            done_at_ = now;
-            ready_at_ = now + key_gap_;
+            // A stream session takes a combination at once but passes it to the PC only a while
+            // later (R369): it counts as done once estimated through, so the next one, or a wait,
+            // follows from then and a stop leaves at most this one on the way (R421).
+            done_at_ = std::max(now, output_.keys_through());
+            ready_at_ = done_at_ + key_gap_;
         }
         if (next_ == steps_.size()) {
             // A pass ended: another while passes remain or the trigger holds.

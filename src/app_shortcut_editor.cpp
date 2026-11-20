@@ -292,7 +292,7 @@ void App::open_shortcut_editor() {
     if (settings_open_ || dictation_open_ || shortcut_editor_) {
         return;
     }
-    stop_shortcut_run();
+    stop_shortcut_run("the editor opened");
     bar_menu_ = false;
     bar_press_.reset();
     close_emoji();

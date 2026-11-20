@@ -151,11 +151,13 @@ Up to 32 steps, run in order. A macro presses keys; it does not type text.
 `ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run planned to take longer than 0.5 s also shows its progress: a stroke that runs clockwise around the button's border from the top center, once over the whole run for Once and for a count, once per pass for While held. It is drawn as a locked modifier's border is, in the theme's colors, and goes with the run however it ends. A run stops, sending nothing more and retrying nothing, when:
 
 - its button is pressed again, or anything else on the keyboard or the bar is pressed: a key, another button, the picker, a row or an assign button of its menu;
-- another window takes the keys, or the target goes away; on Steam's route, where there is no window, when the typing request changes or ends: another stream, a Steam field after a stream;
+- another window takes the keys, or the target goes away; on Steam's route, where there is no window, when the typing request changes or ends: another stream, a Steam field after a stream; over a stream, when the dashboard opens and SteamVR's laser leaves the stream for it, though the session lasts a moment longer;
 - the keyboard hides, Settings or dictation opens, or the headset sleeps;
 - a step fails to deliver.
 
 A While held button is the exception to the first rule. Once its press lets go, its run is only finishing a pass, and a new press on it takes the hold again, so quick taps each act.
+
+A stream session takes a combination at once but passes it on to the PC only a while later (R369), so there a combination counts as delivered once it is estimated through to the PC (`KeySink::keys_through`), and the next combination, or a wait, follows from then. A stop then leaves at most one combination still on its way. The journal says when a run starts, as what kind of run into what kind of target, and why it ends, in fixed words: never a label, a key, an app or a profile.
 
 Keys are what streams take best: with Streaming support every key goes to the PC as a press and release with its modifiers, and through Moonlight as a key. The PC reads positions with its own layout.
 

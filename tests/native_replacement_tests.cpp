@@ -4,6 +4,7 @@
 #include "framekeyboard/vr_runtime.hpp"
 #include <cerrno>
 #include <chrono>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <json-c/json.h>
@@ -453,6 +454,163 @@ void stream_repeat_pace() {
     output.release(1);
     require(repeats.size() >= 30 && repeats[1] - repeats[0] < key_repeat_gap + .012,
             "a local target still repeats every 40 ms");
+}
+// R421: a shortcut bar run into a stream, replayed through the logged sequence against the
+// replacement and the App, with the frame loop's part (vr.cpp) done here: a stream session's request
+// with a macro running, the dashboard's laser taking over, the session's owner changing (no request
+// active) and then one of Steam's fields. The run ends with the dashboard taking over, it never
+// sends a combination while one before it is still estimated on the way, and nothing of it reaches
+// the field.
+void stream_run_replay() {
+    const auto directory =
+        fs::temp_directory_path() / ("framekeyboard-run-replay-tests-" + std::to_string(getpid()));
+    fs::remove_all(directory);
+    Settings settings;
+    settings.replace_native_keyboard = true;
+    settings.shortcuts = true;
+    save_settings(directory, settings);
+    // W, S and a fifth of a second, ten times: twenty combinations over some three seconds.
+    ShortcutModel model;
+    ShortcutButton button;
+    button.label = "M";
+    button.action.kind = ShortcutAction::Kind::Macro;
+    button.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyW"}}, 0},
+                           {MacroStep::Kind::Keys, {{{}, "KeyS"}}, 0},
+                           {MacroStep::Kind::Wait, {}, 200}};
+    button.action.repeat = {MacroRepeat::Mode::Times, 10};
+    model.profiles.push_back({"a", "Free", {button}});
+    model.free_profile = "a";
+    std::ofstream(shortcuts_path(directory)) << serialize_shortcuts(model);
+    Options options;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.config_dir = directory;
+    options.stream_clients = []() -> std::optional<std::vector<std::vector<std::string>>> {
+        return std::nullopt;
+    };
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "replay socketpair");
+    // The journal's lines, kept from here on, until the end of this test however it ends.
+    std::ostringstream journal;
+    struct Restore {
+        std::streambuf* kept;
+        ~Restore() { std::cout.rdbuf(kept); }
+    } restore{std::cout.rdbuf(journal.rdbuf())};
+    {
+        NativeReplacement replacement(local, pair[0]);
+        App app(options, replacement);
+        app.set_replacement_available(true);
+        app.set_interaction_active(true);
+        std::string state =
+            R"({"op":"state","version":1,"request":11,"open":true,"eligible":true,"active":true,)"
+            R"("stream":true})";
+        bool dashboard = false;
+        std::uint64_t last_request = 0;
+        bool routed = false;
+        double now = 1000, answered = 0;
+        // What reached the helper, by kind.
+        int stream_downs = 0, field_keys = 0;
+        double worst_lead = 0;
+        // One frame, as vr.cpp's loop runs it.
+        const auto frame = [&] {
+            now += .011;
+            if (now - answered >= .1) {
+                put(pair[1], state);
+                answered = now;
+            }
+            replacement.poll(now);
+            const auto native = replacement.state();
+            app.set_native_session(native.open);
+            app.set_native_request(native.open ? native.request : 0);
+            const bool remote = native.open && native.active;
+            if (native.request != last_request || remote != routed) {
+                // VrLifecycle's cancel_input, then its route_input.
+                app.cancel(true, "the request, its route or the focus changed");
+                replacement.route(remote);
+                last_request = native.request;
+                routed = remote;
+            }
+            app.set_dashboard_focus(dashboard && !replacement.remote(), true);
+            app.tick(now);
+            char data[4096];
+            for (ssize_t size; (size = recv(pair[1], data, sizeof(data), MSG_DONTWAIT)) > 0;) {
+                const std::string packet(data, static_cast<std::size_t>(size));
+                if (packet.find("\"op\":\"stream-key\"") != std::string::npos &&
+                    packet.find("\"value\":1") != std::string::npos) {
+                    ++stream_downs;
+                } else if (packet.find("\"op\":\"key\"") != std::string::npos) {
+                    ++field_keys;
+                }
+            }
+            if (replacement.stream_session_target()) {
+                worst_lead = std::max(worst_lead, replacement.stream_keys_through() - now);
+            }
+        };
+        const auto running = [&] {
+            const auto view = app.view();
+            return view.shortcut_bar && !view.shortcut_bar->buttons.empty() &&
+                   view.shortcut_bar->buttons[0].running;
+        };
+        // The session's app is read off the VR thread: its answer is in before the button is pressed.
+        for (int i = 0; i < 50; ++i) {
+            usleep(2000);
+            frame();
+        }
+        require(replacement.stream_session_target(), "a stream session has the keys");
+        const auto at = app.view().shortcut_bar->buttons[0].bounds;
+        app.move(0, at.x + at.width / 2, at.y + at.height / 2);
+        app.down(0, at.x + at.width / 2, at.y + at.height / 2, now);
+        app.up(0, at.x + at.width / 2, at.y + at.height / 2);
+        // In the game a second.
+        for (int i = 0; i < 90; ++i) {
+            frame();
+        }
+        require(running() && stream_downs >= 2, "the macro runs into the stream");
+        // Each combination waits until the one before it is estimated through: never more than one
+        // key-down's time on the way.
+        require(worst_lead <= stream_key_on_the_way + 1e-6,
+                "a combination never follows one still on the way");
+        // The dashboard opens over the stream: SteamVR's laser takes over (vr.cpp: release_input).
+        dashboard = true;
+        app.release_input(false);
+        app.dashboard_opened();
+        const int downs_before_dashboard = stream_downs;
+        for (int i = 0; i < 45; ++i) {
+            frame();
+        }
+        require(!running() && stream_downs == downs_before_dashboard,
+                "the dashboard taking over ends the run: nothing more goes to the stream");
+        // The session's owner changes: no request is active.
+        state = R"({"op":"state","version":1,"request":12,"open":false,"eligible":true,"active":false})";
+        answered = 0;
+        const int downs_before_owner = stream_downs;
+        for (int i = 0; i < 90; ++i) {
+            frame();
+        }
+        require(stream_downs == downs_before_owner, "nor after the session's owner changed");
+        // One of Steam's fields.
+        state = R"({"op":"state","version":1,"request":13,"open":true,"eligible":true,"active":true})";
+        answered = 0;
+        const int downs_before_field = stream_downs;
+        for (int i = 0; i < 300; ++i) {
+            frame();
+        }
+        require(!running() && stream_downs == downs_before_field && field_keys == 0 &&
+                    !replacement.take_unsupported_control() && local.keys.empty(),
+                "and nothing of it reaches a Steam field");
+    }
+    close(pair[1]);
+    fs::remove_all(directory);
+    // R421: a run's start and end, with fixed words only.
+    const auto lines = journal.str();
+    require(lines.find("Shortcut bar run started: macro, 10 times, into a stream session.\n") !=
+                    std::string::npos &&
+                lines.find("Shortcut bar run stopped: the dashboard opened over the stream.\n") !=
+                    std::string::npos,
+            "the journal says when the run started, into what, and why it ended");
 }
 // One frame's packet, as update() sends it.
 std::string take_frame(NativeReplacement& replacement, int fd, double now) {
@@ -1901,6 +2059,7 @@ int main(int argc, char** argv) {
         stream_keys();
         stream_run_target_change();
         stream_repeat_pace();
+        stream_run_replay();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();
