@@ -324,6 +324,15 @@ void App::close_shortcut_editor(bool save) {
         apply_bar_changes(changes);
     }
     shortcut_editor_.reset();
+    // What only the editor uses goes with it: the mini keyboard and its
+    // keymap, made again at the next popup, and the script list's thread
+    // with its names, read again when the list next shows (R407).
+    mini_layout_ = {};
+    mini_keymap_.reset();
+    script_lister_.stop();
+    scripts_.reset();
+    scripts_beyond_.clear();
+    scripts_reading_ = false;
     editor_question_ = EditorQuestion::None;
     shortcut_drag_.reset();
     carry_.reset();

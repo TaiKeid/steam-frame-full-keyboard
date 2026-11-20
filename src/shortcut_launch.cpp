@@ -501,6 +501,18 @@ void ScriptLister::read(const fs::path& folder, std::vector<std::string> chosen)
     }
     state_->wake.notify_one();
 }
+void ScriptLister::stop() {
+    auto source = state_->source;
+    {
+        std::lock_guard lock(state_->mutex);
+        state_->stop = true;
+        state_->wake.notify_all();
+    }
+    // The thread keeps the old state until it sees `stop`; reads to come
+    // go to a new one.
+    state_ = std::make_shared<State>();
+    state_->source = std::move(source);
+}
 std::optional<ScriptList> ScriptLister::take() {
     std::lock_guard lock(state_->mutex);
     return std::exchange(state_->done, std::nullopt);

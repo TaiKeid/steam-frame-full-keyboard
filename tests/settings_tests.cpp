@@ -6863,6 +6863,64 @@ void unsynced_save() {
     require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
+// R407: what only the editor uses goes when it closes, and comes back with
+// it: the Label popup's mini keyboard, and the Run list read again.
+void editor_resources_after_close() {
+    TemporaryDirectory home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    const auto config = home.path / ".config" / "framekeyboard";
+    fs::create_directories(config / "scripts");
+    std::ofstream(config / "scripts" / "a.sh") << "true\n";
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(config, settings);
+    ShortcutButton run;
+    run.label = "Run";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.script = "a.sh";
+    ShortcutModel model;
+    model.profiles.push_back({"p", "P", {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}}), run}});
+    model.free_profile = "p";
+    write_shortcuts(config, model);
+    Options options;
+    options.config_dir = config;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 5200;
+    const auto settle = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 400 && !done(); ++i) {
+            usleep(2000);
+            app.tick(now += .02);
+        }
+        return done();
+    };
+    for (int round = 0; round < 3; ++round) {
+        open_editor(app);
+        tap_control(app, "shortcuts-button-0");
+        tap_control(app, "shortcuts-label");
+        require(has(app.view(), "shortcuts-popup-key-KeyA"),
+                "the Label popup has its mini keyboard, the editor opened again too");
+        tap_control(app, "shortcuts-popup-cancel");
+        tap_control(app, "shortcuts-button-1");
+        if (round == 0) {
+            // Closed with its first read under way: the next opening reads again.
+            app.tick(now += .02);
+            tap_control(app, "shortcuts-back");
+            continue;
+        }
+        require(settle([&] {
+                    const auto view = app.view();
+                    return view.shortcut_editor->scripts.size() == 1 &&
+                           view.shortcut_editor->scripts[0].name == "a.sh";
+                }),
+                "the Run list is read, the editor opened again too");
+        tap_control(app, "shortcuts-back");
+        require(!app.view().shortcut_editor, "the editor closes");
+    }
+    setenv("HOME", old_home.c_str(), 1);
+}
 // R399: every item within its limits can still make a file larger than the
 // 512 KB the next start reads. ✓ refuses it with a status line, the editor
 // keeping its draft, and the file on disk stays as it was.
@@ -7478,6 +7536,7 @@ int main() {
         run_buttons_preview();
         run_editor();
         shortcut_save_too_large();
+        editor_resources_after_close();
         run_script_past_list();
         dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();

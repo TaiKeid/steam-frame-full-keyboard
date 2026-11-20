@@ -341,6 +341,40 @@ void worker() {
 }
 } // namespace
 
+// R407: the script list's thread ends with stop(), and the next read
+// starts another.
+std::size_t threads() {
+    std::size_t count = 0;
+    for ([[maybe_unused]] const auto& entry : fs::directory_iterator("/proc/self/task")) {
+        ++count;
+    }
+    return count;
+}
+void lister_stop() {
+    ScriptLister lister([](const fs::path&) { return std::vector<std::string>{"a.sh"}; });
+    const auto before = threads();
+    const auto read = [&] {
+        lister.read("/nonexistent", {});
+        for (int i = 0; i < 300; ++i) {
+            if (auto list = lister.take()) {
+                return list->names == std::vector<std::string>{"a.sh"};
+            }
+            std::this_thread::sleep_for(10ms);
+        }
+        return false;
+    };
+    require(read() && threads() == before + 1, "a read starts the list's thread");
+    lister.stop();
+    bool ended = false;
+    for (int i = 0; i < 300 && !ended; ++i) {
+        ended = threads() == before;
+        std::this_thread::sleep_for(10ms);
+    }
+    require(ended, "stop ends it");
+    require(read(), "the next read starts another");
+    lister.stop();
+}
+
 // R407: a worker whose thread can't start answers at once, as a failure,
 // with no exception for the caller, and the next request starts it. Run in a
 // child of its own, where RLIMIT_NPROC at 0 refuses every new thread.
@@ -439,6 +473,7 @@ int main() {
         nothing_to_wait_for();
         worker();
         without_threads();
+        lister_stop();
         std::cout << "Run's launcher passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

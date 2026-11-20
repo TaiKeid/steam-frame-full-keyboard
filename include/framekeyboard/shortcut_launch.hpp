@@ -107,6 +107,9 @@ class ScriptLister {
     // the folder itself (with a source, the source's names stand in for it).
     void read(const std::filesystem::path& folder, std::vector<std::string> chosen = {});
     std::optional<ScriptList> take();
+    // Ends its thread, if one runs, dropping a read under way and its
+    // answer; the next read starts another (R407).
+    void stop();
     // Shared with the thread; defined in shortcut_launch.cpp.
     struct State;
 
