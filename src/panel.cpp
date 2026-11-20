@@ -2406,7 +2406,7 @@ std::vector<Rect> block_bounds(const std::vector<Rect>& rects) {
     return result;
 }
 } // namespace
-LaserAreas laser_areas(const PanelView& view, std::size_t reserved) {
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved, bool held) {
     // As today: the case, an open menu, the flick preview a flick may leave
     // the case over, and the shortcut bar's plates and menu above the case.
     std::vector<Rect> extra;
@@ -2426,7 +2426,7 @@ LaserAreas laser_areas(const PanelView& view, std::size_t reserved) {
     // but never in Settings, the shortcut editor or a question, nor while a
     // press that began on the keyboard goes on.
     if (!view.click_through || !view.laser_key_areas || view.settings || view.shortcut_editor ||
-        view.confirm || view.pointer_held) {
+        view.confirm || view.pointer_held || held) {
         return whole;
     }
     std::vector<Rect> pieces = extra;

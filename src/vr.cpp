@@ -25,15 +25,16 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
-#include <sstream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <optional>
 #include <poll.h>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
@@ -2043,8 +2044,12 @@ class VrPanel {
         check(
             vr_overlay()->SetOverlayTransformAbsolute(handle_, vr::TrackingUniverseStanding, &transform),
             "Place keyboard");
-        check(vr_overlay()->SetOverlayWidthInMeters(handle_, static_cast<float>(placement.width())),
-              "Resize keyboard");
+        const auto width = static_cast<float>(placement.width());
+        if (width != sent_width_) {
+            sent_width_ = width;
+            sent_mask_count_ = static_cast<std::size_t>(-1); // sent again after a size change
+        }
+        check(vr_overlay()->SetOverlayWidthInMeters(handle_, width), "Resize keyboard");
         // Curved keyboard: the bend is set only when it changes. A runtime
         // that refuses it leaves the panel flat for good, said once, and
         // curves() tells the rest to treat it as flat.
@@ -2092,9 +2097,7 @@ class VrPanel {
         held_ = held;
         mask(view);
     }
-    void mask(const PanelView& shown) {
-        auto view = shown;
-        view.pointer_held = view.pointer_held || held_;
+    void mask(const PanelView& view) {
         mask_areas_.clear();
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
@@ -2119,7 +2122,7 @@ class VrPanel {
         // case over, and the shortcut bar's plates and menu above the case;
         // under Background Disabled only the key groups and what takes input
         // (pointer_bounds).
-        const auto areas = laser_areas(view, handle ? 1 : 0);
+        const auto areas = laser_areas(view, handle ? 1 : 0, held_);
         if (areas.fallback && !reported_fallback_) {
             std::cout << (areas.fallback == 1
                               ? "Laser areas: too many for the mask; using each group's bounds.\n"
@@ -2132,9 +2135,17 @@ class VrPanel {
                 rectangle(area);
             }
         }
+        // Sent only when it changed: most painted frames keep the same areas.
+        // A change of size sends it again (place), to be sure.
+        if (count == sent_mask_count_ &&
+            std::memcmp(primitives.data(), sent_mask_.data(), count * sizeof primitives[0]) == 0) {
+            return;
+        }
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
+        sent_mask_ = primitives;
+        sent_mask_count_ = count;
     }
     vr::VROverlayHandle_t handle() const { return handle_; }
     // The Frame controller's dashboard binding turns the stick into discrete
@@ -2180,6 +2191,12 @@ class VrPanel {
     std::optional<bool> scroll_;
     NativePointerInputPolicy native_input_;
     std::vector<Rect> mask_areas_;
+    // The mask SteamVR has for handle_, as last sent; none sent yet.
+    std::array<vr::VROverlayIntersectionMaskPrimitive_t,
+               vr::k_unMaxOverlayIntersectionMaskPrimitivesCount>
+        sent_mask_{};
+    std::size_t sent_mask_count_ = static_cast<std::size_t>(-1);
+    float sent_width_{-1};
     bool held_{};
     bool reported_fallback_{}; // said once per run
     float curvature_{}; // As SteamVR has it; overlays start flat.

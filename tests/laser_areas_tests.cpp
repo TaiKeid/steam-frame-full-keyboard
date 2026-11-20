@@ -214,6 +214,13 @@ void keyboard_views() {
         rig.tick();
         require(!rig.view().pointer_held && !hits(rig.view(), gap_x, gap_y),
                 name(c) + ": and its end takes it again");
+        // A grip move or handle drag holds the case as a press does, passed
+        // to the mask without a copy of the view (R404).
+        auto pressed = rig.view();
+        pressed.pointer_held = true;
+        require(laser_areas(rig.view(), 1, true).areas == laser_areas(pressed, 1).areas &&
+                    laser_areas(rig.view(), 1).areas != laser_areas(pressed, 1).areas,
+                name(c) + ": held, the whole case, as under a press");
         rig.app->show_settings();
         rig.tick();
         require(hits(rig.view(), gap_x, gap_y) && laser_areas(rig.view()).areas[0] == panel_case_bounds(rig.view()),

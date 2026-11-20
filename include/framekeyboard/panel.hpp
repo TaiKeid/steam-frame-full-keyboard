@@ -767,7 +767,8 @@ struct LaserAreas {
 };
 // OpenVR's k_unMaxOverlayIntersectionMaskPrimitivesCount (vr.cpp checks it).
 constexpr std::size_t max_laser_areas = 32;
-LaserAreas laser_areas(const PanelView& view, std::size_t reserved = 0);
+// `held`: a press, grip move or handle drag holds the whole case, as view.pointer_held does.
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved = 0, bool held = false);
 // laser_areas() with room kept for the move handle; the one set every hit
 // test uses: SteamVR's mask, the passthrough pointer, a shell's forwarded
 // pointer and the simulator.
