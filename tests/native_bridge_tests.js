@@ -7,12 +7,19 @@ const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-    "button-summon", "update-native-close", "status-mismatch", "status-store",
-    "status-notification"]);
+    "button-summon", "update-native-close", "status-store", "status-notification",
+    // Status diagnostics: a field of an unexpected type, by type name; a field
+    // that differs from the old interface's store, marked on a close; and an
+    // argument count other than six.
+    ...Object.entries({open: "undefined null number string other", flags: "undefined null boolean number string other",
+        dispatch: "undefined null number string other", key: "undefined null boolean number other"})
+        .flatMap(([field, types]) => types.split(" ").map(type => `status-shape-${field}-${type}`)),
+    ...["open", "flags", "dispatch", "key"].flatMap(field => [`status-differs-${field}`, `status-differs-${field}-closed`]),
+    ..."0 1 2 3 4 5 more".split(" ").map(count => `status-arguments-${count}`)]);
 const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
 const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
 assert(sessionCodes, "native session-code parser anchor must match the production function");
-assert.deepEqual([...sessionCodes.matchAll(/"([a-z-]+)"/g)].map(m => m[1]).sort(), [...EVENT_CODES].sort(),
+assert.deepEqual([...sessionCodes.matchAll(/"([a-z0-9-]+)"/g)].map(m => m[1]).sort(), [...EVENT_CODES].sort(),
     "JavaScript session diagnostics and the native log allow-list must stay in sync");
 
 function editingFixture(manager) {
@@ -263,9 +270,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
         },
         status(values, notify = true) { update(values, notify); checkOwnership(); },
         // Steam's status notification with the given values, in Steam's order;
-        // `count` drops trailing arguments, as an interface that sends fewer would.
+        // `count` drops trailing arguments, or adds some, as another interface might.
         notify(open, flags, dispatch, key, count = 6) {
-            observer?.(...[open, flags, initialText, 0, dispatch, key].slice(0, count)); tick?.(); checkOwnership();
+            const args = [open, flags, initialText, 0, dispatch, key, ...Array(Math.max(0, count - 6)).fill(0)];
+            observer?.(...args.slice(0, count)); tick?.(); checkOwnership();
         },
         now() { return time; },
         advance(ms, inspect = true) {
@@ -282,6 +290,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
             root.vrFrameStore = {activeFrame: {frameID: id, isVisible: true, steamUIVROverlayKeysInPages: keys}};
         },
         breakStatus() { store.m_VRKeyboardState.m_bIsOpen = undefined; },
+        // Sets the store's raw state as Steam's handler would, values as given.
+        rawStatus(values) { Object.assign(store.m_VRKeyboardState, values); },
         checkOwnership,
         newTarget() {
             manager.m_currentVirtualKeyboardRef = {};
@@ -397,7 +407,7 @@ for (const [name, f, code] of [
         fixture(false, false, false, false, false, false, 0, null, false, true), "status-notification"],
 ]) {
     owned(f);
-    const sources = f.step().events.filter(e => e.code.startsWith("status-"));
+    const sources = f.step().events.filter(e => e.code === "status-store" || e.code === "status-notification");
     assert.deepEqual(Array.from(sources, e => e.code), [code], `${name}: one line names the source`);
     f.bridge.dispose();
 }
@@ -418,45 +428,58 @@ for (const [name, f, code] of [
     }
 }
 
-// On the old interface, the notification is compared with the store Steam's
-// handler has just updated. The first difference is recorded once, without
-// values, and changes nothing: the store stays the source.
+// Status diagnostics name what they saw, never a value: the argument count if
+// it is not six, a field of an unexpected type with that type's name, and on
+// the old interface a field that differs from the store Steam's handler has
+// just updated, marked when the notification was a close. Each is recorded
+// once per install, and none changes what the bridge does.
+const statusCodes = s => Array.from(s.events, e => e.code).filter(c => c.startsWith("status-") &&
+    c !== "status-store" && c !== "status-notification");
 {
     const f = fixture(false, true);
     const request = owned(f);
     f.bridge.send(request, "a");
     f.status({bIsOpen: false});
     f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
-    assert(!f.bridge.diagnostics().events.some(e => e.code === "status-mismatch"),
-        "a notification that matches the store records nothing");
+    assert.deepEqual(statusCodes(f.bridge.diagnostics()), [], "a notification that matches the store records nothing");
+    f.notify(false, 13, false, "some.other.overlay");
     f.notify(false, 13, false, MAIN);
-    f.notify(true, 0, undefined, MAIN);
+    f.notify(true, 0, undefined, MAIN, 5);
+    f.notify(true, 0, undefined, MAIN, 5);
     const s = f.step();
-    assert.equal(s.events.filter(e => e.code === "status-mismatch").length, 1, "the first difference is recorded once");
-    assert(f.alive() && !s.unavailable && f.nativeOpen(), "a difference changes nothing on the old interface");
+    assert.deepEqual(statusCodes(s), ["status-differs-open-closed", "status-differs-key-closed",
+        "status-arguments-5", "status-shape-dispatch-undefined", "status-shape-key-undefined",
+        "status-differs-flags"], "each kind is named once, and a close is marked");
+    assert(f.alive() && !s.unavailable && f.nativeOpen() && !s.eligible,
+        "a difference changes nothing on the old interface");
     f.bridge.dispose();
 }
 {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
     owned(f);
     f.notify(true, 0, true, "some.other.overlay");
-    assert(!f.step().events.some(e => e.code === "status-mismatch"), "the new interface has no store to compare");
+    f.notify(false, null, 1, 7, 7);
+    assert.deepEqual(statusCodes(f.step()), ["status-arguments-more", "status-shape-flags-null",
+        "status-shape-dispatch-number", "status-shape-key-number"],
+        "the new interface has no store to compare, only shapes");
     f.bridge.dispose();
 }
 
-// The notification is feature-checked as the store is: a missing or wrongly
-// typed value is a changed interface. It never yields a session, and it ends
-// replacement with Steam's keyboard as Steam has it, its window shown. Coercing
-// a missing dispatch flag to false made such a request eligible.
-for (const [name, open, flags, dispatch, key, count] of [
-    ["missing dispatch and key", true, 13, undefined, undefined, 4],
-    ["missing key", true, 13, false, undefined, 5],
-    ["dispatch as a number", true, 13, 0, MAIN, 6],
-    ["dispatch as a string", true, 13, "false", MAIN, 6],
-    ["open as a number", 1, 13, false, MAIN, 6],
-    ["flags as a string", true, "13", false, MAIN, 6],
-    ["fractional flags", true, 13.5, false, MAIN, 6],
-    ["key as an object", true, 13, false, {toString: () => MAIN}, 6],
+// The notification path holds what the store holds: only the open flag must be
+// a boolean, and the other values are kept as they arrive, never coerced or
+// defaulted. An open with a dispatch flag, flags or key of another type, or
+// missing, stays with Steam's keyboard, its window shown, and replacement goes
+// on. Coercing a missing dispatch flag to false made such a request eligible.
+for (const [name, flags, dispatch, key, count] of [
+    ["missing dispatch and key", 13, undefined, undefined, 4],
+    ["missing key", 13, false, undefined, 5],
+    ["null key", 13, false, null, 6],
+    ["dispatch as a number", 13, 0, MAIN, 6],
+    ["dispatch as a string", 13, "false", MAIN, 6],
+    ["flags as a string", "13", true, MAIN, 6],
+    ["flags as a boolean", true, true, MAIN, 6],
+    ["fractional flags", 13.5, true, MAIN, 6],
+    ["key as an object", 13, false, {toString: () => MAIN}, 6],
 ]) {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
     f.newTarget();
@@ -466,22 +489,77 @@ for (const [name, open, flags, dispatch, key, count] of [
     f.status({bIsOpen: true}, false);
     f.api.ShowWindow();
     assert(!f.calls.includes("window-show"), `${name}: the window waits for the status`);
-    f.notify(open, flags, dispatch, key, count);
+    f.notify(true, flags, dispatch, key, count);
     const s = f.step();
-    assert(s.unavailable && !f.alive(), `${name}: a malformed notification ends replacement`);
-    assert(!f.bridge.diagnostics().session, `${name}: it never yields a session`);
+    assert(f.alive() && !s.unavailable && !s.eligible && !f.bridge.diagnostics().session,
+        `${name}: the request stays native and replacement goes on`);
     assert(f.nativeOpen() && f.manager.logicalOpen && !f.calls.includes("native-hide"),
         `${name}: Steam's keyboard stays open for its field`);
     assert(f.calls.includes("window-show"), `${name}: the held-back window shows`);
-    assert.equal(f.api.ShowWindow, f.oldShow, `${name}: the window hooks are removed`);
+    // Steam closes it the same way: a close is a close, whatever else it carries.
+    f.status({bIsOpen: false}, false);
+    f.notify(false, undefined, undefined, undefined, 1);
+    f.newTarget(); f.step();
+    f.status({bIsOpen: true}, false);
+    f.notify(true, 13, false, MAIN);
+    assert(f.step().eligible, `${name}: the next well-formed request is taken`);
+    f.bridge.dispose();
 }
-// A malformed notification while the keyboard is closed ends replacement too,
-// and shows nothing.
+// A close with no key, flags or dispatch flag closes the mirror.
 {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
     f.step();
-    f.notify(false, 0, undefined, MAIN);
-    assert(f.step().unavailable && !f.calls.includes("window-show") && !f.nativeOpen());
+    f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    assert(f.bridge.diagnostics().nativeOpen);
+    f.status({bIsOpen: false}, false);
+    f.notify(false, undefined, undefined, undefined);
+    assert(!f.bridge.diagnostics().nativeOpen && f.alive(), "a bare close is a close");
+    f.bridge.dispose();
+}
+// Steam's external and stream targets need exactly typed values: a key that
+// only turns into a Gamescope window's name, or flags given as a string, stay
+// native on either path.
+for (const statusOnly of [false, true]) {
+    for (const [name, flags, dispatch, key] of [
+        ["local key as an object", 13, false, {toString: () => "gamescope.gamescope-0.window.62"}],
+        ["stream flags as a string", "1", true, "steamlink_openvr-overlay"],
+        ["stream flags as a boolean", true, true, "steamlink_openvr-overlay"],
+    ]) {
+        const f = fixture(false, !statusOnly, true, false, false, false, 0, null, statusOnly);
+        f.step();
+        f.status({bIsOpen: true, sOverlayKey: "x"}, false);
+        f.rawStatus({m_bIsOpen: true, m_eVRKeyboardFlags: flags, m_bDispatchEventsToSteamVR: dispatch,
+            m_sOpenForOverlayKey: key});
+        f.notify(true, flags, dispatch, key);
+        const s = f.step();
+        assert(!s.externalCandidate && !s.eligible && f.alive(), `${statusOnly ? "notification" : "store"}: ${name}`);
+        f.bridge.dispose();
+    }
+}
+// An open flag that is not a boolean is a changed interface, as on the store
+// path: replacement ends, Steam's keyboard stays as Steam has it, and a window
+// Show held back for that notification is given back.
+for (const [name, open, count] of [["open as a number", 1, 6], ["open as a string", "true", 6],
+    ["no arguments", undefined, 0]]) {
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.newTarget();
+    f.step();
+    f.status({bIsOpen: true}, false);
+    f.api.ShowWindow();
+    f.notify(open, 13, false, MAIN, count);
+    const s = f.step();
+    assert(s.unavailable && !f.alive(), `${name}: replacement ends`);
+    assert(!f.bridge.diagnostics().session && f.nativeOpen() && f.manager.logicalOpen &&
+        !f.calls.includes("native-hide"), `${name}: Steam's keyboard stays open for its field`);
+    assert(f.calls.includes("window-show"), `${name}: the held-back window shows`);
+    assert.equal(f.api.ShowWindow, f.oldShow, `${name}: the window hooks are removed`);
+}
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.step();
+    f.notify(0, 0, false, MAIN);
+    assert(f.step().unavailable && !f.calls.includes("window-show") && !f.nativeOpen(),
+        "a changed close ends replacement too, and shows nothing");
 }
 
 // A game Steam runs locally names its window overlay after its app ID, docked,
@@ -1826,4 +1904,4 @@ for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
     } finally { f.bridge.dispose(); }
 }
 assert(laterDeadlineChecks > 0, "random walks must exercise deadlines after their initial request");
-console.log(`Native bridge: lifecycle regressions, 128 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
+console.log(`Native bridge: lifecycle regressions, 176 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);

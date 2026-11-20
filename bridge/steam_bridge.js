@@ -48,15 +48,20 @@
     // whose state later goes missing is a changed store, not a reason to switch.
     const fromStore = !!store?.m_VRKeyboardState;
     // Steam's notification order is open, flags, initial text, app id, dispatch
-    // and overlay key. The initial text is never read. The other four are
-    // feature-checked as the store's fields are: a value of another type means
-    // a changed interface, and is never coerced into a default that could make
-    // a request eligible (dispatch false). Null until the first notification;
-    // CHANGED once one was malformed, which ends replacement.
+    // and overlay key. The initial text is never read, not even its type. The
+    // mirror holds what the store would: only the open flag must be a boolean,
+    // and the other three are kept as they arrive, never coerced or defaulted.
+    // The strict checks in localTarget, streamTarget and potential leave a
+    // request with anything unexpected native; an undefined dispatch flag is
+    // never false. Null until the first notification; CHANGED once an open
+    // flag was not a boolean, which ends replacement as a changed store does.
     const CHANGED = {};
     let mirroredStatus = null;
-    const validStatus = (open, flags, dispatch, key) => typeof open === "boolean" &&
-        Number.isInteger(flags) && typeof dispatch === "boolean" && typeof key === "string";
+    // What a notification is expected to carry, for diagnostics.
+    const EXPECTED = {open: v => typeof v === "boolean", flags: Number.isInteger,
+        dispatch: v => typeof v === "boolean", key: v => typeof v === "string"};
+    const typeName = v => v === null ? "null" :
+        ["undefined", "boolean", "number", "string"].includes(typeof v) ? typeof v : "other";
     function nativeStatus() {
         // VRKeyboardStatus also contains initial text. Read only these raw metadata fields.
         if (testStore) {
@@ -82,14 +87,16 @@
     // Frame-local windows: Gamescope app windows, and games Steam runs locally,
     // whose window overlay is named after their app ID (docked, pinned or theater).
     const LOCAL_KEY = /^(?:gamescope\.gamescope-[0-9]+(?:\.window\.[0-9]+)?|valve\.steam\.desktopgame\.[0-9]+)$/;
+    // Flags are Steam's integer bit field; any other value has no bits set.
+    const flag = (s, bit) => Number.isInteger(s.flags) && (s.flags & bit) !== 0;
     const localTarget = s => externalSupported && s.dispatch === false && s.flags === 13 &&
-        LOCAL_KEY.test(s.key) && typeof externalHide === "function";
+        typeof s.key === "string" && LOCAL_KEY.test(s.key) && typeof externalHide === "function";
     // The keyboard button pressed while a game streamed with Steam Link has focus asks through the
     // streaming client's own overlay. The helper only takes such a request while that client's typing
     // channel is connected; its text never goes through Steam, so the session needs neither Steam's
     // keyboard nor SteamVR's keyboard session.
     const STREAM_KEY = "steamlink_openvr-overlay";
-    const streamTarget = s => externalSupported && s.dispatch === true && (s.flags & 1) !== 0 &&
+    const streamTarget = s => externalSupported && s.dispatch === true && flag(s, 1) &&
         s.key === STREAM_KEY && typeof externalHide === "function";
     const externalTarget = s => localTarget(s) || streamTarget(s);
     let preparedExternal = null, externalRestore = null, handoff = null;
@@ -137,8 +144,15 @@
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
-    let eventSequence = 0, statusMismatch = false;
+    let eventSequence = 0;
     const events = [];
+    // Each status diagnostic is recorded once per install.
+    const noted = new Set();
+    function note(code) {
+        if (noted.has(code)) return;
+        noted.add(code);
+        record(code);
+    }
     function record(code) {
         events.push({id: ++eventSequence, request, code});
         if (events.length > 32) events.shift();
@@ -243,7 +257,10 @@
         } finally { target.dispatchEvent(event("keyup")); }
     }
     function potential(s) {
-        return externalTarget(s) || ownSteam(s.key) && (s.dispatch === false || (s.flags & 1) !== 0) &&
+        // Each value must have the type Steam's store gives it: an undefined
+        // dispatch flag is never false, and never ignored for the flags' sake.
+        return externalTarget(s) || typeof s.dispatch === "boolean" && Number.isInteger(s.flags) &&
+            ownSteam(s.key) && (s.dispatch === false || flag(s, 1)) &&
             owners.some(o => o.key === s.key && routeReady(o));
     }
     function candidate(s) {
@@ -814,27 +831,29 @@
         // initial field text, which is never read.
         const keyboard = root.SteamClient?.OpenVR?.Keyboard;
         if (typeof keyboard?.RegisterForStatus === "function") subscription = keyboard.RegisterForStatus(
-            (open, flags, _text, _appID, dispatch, key) => {
-                const valid = validStatus(open, flags, dispatch, key);
-                if (!fromStore) mirroredStatus = valid ? {open, flags, dispatch, key} : CHANGED;
-                // Diagnostic only. Steam's own handler has updated its store by
-                // now, so on the old interface the notification must match it:
-                // every such Frame proves the notification's shape for the new
-                // interface. The first difference is recorded once, without values.
-                else if (!statusMismatch) {
+            (...args) => {
+                // Indices 2 and 3, the initial text and app ID, are never touched.
+                const status = {open: args[0], flags: args[1], dispatch: args[4], key: args[5]};
+                // Diagnostics, without values: an argument count other than six,
+                // a value of an unexpected type, by field and type name, and, where
+                // the old interface's store exists, a field that differs from the
+                // store Steam's own handler has just updated, marked when the
+                // notification was a close.
+                if (args.length !== 6) note(`status-arguments-${args.length < 6 ? args.length : "more"}`);
+                for (const field in EXPECTED)
+                    if (!EXPECTED[field](status[field])) note(`status-shape-${field}-${typeName(status[field])}`);
+                if (!fromStore) mirroredStatus = typeof status.open === "boolean" ? status : CHANGED;
+                else {
                     let s = null;
                     try { s = nativeStatus(); } catch (_) { /* A changed store is inspect()'s to handle. */ }
-                    if (s && (!valid || s.open !== open || s.flags !== flags || s.dispatch !== dispatch ||
-                        s.key !== key)) {
-                        statusMismatch = true;
-                        record("status-mismatch");
-                    }
+                    for (const field in EXPECTED) if (s && EXPECTED[field](status[field]) && s[field] !== status[field])
+                        note(`status-differs-${field}${status.open === false ? "-closed" : ""}`);
                 }
                 // A Show that Steam made for this notification ran before it, so
                 // it was judged on the previous status and may be held back.
-                // A malformed one ends replacement and gives that Show back,
+                // A changed interface ends replacement and gives that Show back,
                 // leaving Steam's keyboard as Steam has it.
-                const replay = !valid && !fromStore && interceptedShow && !disposed;
+                const replay = mirroredStatus === CHANGED && !fromStore && interceptedShow && !disposed;
                 try { if (disposed) checkRestore(); else inspect(); } catch (_) { dispose(); }
                 if (replay) oldWindowShow.call(windowApi);
             });

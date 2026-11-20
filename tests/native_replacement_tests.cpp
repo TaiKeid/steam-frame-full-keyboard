@@ -812,10 +812,13 @@ void status_codes_are_logged_without_a_request() {
     };
     state(300, "[]"); // The first state logs "available".
     int id = 0;
-    for (const std::string code : {"status-store", "status-notification", "status-mismatch"}) {
+    for (const std::string code :
+         {"status-store", "status-notification", "status-shape-dispatch-undefined",
+          "status-differs-key-closed", "status-arguments-0"}) {
         const auto before = output.str();
         ++id;
-        state(300 + 2 * id, R"([{"id":)" + std::to_string(id) + R"(,"request":1,"code":")" + code + R"("}])");
+        state(300 + 2 * id,
+              R"([{"id":)" + std::to_string(id) + R"(,"request":1,"code":")" + code + R"("}])");
         require(output.str() == before + "[native-replacement] " + code + "\n",
                 (code + " is logged without a request").c_str());
     }

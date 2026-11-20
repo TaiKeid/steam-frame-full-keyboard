@@ -69,8 +69,22 @@ const char* session_code(const char* code) {
              {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
               "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-              "button-summon", "update-native-close", "status-mismatch", "status-store",
-              "status-notification"}) {
+              "button-summon", "update-native-close", "status-store", "status-notification",
+              // Status diagnostics: a field's unexpected type, a field differing
+              // from the store (on a close), an argument count other than six.
+              "status-shape-open-undefined", "status-shape-open-null", "status-shape-open-number",
+              "status-shape-open-string", "status-shape-open-other", "status-shape-flags-undefined",
+              "status-shape-flags-null", "status-shape-flags-boolean", "status-shape-flags-number",
+              "status-shape-flags-string", "status-shape-flags-other", "status-shape-dispatch-undefined",
+              "status-shape-dispatch-null", "status-shape-dispatch-number",
+              "status-shape-dispatch-string", "status-shape-dispatch-other",
+              "status-shape-key-undefined", "status-shape-key-null", "status-shape-key-boolean",
+              "status-shape-key-number", "status-shape-key-other", "status-differs-open",
+              "status-differs-open-closed", "status-differs-flags", "status-differs-flags-closed",
+              "status-differs-dispatch", "status-differs-dispatch-closed", "status-differs-key",
+              "status-differs-key-closed", "status-arguments-0", "status-arguments-1",
+              "status-arguments-2", "status-arguments-3", "status-arguments-4", "status-arguments-5",
+              "status-arguments-more"}) {
             if (std::string_view(code) == allowed) {
                 return allowed;
             }
