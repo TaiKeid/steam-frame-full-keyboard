@@ -106,7 +106,7 @@ Run starts a program on the headset, never on a PC you stream from.
 - **Script**: a file in `~/.config/framekeyboard/scripts/`. The keyboard makes the folder when its list first opens. The list shows the folder's regular files by name, up to 64: no folders, links or hidden files. An executable file is run directly; one the system can't run by itself, such as a script without an interpreter line, and a file that isn't executable run with `/bin/sh`. The name is checked again at each press.
 - **Command**: one line, at most 512 bytes, run with `/bin/sh -c`.
 
-The program starts in your home folder, with nothing for input or output, in a session of its own, and keeps running after the keyboard quits, restarts or updates. Its environment is the keyboard's, without what starting the keyboard added. A press starts one program; more presses on the button wait until that start is reported. If a script is missing or can't be run, a message names the button. A command always starts its shell; what the command then does is not reported.
+The program starts in your home folder, with nothing for input or output, in a session of its own, and keeps running after the keyboard quits, restarts or updates. Its environment is the keyboard's, without what starting the keyboard added. A press starts one program; more presses on the button are ignored until that start is reported. If a script is missing or can't be run, a message names the button. A command always starts its shell; what the command then does is not reported.
 
 ## Streams from your PC
 
