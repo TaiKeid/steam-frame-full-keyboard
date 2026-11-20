@@ -1688,6 +1688,13 @@ void stall_check_arms_for_the_window_laser() {
     require(watchdog_enabled(true, false) && watchdog_enabled(false, true) &&
                 !watchdog_enabled(false, false),
             "the watchdog runs for replacement, a shell or the window laser");
+    // After the stall: Steam's keyboard takes over only from a keyboard that
+    // replacement or a shell watched; a stall the laser alone armed restores.
+    require(stall_recovery(true, false) == StallRecovery::Fallback,
+            "replacement on and the keyboard shown: fallback");
+    require(stall_recovery(false, true) == StallRecovery::Restore,
+            "the window laser alone: everything shows again as it was");
+    require(stall_recovery(true, true) == StallRecovery::Fallback, "both: fallback");
 }
 
 void watchdog_fallback_is_request_scoped() {

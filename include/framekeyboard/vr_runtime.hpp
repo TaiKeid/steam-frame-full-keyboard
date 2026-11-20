@@ -106,6 +106,14 @@ class OverlayShown {
 constexpr bool stall_watched(bool replace_or_hosted, bool visible, bool window_laser) {
     return (replace_or_hosted && visible) || window_laser;
 }
+// What follows a stall once the loop runs again. Steam's keyboard takes over
+// only when replacement or a shell watched a shown keyboard; a stall the
+// window laser alone armed shows everything again as it was, since nothing
+// took over from it.
+enum class StallRecovery { Fallback, Restore };
+constexpr StallRecovery stall_recovery(bool keyboard_watched, [[maybe_unused]] bool window_laser) {
+    return keyboard_watched ? StallRecovery::Fallback : StallRecovery::Restore;
+}
 // The watchdog thread runs while replacement or a shell may need it, or the
 // window laser is on.
 constexpr bool watchdog_enabled(bool replace_or_hosted, bool window_laser) {

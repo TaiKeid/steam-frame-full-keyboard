@@ -2228,6 +2228,10 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     };
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false}, replacement_worn{true};
+    // Why the stall check watches this frame: replacement or a shell with the
+    // keyboard shown, or the window laser; and a stall the laser alone armed,
+    // after which the keyboard shows again as it was.
+    std::atomic<bool> keyboard_watched{false}, laser_watched{false}, laser_stalled{false};
     replacement.prepare_watchdog();
     // Steam restores stock independently. This thread removes a frozen panel that could
     // otherwise cover or intercept the recovered native keyboard. Apart from the
@@ -2247,7 +2251,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 // controller until the process ends (R405).
                 overlays_made.hide_all(
                     [](vr::VROverlayHandle_t handle) { vr_overlay()->HideOverlay(handle); });
-                replacement_stalled.store(true);
+                if (stall_recovery(keyboard_watched.load(), laser_watched.load()) ==
+                    StallRecovery::Fallback) {
+                    replacement_stalled.store(true);
+                } else {
+                    laser_stalled.store(true);
+                }
             }
         }
     });
@@ -3631,6 +3640,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // The user started this update: request visibility on the first frame,
         // independently of native eligibility. The bridge closes the handed-back
         // native presentation; the lifecycle gates typing separately from visibility.
+        // A stall the window laser alone armed hid everything, and nothing
+        // took over: the keyboard shows again as it was, its place and state
+        // unchanged. Its dots, bars and the window laser show again at their
+        // owners' next decision (OverlayShown).
+        if (laser_stalled.exchange(false) && lifecycle.visible()) {
+            check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
+        }
         const bool reveal = reveal_pending && !reveal_requested;
         reveal_requested |= reveal;
         lifecycle.begin_frame({.replacement_enabled = replace,
@@ -5256,6 +5272,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         replacement.frame_completed();
         replacement_worn.store(worn);
+        keyboard_watched.store((replace || hosted) && lifecycle.visible());
+        laser_watched.store(window_laser.on());
         replacement_watched.store(
             stall_watched(replace || hosted, lifecycle.visible(), window_laser.on()));
         watchdog_schedule.set_enabled(watchdog_enabled(replace || hosted, window_laser.on()));
