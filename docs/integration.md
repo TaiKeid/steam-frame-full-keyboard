@@ -25,6 +25,7 @@ The keyboard runs in one of two modes, chosen at launch and fixed for the proces
 | Instance socket (`vr.sock`) | `recenter-v1`, `quit-v1` | `quit-v1` only |
 | Presentation | SteamOS dashboard and passthrough, as today | The shell decides |
 | Integration card (Replace native keyboard, Start with SteamOS, Streaming support, Hidden window tooltip) | Available | Hidden; replacement, boot start and Streaming support inactive |
+| Shortcut bar | As set in Settings | Off: no bar, no toolbar button, no Settings row; `shortcuts.json` is kept |
 | X | Exits, or dismisses in replacement mode | Hides the panel |
 | Ends when | Quit, or the user's session ends | Quit, the shell closes its connection, or the shell stays hung (see [Lease](#lease)) |
 
@@ -40,7 +41,7 @@ Hiding the card is not enough. Several code paths assume standalone use today, s
 - X hides instead of exiting; today it exits unless replacement is on.
 - Settings → Quit remains and ends the hosted keyboard.
 - Dictation-driven visibility (dictation passthrough) and pointer-source selection follow shell presentation instead of the dashboard.
-- The VR watchdog that hides the panel when the main loop stalls currently runs only with replacement. Hosted mode enables it too.
+- The VR watchdog that hides the keyboard's overlays when the main loop stalls runs with replacement and whenever the window laser holds SteamVR's laser mode. Hosted mode enables it too. Hosted mode enables it too.
 
 ## Launch
 

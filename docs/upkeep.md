@@ -80,7 +80,8 @@ Nothing pins these. Each one is feature-checked at runtime and fails safe, but a
 | Gamescope's text and keymap behavior | Typing and Send's pace | If text arrives scrambled: send a 900-character text to a disposable receiver with `text-replace-probe`'s `whole` and `paced` commands, idle and under load, and count wrong characters (see [Send](dictation.md#send)) |
 | Steam app IDs as window names for local games | Native replacement over local games | A local game's keyboard button with replacement on |
 | Steam's streaming client: program name `streaming_client`, keyboard requests on `steamlink_openvr-overlay` with dispatch set, SDL's OpenVR driver loading `SDL_OPENVR_LIBRARY` and asking for `FnTable:IVROverlay_026` (82 functions, `PollNextOverlayEvent` in slot 48), SDL's `SDL_PushEvent`, `SDL_GetKeyboardFocus` and `SDL_GetWindowID` in its process (and `SDL_PeepEvents`, used when present to count text events SDL still holds), Steam's library at `~/.local/share/Steam/steamrtarm64/libopenvr_api.so`, and Steam's user service `steam.service` taking drop-ins | [Streaming support](streamed-games.md#through-steams-own-streaming-streaming-support) | Restart SteamOS with it on: Settings shows neither the restart line nor the failed check. In a stream from a PC, the keyboard button opens Full Keyboard and letters, a shortcut and, from a Windows PC, Cyrillic arrive; a key press does not click on the PC. Turned off, the stream goes back to Steam's keyboard |
-| KWin scripting in SteamOS's Desktop (`org.kde.kwin.Scripting`, `workspace.windowActivated`, `resourceClass`) and `libsystemd.so.0` | Terminal Cut, Copy and Paste inside the Desktop ([design](terminal-edit-keys-design.md#steamoss-desktop)) | Open the Desktop with Konsole and Dolphin: Cut shows disabled in Konsole and not in Dolphin, and Copy and Paste work in both |
+| KWin scripting in SteamOS's Desktop (`org.kde.kwin.Scripting`, `workspace.windowActivated`, `resourceClass`) and `libsystemd.so.0` | Terminal Cut, Copy and Paste inside the Desktop ([design](terminal-edit-keys-design.md#steamoss-desktop)), and the shortcut bar's profiles for Desktop apps | Open the Desktop with Konsole and Dolphin: Cut shows disabled in Konsole and not in Dolphin, and Copy and Paste work in both; a profile assigned to Konsole shows when it is in front |
+| Steam's app data: `appcache/appinfo.vdf` (version `0x07564429`), `steamapps/libraryfolders.vdf` and `appmanifest_*.acf`; `streaming_client`'s `--appid` | The shortcut bar's app names and which game is in front ([design](shortcut-bar-design.md#apps)) | Assign a profile to a local game and to a game streamed from a PC that isn't installed on the headset: its profile shows for each, and Used for names both |
 
 ## Integration tests
 
@@ -88,7 +89,7 @@ After any update above, run these in order and stop at the first failure:
 
 1. `ctest --test-dir build/host --output-on-failure`, with `FRAMEKEYBOARD_TEST_ANTHY_REQUIRED=1` where Anthy is installed.
 2. A cross-build with `FRAMEKEYBOARD_SYSROOT=… cmake --build --preset frame-arm64`, and the ARM64 core tests on the Frame.
-3. The optional probes, each in its own disposable receiver ([tests](building.md#tests)): `ei-target-probe`, `unicode-target-probe`, `japanese-target-probe`, and `uinput-smoke-test` against its own device only.
+3. The optional probes, each in its own disposable receiver ([tests](building.md#tests)): `ei-target-probe`, `unicode-target-probe`, `japanese-target-probe`, `shortcut-target-probe`, and `uinput-smoke-test` against its own device only.
 4. In the headset:
    - the [acceptance](acceptance.md) checklist;
    - the native replacement [validation](native-replacement.md#validation);
@@ -96,7 +97,7 @@ After any update above, run these in order and stop at the first failure:
 
 ## Last check
 
-2026-11-15, for 0.19.1: the same as for 0.19.0 below. SteamOS (0.5.9, build 20261113.6134720) and Steam (client of 2026-11-13) had not changed since, so the private-behavior checks were not due.
+2026-11-15, for 0.19.1: the same as for 0.19.0 below. SteamOS (0.5.9, beta) and Steam (client of 2026-11-13) had not changed since, so the private-behavior checks were not due.
 
 2026-11-14, for 0.19.0:
 - **Current:** whisper.cpp v1.9.5, libei 1.6.0, OpenVR 2.15.6, the Gamescope protocol file, the data-control protocols (wayland-protocols 1.50 has the same file; wlroots only marked theirs deprecated), the Whisper models, the FUTO Swipe encoder file, the Mozc server 3.35.6354.2-1, the word lists, the AppImage runtime 20251108 and every Chinese engine pin.
@@ -105,7 +106,7 @@ After any update above, run these in order and stop at the first failure:
 - **Mozc dictionary and kaomoji data:** none of the files the lists are built from changed; the pin stays.
 - **extra-cmake-modules v6.32.0:** used only while configuring the Chinese engines; the pin stays.
 - **Unicode emoji 18.0:** the Frame still has Noto Color Emoji 2.051 (Unicode 17); the list stays at 17.0.
-- **SteamOS libraries:** the Frame moved to SteamOS 0.5.9 (build 20261113.6134720, beta) since 0.18.1; releases still build against stable's libraries. Native replacement started on every development deploy since; the stream and Desktop private-behavior checks were not repeated.
+- **SteamOS libraries:** checked on SteamOS 0.5.9 (beta), newer than at 0.18.1; releases still build against stable's libraries. Native replacement started on every development deploy since; the stream and Desktop private-behavior checks were not repeated.
 
 2026-11-13, for 0.18.1: the same as for 0.18.0 below. SteamOS and Steam had not changed since 0.18.0, so the private-behavior checks were not due.
 

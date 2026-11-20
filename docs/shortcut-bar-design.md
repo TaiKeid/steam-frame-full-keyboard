@@ -34,14 +34,14 @@ The bar is drawn in the texture's room above the case (`popup_margin`, 200 px), 
 - A profile with more buttons than fit scrolls sideways: with the stick while a laser is on it, a button at a time and eased, or by pressing on it and dragging past 12 px. A clipped side fades out under a chevron. Each profile keeps its scroll position while the keyboard runs.
 - Buttons look and feel like keys: hover, press travel, vibration and haptic sounds. They act on release over the same button, as controls do, so a drag can scroll. A macro that repeats while held starts on press instead, and a press on it never starts a drag.
 - A Run button carries a small prompt mark, `>_`, in its top right corner, so a button that starts a script or a command is told apart from one that presses keys. The mark is a drawn icon in the theme's dimmed label color, 16 × 12 with its corner 7 px in from the button's top and right edges. It moves with the button's press and fades with a disabled button. It shows wherever the button is drawn: on the bar, in the editor's strip, and while the button is carried. Shortcut and Macro buttons have no mark.
-- A button whose action can't be sent to the current target is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)). So is a button that has no action yet.
+- A button whose action can't be sent to the current target, one of Steam's own fields, is drawn disabled, as Cut is in a terminal (see [where actions can go](#where-actions-can-go)); with the dashboard holding the keys it stays lit. So is a button that has no action yet.
 - The bar hides in Settings and in dictation mode, and stays up with the emoji picker. Under a shell the feature is off.
 - A tooltip keeps its place right above the case while the bar shows, and is drawn over the bar where the two overlap. It takes no pointer: a button under it still hovers and presses. The status card sits above the bar. The bar's own tooltips, for the picker, **Manage** and the assign buttons, point at their parts of the bar; one that would share the status card's row waits while the card shows.
 
 ### Drawing and laser areas
 
 - App builds a `ShortcutBarView` in `PanelView`: plate bounds, the picker tab's bounds, the visible buttons with labels and states, the scroll offset, and the open menu. The renderer only draws it; no input leaves drawing code.
-- `shortcut_bar_bounds(view)` in `panel.hpp` gives the rectangles the laser may hit: the plate, its tab and the open menu. `PanelOverlay::mask()` and the `pointer_areas` lambda in `vr.cpp` both add them, so the dashboard laser, the passthrough pointer and a shell's forwarded pointer agree.
+- `shortcut_bar_bounds(view)` in `panel.hpp` gives the rectangles the laser may hit: the plate, its tab and the open menu. `laser_areas()` and `pointer_bounds()` in `panel.cpp` add them, the one set the dashboard laser's mask, the passthrough pointer and a shell's forwarded pointer all use, so they agree.
 - Bar buttons are kept out of the "any control changed" and "any hover changed" full repaints. `shortcut_bar_damage(before, now)` returns the changed rectangles, as `theme_hover_damage` does. The bar overlaps no key, so a hover repaints one button.
 - Image export includes the top margin whenever the bar shows.
 
@@ -110,14 +110,14 @@ Which identity the focus has, by the first row that fits:
 | A window with a Steam app ID | `steam` |
 | Any other window | `program`; none when the program's name can't be read |
 
-- `DesktopFocus` already reads all three values; today it keeps only a kind and drops the names. It gains one snapshot, read without blocking: the focused window with its app's kind and ID, published together, so the bar never sees a new window with the last one's app.
+- `DesktopFocus::focused_app()` publishes one snapshot, read without blocking: the focused window with its app's kind and ID together, so the bar never sees a new window with the last one's app.
 - Gamescope reports nothing for a stream from a PC: no focused app and no window (measured for a streamed desktop and a streamed game). Its app is read when a stream session begins, off the VR thread, from the process `streaming_client`: the one number after `--appid`, taken strictly (digits only, no leading zero, nonzero, within 32 bits, exactly one client running). That line also holds the account and the PC's address: nothing else of it is kept and none of it is logged. Any surprise means the `stream` identity, never a guess. An answer belongs to its session: a new session never shows the last one's game, and until its answer is in the bar keeps what it shows and nothing can be assigned.
 - An ID that `shortcuts.json` could not hold is no identity: empty, longer than 255 bytes, not UTF-8, or with a control character. A program's name comes from its command line, which the program itself can set. Some programs, Chromium-based browsers among them, rewrite their arguments into one string with spaces: when the first argument, cut at one of its spaces, names the file `/proc/<pid>/exe` points to, the name is that file's, without the flags. Otherwise it is what follows the last folder separator, so a Windows game run by Wine keeps a file name with spaces.
 - The uinput backend can't tell which app has the keys: there is no identity there, only free profiles.
-- A name is looked up when the picker's menu opens, when an app is assigned, and when a stream session's app becomes known, off the VR thread: one small file read, cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie.
+- A name is looked up once per run of the keyboard for each app: when the menu first opens with it in front, when a stream's app becomes known without a kept name, and when it is assigned without a known name; off the VR thread, each file read cut off at a fixed size, of which only the name is kept. Until it arrives a tooltip uses what the ID itself gives: the program's file name, or the last part of a Desktop app ID. The name is stored with the tie.
 - Names found for Steam games and Desktop apps are also kept in `app-names.json` in the keyboard's cache folder: at most 256, the oldest found dropped, the user's alone, written off the VR thread; a bad file reads as none. A lookup that finds nothing uses the name kept, and a tie saved under its ID's own name, such as "App" and a Steam ID, takes the real name whenever one is found or kept.
 - A game streamed from a PC need not have a manifest on the headset, even while it streams (measured: none for a game streamed from a Windows PC). When no manifest names a Steam ID, the name is read from Steam's own app cache, `appcache/appinfo.vdf` under Steam's folder: the entry for the ID, and in it `appinfo` / `common` / `name`. The format is Steam's private one, so it is read only when its first four bytes are the version known (`0x07564429`: entries of a stated size, keys as numbers into a table of strings at the file's end); any other version, a file over the size limit, an offset or size that points outside the file, an unknown value type or a name that is not UTF-8 gives no name and no error. Read off the VR thread, never written, nothing of it logged or kept but the one name.
-- Desktop files are looked for by the app ID as a file name, in the user's and the system's application folders, Flatpak's included.
+- Desktop files are looked for by the app ID as a file name, and by a window class matching their `StartupWMClass=`, in the user's and the system's application folders, Flatpak's included.
 
 ## Actions
 
@@ -128,7 +128,7 @@ One to four key combinations sent in order, once per press: Ctrl+K, then S. A co
 - Each combination is one `OutputController::tap()`: modifiers down, key down, then up in reverse. `can_queue()` is checked for the whole sequence first, so it is sent whole or refused.
 - The runner ends a shortcut before its next combination when another window has taken the keys since it started: between combinations the output queue is empty and can't notice.
 - A press is admitted as a key press is, so a refusal shows the same status and an earlier failure with nothing to retry is cleared.
-- Combinations are spaced by `shortcut_key_gap` (30 ms until the [probe](#frame-probes) says otherwise), and by the stream gap where that is longer.
+- Each combination follows `shortcut_key_gap` (30 ms until the [probe](#frame-probes) says otherwise) after the one before was delivered; into a stream session, after it is estimated through to the PC.
 - Only the button's own modifiers are sent. Latched modifiers are cleared, not added; held or locked ones are let up first, as Cut, Copy and Paste do, and a lock stays locked.
 - An unfinished reading or a pending swiped word goes out first, as before any raw shortcut. The word being typed is forgotten, as after any key that may move the cursor.
 - Letters are stored by the letter the key showed when it was recorded and resolved through the target's keymap when sent (`shortcut_code`), so Ctrl+A recorded on AZERTY is Ctrl+A on any target. Other keys go by position.
@@ -188,10 +188,10 @@ Starts a program on the Frame. Nothing is typed, so it works without a typing ta
 | Moonlight | Yes; Moonlight keeps its own Ctrl+Alt+Shift shortcuts | Yes |
 | A game or app streamed from a PC with Streaming support | Yes, read by the PC with its own layout | Yes, on the Frame |
 | One of Steam's own text fields | No: Steam takes only Backspace, Enter, Tab, the arrows and Esc there | Yes |
-| Steam's dashboard has the keys, or there is no target | No, as for typing | Yes |
+| Steam's dashboard has the keys, or there is no target | No, as for typing: the button stays lit and a press shakes or reports | Yes |
 | The uinput backend and external JIS | Yes | Yes |
 
-Buttons that can't be sent are drawn disabled; a press on one shakes or reports as a key press does there.
+Buttons that can't go to a Steam field are drawn disabled; with the dashboard holding the keys, or no target, they stay lit, and a press shakes or reports as a key press does there.
 
 ## Settings and the editor
 
@@ -334,7 +334,7 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 - An invalid file or an unknown `schema_version` loads nothing, says so in Settings, and is never overwritten: the next save moves it to `shortcuts.json.bad`.
 - `free_profile` is the profile picked last for apps without one, and `earlier_picks` those picked before it, newest first; a file without `earlier_picks` has a history of one. A pick that names no profile, or one that is there twice, makes the file invalid.
 - What saves when: the editor's ✓ writes its pending copy; a tie made in the picker, a rename in place and a pick for apps without a profile are written at once.
-- Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. The file is synced to disk before it replaces the old one.
+- Every save looks at the file first: one that no longer parses is moved to `shortcuts.json.bad`, and a valid one that differs from what the keyboard last read or wrote, a hand edit made while it ran, is kept as `shortcuts.json.old`. So is a valid file with members this version doesn't read. A save that would take the file past 512 KB, at ✓ or from a change outside the editor, is refused and leaves the file as it is. The file is synced to disk before it replaces the old one.
 - Reload config rereads and rechecks the file, so a hand edit shows without a restart; a reload that finds it invalid keeps the profiles already loaded and reports. `framekeyboard --check` reports the file's state beside the layouts, languages and themes.
 - The installer and updates leave the file alone, as they do other user files.
 
@@ -358,7 +358,8 @@ Everything else is in `shortcuts.json` beside it, readable by the user alone, wr
 | Editor popup | `src/app_shortcut_editor.cpp` |
 | Drawing, `shortcut_bar_bounds`, `shortcut_bar_damage` | `src/panel.cpp`, `include/framekeyboard/panel.hpp` |
 | Focused app's identity | `src/desktop_focus.cpp`, `src/desktop_terminal.cpp`; names in `src/app_names.cpp` |
-| Laser areas, stick press, scrolling | `src/vr.cpp` |
+| Laser areas | `src/panel.cpp` (`laser_areas`, `pointer_bounds`) |
+| Stick press, scrolling | `src/vr.cpp` |
 
 The model knows nothing of drawing or output. The runner and the launcher are the only code that acts on a button, and drawing code calls neither.
 
@@ -370,7 +371,7 @@ The model knows nothing of drawing or output. The runner and the launcher are th
 - `settings`: the General row, the editor's flows (profiles, strip drags between profiles, steps), ✓ and ← with the question, the popup's typing and recording at both widths.
 - `rendering`: bar hover, press and scroll repaints compared with a full repaint; the bar with the tooltip and the status card.
 - `locales` and the interface tour: new strings in every language, labels fit, pictures of the bar, the menu and the editor.
-- The uinput smoke test's receiver takes a recorded shortcut and a macro, never the focused app.
+- The optional `shortcut-target-probe` sends recorded shortcuts into its own disposable window, never the focused app; the uinput smoke test's receiver has no part in the bar.
 
 ## Frame probes
 

@@ -142,8 +142,8 @@ python3 -I tools/build_swipe_lexicon.py en-us.written.tsv en-us.tsv --format tsv
     --fold-written-spoken-floor 110 --always-fold en-us --header …
 ```
 
-Without `--fold-written-capitals`, the same two steps rebuild the earlier
-English lists byte for byte.
+Without `--fold-written-capitals`, its two floors and `--always-fold`, the same
+two steps rebuild the earlier English lists byte for byte.
 
 `pt-br.tsv` is built directly from the Leipzig Corpora Collection corpus
 `por-br_newscrawl_2011_1M`

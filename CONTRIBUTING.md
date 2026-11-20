@@ -22,7 +22,7 @@ Optional features must leave ordinary keyboard operation usable when a dependenc
 
 External interfaces must have a documented version and capability contract. Report capabilities for the active configuration, including supported languages, formats, and operations where relevant. Define compatibility and locale matching explicitly. Validate requests against current capabilities, handle capability changes, and reject unsupported operations without silently changing the requested behavior.
 
-Express capability-dependent controls declaratively in profile data. Account for the selected layout, language, and input backend. Use a small validated set of conditions; do not execute scripts or arbitrary expressions from profile files. Hidden controls must be absent from both rendering and hit testing. Keep cancellation controls accessible during active operations, and apply visibility changes without stranding held input or moving another action under a pressed pointer.
+Express capability-dependent controls declaratively in profile data. Account for the selected layout, language, and input backend. Use a small validated set of conditions; do not execute scripts or arbitrary expressions from layout, language or theme files. Hidden controls must be absent from both rendering and hit testing. Keep cancellation controls accessible during active operations, and apply visibility changes without stranding held input or moving another action under a pressed pointer.
 
 These are contribution requirements, not a claim that every interface or profile condition already exists. Include parsing, validation, documentation, and tests when introducing a new contract or schema field.
 

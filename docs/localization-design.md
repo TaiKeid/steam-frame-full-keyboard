@@ -114,7 +114,7 @@ Only text the user sees in the interface is translated. Never translated: log li
 
 German and Russian run about 30% longer than English; Chinese, Japanese and Korean are shorter but need taller lines. Text that doesn't fit shrinks to a smaller size, or wraps onto another line where its element has room and it still looks right. It is never cut off with "…". The order and limits (how far to shrink before wrapping, the smallest size) are settled on screenshots with the owner during step 2.
 
-Development builds record every interface label the renderer shrank or wrapped, and any it had to cut, with its key. The simulator tour renders every screen in every bundled language. It fails on a cut label, and reports shrunk and wrapped ones with screenshots for review. A fix is a shorter translation, more room or a layout change.
+Development builds record every interface label the renderer shrank or wrapped, and any it had to cut, by its text. `interface-tour` renders every screen in one bundled language, or `qps`, per run and lists each label it shrank, wrapped or cut in `fits.tsv`, with screenshots for review; the `settings` test fails if any Settings label is cut in a bundled language. A fix is a shorter translation, more room or a layout change.
 
 Before any translation, a generated pseudo-language (`qps`: accented, 40% longer, in brackets) runs through the same tour. Any interface text without brackets did not go through `Localization`, and any overflow shows where English has no slack. The Debug card's dropdown offers it too, for a look in the headset.
 
@@ -122,7 +122,7 @@ Before any translation, a generated pseudo-language (`qps`: accented, 40% longer
 
 - Unit tests: loading and merging, plural rules (including Russian, Polish and Ukrainian 1, 2, 5, 11, 21, 22), placeholders, number marks, every step of the fallback chain, the font choice.
 - `tools/check_locales.py`, run by a host test: every key used in the code exists in `en.json`; every bundled file has every key, the same placeholders as English, and the plural forms its rules need; it lists stale translations (`sources`) and keys no code uses. Given the translator notes, kept with the translation work outside the repository (`--context PATH`), it also checks that every key has its notes and that no note names a key English lacks.
-- The tour in `qps` and in every bundled language: no cut interface label; shrunk and wrapped labels listed with screenshots; in `qps` no interface text without brackets.
+- `interface-tour` in `qps` and in every bundled language: no cut interface label in its `fits.tsv`; shrunk and wrapped labels listed with screenshots; in `qps` no interface text without brackets. The `settings` test checks Settings for cut labels in every bundled language on its own.
 - Before each release: no stale or missing translation in bundled files.
 
 ## Translator context
