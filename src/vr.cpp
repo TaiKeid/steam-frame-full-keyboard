@@ -3646,8 +3646,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // took over: the keyboard shows again as it was, its place and state
         // unchanged. Its dots, bars and the window laser show again at their
         // owners' next decision (OverlayShown).
-        if (laser_stalled.exchange(false) && lifecycle.visible()) {
-            check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
+        if (laser_stalled.exchange(false)) {
+            // Said once per stall, so a log shows how often it happens (R412).
+            std::cout << "A stall hid the keyboard's overlays; they show again.\n" << std::flush;
+            if (lifecycle.visible()) {
+                check(vr_overlay()->ShowOverlay(panel.handle()), "Show keyboard");
+            }
         }
         const bool reveal = reveal_pending && !reveal_requested;
         reveal_requested |= reveal;
