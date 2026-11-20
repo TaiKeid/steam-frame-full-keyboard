@@ -26,6 +26,7 @@ struct RecordingBackend : in::Backend {
     in::Status state;
     std::optional<in::Choices> finished;
     bool fail_streaming{}; // Finish fails while Streaming support is chosen
+    bool restart{};        // the running Steam needs a restart for Streaming support
     void releases() override {
         state = {};
         state.task = in::Task::Releases;
@@ -33,6 +34,7 @@ struct RecordingBackend : in::Backend {
         for (const auto& version : versions) {
             state.releases.push_back({"v" + version, version});
         }
+        state.streaming_restart = restart;
     }
     void install(const in::Release& release) override {
         state.task = in::Task::Install;
@@ -55,10 +57,11 @@ struct Run {
     in::Installer installer;
     double now = 0;
     Run(const fk::Profiles& profiles, const fk::Localization& localization,
-        std::vector<std::string> versions, int version = 0)
+        std::vector<std::string> versions, int version = 0, bool restart = false)
         : backend(), installer(backend, profiles.themes.at("graphite"),
                                profiles.layouts.at("en-us-full"), localization) {
         backend.versions = std::move(versions);
+        backend.restart = restart;
         backend.releases();
         wait(.5);
         if (version != 0) {
@@ -216,6 +219,25 @@ void finish_without(const fk::Profiles& profiles, const fk::Localization& locali
                 choices.replace_native && choices.swipe,
             "Finish without it saves only the answers its pages showed");
 }
+// R424: Finish's eight answers stay inside the stage in every language, with
+// Restart SteamOS's box unticked and ticked, whose note is the longest.
+void finish_list_fits(const fk::Profiles& profiles) {
+    for (const char* posix : {"cs", "de", "en", "es", "es_419", "fr", "it", "ja", "ko", "pl", "pt_BR",
+                              "pt_PT", "ru", "tr", "uk", "zh_CN", "zh_TW"}) {
+        fk::Localization localization;
+        localization.load({}, {});
+        localization.choose(fk::SystemLanguage{"", std::string(posix) + ".UTF-8"});
+        Run run(profiles, localization, {"0.20.0"}, 0, true);
+        run.to_page(run.installer.wizard_pages(), 0);
+        run.wait(1);
+        require(run.installer.finish_list_room() >= 0,
+                std::string(posix) + ": Finish's answers end inside the stage");
+        run.click(A::Restart);
+        run.wait(.2);
+        require(run.installer.finish_list_room() >= 0,
+                std::string(posix) + ": and with Restart SteamOS ticked");
+    }
+}
 // What Finish saves: the bar's answer either way when its page was offered,
 // as every other page's; without the page the setting stays as loaded (R423).
 void saved_settings() {
@@ -251,6 +273,7 @@ int main() {
         saved_settings();
         shortcuts_page(profiles, localization);
         finish_without(profiles, localization);
+        finish_list_fits(profiles);
         std::cout << "Installer wizard pages and saved choices passed.\n";
         return 0;
     } catch (const std::exception& error) {

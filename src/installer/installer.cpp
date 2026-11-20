@@ -1498,11 +1498,15 @@ void Installer::paint_finish_page() {
     // A long name takes two lines; all of them share the largest size at
     // which the list fits under the note. Seven answers fit only with the
     // rows drawn tighter too: once the names are as small as they go, the
-    // chips shrink and the rows close up.
-    constexpr double gap = 20, chip_width = 96, pitch = 1.12;
-    double chip_height = 36, row_pad = 14;
+    // chips shrink and the rows close up. Eight with a long note, as
+    // Ukrainian's for a restart, also need the note smaller (R424).
+    constexpr double gap = 20, chip_width = 96, pitch = 1.12, smallest = 16;
+    double chip_height = 36, row_pad = 14, note_size = 22;
     const double label_width = column_width - chip_width - 16;
-    const double h = block(value, {0, 0, column_width, 130}, 22, ink, PANGO_WEIGHT_NORMAL, false);
+    const auto note_height = [&] {
+        return block(value, {0, 0, column_width, 130}, note_size, ink, PANGO_WEIGHT_NORMAL, false);
+    };
+    double h = note_height();
     const Color label_ink = paint::mix(theme_.legend, theme_.surface, .2);
     std::array<double, pages> labels{};
     double size = 19, list_height = 0;
@@ -1517,17 +1521,21 @@ void Installer::paint_finish_page() {
         if (h + gap + list_height <= stage.height) {
             break;
         }
-        if (size <= 16) {
-            if (row_pad <= 6) {
+        if (size <= smallest) {
+            if (row_pad > 6) {
+                chip_height = 30;
+                row_pad = 6;
+            } else if (note_size > smallest) {
+                note_size -= 1;
+                h = note_height();
+            } else {
                 break;
             }
-            chip_height = 30;
-            row_pad = 6;
-            size = 17; // Measured again at 16.
+            size = smallest + 1; // Measured again at the smallest.
         }
     }
     double y = stage.y + std::max(0.0, (stage.height - h - gap - list_height) * .45);
-    block(value, {column_x, y, column_width, 130}, 22, ink);
+    block(value, {column_x, y, column_width, 130}, note_size, ink);
     y += h + gap;
     const Color card_fill = paint::mix(theme_.surface, theme_.bottom, .45);
     for (int page = 0; page < wizard_pages(); ++page) {
@@ -1554,6 +1562,8 @@ void Installer::paint_finish_page() {
              yes ? theme_.latched_legend : dim());
         y += row;
     }
+    // The last row's padding is space below it, inside the stage too.
+    list_room_ = stage.y + stage.height - y;
 }
 
 void Installer::paint_finish_badge(double x, double y, double radius) {

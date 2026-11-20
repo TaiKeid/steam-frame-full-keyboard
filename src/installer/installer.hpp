@@ -78,6 +78,9 @@ class Installer {
     std::optional<Rect> control(Action action, int index = 0) const;
     // Whether that control is shown and takes presses.
     bool enabled(Action action, int index = 0) const;
+    // How far above the stage's bottom Finish's list of answers last ended,
+    // in pixels: negative when it ran past it. For tests.
+    double finish_list_room() const { return list_room_; }
 
   private:
     struct Hit {
@@ -257,6 +260,7 @@ class Installer {
     // Finish's Restart SteamOS box; never ticked for the user.
     bool restart_{};
     bool quit_{};
+    double list_room_{}; // finish_list_room()
 };
 
 } // namespace framekeyboard::installer
