@@ -671,7 +671,14 @@ void interface_label(cairo_t* cr, const std::string& text, Rect r, double size,
             }
         }
         if (pango_layout_get_width(layout) < 0) {
+            // Measured at the size drawn: text doesn't scale exactly with
+            // its size, so a line estimated to fit can still run past its
+            // room and be cut. It shrinks on to the smallest size first (R381).
             resize(drawn);
+            for (pango_layout_get_pixel_size(layout, &width, &height); width > room && drawn > smallest;
+                 pango_layout_get_pixel_size(layout, &width, &height)) {
+                resize(drawn = std::max(smallest, drawn * step));
+            }
             pango_layout_set_width(layout, static_cast<int>(room * PANGO_SCALE));
             pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
         }

@@ -1612,6 +1612,62 @@ void debug_card_setting() {
 // The interface language (docs/localization-design.md): the system's, with
 // its fonts for interface text, followed when Settings opens and on Reload;
 // the Debug card picks one for the run without saving it.
+// R381: in every bundled interface language, Streaming support's note, and
+// every other label in Settings, shows whole: measured as drawn, never cut.
+void setting_notes_fit_every_language() {
+    const std::vector<std::string> languages{"cs", "de", "en", "es",    "es_419", "fr",
+                                             "it", "ja", "ko", "pl",    "pt_BR",  "pt_PT",
+                                             "ru", "tr", "uk", "zh_CN", "zh_TW"};
+    const std::vector<std::string> notes{"setting.streaming-support.note"};
+    const auto check = [](bool ok, const std::string& what) {
+        if (!ok) {
+            throw std::runtime_error(what);
+        }
+    };
+    for (const auto& posix : languages) {
+        TemporaryDirectory directory;
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Render;
+        options.system_language = [&] { return SystemLanguage{"", posix + ".UTF-8"}; };
+        CaptureSink sink;
+        App app(options, sink);
+        Localization localization;
+        localization.load({}, {});
+        localization.choose(SystemLanguage{"", posix + ".UTF-8"});
+        check(localization.tag() == app.interface_language(), posix + ": its own language");
+        app.show_settings();
+        // Every card in view in turn, each label's fit recorded as drawn.
+        std::vector<LabelFit> fits;
+        record_label_fits(&fits);
+        double now = 400;
+        app.move(0, 800, 300);
+        for (int step = 0; step < 40; ++step) {
+            app.paint(now);
+            app.scroll(0, 1, 0);
+            for (int i = 0; i < 10; ++i) {
+                app.tick(now += .05);
+            }
+        }
+        app.paint(now);
+        record_label_fits(nullptr);
+        // No label in Settings is cut either, in any of its cards.
+        for (const auto& fit : fits) {
+            check(!fit.cut, posix + ": a Settings label is cut");
+        }
+        for (const auto& key : notes) {
+            const auto text = localization.text(key);
+            bool drawn = false;
+            for (const auto& fit : fits) {
+                if (fit.text == text) {
+                    drawn = true;
+                    check(!fit.cut, posix + ": " + key + " is cut");
+                }
+            }
+            check(drawn, posix + ": " + key + " is drawn");
+        }
+    }
+}
 void interface_language_setting() {
     TemporaryDirectory directory;
     fs::create_directories(directory.path / "locales");
@@ -7915,6 +7971,7 @@ int main() {
         extended_key_collision_setting();
         debug_card_setting();
         interface_language_setting();
+        setting_notes_fit_every_language();
         haptic_sounds_setting();
         vibration_setting();
         app_settings();
