@@ -196,10 +196,17 @@ struct Fixture {
     Sink sink;
     std::unique_ptr<App> app;
     double now{10};
-    explicit Fixture(const char* language) {
+    // `shortcuts`: Shortcuts and macros on, with one free bar of one button.
+    explicit Fixture(const char* language, bool shortcuts = false) {
         std::ofstream(directory.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":"en-us-full","language":")" << language
-            << R"(","theme":"graphite"},"dictation":"off"})";
+            << R"(","theme":"graphite"},"dictation":"off")"
+            << (shortcuts ? R"(,"shortcuts":true})" : "}");
+        if (shortcuts) {
+            std::ofstream(directory.path / "shortcuts.json")
+                << R"({"schema_version":1,"profiles":[{"id":"b","name":"Bar","buttons":[)"
+                << R"({"label":"K","action":{"kind":"keys","chords":[{"key":"KeyK"}]}}]}],"free_profile":"b"})";
+        }
         Options options;
         options.mode = Mode::Vr; // App only; no VR runtime or actual backend is constructed.
         options.input = InputBackend::Ei;
@@ -292,13 +299,13 @@ void contextual_tables(const fs::path& directory) {
         f.recover();
         f.press("KeyA");
         f.press("Digit1");
-        require(f.app->holds_swipe_state(),
+        require(f.app->holds_typing_state(),
                 "Chinese context activates the existing off-key caret watch");
         f.press("KeyQ");
         f.press("KeyQ");
         require(first(*f.app) == "1 木", "a successful commit feeds the next code's context");
         f.app->cancel_pointer(0, true);
-        require(first(*f.app) == "1 木" && !f.app->holds_swipe_state(),
+        require(first(*f.app) == "1 木" && !f.app->holds_typing_state(),
                 "an observed edit clears context without changing any presented choice");
         f.press("Backspace");
         f.press("KeyQ");
@@ -394,7 +401,7 @@ void contextual_tables(const fs::path& directory) {
         f.press("Digit1");
         f.press("KeyQ");
         f.press("KeyQ");
-        require(first(*f.app) == "1 日" && !f.app->holds_swipe_state(),
+        require(first(*f.app) == "1 日" && !f.app->holds_typing_state(),
                 "sensitive/terminal fields do not retain contextual table text");
     }
     {
@@ -445,7 +452,7 @@ void contextual_tables(const fs::path& directory) {
         const auto r = panel_rect(view, key->bounds);
         f.sink.move_on_commit = true;
         f.app->down(7, r.x + r.width / 2, r.y + r.height / 2, f.now);
-        require(!f.app->holds_swipe_state(),
+        require(!f.app->holds_typing_state(),
                 "an acknowledgement that changes target cannot temporarily seed the new scope");
         f.app->up(7, r.x + r.width / 2, r.y + r.height / 2);
     }
@@ -618,6 +625,40 @@ std::optional<InputTable> fixture_table_for(const std::string& method) {
     return {};
 }
 
+// R333: a waiting reading's candidates stay out of the shortcut editor, as
+// out of Settings: not shown, taking no press, back when it closes.
+void readings_out_of_the_editor() {
+    Fixture f("zh-tw-cangjie", true);
+    f.recover();
+    f.press("KeyQ");
+    auto view = f.app->view();
+    require(view.candidates && !view.candidates->chips.empty() && view.ime_band && view.shortcut_bar,
+            "a reading waits with its candidates, the bar above");
+    const auto chip = view.candidates->chips.front().bounds;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        f.app->move(1, x, y);
+        f.app->down(1, x, y, f.now);
+        f.app->up(1, x, y);
+        f.tick(.01);
+    };
+    tap(view.shortcut_bar->picker);
+    tap(f.app->view().shortcut_bar->menu->manage);
+    view = f.app->view();
+    require(view.shortcut_editor && !view.candidates && !view.ime_band,
+            "under the editor the reading and its candidates are out of sight");
+    tap(chip);
+    require(f.app->view().shortcut_editor && f.sink.delivered().empty(),
+            "a press where a candidate was commits nothing");
+    for (const auto& c : f.app->view().controls) {
+        if (c.id == "shortcuts-back") {
+            tap(c.bounds);
+        }
+    }
+    view = f.app->view();
+    require(!view.shortcut_editor && view.candidates && !view.candidates->chips.empty() && view.ime_band,
+            "the candidates come back when the editor closes");
+}
 int main() {
     try {
         TemporaryDirectory database;
@@ -628,6 +669,7 @@ int main() {
         ranked_order(database.path);
         delivery_ledger();
         contextual_tables(database.path);
+        readings_out_of_the_editor();
         for (const auto* language : {"zh-tw-quick", "zh-tw-cangjie"}) {
             recovery(language, 32);
             recovery(language, 33);

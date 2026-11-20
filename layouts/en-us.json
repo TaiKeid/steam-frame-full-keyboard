@@ -4,7 +4,7 @@
   "name": "US QWERTY",
   "language": "en-us",
   "width": 1480,
-  "height": 416,
+  "height": 400,
   "keys": [
     {
       "id": "Emoji",
@@ -39,7 +39,7 @@
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 146,
+      "y": 142,
       "width": 79,
       "height": 70,
       "action": {
@@ -53,7 +53,7 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 226,
+      "y": 218,
       "width": 79,
       "height": 70,
       "action": {
@@ -67,9 +67,9 @@
       "label": "Dictation",
       "secondary_label": "",
       "x": 0,
-      "y": 306,
+      "y": 294,
       "width": 79,
-      "height": 110,
+      "height": 106,
       "action": {
         "kind": "dictation",
         "value": "mic"
@@ -433,7 +433,7 @@
       "label": "Tab",
       "secondary_label": "",
       "x": 120,
-      "y": 138,
+      "y": 134,
       "width": 84.6,
       "height": 62,
       "action": {
@@ -446,7 +446,7 @@
       "label": "Q",
       "secondary_label": "",
       "x": 210.6,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -459,7 +459,7 @@
       "label": "W",
       "secondary_label": "",
       "x": 271.0,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -472,7 +472,7 @@
       "label": "E",
       "secondary_label": "",
       "x": 331.4,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -485,7 +485,7 @@
       "label": "R",
       "secondary_label": "",
       "x": 391.8,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -498,7 +498,7 @@
       "label": "T",
       "secondary_label": "",
       "x": 452.2,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -511,7 +511,7 @@
       "label": "Y",
       "secondary_label": "",
       "x": 512.6,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -524,7 +524,7 @@
       "label": "U",
       "secondary_label": "",
       "x": 573.0,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -537,7 +537,7 @@
       "label": "I",
       "secondary_label": "",
       "x": 633.4,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -550,7 +550,7 @@
       "label": "O",
       "secondary_label": "",
       "x": 693.8,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -563,7 +563,7 @@
       "label": "P",
       "secondary_label": "",
       "x": 754.2,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -576,7 +576,7 @@
       "label": "[",
       "secondary_label": "{",
       "x": 814.6,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -589,7 +589,7 @@
       "label": "]",
       "secondary_label": "}",
       "x": 875.0,
-      "y": 138,
+      "y": 134,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -602,7 +602,7 @@
       "label": "\\",
       "secondary_label": "|",
       "x": 935.4,
-      "y": 138,
+      "y": 134,
       "width": 84.6,
       "height": 62,
       "action": {
@@ -615,7 +615,7 @@
       "label": "Caps Lock",
       "secondary_label": "",
       "x": 120,
-      "y": 210,
+      "y": 202,
       "width": 99.7,
       "height": 62,
       "action": {
@@ -628,7 +628,7 @@
       "label": "A",
       "secondary_label": "",
       "x": 225.7,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -641,7 +641,7 @@
       "label": "S",
       "secondary_label": "",
       "x": 286.1,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -654,7 +654,7 @@
       "label": "D",
       "secondary_label": "",
       "x": 346.5,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -667,7 +667,7 @@
       "label": "F",
       "secondary_label": "",
       "x": 406.9,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -680,7 +680,7 @@
       "label": "G",
       "secondary_label": "",
       "x": 467.3,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -693,7 +693,7 @@
       "label": "H",
       "secondary_label": "",
       "x": 527.7,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -706,7 +706,7 @@
       "label": "J",
       "secondary_label": "",
       "x": 588.1,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -719,7 +719,7 @@
       "label": "K",
       "secondary_label": "",
       "x": 648.5,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -732,7 +732,7 @@
       "label": "L",
       "secondary_label": "",
       "x": 708.9,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -745,7 +745,7 @@
       "label": ";",
       "secondary_label": ":",
       "x": 769.3,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -758,7 +758,7 @@
       "label": "'",
       "secondary_label": "\"",
       "x": 829.7,
-      "y": 210,
+      "y": 202,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -771,7 +771,7 @@
       "label": "Enter ↵",
       "secondary_label": "",
       "x": 890.1,
-      "y": 210,
+      "y": 202,
       "width": 129.9,
       "height": 62,
       "action": {
@@ -784,7 +784,7 @@
       "label": "Shift",
       "secondary_label": "",
       "x": 120,
-      "y": 282,
+      "y": 270,
       "width": 129.9,
       "height": 62,
       "action": {
@@ -797,7 +797,7 @@
       "label": "Z",
       "secondary_label": "",
       "x": 255.9,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -810,7 +810,7 @@
       "label": "X",
       "secondary_label": "",
       "x": 316.3,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -823,7 +823,7 @@
       "label": "C",
       "secondary_label": "",
       "x": 376.7,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -836,7 +836,7 @@
       "label": "V",
       "secondary_label": "",
       "x": 437.1,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -849,7 +849,7 @@
       "label": "B",
       "secondary_label": "",
       "x": 497.5,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -862,7 +862,7 @@
       "label": "N",
       "secondary_label": "",
       "x": 557.9,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -875,7 +875,7 @@
       "label": "M",
       "secondary_label": "",
       "x": 618.3,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -888,7 +888,7 @@
       "label": ",",
       "secondary_label": "<",
       "x": 678.7,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -901,7 +901,7 @@
       "label": ".",
       "secondary_label": ">",
       "x": 739.1,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -914,7 +914,7 @@
       "label": "/",
       "secondary_label": "?",
       "x": 799.5,
-      "y": 282,
+      "y": 270,
       "width": 54.4,
       "height": 62,
       "action": {
@@ -927,7 +927,7 @@
       "label": "Shift",
       "secondary_label": "",
       "x": 859.9,
-      "y": 282,
+      "y": 270,
       "width": 160.1,
       "height": 62,
       "action": {
@@ -940,7 +940,7 @@
       "label": "Ctrl",
       "secondary_label": "",
       "x": 120,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -953,7 +953,7 @@
       "label": "Super",
       "secondary_label": "",
       "x": 195.5,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -968,7 +968,7 @@
       "label": "Alt",
       "secondary_label": "",
       "x": 271.0,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -981,7 +981,7 @@
       "label": "",
       "secondary_label": "",
       "x": 346.5,
-      "y": 354,
+      "y": 338,
       "width": 371.5,
       "height": 62,
       "action": {
@@ -994,7 +994,7 @@
       "label": "Alt",
       "secondary_label": "",
       "x": 724.0,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -1007,7 +1007,7 @@
       "label": "☰",
       "secondary_label": "",
       "x": 875.0,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -1020,7 +1020,7 @@
       "label": "Super",
       "secondary_label": "",
       "x": 799.5,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -1035,7 +1035,7 @@
       "label": "Ctrl",
       "secondary_label": "",
       "x": 950.5,
-      "y": 354,
+      "y": 338,
       "width": 69.5,
       "height": 62,
       "action": {
@@ -1126,7 +1126,7 @@
       "label": "Delete",
       "secondary_label": "",
       "x": 1046,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1139,7 +1139,7 @@
       "label": "End",
       "secondary_label": "",
       "x": 1106,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1152,7 +1152,7 @@
       "label": "Pg Dn",
       "secondary_label": "",
       "x": 1166,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1165,7 +1165,7 @@
       "label": "↑",
       "secondary_label": "",
       "x": 1106,
-      "y": 282,
+      "y": 270,
       "width": 54,
       "height": 62,
       "action": {
@@ -1178,7 +1178,7 @@
       "label": "←",
       "secondary_label": "",
       "x": 1046,
-      "y": 354,
+      "y": 338,
       "width": 54,
       "height": 62,
       "action": {
@@ -1191,7 +1191,7 @@
       "label": "↓",
       "secondary_label": "",
       "x": 1106,
-      "y": 354,
+      "y": 338,
       "width": 54,
       "height": 62,
       "action": {
@@ -1204,7 +1204,7 @@
       "label": "→",
       "secondary_label": "",
       "x": 1166,
-      "y": 354,
+      "y": 338,
       "width": 54,
       "height": 62,
       "action": {
@@ -1269,7 +1269,7 @@
       "label": "7",
       "secondary_label": "Home",
       "x": 1246,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1282,7 +1282,7 @@
       "label": "8",
       "secondary_label": "↑",
       "x": 1306,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1295,7 +1295,7 @@
       "label": "9",
       "secondary_label": "Pg Up",
       "x": 1366,
-      "y": 138,
+      "y": 134,
       "width": 54,
       "height": 62,
       "action": {
@@ -1308,7 +1308,7 @@
       "label": "4",
       "secondary_label": "←",
       "x": 1246,
-      "y": 210,
+      "y": 202,
       "width": 54,
       "height": 62,
       "action": {
@@ -1321,7 +1321,7 @@
       "label": "5",
       "secondary_label": "",
       "x": 1306,
-      "y": 210,
+      "y": 202,
       "width": 54,
       "height": 62,
       "action": {
@@ -1334,7 +1334,7 @@
       "label": "6",
       "secondary_label": "→",
       "x": 1366,
-      "y": 210,
+      "y": 202,
       "width": 54,
       "height": 62,
       "action": {
@@ -1347,7 +1347,7 @@
       "label": "1",
       "secondary_label": "End",
       "x": 1246,
-      "y": 282,
+      "y": 270,
       "width": 54,
       "height": 62,
       "action": {
@@ -1360,7 +1360,7 @@
       "label": "2",
       "secondary_label": "↓",
       "x": 1306,
-      "y": 282,
+      "y": 270,
       "width": 54,
       "height": 62,
       "action": {
@@ -1373,7 +1373,7 @@
       "label": "3",
       "secondary_label": "Pg Dn",
       "x": 1366,
-      "y": 282,
+      "y": 270,
       "width": 54,
       "height": 62,
       "action": {
@@ -1386,9 +1386,9 @@
       "label": "+",
       "secondary_label": "",
       "x": 1426,
-      "y": 138,
+      "y": 134,
       "width": 54,
-      "height": 134,
+      "height": 130,
       "action": {
         "kind": "key",
         "value": "NumpadAdd"
@@ -1399,9 +1399,9 @@
       "label": "Enter",
       "secondary_label": "",
       "x": 1426,
-      "y": 282,
+      "y": 270,
       "width": 54,
-      "height": 134,
+      "height": 130,
       "action": {
         "kind": "key",
         "value": "NumpadEnter"
@@ -1412,7 +1412,7 @@
       "label": "0",
       "secondary_label": "Ins",
       "x": 1246,
-      "y": 354,
+      "y": 338,
       "width": 114,
       "height": 62,
       "action": {
@@ -1425,7 +1425,7 @@
       "label": ".",
       "secondary_label": "Del",
       "x": 1366,
-      "y": 354,
+      "y": 338,
       "width": 54,
       "height": 62,
       "action": {

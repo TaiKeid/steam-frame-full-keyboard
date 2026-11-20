@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_identity.hpp"
 #include "config.hpp"
 #include "terminal_keys.hpp"
 #include <cstdint>
@@ -68,9 +69,23 @@ class KeySink {
     // The target is a Steam field reached through Steam itself, not the
     // compositor's focused application, so the clipboard cannot reach it.
     virtual bool steam_field_target() const { return false; }
+    // Of those, a game or app streamed from a PC with Streaming support: the
+    // stream takes real key presses with their modifiers, so combinations
+    // reach it, though the clipboard still cannot (steam_field_target stays
+    // true for it). False for one of Steam's own fields.
+    virtual bool stream_session_target() const { return false; }
     // Gamescope's focused window, which typed text reaches; 0 when unknown or
     // when text goes elsewhere, such as a Steam field or the shell. Never blocks.
     virtual std::uint32_t focused_window() const { return 0; }
+    // Changes when the window with the keys may have changed where
+    // focused_window() can't show it: each activation SteamOS's Desktop
+    // reports inside its one Gamescope window. Beside the window, never in
+    // place of it; 0 where nothing reports. Never blocks.
+    virtual std::uint64_t focus_serial() const { return 0; }
+    // The app with the keys, with focused_window() in one snapshot
+    // (docs/shortcut-bar-design.md, Apps): no identity where it can't be
+    // told, as for uinput, a Steam field or a shell's field. Never blocks.
+    virtual FocusedApp focused_app() const { return {focused_window(), {}, {}}; }
     // The minimum gap between characters typed one at a time, for transports
     // that pace them (GamescopeText::set_character_gap).
     virtual void set_character_gap(double) {}
@@ -190,6 +205,12 @@ class KeyboardState {
     // Ends every press as cancel_pointer() does, and any other output hold,
     // keeping latches and locks: the keys come up, not the modifier state.
     void release_presses();
+    // Before a shortcut button's combinations, which carry their own
+    // modifiers: latched ones are cleared, not added, and held or locked
+    // ones kept down let up, as Cut, Copy and Paste do; a lock stays locked
+    // and goes down again with the next key that uses it. False, changing
+    // nothing, while another pointer holds a key down.
+    bool clear_for_shortcut();
     bool tick(double now);
     bool pressed(const std::string& id) const;
     std::set<int> modifiers() const;

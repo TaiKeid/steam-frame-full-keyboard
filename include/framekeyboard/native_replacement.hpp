@@ -47,8 +47,20 @@ class NativeReplacement : public KeySink {
     void set_streaming_support(bool on) { streaming_support_ = on; }
     bool single_line_target() const override { return remote_ && state_.active && !state_.multiline; }
     bool steam_field_target() const override { return remote_ && state_.active; }
+    // The routed request is a stream session, whose keys go out as presses
+    // and releases (send's stream_key), not one of Steam's fields.
+    bool stream_session_target() const override { return remote_ && state_.active && state_.stream; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
+    // On Steam's route each request is a target of its own: another stream,
+    // a Steam field after a stream, or its end changes it, as another window
+    // would, so a shortcut bar run ends there (R360). Held keys still go up
+    // through the request they went down in (send).
+    std::uint64_t focus_serial() const override {
+        return remote_ ? state_.request : local_.focus_serial();
+    }
+    // The keys go to Steam's own field: no app has them.
+    FocusedApp focused_app() const override { return remote_ ? FocusedApp{} : local_.focused_app(); }
     void set_character_gap(double seconds) override { local_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { local_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return local_.desktop_focused(); }
@@ -154,6 +166,9 @@ class NativeReplacement : public KeySink {
     // and 1 s and a tenth of a second per byte to finish, both counted from this send (R257), and
     // half a second more.
     double pending_limit_{1.0};
+    // When the stream keys sent are estimated through to the PC (R369): the library holds a text back
+    // until then, so a text's wait grows by that time, as the helper's does.
+    double stream_keys_through_{};
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

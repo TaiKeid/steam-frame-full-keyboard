@@ -2355,10 +2355,15 @@ void app_composition(const Profiles& profiles, const std::string& group = "") {
         require(sink.events.size() == 3 && sink.events[1] == "15:1", "commit precedes physical Tab");
         if (std::string(id).starts_with("zh-")) {
             sink.events.clear();
+            require(!app.stick_scrolls(), "nothing to scroll: the stick isn't read");
             for (const auto* action : {"KeyN", "KeyI", "KeyH", "KeyA", "KeyO"}) {
                 click(app, action);
             }
             app.tick(2);
+            // R345: a candidate row with more than fits takes the stick
+            // outside the dashboard, with no shortcut bar.
+            require(!app.view().shortcut_bar && app.stick_scrolls(),
+                    "an overflowing candidate row takes the stick, without the bar");
             const auto strip = app.view().candidates;
             const auto line = ime_band(app.view());
             require(strip && !strip->chips.empty() && strip->area.y == line.candidates.y &&

@@ -4,7 +4,7 @@
   "name": "Japanese flick",
   "language": "ja-flick",
   "width": 1020.0,
-  "height": 278,
+  "height": 266,
   "latin_layout": "ja-flick-qwerty",
   "keys": [
     {
@@ -12,9 +12,9 @@
       "label": "あア",
       "secondary_label": "",
       "x": 0,
-      "y": 0.0,
+      "y": 0,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "flick",
         "value": "script"
@@ -25,9 +25,9 @@
       "label": "Cut",
       "secondary_label": "",
       "x": 0,
-      "y": 57.6,
+      "y": 54.4,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "cut"
@@ -39,9 +39,9 @@
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 115.2,
+      "y": 108.8,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -53,9 +53,9 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 172.8,
+      "y": 163.2,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "paste"
@@ -67,9 +67,9 @@
       "label": "Dictation",
       "secondary_label": "",
       "x": 0,
-      "y": 230.4,
+      "y": 217.6,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "dictation",
         "value": "mic"
@@ -94,7 +94,7 @@
       "label": "←",
       "secondary_label": "",
       "x": 120,
-      "y": 72,
+      "y": 68,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -107,7 +107,7 @@
       "label": "Emoji",
       "secondary_label": "",
       "x": 120,
-      "y": 144,
+      "y": 136,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -121,7 +121,7 @@
       "label": "あA1",
       "secondary_label": "",
       "x": 120,
-      "y": 216,
+      "y": 204,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -148,7 +148,7 @@
       "label": "→",
       "secondary_label": "",
       "x": 886.5,
-      "y": 72,
+      "y": 68,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -161,7 +161,7 @@
       "label": "空白",
       "secondary_label": "",
       "x": 886.5,
-      "y": 144,
+      "y": 136,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -175,7 +175,7 @@
       "label": "改行",
       "secondary_label": "",
       "x": 886.5,
-      "y": 216,
+      "y": 204,
       "width": 133.5,
       "height": 62,
       "action": {
@@ -228,7 +228,7 @@
       "label": "た",
       "secondary_label": "",
       "x": 259.5,
-      "y": 72,
+      "y": 68,
       "width": 203,
       "height": 62,
       "action": {
@@ -241,7 +241,7 @@
       "label": "な",
       "secondary_label": "",
       "x": 468.5,
-      "y": 72,
+      "y": 68,
       "width": 203,
       "height": 62,
       "action": {
@@ -254,7 +254,7 @@
       "label": "は",
       "secondary_label": "",
       "x": 677.5,
-      "y": 72,
+      "y": 68,
       "width": 203,
       "height": 62,
       "action": {
@@ -267,7 +267,7 @@
       "label": "ま",
       "secondary_label": "",
       "x": 259.5,
-      "y": 144,
+      "y": 136,
       "width": 203,
       "height": 62,
       "action": {
@@ -280,7 +280,7 @@
       "label": "や",
       "secondary_label": "",
       "x": 468.5,
-      "y": 144,
+      "y": 136,
       "width": 203,
       "height": 62,
       "action": {
@@ -293,7 +293,7 @@
       "label": "ら",
       "secondary_label": "",
       "x": 677.5,
-      "y": 144,
+      "y": 136,
       "width": 203,
       "height": 62,
       "action": {
@@ -306,7 +306,7 @@
       "label": "゛゜小",
       "secondary_label": "",
       "x": 259.5,
-      "y": 216,
+      "y": 204,
       "width": 203,
       "height": 62,
       "action": {
@@ -319,7 +319,7 @@
       "label": "わ",
       "secondary_label": "",
       "x": 468.5,
-      "y": 216,
+      "y": 204,
       "width": 203,
       "height": 62,
       "action": {
@@ -332,7 +332,7 @@
       "label": "、。?!",
       "secondary_label": "",
       "x": 677.5,
-      "y": 216,
+      "y": 204,
       "width": 203,
       "height": 62,
       "action": {

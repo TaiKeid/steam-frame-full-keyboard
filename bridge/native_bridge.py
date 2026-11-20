@@ -122,6 +122,13 @@ STREAM_TEXT_BYTES = 2000
 STREAM_TEXT_START = 2.0
 STREAM_TEXT_FINISH = 1.0
 STREAM_TEXT_WAIT_PER_BYTE = 0.1
+# The library holds a text back until our keys are through to a Windows PC (R369): 75 ms a key-down,
+# 140 ms when it is the same key again (its kKeyOnTheWayMs, kSameKeyOnTheWayMs), so a text behind many
+# keys, such as a candidate's Backspaces, starts late by design. Its waits grow by the keys' time,
+# counted at the longer of the two for every key-down so they never fall short of the library's.
+STREAM_KEY_ON_THE_WAY = 0.14
+# Shifted characters the library types as Shift and a key: two key-downs.
+STREAM_SHIFTED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ~!@#$%^&*()_+{}|:\"<>?")
 # SDL scancodes (USB HID usages) of the named keys a remote session can press, and whether Shift is
 # held. They are the streaming client's codes: never Linux evdev or Steam key codes.
 STREAM_KEYS = {"Backspace": (42, False), "Enter": (40, False), "ShiftEnter": (40, True), "Tab": (43, False),
@@ -140,7 +147,10 @@ STREAM_SCANCODES = {
     66: 65, 67: 66, 68: 67, 69: 83, 70: 71, 71: 95, 72: 96, 73: 97, 74: 86, 75: 92, 76: 93, 77: 94, 78: 87,
     79: 89, 80: 90, 81: 91, 82: 98, 83: 99, 86: 100, 87: 68, 88: 69, 96: 88, 97: 228, 98: 84, 99: 70,
     100: 230, 102: 74, 103: 82, 104: 75, 105: 80, 106: 79, 107: 77, 108: 81, 109: 78, 110: 73, 111: 76,
-    119: 72, 125: 227, 126: 231, 127: 101}
+    119: 72, 125: 227, 126: 231, 127: 101,
+    # F13 to F24, which only shortcut buttons send.
+    183: 104, 184: 105, 185: 106, 186: 107, 187: 108, 188: 109, 189: 110, 190: 111, 191: 112, 192: 113,
+    193: 114, 194: 115}
 # SDL modifier bits of the modifier keys, by Linux key code: both Shifts, Ctrls, Alts and Metas.
 STREAM_MODIFIERS = {42: 0x0001, 54: 0x0002, 29: 0x0040, 97: 0x0080, 56: 0x0100, 100: 0x0200,
                     125: 0x0400, 126: 0x0800}
@@ -173,6 +183,11 @@ class StreamChannel:
         self.clicked = False
         self.modifiers = 0  # SDL modifier bits of the keys pressed with press()
         self.client_pid = None
+        # When the keys sent are estimated through to the PC (R369, STREAM_KEY_ON_THE_WAY), and for the
+        # last text sent: how long the keys before it still had, and its own typed keys' time.
+        self.keys_through = 0.0
+        self.last_text_lead = 0.0
+        self.last_text_taps = 0.0
         # A text of this session found no room: its later keys must not arrive without it.
         self.text_failed = False
         # A client went away since the main loop last asked (take_lost), even if another has connected
@@ -404,11 +419,26 @@ class StreamChannel:
             self._drop()
             return False
 
+    def _keys_down(self, count):
+        """`count` key-downs sent now: the estimate of when they are through moves on (R369)."""
+        self.keys_through = max(self.keys_through, time.monotonic()) + STREAM_KEY_ON_THE_WAY * count
+
+    @staticmethod
+    def typed_key_downs(text):
+        """The key-downs the library types for a text's ASCII: one a character, two with Shift."""
+        return sum(1 + (c in STREAM_SHIFTED) for c in text
+                   if " " <= c <= "~" or c in "\n\r\b\t")
+
     def send_text(self, text, token=None):
         """Sends a text; with `token`, and a client that answers, the text then waits (waiting()) for
         the client to type all of it, and take_results() says how that went."""
         if self.text_failed:
             return False  # A later text alone would leave a hole where the failed one belongs.
+        # Its start waits for the keys before it; its typing, for its own ASCII keys too (R369).
+        self.last_text_lead = max(0.0, self.keys_through - time.monotonic())
+        downs = self.typed_key_downs(text)
+        self.last_text_taps = STREAM_KEY_ON_THE_WAY * downs
+        self._keys_down(downs)
         data = text.encode()
         ok = bool(data)
         waits = token is not None and self.answers
@@ -435,6 +465,7 @@ class StreamChannel:
             return False  # After a text that failed, no key of the session: no Enter without its text.
         scancode, shift = key
         mod = STREAM_MOD_LEFT_SHIFT if shift else 0
+        self._keys_down(2 if shift else 1)
         events = [(scancode, mod, 1), (scancode, mod, 0)]
         if shift:
             events = [(STREAM_LEFT_SHIFT, mod, 1), *events, (STREAM_LEFT_SHIFT, 0, 0)]
@@ -448,6 +479,8 @@ class StreamChannel:
         if value != 0 and self.text_failed:
             return False  # After a text that failed, no press of the session; releases still go.
         bit = STREAM_MODIFIERS.get(code, 0)
+        if value != 0:
+            self._keys_down(1)  # a press, or a repeat's fresh press
         if value == 1:
             self.modifiers |= bit
         elif value == 0:
@@ -917,15 +950,17 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         # so only the installed, live bridge owns it, and only while the setting is on (R176).
         stream_request = None
         # Texts into a stream that wait for the library to type them (R164): id -> (request, when the app
-        # sent it, its size in bytes).
+        # sent it, its size in bytes, the keys' time before it and its own keys' time, R369).
         stream_texts = {}
 
-        def text_deadline(token, sent, size):
-            """Until it starts typing, a text waits from the app's sending it; then, for its typing."""
+        def text_deadline(token, sent, size, lead, taps):
+            """Until it starts typing, a text waits from the app's sending it; then, for its typing.
+            Both grow by the time the library holds it back behind our keys (R369): `lead` for the
+            keys before it, `taps` for its own ASCII typed as keys."""
             started = stream.started(token) if stream else None
             if started is None:
-                return sent + STREAM_TEXT_START
-            return started + STREAM_TEXT_FINISH + STREAM_TEXT_WAIT_PER_BYTE * size
+                return sent + STREAM_TEXT_START + lead
+            return started + STREAM_TEXT_FINISH + STREAM_TEXT_WAIT_PER_BYTE * size + lead + taps
         stream_click = False  # The user clicked the stream; reported to the bridge with the next poll.
         # The stream session whose streaming client went away, reported once with the next poll.
         stream_gone = None
@@ -1086,8 +1121,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
             session instead (note_lost)."""
             answered = stream.take_results() if stream else []
             now = time.monotonic()
-            for token, (_, sent, size) in list(stream_texts.items()):
-                if now >= text_deadline(token, sent, size):
+            for token, (_, sent, size, lead, taps) in list(stream_texts.items()):
+                if now >= text_deadline(token, sent, size, lead, taps):
                     # Not started: taken back, so it cannot arrive after being reported as not sent
                     # (R256). Started: it finishes if the stream resumes.
                     if stream and stream.started(token) is None:
@@ -1110,8 +1145,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
         while True:
             if not Path(__file__).is_file() or not Path(__file__).with_name("steam_bridge.js").is_file():
                 break  # Removing an installed app also withdraws a still-running bridge.
-            wake = min([next_poll] + [text_deadline(token, sent, size)
-                                      for token, (_, sent, size) in stream_texts.items()])
+            wake = min([next_poll] + [text_deadline(token, *entry[1:])
+                                      for token, entry in stream_texts.items()])
             readable, _, _ = select.select([parent] + (stream.sockets() if stream else []),
                                            [parent] if channel.waiting() else [], [],
                                            0 if pending else max(0, wake - time.monotonic()))
@@ -1167,7 +1202,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                                         not now - 10 < sent <= now + .1):
                                     sent = now
                                 stream_texts[message["id"]] = (message["request"], sent,
-                                                               len(message["text"].encode()))
+                                                               len(message["text"].encode()),
+                                                               stream.last_text_lead, stream.last_text_taps)
                         else:
                             # The JS side checks the target and lease again at delivery.
                             ok = evaluate(f"{reference}?.bridge.send({message['request']},"

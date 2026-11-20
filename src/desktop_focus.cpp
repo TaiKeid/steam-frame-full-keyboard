@@ -29,8 +29,12 @@ struct DesktopFocus::State {
     std::atomic<bool> desktop_waiting{};
     std::atomic<std::int64_t> desktop_waiting_since{};
     std::atomic<std::uint64_t> window{}; // X window << 32 | Steam app ID
+    std::atomic<std::uint64_t> desktop_activations{}; // DesktopTerminal::activations
     mutable std::mutex mutex;
     std::string title; // the focused window's, for Keep open's cue and tooltip
+    // The focused window with its app's identity, under mutex: one snapshot,
+    // so a new window never shows with the last one's app. Never logged.
+    FocusedApp app;
     // The focusable list's windows, under mutex, and how often it changed.
     std::vector<std::uint32_t> windows;
     std::atomic<std::uint64_t> windows_changed{};
@@ -115,6 +119,8 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     const std::uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(connection, root, XCB_CW_EVENT_MASK, &mask);
     std::uint32_t pid = 0;
+    std::string program;       // the focused process's, kept while it has the focus
+    std::uint64_t current = 0; // the focused window << 32 | its Steam app ID
     bool nested = false, streams = false, stale = true;
     auto edit_keys = EditKeys::Standard;
     // The Desktop's own bus, found once per compositor; its KWin reports the
@@ -123,6 +129,24 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
     std::string desktop_bus;
     bool desktop = false;
     std::chrono::steady_clock::time_point retry_at;
+    // The identity follows the focused window and, inside the Desktop, its
+    // KWin's reports; published with the window it belongs to.
+    const auto publish_app = [&] {
+        FocusFacts facts;
+        facts.window = static_cast<std::uint32_t>(current >> 32);
+        facts.steam_app = static_cast<std::uint32_t>(current);
+        facts.program = facts.window ? program : std::string();
+        facts.desktop = facts.window && nested;
+        if (desktop && terminal.attached(desktop_bus) && terminal.reported()) {
+            facts.desktop_app = terminal.app();
+        }
+        FocusedApp app{facts.window, focus_identity(facts), facts.program,
+                       facts.window != 0 && facts.steam_app == steam_client_app_id};
+        std::lock_guard lock(state.mutex);
+        if (app != state.app) {
+            state.app = std::move(app);
+        }
+    };
     // Until the Desktop's KWin reports, its keys are only a guess.
     const auto follow_report = [&] {
         const bool waiting = desktop && !(terminal.attached(desktop_bus) && terminal.reported());
@@ -160,7 +184,8 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                     // only what its program name says is kept.
                     if (list[i + 2] != pid) {
                         pid = list[i + 2];
-                        const auto name = DesktopFocus::program(pid);
+                        program = DesktopFocus::program(pid);
+                        const auto& name = program;
                         nested = name == "kwin_wayland";
                         streams = stream_client(name);
                         edit_keys = terminal_edit_keys(name);
@@ -176,6 +201,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             state.focused = focused;
             state.streaming = streaming;
             state.window = packed;
+            current = packed;
             desktop = focused && !desktop_bus.empty();
             if (desktop && terminal.attached(desktop_bus)) {
                 keys = terminal.edit_keys();
@@ -183,6 +209,7 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
             retry_at = {}; // Attached below if not yet, before the next wait.
             state.edit_keys = keys;
             follow_report();
+            publish_app();
             // Keep open's cue forgets the titles of windows no longer listed.
             std::vector<std::uint32_t> windows;
             for (std::size_t i = 0; i + 2 < list.size(); i += 3) {
@@ -229,7 +256,9 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
         if (terminal.process() && desktop) {
             state.edit_keys = terminal.edit_keys();
         }
+        state.desktop_activations = terminal.activations();
         follow_report();
+        publish_app();
         // sd-bus may need to wake for its own timeouts, or at once when more
         // messages wait in its queue.
         int timeout = terminal.timeout();
@@ -239,7 +268,9 @@ void watch_connection(DesktopFocus::State& state, xcb_connection_t* connection, 
                 if (terminal.attach(desktop_bus)) {
                     terminal.process(); // The script reports the active window as it starts.
                     state.edit_keys = terminal.edit_keys();
+                    state.desktop_activations = terminal.activations();
                     follow_report();
+                    publish_app();
                 }
                 now = std::chrono::steady_clock::now();
                 retry_at = now + desktop_retry;
@@ -272,6 +303,7 @@ void watch(const std::shared_ptr<DesktopFocus::State>& state) {
         {
             std::lock_guard lock(state->mutex);
             state->title.clear();
+            state->app = {};
         }
         wait(*state, -1, retry_milliseconds);
     }
@@ -290,6 +322,10 @@ DesktopFocus::~DesktopFocus() {
         const std::uint64_t one = 1;
         [[maybe_unused]] const auto written = write(state_->wake, &one, sizeof one);
     }
+}
+FocusedApp DesktopFocus::focused_app() const {
+    std::lock_guard lock(state_->mutex);
+    return state_->app;
 }
 std::string DesktopFocus::title() const {
     std::lock_guard lock(state_->mutex);
@@ -320,6 +356,9 @@ bool DesktopFocus::edit_keys_known() const {
         std::chrono::steady_clock::now().time_since_epoch().count() -
         state_->desktop_waiting_since.load()};
     return waited >= desktop_report_wait;
+}
+std::uint64_t DesktopFocus::desktop_activations() const {
+    return state_->desktop_activations.load();
 }
 DesktopFocus::Window DesktopFocus::window() const {
     const auto packed = state_->window.load();
@@ -491,10 +530,68 @@ std::string DesktopFocus::program(std::uint32_t pid) {
     if (pid == 0) {
         return {};
     }
-    std::ifstream file("/proc/" + std::to_string(pid) + "/cmdline", std::ios::binary);
+    const std::string process = "/proc/" + std::to_string(pid);
+    std::ifstream file(process + "/cmdline", std::ios::binary);
     std::string program;
     std::getline(file, program, '\0');
-    return std::filesystem::path(program).filename().string();
+    // Only the executable's file name is kept; an unreadable link, such as
+    // a process gone or out of reach, leaves the first argument's.
+    std::error_code error;
+    auto executable = std::filesystem::read_symlink(process + "/exe", error).filename().string();
+    if (error) {
+        executable.clear();
+    }
+    constexpr std::string_view deleted = " (deleted)"; // the file replaced since it started
+    if (executable.ends_with(deleted)) {
+        executable.resize(executable.size() - deleted.size());
+    }
+    return program_name(program, executable);
+}
+std::string program_name(std::string_view first_argument, std::string_view executable) {
+    const auto file = [](std::string_view path) {
+        const auto separator = path.rfind('/');
+        return separator == std::string_view::npos ? path : path.substr(separator + 1);
+    };
+    if (!executable.empty()) {
+        for (auto space = first_argument.find(' '); space != std::string_view::npos;
+             space = first_argument.find(' ', space + 1)) {
+            if (file(first_argument.substr(0, space)) == executable) {
+                return std::string(executable);
+            }
+        }
+    }
+    return std::filesystem::path(first_argument).filename().string();
+}
+std::optional<AppIdentity> focus_identity(const FocusFacts& facts) {
+    const auto valid = [](AppIdentity app) -> std::optional<AppIdentity> {
+        if (!app_identity_valid(app)) {
+            return {}; // An ID shortcuts.json could not hold is no identity.
+        }
+        return app;
+    };
+    if (facts.window == 0 || facts.steam_app == steam_client_app_id) {
+        return {}; // Nothing focused, or Steam's own window.
+    }
+    if (facts.desktop) {
+        // Inside the Desktop only its KWin can tell; none before it reports
+        // and while no window is active there.
+        if (!facts.desktop_app || facts.desktop_app->empty()) {
+            return {};
+        }
+        return valid({AppIdentity::Kind::Desktop, *facts.desktop_app});
+    }
+    // A streaming client's file name outlasts the ID of a non-Steam shortcut
+    // that started it.
+    if (stream_client(facts.program)) {
+        return valid({AppIdentity::Kind::Program, facts.program});
+    }
+    if (facts.steam_app) {
+        return valid({AppIdentity::Kind::Steam, std::to_string(facts.steam_app)});
+    }
+    if (facts.program.empty()) {
+        return {};
+    }
+    return valid({AppIdentity::Kind::Program, facts.program});
 }
 bool DesktopFocus::nested_compositor(std::uint32_t pid) {
     return program(pid) == "kwin_wayland";

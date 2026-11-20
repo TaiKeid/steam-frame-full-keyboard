@@ -4890,6 +4890,70 @@ void reopen_counts() {
     flick(app, "undo", now + .8);
     require(app.view().preedit == "い", "↶ on the digits page steps the kana back");
 }
+// A laser that points away with its trigger at rest, as when it crosses the
+// open strip between the candidate band and the keys under Background
+// Disabled, leaves ↶ and the next pair alone: the VR loop and the simulator
+// only move it off while holds_typing_state(). A pull off the keys ends them.
+void resting_laser_keeps_the_phrase() {
+    struct KanjiConverter : JapaneseConverter {
+        std::vector<Segment> convert(const std::string& reading) override {
+            return {{reading, {reading == "な" ? "猫" : "蚊", reading}}};
+        }
+        std::vector<Segment> resize(int, int) override { return {}; }
+    };
+    char directory[] = "/tmp/framekeyboard-resting-XXXXXX";
+    require(mkdtemp(directory), "temporary resting profile");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { fs::remove_all(path); }
+    } cleanup{directory};
+    Options options;
+    options.wait_for_japanese = true; // Answers as the step that asks.
+    options.config_dir = directory;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.japanese_converter = [] { return std::make_unique<KanjiConverter>(); };
+    Sink sink;
+    App app(options, sink);
+    app.apply({"ja-flick-12", "ja-flick", "graphite"});
+    double now = 1;
+    // Pointer 7 picks from the band, as click_candidate does.
+    const auto pick = [&](const char* slot, const char* phrase) {
+        flick(app, slot, now += .5);
+        click_key(app, "Space");
+        app.tick(now += .01);
+        require(click_candidate(app, phrase, now += .01) && sink.text.back() == phrase,
+                std::string("the band commits ") + phrase);
+    };
+    const auto rest_away = [&] {
+        require(app.holds_typing_state(), "after a commit, a laser pointing away is watched, not canceled");
+        app.move(7, -1e4, -1e4); // What the gap watch and the simulator do.
+        app.tick(now += .01);
+    };
+    pick("na", "猫");
+    rest_away();
+    sink.keys.clear();
+    flick(app, "undo", now += .5);
+    require(app.view().preedit == "な" && sink.keys.size() == 2u,
+            "back on the keys, ↶ brings the phrase back as its reading");
+    click_key(app, "Backspace");
+    require(app.view().preedit.empty(), "the reading goes");
+    // 猫, away at rest, then 蚊 from the band: 蚊 is learned to follow 猫.
+    pick("na", "猫");
+    rest_away();
+    pick("ka", "蚊");
+    pick("na", "猫");
+    const auto chips = app.view().candidates;
+    require(chips && !chips->chips.empty() && chips->chips.front().text == "蚊",
+            "the pair across the resting laser is learned and offered");
+    // A pull off the keys may have moved the field's cursor: ↶ does nothing.
+    app.cancel_pointer(7, true);
+    sink.keys.clear();
+    flick(app, "undo", now += .5);
+    require(app.view().preedit.empty() && sink.keys.empty(), "after a pull off the keys ↶ takes nothing back");
+}
 void slow_reopen() {
     struct SlowSink : Sink {
         bool hold = false, hold_text = false, text_waiting = false;
@@ -5428,6 +5492,7 @@ int main() {
         reading_cursor();
         slow_reopen();
         reopen_counts();
+        resting_laser_keeps_the_phrase();
         flick_pages_keep_toolbar();
         romaji_legends();
         flick_input();

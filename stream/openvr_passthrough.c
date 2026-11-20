@@ -17,6 +17,15 @@
 // private local socket: text as SDL text events, keys as SDL key events. Steam's own keyboard and every
 // other keyboard keep their stock behaviour.
 //
+// A text never follows key events of ours closely (R369): on the way to a Windows PC each key is held
+// some 62 ms (46 to 117, n=51 in a capture), the next one's down coming out with the previous one's up,
+// so taps pushed a frame apart arrive a key at a time, and the same key again takes about twice that; a
+// text that arrives behind keys still on the way comes with mouse-button presses that lock the PC's
+// clicking. So a text waits until our keys are estimated through (kKeyOnTheWayMs a key-down,
+// kSameKeyOnTheWayMs for the same key again) and 150 ms more ("text-after-key"). The rule is about what
+// the library pushes, whichever feature of Full Keyboard sent it: typed letters, swiped words, changed
+// candidates, suggestions, emoji, input methods, dictation.
+//
 // Nothing here stores or logs what is typed.
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -66,6 +75,12 @@ enum {
     kModLeftShift = 0x0001,  // SDL_KMOD_LSHIFT
     kModLeftCtrl = 0x0040,   // SDL_KMOD_LCTRL
     kProtocol = 1,
+    // How long a key-down of ours holds the way to a Windows PC (R369). In the PC's captures each key
+    // was held 46 to 117 ms on the way (median 62, n=51), and the next different key's down came out
+    // with the previous one's up: 75 covers most of them. The same key again waited 46 to 69 ms more
+    // after the previous up, about 122 ms a tap (9 Backspaces took 1035 ms): 140.
+    kKeyOnTheWayMs = 75,
+    kSameKeyOnTheWayMs = 140,
 };
 
 typedef intptr_t (*GetGenericInterfaceFn)(const char* version, int* error);
@@ -110,7 +125,11 @@ typedef struct {
     bool first; // a commit's first step: once it is typed, Full Keyboard hears the commit started
     bool ack;   // a commit's last step: once it is typed, Full Keyboard hears whether all of it went
     uint32_t commit; // the commit's number, counted from Full Keyboard's 'Q'
+    // A text: how long it waits after our keys are through (R369), read when its commit came; 0: none.
+    uint16_t after_key_ms;
 } Queued;
+
+static uint64_t now_ms(void);
 
 static void* overlay_table[kOverlayFunctions];
 static PollFn real_poll;
@@ -135,6 +154,13 @@ static unsigned dropped_mods;
 
 static int stream_socket = -1;
 static uint64_t next_connect_ms;
+// When our key events are estimated to be through to the PC (R369): each key-down pushed holds the way
+// kKeyOnTheWayMs from when it can start, kSameKeyOnTheWayMs when it is the same key as the key-down
+// before it and that can still be on the way; a key-up only from when it was pushed. A text waits until
+// then and its after_key_ms more.
+static uint64_t keys_through_ms;
+static unsigned last_down_key; // the previous key-down's scancode
+static bool any_key_down;
 // Full Keyboard asked ('Q') to hear of each commit, by its number (R164, R255): 'S' when its first
 // step is typed, 'A' once its last step is, 'D' when it was dropped, withdrawn or a step of it was
 // refused. Commits are numbered in the order they arrive after 'Q', as Full Keyboard sends them. A
@@ -156,6 +182,45 @@ static bool switch_file(const char* name) {
     return directory[0] != '\0' &&
            snprintf(path, sizeof path, "%s/%s", directory, name) < (int)sizeof path &&
            access(path, F_OK) == 0;
+}
+
+// A switch file's content as a decimal number of milliseconds, clamped to `low`..`high`: `fallback`
+// when it is empty, unreadable or not a number. Spaces and a line break around it are allowed.
+static unsigned switch_milliseconds(const char* name, unsigned fallback, unsigned low, unsigned high) {
+    char path[512];
+    if (directory[0] == '\0' ||
+        snprintf(path, sizeof path, "%s/%s", directory, name) >= (int)sizeof path) {
+        return fallback;
+    }
+    FILE* file = fopen(path, "r");
+    if (!file) {
+        return fallback;
+    }
+    char text[16];
+    const size_t length = fread(text, 1, sizeof text - 1, file);
+    fclose(file);
+    text[length] = '\0';
+    const char* at = text;
+    while (*at == ' ' || *at == '\t') {
+        ++at;
+    }
+    if (*at < '0' || *at > '9') {
+        return fallback;
+    }
+    unsigned long value = 0;
+    while (*at >= '0' && *at <= '9') {
+        value = value * 10 + (unsigned long)(*at++ - '0');
+        if (value > high) {
+            value = high; // and no overflow, however long
+        }
+    }
+    while (*at == ' ' || *at == '\t' || *at == '\r' || *at == '\n') {
+        ++at;
+    }
+    if (*at != '\0') {
+        return fallback;
+    }
+    return value < low ? low : (unsigned)value;
 }
 
 // Whole, well-formed UTF-8 only: a cut or malformed sequence is never typed.
@@ -268,6 +333,23 @@ static uint32_t keycode_for(unsigned scancode) {
     return 0x40000000u | scancode; // SDL_SCANCODE_TO_KEYCODE
 }
 
+// A key event pushed, by its scancode: when our keys are through to the PC, as estimated
+// (keys_through_ms).
+static void key_pushed_at(bool down, unsigned scancode) {
+    const uint64_t now = now_ms();
+    // The same key again waits for the previous one only while that can still be on the way.
+    const bool queued = keys_through_ms > now;
+    if (!queued) {
+        keys_through_ms = now;
+    }
+    if (down) {
+        keys_through_ms +=
+            queued && any_key_down && scancode == last_down_key ? kSameKeyOnTheWayMs : kKeyOnTheWayMs;
+        last_down_key = scancode;
+        any_key_down = true;
+    }
+}
+
 // A key counts as down or up only once SDL has taken the event: a release it refuses is tried again at
 // the next clean-up (R249).
 static bool push_key(unsigned scancode, unsigned mod, bool down) {
@@ -286,6 +368,7 @@ static bool push_key(unsigned scancode, unsigned mod, bool down) {
         return false;
     }
     held[scancode] = down;
+    key_pushed_at(down, scancode);
     return true;
 }
 
@@ -301,14 +384,14 @@ static void queue_key(unsigned scancode, unsigned mod, bool down, bool typed) {
                                                             .typed = typed};
 }
 
-static bool queue_text(const unsigned char* bytes, size_t length) {
+static bool queue_text(const unsigned char* bytes, size_t length, unsigned after_key_ms) {
     char* copy = malloc(length);
     if (!copy) {
         return false;
     }
     memcpy(copy, bytes, length);
-    queue[(queue_head + queue_count++) % kQueue] =
-        (Queued){.text = copy, .length = (uint16_t)length, .typed = true};
+    queue[(queue_head + queue_count++) % kQueue] = (Queued){
+        .text = copy, .length = (uint16_t)length, .typed = true, .after_key_ms = (uint16_t)after_key_ms};
     return true;
 }
 
@@ -427,6 +510,9 @@ static size_t typing_entries(const unsigned char* bytes, size_t length, bool uni
 // "unicode-keys" switch, as Unicode-entry key presses). False when the queue cannot take all of it.
 static bool queue_typing(const unsigned char* bytes, size_t length) {
     const bool unicode_keys = switch_file("unicode-keys");
+    // How long a text waits after our keys are through: 150 ms, or "text-after-key"'s number, 0 (no
+    // wait at all, as before) to 500 (R369).
+    const unsigned after_key_ms = switch_milliseconds("text-after-key", 150, 0, 500);
     if (queue_count + typing_entries(bytes, length, unicode_keys) > kQueue) {
         return false;
     }
@@ -455,7 +541,7 @@ static bool queue_typing(const unsigned char* bytes, size_t length) {
         while (end < length && bytes[end] >= 0x80) {
             end += sequence_length(bytes[end]);
         }
-        if (!queue_text(bytes + i, end - i)) {
+        if (!queue_text(bytes + i, end - i, after_key_ms)) {
             return false;
         }
         i = end;
@@ -545,6 +631,10 @@ static void pump_queue(void) {
     while (queue_count != 0) {
         if (queue[queue_head].text && text_slots_busy()) {
             return; // it stays first in line until SDL's client has taken some texts
+        }
+        if (queue[queue_head].text && queue[queue_head].after_key_ms != 0 &&
+            now_ms() < keys_through_ms + queue[queue_head].after_key_ms) {
+            return; // it stays first in line until our keys are through, and a while more
         }
         Queued next = queue[queue_head];
         queue_head = (queue_head + 1) % kQueue;
@@ -917,8 +1007,10 @@ __attribute__((visibility("default"))) intptr_t VR_GetGenericInterface(const cha
 }
 
 __attribute__((constructor)) static void fk_loaded(void) {
-    // Switch files live next to this file: "off" (do nothing) and "unicode-keys" (type non-ASCII as
-    // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam).
+    // Switch files live next to this file: "off" (do nothing), "unicode-keys" (type non-ASCII as
+    // Ctrl+Shift+U key presses, for a Linux PC whose desktop does not take text from Steam) and
+    // "text-after-key" (how many milliseconds a text waits after our keys are through, 0 to 500,
+    // instead of 150; 0 turns the wait off).
     Dl_info info;
     if (dladdr((void*)fk_loaded, &info) && info.dli_fname) {
         const char* slash = strrchr(info.dli_fname, '/');

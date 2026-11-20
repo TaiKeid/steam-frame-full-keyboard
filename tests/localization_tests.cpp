@@ -246,6 +246,18 @@ void bundled_tests() {
     }
     l.choose({"latam", ""});
     require(l.number(1234) == "1234" && l.number(12345) == "12,345", "es-419 numbers");
+    // R377: a wait's seconds with the language's decimal mark.
+    require(l.decimal(.5, 1) == "0.5" && l.decimal(10, 1) == "10.0" && l.decimal(1234.56, 1) == "1234.6",
+            "es-419 decimals");
+    l.choose({"german", ""});
+    require(l.decimal(.5, 1) == "0,5" && l.decimal(2.05, 1) == "2,1" && l.decimal(0, 0) == "0" &&
+                l.decimal(-.25, 2) == "-0,25" && l.decimal(12345.5, 1) == "12.345,5",
+            "German decimals: a comma, the whole part grouped");
+    require(l.text("shortcuts.editor.seconds", {{"number", l.decimal(.5, 1)}}) == "0,5 s",
+            "German seconds");
+    l.choose({"japanese", ""});
+    require(l.text("shortcuts.editor.seconds", {{"number", l.decimal(1.5, 1)}}) == "1.5 秒",
+            "Japanese seconds");
     l.choose({"portuguese", ""});
     require(l.text("popup.clear-learned.row.words", {{"count", 0LL}}) == "0 palavras que escreveu",
             "pt-PT plurals: 0 is plural, unlike pt-BR");

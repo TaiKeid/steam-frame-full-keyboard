@@ -4,6 +4,7 @@
 #include "framekeyboard/native_replacement.hpp"
 #include "framekeyboard/session_environment.hpp"
 #include "framekeyboard/shell_protocol.hpp"
+#include "framekeyboard/shortcut_editor.hpp"
 #include "framekeyboard/startup.hpp"
 #include "framekeyboard/stream_support.hpp"
 #include "framekeyboard/updates.hpp"
@@ -289,10 +290,17 @@ int main(int argc, char** argv) {
                         std::cout << "theme " << id << ": " << p.name << '\n';
                     }
                 }
+                // shortcuts.json beside the profiles; its reason never quotes it.
+                bool shortcuts_ok = true;
+                if (options.mode == fk::Mode::Check) {
+                    const auto shortcuts = fk::check_shortcuts(options.config_dir);
+                    std::cout << shortcuts.line << '\n';
+                    shortcuts_ok = shortcuts.ok;
+                }
                 for (const auto& error : profiles.errors) {
                     std::cerr << error << '\n';
                 }
-                return profiles.errors.empty() ? 0 : 1;
+                return profiles.errors.empty() && shortcuts_ok ? 0 : 1;
             }
             std::unique_ptr<fk::KeySink> sink;
             if (options.input != fk::InputBackend::None && !options.target_language.empty()) {
@@ -318,6 +326,16 @@ int main(int argc, char** argv) {
             }
             fk::SettingsWriter::Write preferences;
             fk::SettingsWriter::Write reconcile_preferences;
+            if (options.mode == fk::Mode::Vr) {
+                // The shortcut bar's app names, from Steam's and the
+                // Desktop's files (app_names.hpp); read off the VR thread.
+                options.app_names = fk::system_app_names();
+                // A stream's app, from Steam's streaming client
+                // (stream_app.hpp); read off the VR thread too.
+                options.stream_clients = fk::system_stream_clients();
+                // Names found are kept for when their files are gone (R362).
+                options.app_name_record = fk::app_name_record_path();
+            }
             // A hosted keyboard never touches the SteamOS boot unit; the saved
             // standalone flags stay as they are for the next standalone launch.
             if (options.mode == fk::Mode::Vr && !hosted) {

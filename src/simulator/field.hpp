@@ -91,9 +91,11 @@ class FieldSink : public KeySink, public Clipboard {
     void send(int code, int value) override { apply_key(code, value); }
     Delivery deliver_key(int code, int value) override;
     bool text_available() override { return true; }
-    std::uint32_t focused_window() const override {
-        return 1;
-    } // One private receiver, not an OS window.
+    // One private receiver, not an OS window: the window and app it stands
+    // for are the simulator's App button's (Simulator::next_app).
+    std::uint32_t focused_window() const override { return focus_.window; }
+    FocusedApp focused_app() const override { return focus_; }
+    void set_focus(FocusedApp focus) { focus_ = std::move(focus); }
     bool commit_text(const std::string& text) override { return deliver_text(0, text); }
     bool replaces_text() override { return true; }
     bool replace_text(std::size_t delete_before, const std::string& text) override {
@@ -121,6 +123,7 @@ class FieldSink : public KeySink, public Clipboard {
     TextField& field_;
     std::set<int> held_; // Modifier codes pressed and not yet released.
     std::optional<Pending> pending_;
+    FocusedApp focus_{1, {}, {}};
     double now_{};
     bool slow_{};
     std::uint64_t writes_{}, served_{};

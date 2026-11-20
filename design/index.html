@@ -48,8 +48,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .key.latched .cap::after { background:#e4f8e9; box-shadow:0 0 6px #e4f8e990; }
 .key.space .cap::after { content:""; width:60px; height:2px; position:absolute; bottom:11px; border-radius:2px; background:#ffffff20; }
 .key.space .legend { font-size:10px; color:#d0d2d5; letter-spacing:2px; }
-.navigation,.numpad { display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:44px repeat(5,62px); gap:10px 6px; padding-top:0; }
-.navigation,.numpad { grid-template-rows:44px 2px repeat(5,62px); row-gap:10px; }
+.navigation,.numpad { display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:44px repeat(5,62px); gap:6px; padding-top:0; }
+.navigation,.numpad { grid-template-rows:44px 10px repeat(5,62px); row-gap:6px; }
 .navigation .key,.numpad .key { min-height:0; }
 .numpad { grid-template-columns:repeat(4,1fr); }
 .key.arrow .legend { font-size:24px; font-weight:400; }
@@ -79,7 +79,7 @@ textarea:focus { border-color:#777e85; }
    <button class="key" data-key="Copy" aria-label="Copy selected preview text"><span class="cap"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></span></button>
    <button class="key" data-key="Paste" aria-label="Paste copied preview text"><span class="cap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="6" rx="2"/><path d="M8 12h8M8 16h6"/></svg></span></button>
   </aside>
-  <div class="main"><div class="function-row" id="functions"></div><div id="typing" style="display:flex;flex-direction:column;gap:10px"></div></div>
+  <div class="main"><div class="function-row" id="functions"></div><div id="typing" style="display:flex;flex-direction:column;gap:6px"></div></div>
   <div class="navigation" id="navigation" aria-label="Navigation keys"></div>
   <div class="numpad" id="numpad" aria-label="Number pad"></div>
  </div>

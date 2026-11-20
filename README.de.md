@@ -22,7 +22,7 @@ Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-inst
 
 - Vollständiges Layout mit F1–F12, Navigationstasten, Pfeiltasten, einem ausblendbaren Ziffernblock und Shift-, Ctrl- und Alt-Tasten, die beim Halten einrasten.
 - Eigene Tasten für Ausschneiden, Kopieren und Einfügen, die Ctrl+X, Ctrl+C und Ctrl+V senden oder die Tasten eines Terminals, etwa Ctrl+Shift+C und Ctrl+Shift+V.
-- Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#dictation).
+- Diktieren: Sprechen statt Tippen, erkannt im Headset oder von Ihrem eigenen Whisper-Sprachserver. Korrigieren Sie den Text in einem Editor und senden Sie ihn, oder lassen Sie **Beim Sprechen tippen** (Type as I speak) jeden Satz direkt in die App tippen. Siehe [Diktieren](#diktieren).
 - Wischeingabe, nach einer manuellen Installation aus und im Installer frei wählbar, für Englisch, Deutsch, Französisch, Spanisch, Italienisch, Portugiesisch, Polnisch, Niederländisch, Schwedisch, Ukrainisch, Russisch, chinesisches Pinyin und [25 weitere Sprachen](docs/configuration.md#swipe-typing), von Tschechisch bis Arabisch und Hebräisch. Die Wischeingabe nutzt die Technologie „FUTO Swipe“.
 - Wortvorschläge, standardmäßig an, in den Sprachen mit Wischeingabe: bis zu fünf Ergänzungen des Wortes, das Sie gerade tippen, die meistgenutzten Wörter zuerst.
 - Japanische Umwandlung mit Mozc, mit Kandidaten während des Tippens, und eine japanische 12-Tasten-Flick-Tastatur wie auf dem Telefon.
@@ -31,6 +31,7 @@ Zur Installation über ein Terminal siehe [Manuelle Installation](#manuelle-inst
 - **Über Apps geöffnet lassen** (Stay open over apps): Die Tastatur bleibt an ihrem Platz, wenn das Dashboard schließt, zum Tippen in Fenster, die im Raum schweben; zeigen Sie auf ein schwebendes Fenster, um es mit dem Laser von SteamVR anzuklicken.
 - **Fokusmodus** (Focus mode): Mit nativem Ersatz bleibt die Tastatur offen, wenn ein Textfeld schließt, bereit für das nächste Feld oder die nächste App, und warnt, wenn sie in ein Fenster tippen würde, das Sie nicht sehen.
 - **Streaming-Unterstützung** (Streaming support): tippt in Spiele und Anwendungen, die Steam von Ihrem PC streamt, mit Tastenkürzeln und jeder Taste, und von einem Windows-PC Text in jeder Sprache. Siehe [gestreamte Spiele](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Tastenkürzel-Leiste** (Shortcut bar): Ihre eigenen Schaltflächen über der Tastatur, in Profilen zusammengefasst. Eine Schaltfläche sendet ein Tastenkürzel, führt ein Makro aus Tasten und Wartezeiten aus oder startet ein Skript oder einen Befehl auf dem Headset, und ein Profil kann von selbst erscheinen, wenn seine App im Vordergrund ist. Siehe [die Tastenkürzel-Leiste](docs/shortcut-bar.md).
 - Tippen mit dem Controller-Laser, mit haptischen Klicks und Hover-Rückmeldung, dazu optionale Tastentöne mit sechs Effekten.
 - Bewegen Sie sie mit dem Griff unter der Tastatur oder durch Greifen, ändern Sie die Größe an einer der unteren Ecken, biegen Sie sie um sich herum, heften Sie sie an, und lassen Sie sie nach dem Bewegen von der automatischen Ausrichtung geraderücken.
 - Folgt dem Dashboard, speichert die Position und lässt sich durch erneutes Starten wieder zentrieren.
@@ -127,7 +128,7 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 | Größe ändern | Lösen, mit dem Laser eines der beiden Controller knapp außerhalb einer unteren Ecke der Tastatur zielen, dann den Abzug auf dem eingeblendeten Eckgriff halten und ziehen. Die Tastatur wächst oder schrumpft um ihre Mitte |
 | Um sich herum biegen | **Gebogene Tastatur** (Curved keyboard) in der Einstellungskarte **Allgemein** aktivieren und übernehmen. Lösen, mit dem Laser eines der beiden Controller knapp neben den linken oder rechten Rand der Tastatur zielen, dann den Abzug oder den Griff auf der eingeblendeten Leiste halten und sie nach oben, zu sich ziehen oder die Hand drehen, sodass der Laser nach oben wandert; Zurückdrücken macht die Tastatur wieder flach. Die Biegung bleibt nach einem Neustart erhalten |
 | Ziffernblock ausblenden | In den Einstellungen Allgemein → **Ziffernblock ausblenden** anhaken und **Übernehmen und speichern** |
-| Hinter die Tastatur sehen | In den Einstellungen Allgemein → **Hintergrund** auf **Halbtransparent** oder **Unsichtbar** stellen und **Übernehmen und speichern** |
+| Hinter die Tastatur sehen | In den Einstellungen Allgemein → **Hintergrund** auf **Halbtransparent** oder **Unsichtbar** stellen und **Übernehmen und speichern**. **Deaktiviert** (Disabled) zeigt ebenfalls kein Gehäuse und lässt den Laser zwischen den Tastengruppen hindurch, um anzuklicken, was dahinter liegt |
 | Layout, Sprache oder Design ändern | Das Zahnradsymbol öffnen, Profile wählen, dann **Übernehmen und speichern** (Apply and save) |
 | Zentrieren | Das Symbol **Zentrieren** nutzen oder Full Keyboard erneut starten |
 | Schließen | Mit × das Panel im Ersatzmodus ausblenden; sonst beendet es die App |
@@ -136,6 +137,16 @@ Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Er
 **Wenn die Tastatur außer Reichweite geraten ist, starten Sie die App erneut.** Läuft sie bereits, zentriert ein weiterer Start die vorhandene Tastatur unter dem aktuellen Dashboard, statt eine zweite zu öffnen. Ihre Größe bleibt erhalten. Ist das Dashboard geschlossen, wartet das Zentrieren, bis es sich öffnet.
 
 Schließen und erneutes Öffnen stellt die letzte Position, Drehung, Größe und den Num-Lock-Zustand wieder her. Wenn Sie das Dashboard bewegen oder neigen, nimmt es die Tastatur mit. **Automatisch ausrichten** (Auto leveling), in Allgemein standardmäßig an, richtet eine leicht schiefe Tastatur gerade, nachdem Sie sie bewegt haben.
+
+## Tastenkürzel-Leiste
+
+Schalten Sie **Tastenkürzel-Leiste** (Shortcut bar) in den Einstellungen unter **Allgemein** (General) ein und übernehmen Sie. Über der Tastatur erscheint dann eine Leiste mit Ihren eigenen Schaltflächen; drücken Sie eine Schaltfläche, um sie zu benutzen. Die Schaltfläche der Tastenkürzel-Leiste in der Werkzeugleiste blendet die Leiste aus und wieder ein.
+
+- Der Reiter am rechten Ende der Leiste öffnet das Menü **Profile** (Profiles): Wählen Sie ein Profil, um es anzuzeigen. **Verwalten** (Manage) öffnet den Editor, in dem Sie Profile und ihre Schaltflächen anlegen.
+- Eine Schaltfläche ist ein **Kürzel** (Shortcut), bis zu vier Tastenkombinationen, die nacheinander gesendet werden, etwa Ctrl+K, dann S; ein **Makro** (Macro), Schritte aus Tasten und Wartezeiten, **Einmal**, **Mehrmals** oder **Gedrückt** wiederholt; oder **Ausführen** (Run), das ein Skript aus Ihrem Skriptordner oder einen Befehl auf dem Headset startet.
+- Die Schaltfläche neben einem Profil im Menü weist es der App im Vordergrund zu. Danach zeigt die Leiste dieses Profil, sooft diese App im Vordergrund ist, auch Spiele und Anwendungen, die von Ihrem PC gestreamt werden; der Editor listet sie unter **Verwendet für** (Used for).
+
+[Die Tastenkürzel-Leiste](docs/shortcut-bar.md) beschreibt den Editor, was ein Makro stoppt, Skripte und Streams.
 
 ## Sprachen und Anpassung
 

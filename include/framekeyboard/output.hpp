@@ -109,7 +109,10 @@ class OutputController : public KeySink, public TextOutput {
     bool tap(const std::vector<int>& codes);
     bool single_line_target() const override { return target_.single_line_target(); }
     bool steam_field_target() const override { return target_.steam_field_target(); }
+    bool stream_session_target() const override { return target_.stream_session_target(); }
     std::uint32_t focused_window() const override { return target_.focused_window(); }
+    std::uint64_t focus_serial() const override { return target_.focus_serial(); }
+    FocusedApp focused_app() const override { return target_.focused_app(); }
     void set_character_gap(double seconds) override { target_.set_character_gap(seconds); }
     void set_desktop_paste(Clipboard* clipboard) override { target_.set_desktop_paste(clipboard); }
     bool desktop_focused() const override { return target_.desktop_focused(); }

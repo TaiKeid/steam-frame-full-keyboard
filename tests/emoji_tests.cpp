@@ -1,13 +1,16 @@
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
+#include "framekeyboard/config.hpp"
 #include "framekeyboard/grip.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -1047,50 +1050,79 @@ void tone_render() {
 }
 // The keys the picker takes from the keyboard stay where they were as it
 // opens, also over a reading line: Japanese romaji, Chinese and Korean.
+// The keys the picker keeps (the emoji key as Back, Cut, Copy, Paste and
+// any other) stand on the normal layout's whole pixels as it opens (draw_key
+// rounds each key's corner), in every shipped layout and the band's
+// languages, numpad shown and hidden, bar on and off (R374).
 void side_keys_stay() {
-    for (const auto& [layout, language] :
-         std::vector<std::pair<std::string, std::string>>{{"en-us-full", "en-us"},
-                                                          {"en-us-full", "ja-romaji"},
-                                                          {"en-us-full", "zh-cn-pinyin"},
-                                                          {"en-us-full", "ko-kr"}}) {
-        TemporaryDirectory directory;
-        TextSink sink;
-        Options options;
-        options.config_dir = directory.path;
-        options.mode = Mode::Vr;
-        options.input = InputBackend::Ei;
-        options.start_enabled = true;
-        App app(options, sink);
-        app.apply({layout, language, "graphite"});
-        const auto rect = [&](const char* action) {
-            const auto view = app.view();
-            for (const auto& key : view.layout->keys) {
-                if (key.action == action) {
-                    return panel_rect(view, key.bounds);
+    const auto profiles = load_profiles({}, {});
+    std::vector<std::pair<std::string, std::string>> cases;
+    for (const auto& [id, layout] : profiles.layouts) {
+        cases.emplace_back(id, profiles.languages.contains(layout.language) ? layout.language : "en-us");
+    }
+    cases.emplace_back("en-us-full", "ja-romaji");
+    cases.emplace_back("en-us-full", "ko-kr");
+    cases.emplace_back("en-us-full", "zh-cn-pinyin");
+    // Only the keys the picker carries over from the layout: Cut, Copy and
+    // Paste, and the emoji key as Back. Its own arrows, Enter and Space are
+    // laid out anew, and a flick layout's emoji key moves into the side column.
+    using Pixels = std::map<std::string, std::array<double, 4>>;
+    const auto pixels = [](const PanelView& view) {
+        Pixels result;
+        for (const auto& key : view.layout->keys) {
+            if (!hidden_key(view, key) &&
+                (key.action_kind == ActionKind::Shortcut || key.action_kind == ActionKind::Emoji)) {
+                const auto r = panel_rect(view, key.bounds);
+                result[key.id] = {std::round(r.x), std::round(r.y), r.width, r.height};
+            }
+        }
+        return result;
+    };
+    for (const auto& [layout, language] : cases) {
+        for (const bool hide : {false, true}) {
+            for (const bool bar : {false, true}) {
+                TemporaryDirectory directory;
+                std::ofstream(directory.path / "config.json")
+                    << R"({"schema_version":1,"active":{"layout":")" << layout << R"(","language":")"
+                    << language << R"(","theme":"graphite"},"hide_numpad":)" << (hide ? "true" : "false")
+                    << R"(,"shortcuts":)" << (bar ? "true" : "false") << "}";
+                TextSink sink;
+                Options options;
+                options.config_dir = directory.path;
+                options.mode = Mode::Vr;
+                options.input = InputBackend::Ei;
+                options.start_enabled = true;
+                App app(options, sink);
+                const std::string name = layout + " with " + language + (hide ? ", numpad hidden" : "") +
+                                         (bar ? ", bar on" : "");
+                const auto normal = pixels(app.view());
+                const auto [x, y] = key_center(app, "picker");
+                app.down(0, x, y, 1);
+                app.up(0, x, y);
+                wait_for_emoji(app);
+                if (!app.emoji_open()) {
+                    std::cout << "No color emoji font here; skipping the side keys check.\n";
+                    return;
+                }
+                std::size_t shared = 0;
+                for (const auto& [id, r] : pixels(app.view())) {
+                    const auto before = normal.find(id);
+                    if (before == normal.end()) {
+                        continue;
+                    }
+                    if (id == "Emoji" && before->second[0] != r[0]) {
+                        continue; // moved into the side column as Back, by design
+                    }
+                    ++shared;
+                    if (before->second != r) {
+                        throw std::runtime_error("the picker's " + id +
+                                                 " stands on the normal layout's pixels: " + name);
+                    }
+                }
+                if (shared < 1) {
+                    throw std::runtime_error("the picker keeps the side keys: " + name);
                 }
             }
-            throw std::runtime_error("key not found");
-        };
-        const auto same = [](const Rect& a, const Rect& b) {
-            return std::abs(a.x - b.x) < .5 && std::abs(a.y - b.y) < .5 &&
-                   std::abs(a.width - b.width) < .5 && std::abs(a.height - b.height) < .5;
-        };
-        const std::array<const char*, 4> actions{"picker", "cut", "copy", "paste"};
-        std::array<Rect, 4> before;
-        for (std::size_t i = 0; i < actions.size(); ++i) {
-            before[i] = rect(actions[i]);
-        }
-        const auto [x, y] = key_center(app, "picker");
-        app.down(0, x, y, 1);
-        app.up(0, x, y);
-        wait_for_emoji(app);
-        if (!app.emoji_open()) {
-            std::cout << "No color emoji font here; skipping the side keys check.\n";
-            return;
-        }
-        for (std::size_t i = 0; i < actions.size(); ++i) {
-            require(same(rect(actions[i]), before[i]),
-                    "the emoji key, as Back, and Cut, Copy and Paste stay in place as the picker opens");
         }
     }
 }
@@ -1535,6 +1567,62 @@ void unavailable_tests() {
 }
 } // namespace
 
+// R325: the shortcut bar's open menu takes the scrolling over it, at its
+// end too; the emoji grid under it never moves.
+void shortcut_menu_over_grid() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    // Enough rows to reach down over the grid.
+    model.profiles = {{"a", "A", {}}, {"b", "B", {}}, {"c", "C", {}}, {"d", "D", {}}};
+    model.free_profile = "a";
+    std::ofstream(shortcuts_path(directory.path)) << serialize_shortcuts(model);
+    TextSink sink;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Ei;
+    options.start_enabled = true;
+    App app(options, sink);
+    const auto [px, py] = key_center(app, "picker");
+    app.down(0, px, py, 1);
+    app.up(0, px, py);
+    wait_for_emoji(app);
+    if (!app.emoji_open()) {
+        std::cout << "No color emoji font here; skipping the menu over the grid.\n";
+        return;
+    }
+    auto tap = [&](const Rect& r) {
+        const auto [x, y] = center(r);
+        app.move(1, x, y);
+        app.down(1, x, y, monotonic_seconds());
+        app.up(1, x, y);
+    };
+    tap(app.view().shortcut_bar->picker);
+    const auto menu = app.view().shortcut_bar->menu->bounds;
+    const auto grid = app.view().emoji->grid;
+    require(overlaps(menu, grid), "the menu lies over the grid");
+    const double x = std::max(menu.x, grid.x) + 10, y = std::max(menu.y, grid.y) + 10;
+    auto first = [&] {
+        wait_for_emoji(app);
+        for (int i = 0; i < 40; ++i) {
+            app.tick(monotonic_seconds() + i * .05);
+        }
+        return app.view().emoji->cells.front().bounds.x;
+    };
+    const double before = first();
+    app.move(0, x, y);
+    app.scroll(0, 3, 0);
+    require(first() == before && app.view().shortcut_bar->menu,
+            "scrolling past the menu's end leaves the grid in place");
+    tap(app.view().shortcut_bar->picker);
+    require(!app.view().shortcut_bar->menu, "the picker closes the menu");
+    app.move(0, x, y);
+    app.scroll(0, 3, 0);
+    require(first() != before, "with the menu closed the same scroll moves the grid");
+}
 int main() {
     try {
         table_tests();
@@ -1554,6 +1642,7 @@ int main() {
         closed_picker_cache_tests();
         shutdown_tests();
         unavailable_tests();
+        shortcut_menu_over_grid();
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

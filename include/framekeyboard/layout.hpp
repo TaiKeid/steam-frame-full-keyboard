@@ -95,6 +95,21 @@ enum class Icon {
     Swipe,
     SwipeOff,
     Lock, // the swipe button in a password field
+    // The shortcut bar (docs/shortcut-bar-design.md): the toolbar button, a
+    // strip of buttons over a keyboard, crossed while nothing shows; the
+    // picker's up-and-down chevrons; the sides of a bar that scrolls; the
+    // menu's window (assign) with its check once assigned, and its pencil.
+    ShortcutBar,
+    ShortcutBarOff,
+    BarPicker,
+    ChevronLeft,
+    ChevronRight,
+    AppWindow,
+    AppWindowAssigned,
+    Pencil,
+    // A Run button's mark, >_ (on the editor strip's controls, which flag
+    // such a button with it).
+    RunMark,
 };
 
 // Flick keys name a slot of the language's flick map; they never send physical keys.

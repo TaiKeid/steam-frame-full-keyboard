@@ -2,10 +2,14 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <climits>
+#include <cstdio>
 #include <ctime>
 #include <dlfcn.h>
 #include <fstream>
+#include <iostream>
+#include <mutex>
 #include <poll.h>
 #include <sstream>
 #include <string_view>
@@ -13,9 +17,37 @@
 #include <systemd/sd-bus.h>
 #include <type_traits>
 #include <unistd.h>
+#include <vector>
 
 namespace framekeyboard {
 namespace {
+// Debugging: a journal line for each of KWin's reports, with its monotonic
+// time and "none" or "app N", N numbering the distinct app IDs in the order
+// first seen. IDs stay in memory only, never logged. Built only with CMake's
+// FRAMEKEYBOARD_FOCUS_TRACE (as src/vr.cpp's trace_focus); off in releases.
+#ifdef FRAMEKEYBOARD_FOCUS_TRACE
+constexpr bool trace_reports = true;
+#else
+constexpr bool trace_reports = false;
+#endif
+[[maybe_unused]] void trace_report(const std::string& app) {
+    static std::mutex lock;
+    static std::vector<std::string> seen; // the process's, across reconnections
+    const double now =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    char time[32];
+    std::snprintf(time, sizeof(time), "%.3f", now);
+    const std::lock_guard guard(lock);
+    std::string described = "none";
+    if (!app.empty()) {
+        auto at = std::find(seen.begin(), seen.end(), app);
+        if (at == seen.end()) {
+            at = seen.insert(seen.end(), app);
+        }
+        described = "app " + std::to_string(at - seen.begin() + 1);
+    }
+    std::cout << "focus-trace kwin-report " << time << ' ' << described << '\n' << std::flush;
+}
 // The few sd-bus calls used, taken from libsystemd.so.0 if it loads; the
 // keyboard never links it, so a system without it only loses this.
 struct SdBus {
@@ -237,6 +269,7 @@ bool DesktopTerminal::attach(const std::string& address) {
         self->kwin_lost_ = true;
         self->keys_ = EditKeys::Standard;
         self->reported_ = false;
+        self->app_.clear();
         return 0;
     };
     // The script's calls arrive here: each says which app became active.
@@ -252,7 +285,12 @@ bool DesktopTerminal::attach(const std::string& address) {
         if (sender && self->kwin_ == sender && path && object == path &&
             api.has_signature(message, "s") > 0 && api.read(message, "s", &app) > 0) {
             self->keys_ = app_edit_keys(app ? app : "");
+            self->app_ = app ? app : "";
             self->reported_ = true;
+            ++self->activations_;
+            if constexpr (trace_reports) {
+                trace_report(self->app_);
+            }
         }
         api.reply(message, "");
         return 1;
@@ -298,6 +336,7 @@ void DesktopTerminal::detach() {
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;
     reported_ = false;
+    app_.clear();
 }
 int DesktopTerminal::fd() const {
     return bus_ ? sd().get_fd(bus_->bus) : -1;
@@ -334,6 +373,7 @@ bool DesktopTerminal::process() {
         return false;
     }
     const auto before = keys_;
+    const auto before_app = app_;
     // A burst larger than one round leaves the rest queued in sd-bus, where
     // poll() can't see it: more_ makes the next wait return at once.
     constexpr int round = 256;
@@ -356,7 +396,7 @@ bool DesktopTerminal::process() {
     if (kwin_lost_) {
         lose_kwin(); // The script went with that KWin: attach() loads it into the next.
     }
-    return keys_ != before;
+    return keys_ != before || app_ != before_app;
 }
 void DesktopTerminal::lose_kwin() {
     bus_.reset();
@@ -365,5 +405,6 @@ void DesktopTerminal::lose_kwin() {
     kwin_lost_ = false;
     keys_ = EditKeys::Standard;
     reported_ = false;
+    app_.clear();
 }
 } // namespace framekeyboard

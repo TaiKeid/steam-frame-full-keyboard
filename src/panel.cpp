@@ -7,10 +7,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
+#include <iterator>
 #include <limits>
 #include <linux/input-event-codes.h>
+#include <map>
 #include <memory>
 #include <pango/pangocairo.h>
+#include <set>
 #include <stdexcept>
 #include <sys/mman.h>
 #include <tuple>
@@ -82,7 +86,8 @@ std::optional<Rect> candidate_menu(const PanelView& view) {
 // full layout's list is a menu over the keys, drawn whole under it; no key
 // takes a press while either is open (PanelRenderer::hit_key()).
 bool covered_key(const PanelView& view, const Key& key) {
-    return (list_open(view) && !candidate_menu(view)) || hidden_key(view, key);
+    // The shortcut editor's screen takes the keys' place.
+    return view.shortcut_editor || (list_open(view) && !candidate_menu(view)) || hidden_key(view, key);
 }
 // How far the flick preview's caps and the skin tone menu raise their soft
 // shadows; repaints cover them.
@@ -162,11 +167,17 @@ constexpr double ime_band_height = 44, ime_band_gap = 6, ime_toolbar_height = 10
 // The reading line's top, in the flick band and on full layouts: the second
 // toolbar row's 42-pixel switches centred on its 44 pixels.
 constexpr double reading_line_top = second_row_top - 1;
-// The second toolbar row the reading line replaced: the case of a layout,
+// The second toolbar row the reading line replaced: a full layout's case,
 // in every view of it, is at most that much shorter.
 constexpr double second_row_room = 50;
+// The flick layout's case: as wide as a full layout's without its numpad
+// (1326 at its scale of 1.054), its height following its rows.
+constexpr double flick_case_width = 1326;
 double case_height(const PanelView& view) {
-    return view.settings ? settings_height : panel_height - view.reading_room;
+    // The shortcut editor is as tall as Settings and a full layout's case,
+    // on every layout, so the case's edge and its handle stay in place as
+    // it opens and closes; its popup fits in it (R329).
+    return view.settings || view.shortcut_editor ? settings_height : panel_height - view.reading_room;
 }
 bool two_row_band(const PanelView& view) {
     return view.ime_band && view.language && view.language->input_method == "japanese-flick";
@@ -187,11 +198,15 @@ constexpr double candidate_font_size = 21, reading_font_size = 24;
 struct Placement {
     double scale, x, y;
 };
+// The toolbar the keys sit under: taller with the Japanese band or its room.
+double keys_toolbar_height(const PanelView& view) {
+    return two_row_band(view)               ? ime_two_row_height
+           : view.ime_band || view.ime_room ? ime_toolbar_height
+                                            : normal_toolbar_height;
+}
 Placement placement(const PanelView& view) {
     const double margin = view.theme->padding;
-    const double toolbar_height = two_row_band(view)               ? ime_two_row_height
-                                  : view.ime_band || view.ime_room ? ime_toolbar_height
-                                                                   : normal_toolbar_height;
+    const double toolbar_height = keys_toolbar_height(view);
     // A page keeping the reading line's room lays its keys out as the
     // line's page does, the second toolbar row in the line's place.
     const double height = case_height(view);
@@ -1221,6 +1236,61 @@ void draw_icon(cairo_t* cr, Icon icon, Rect bounds, Color color, double size = 2
         line(-2, -2, -2, 6);
         line(2, -2, 2, 6);
         break;
+    case Icon::ShortcutBar:
+    case Icon::ShortcutBarOff:
+        // A row of three buttons over a keyboard. Off, slashed like Pin.
+        for (const double x : {-9.5, -2.5, 4.5}) {
+            rounded(cr, {x, -10, 5, 5}, 1.2);
+        }
+        cairo_stroke(cr);
+        rounded(cr, {-11, -1, 22, 11}, 2.2);
+        line(-6.5, 3.2, -5.5, 3.2);
+        line(-1.5, 3.2, -.5, 3.2);
+        line(3.5, 3.2, 4.5, 3.2);
+        line(-5, 6.6, 5, 6.6);
+        if (icon == Icon::ShortcutBarOff) {
+            cairo_stroke(cr);
+            line(-11, -11, 11, 11);
+        }
+        break;
+    case Icon::BarPicker:
+        // Three lines: the menu of profiles.
+        line(-8, -6, 8, -6);
+        line(-8, 0, 8, 0);
+        line(-8, 6, 8, 6);
+        break;
+    case Icon::ChevronLeft:
+    case Icon::ChevronRight: {
+        const double tip = icon == Icon::ChevronLeft ? -4.5 : 4.5;
+        line(-tip, -9, tip, 0);
+        cairo_line_to(cr, -tip, 9);
+        break;
+    }
+    case Icon::AppWindow:
+    case Icon::AppWindowAssigned:
+        // A window with its title bar; assigned, a check inside it.
+        rounded(cr, {-10, -8, 20, 16}, 2);
+        line(-10, -3.5, 10, -3.5);
+        if (icon == Icon::AppWindowAssigned) {
+            cairo_move_to(cr, -4, 2);
+            cairo_line_to(cr, -1, 5);
+            cairo_line_to(cr, 4.5, -.5);
+        }
+        break;
+    case Icon::RunMark:
+        line(-8, -6, -2, 0);
+        cairo_line_to(cr, -8, 6);
+        line(2, 6, 9, 6);
+        break;
+    case Icon::Pencil:
+        cairo_move_to(cr, -8.5, 8.5);
+        cairo_line_to(cr, -7.5, 4);
+        cairo_line_to(cr, 4.5, -8);
+        cairo_line_to(cr, 8, -4.5);
+        cairo_line_to(cr, -4, 7.5);
+        cairo_close_path(cr);
+        line(2, -5.5, 5.5, -2);
+        break;
     case Icon::None:
         break;
     }
@@ -1401,15 +1471,23 @@ void shift_arrow(cairo_t* cr, double x, double bottom, double width, Color color
     cairo_restore(cr);
 }
 // A latched modifier or lock, or the mic key while it listens: drawn in the latched color.
-bool latched_key(const PanelView& view, const Key& key, const std::set<int>& modifiers) {
+// What a key's face shows of the modifiers and locks: the keyboard's, or a
+// view's own marks where no key state stands behind the keys.
+KeyMarks key_marks(const PanelView& view) {
+    if (view.key_marks) {
+        return *view.key_marks;
+    }
+    return {view.keyboard->modifiers(), view.keyboard->locked_modifiers(), view.keyboard->caps(),
+            view.keyboard->num()};
+}
+bool latched_key(const PanelView& view, const Key& key, const KeyMarks& marks) {
     const int code = key.action_kind == ActionKind::Key ? key_code(key.action) : 0;
     // A key pulled into a flick fills, as a latched one does: release types its Shift character.
     if (view.key_flick && view.key_flick->key == key.id && view.key_flick->pull >= 1) {
         return true;
     }
-    return modifiers.contains(code) || (key.action == "CapsLock" && view.keyboard->caps()) ||
-           (key.action == "NumLock" && view.keyboard->num()) ||
-           (view.dictation_capturing && key.icon == Icon::Mic);
+    return marks.modifiers.contains(code) || (key.action == "CapsLock" && marks.caps) ||
+           (key.action == "NumLock" && marks.num) || (view.dictation_capturing && key.icon == Icon::Mic);
 }
 // How a key's face is filled: as it rests or the laser lights it, latched,
 // in the theme's pressed color, or disabled.
@@ -1535,16 +1613,16 @@ Rect atlas_keycap(cairo_t* cr, const Theme& t, const KeyTone& tone, const Key& k
 // `lock`: how long the key's lock ring has run, negative while none shows.
 void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amount, double lift,
                  double phase, double ring, double lock) {
-    const auto modifiers = view.keyboard->modifiers();
+    const auto marks = key_marks(view);
     std::set<int> legend_modifiers;
     for (const char* name : {"ShiftLeft", "ShiftRight", "AltRight"}) {
         const int code = key_code(name);
-        if (modifiers.contains(code)) {
+        if (marks.modifiers.contains(code)) {
             legend_modifiers.insert(code);
         }
     }
     const bool listening = view.dictation_capturing && key.icon == Icon::Mic;
-    const bool latched = latched_key(view, key, modifiers) && !listening;
+    const bool latched = latched_key(view, key, marks) && !listening;
     const bool disabled = view.disabled_keys.contains(key.id);
     // A theme with a pressed color fills a key held halfway down or more.
     const bool pressing = view.theme->pressed && amount >= .5 && !latched && !listening && !disabled;
@@ -1587,7 +1665,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
     if (!disabled && !listening) {
         if (lock_shown) {
             draw_lock_ring(cr, t, face, ring_progress, ring_alpha);
-        } else if (key.action_kind == ActionKind::Key && view.keyboard->locked(key_code(key.action))) {
+        } else if (key.action_kind == ActionKind::Key && marks.locked.contains(key_code(key.action))) {
             draw_lock_ring(cr, t, face, 1, 1);
         }
     }
@@ -1725,7 +1803,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
         label(cr, center, middle, t.font_size, view.language->font, t.legend, true);
         return;
     }
-    auto text = view.keymap->legend(key, legend_modifiers, view.keyboard->caps(), view.keyboard->num());
+    auto text = view.keymap->legend(key, legend_modifiers, marks.caps, marks.num);
     if (const auto custom = view.key_labels.find(key.id); custom != view.key_labels.end()) {
         text = custom->second;
     }
@@ -1745,14 +1823,14 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
                text.size() < 5) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, marks.caps, marks.num);
         if (secondary == text) {
             secondary.clear();
         }
     } else if (!key.secondary_label.empty()) {
         auto shifted = legend_modifiers;
         shifted.insert(key_code("ShiftLeft"));
-        secondary = view.keymap->legend(key, shifted, view.keyboard->caps(), view.keyboard->num());
+        secondary = view.keymap->legend(key, shifted, marks.caps, marks.num);
         if (secondary == text) {
             secondary.clear();
         }
@@ -1788,7 +1866,7 @@ void draw_key_at(cairo_t* cr, const PanelView& view, const Key& key, double amou
         const double width = text_width(cr, text, size, view.language->font);
         const double x = std::round(face.x + (face.width - arrow - gap - width) / 2);
         shift_arrow(cr, x, std::round(face.y + face.height / 2 + arrow * .55), arrow, legend,
-                    view.keyboard->locked(shift));
+                    marks.locked.contains(shift));
         label(cr, text, {x + arrow + gap - 4, face.y, width + 8, face.height}, size, view.language->font,
               legend, true, PANGO_ALIGN_CENTER, false, right_to_left(text));
         return;
@@ -1860,8 +1938,11 @@ void draw_key(cairo_t* cr, const PanelView& view, const Key& key, double amount,
     cairo_restore(cr);
 }
 // A popup's own controls, drawn with it over Settings rather than with
-// Settings' controls under it.
-bool popup_control(const std::string& id) {
+// Settings' controls under it; the shortcut editor's, while it shows.
+bool popup_control(const PanelView& view, const std::string& id) {
+    if (view.shortcut_editor && id.starts_with(shortcut_editor_prefix)) {
+        return true;
+    }
     for (const std::string_view prefix : {"address-", "confirm-", "languages-", "themes-"}) {
         if (id.starts_with(prefix)) {
             return true;
@@ -2027,7 +2108,9 @@ std::optional<Rect> flick_preview_bounds(const PanelView& view) {
     return Rect{left, top, std::ceil(right + flick_shadow / 2 + 1) - left,
                 std::ceil(bottom + flick_shadow + 1) - top};
 }
-Rect panel_case_bounds(const PanelView& view) {
+namespace {
+// The case's width when the layout shows `visible` of its width.
+double case_width(const PanelView& view, double visible) {
     const auto p = placement(view);
     // Custom geometry can leave only a few pixels after hiding its numpad.
     // Reserve the fixed main toolbar. This same case is used by painting,
@@ -2037,27 +2120,457 @@ Rect panel_case_bounds(const PanelView& view) {
     // case, except in Settings, whose controls and cards span the full panel.
     const double slack =
         view.settings ? 0 : panel_width - 2 * view.theme->padding - view.layout->width * p.scale;
-    const double width =
-        std::max(minimum, panel_width - (view.layout->width - visible_layout_width(view)) * p.scale -
-                              (slack > 1 ? slack : 0));
+    return std::max(minimum,
+                    panel_width - (view.layout->width - visible) * p.scale - (slack > 1 ? slack : 0));
+}
+} // namespace
+Rect panel_case_bounds(const PanelView& view) {
+    // The shortcut editor keeps the keyboard's width, or the one without its
+    // numpad on a narrower case (App works it out).
+    const double width = view.shortcut_editor && !view.settings
+                             ? view.shortcut_editor->width
+                             : case_width(view, visible_layout_width(view));
     return {(panel_width - width) / 2, 0, width, case_height(view)};
 }
-double unbanded_layout_height(const PanelView& view) {
-    if (!view.ime_band && !view.ime_room) {
-        return view.layout->height;
+// The full-size layouts' scale, 1.054: the case's 1600 less 20 each side
+// over their 1480 units. Sizes given in case pixels are at this scale.
+constexpr double full_layout_scale = (panel_width - 40.0) / 1480;
+ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons) {
+    // Case pixels from the design; a button is left Ctrl's size at the full
+    // layouts' scale (69.5 x 62 units), 6 units apart.
+    constexpr double margin = 12, height = 90, foot = 10, tab_width = 44, tab_height = 56;
+    const auto body = panel_case_bounds(view);
+    // One size on every layout (R379): the full layout's, whatever this
+    // layout's own scale, as the flick layout's larger one.
+    const double scale = full_layout_scale;
+    ShortcutBarGeometry g;
+    g.button_width = 69.5 * scale;
+    g.button_height = 62 * scale;
+    const double gap = 6 * scale;
+    g.pitch = g.button_width + gap;
+    // As wide as the case with its numpad hidden, the tab included, or a
+    // narrower case's own width: the emoji picker and dictation mode keep
+    // the keyboard's case, and a layout without a numpad has none to hide.
+    double widest = body.width;
+    if (!view.emoji && !view.dictation) {
+        double right = 0;
+        bool numpad = false;
+        for (const auto& key : view.layout->keys) {
+            if (key.action == "NumLock" || key.action.starts_with("Numpad")) {
+                numpad = true;
+            } else if (!hidden_key(view, key)) {
+                right = std::max(right, key.bounds.x + key.bounds.width);
+            }
+        }
+        if (numpad && right > 0) {
+            widest = std::min(widest, case_width(view, right));
+        }
     }
-    const double room =
-        case_height(view) - normal_toolbar_height - 2 * view.theme->padding - view.theme->depth;
-    return std::max(view.layout->height, room / placement(view).scale);
+    const double room = widest - tab_width - 2 * margin;
+    const auto fit = static_cast<std::size_t>(std::max(2.0, std::floor((room + gap) / g.pitch)));
+    g.slots = std::clamp<std::size_t>(buttons, 2, fit);
+    const double strip_width = static_cast<double>(g.slots) * g.pitch - gap;
+    const double plate_width = strip_width + 2 * margin;
+    // Plate and tab together are centered on the case.
+    const double total = plate_width + tab_width;
+    const double left = std::round(body.x + (body.width - total) / 2);
+    const double top = body.y - foot - height;
+    g.plate = {left, top, plate_width, height};
+    g.strip = {left + margin, top, strip_width, height};
+    g.picker = {left + plate_width, top + (height - tab_height) / 2, tab_width, tab_height};
+    // The face and the side below it, centred in the plate.
+    g.button_top = top + (height - g.button_height - view.theme->depth * scale) / 2;
+    g.scroll_limit = buttons > g.slots ? static_cast<double>(buttons) * g.pitch - gap - strip_width : 0;
+    return g;
+}
+Rect ShortcutMenuGeometry::row(std::size_t index, double scroll) const {
+    return {list.x, list.y + static_cast<double>(index) * row_height - scroll, list.width, row_height};
+}
+Rect ShortcutMenuGeometry::assign(const Rect& row) const {
+    constexpr double size = 52;
+    return {row.x + row.width - size, row.y + 4, size, row.height - 8};
+}
+ShortcutMenuGeometry shortcut_menu_geometry(const ShortcutBarGeometry& bar, std::size_t rows) {
+    // Under the bar, over the case, its right edge on the tab's.
+    // The header holds Manage, as tall as an assign button.
+    constexpr double width = 380, pad = 8, header = 52, row = 52, manage_width = 150;
+    ShortcutMenuGeometry g;
+    g.row_height = row;
+    g.visible = std::min(rows, shortcut_menu_rows);
+    const double listed = static_cast<double>(g.visible) * row;
+    const double right = bar.picker.x + bar.picker.width;
+    g.bounds = {std::max(8.0, right - width), bar.plate.y + bar.plate.height + 6, width,
+                pad + header + listed + pad};
+    g.header = {g.bounds.x + pad, g.bounds.y + pad, width - 2 * pad, header};
+    g.list = {g.header.x, g.header.y + header, g.header.width, listed};
+    g.manage = {g.header.x + g.header.width - manage_width, g.header.y + 4, manage_width, header - 8};
+    g.scroll_limit = std::max(0.0, static_cast<double>(rows) * row - listed);
+    return g;
+}
+std::vector<Rect> shortcut_bar_bounds(const PanelView& view) {
+    if (!view.shortcut_bar || view.settings) {
+        return {};
+    }
+    const auto& bar = *view.shortcut_bar;
+    std::vector<Rect> areas{bar.plate, bar.picker};
+    if (bar.menu) {
+        areas.push_back(bar.menu->bounds);
+    }
+    return areas;
+}
+Layout mini_keyboard_layout(const Layout& us, double depth) {
+    Layout mini;
+    mini.id = us.id;
+    mini.name = us.name;
+    mini.language = us.language;
+    // Only keys that press a key: the side column's emoji, Cut, Copy, Paste
+    // and mic can't be recorded.
+    for (const auto& key : us.keys) {
+        if (key.action_kind == ActionKind::Key) {
+            mini.keys.push_back(key);
+        }
+    }
+    if (mini.keys.empty()) {
+        return mini;
+    }
+    // Rows. The function row is the topmost; the others keep their order and
+    // spans, at a pitch of their key height: the gaps between them close.
+    double top = mini.keys.front().bounds.y;
+    for (const auto& key : mini.keys) {
+        top = std::min(top, key.bounds.y);
+    }
+    double function_height = 0, first = 1e9, row_height = 1e9;
+    std::set<double> tops;
+    for (const auto& key : mini.keys) {
+        if (key.bounds.y == top) {
+            function_height = std::max(function_height, key.bounds.height);
+        } else {
+            first = std::min(first, key.bounds.y);
+            row_height = std::min(row_height, key.bounds.height);
+            tops.insert(key.bounds.y);
+        }
+    }
+    // The second row's top less the first's; one row alone keeps its height.
+    const double pitch = tops.size() > 1 ? *std::next(tops.begin()) - first : row_height;
+    const double per_unit = row_height / pitch;
+    constexpr double under_function_row = 4;
+    // Blocks: the keys' spans along x, all rows together; a gap wider than
+    // within a block (the 26 units between the main keys, the navigation
+    // keys and the numpad) closes to 12.
+    constexpr double within_block = 20, block_gap = 12;
+    std::vector<std::pair<double, double>> spans;
+    for (const auto& key : mini.keys) {
+        spans.emplace_back(key.bounds.x, key.bounds.x + key.bounds.width);
+    }
+    std::sort(spans.begin(), spans.end());
+    // Each block's start and how far it moves left.
+    std::vector<std::pair<double, double>> shifts{{spans.front().first, spans.front().first}};
+    double end = spans.front().second;
+    for (const auto& [from, to] : spans) {
+        if (from > end + within_block) {
+            shifts.emplace_back(from, shifts.back().second + (from - end) - block_gap);
+        }
+        end = std::max(end, to);
+    }
+    for (auto& key : mini.keys) {
+        auto& r = key.bounds;
+        double shift = 0;
+        for (const auto& [from, by] : shifts) {
+            if (r.x >= from) {
+                shift = by;
+            }
+        }
+        r.x -= shift;
+        double height = r.height;
+        if (r.y == top) {
+            r.y = 0;
+        } else {
+            r.y = function_height + under_function_row + (r.y - first) * per_unit;
+            height = (r.height + pitch - row_height) * per_unit; // whole rows, no gaps
+        }
+        r.height = std::max(1.0, height - depth - 1);
+        mini.width = std::max(mini.width, r.x + r.width);
+        mini.height = std::max(mini.height, r.y + height);
+    }
+    return mini;
+}
+namespace {
+// Rectangles covering exactly the union of `pieces`, few of them: the plane
+// cut at every edge into cells, each row of cells taken as runs, and a run
+// stacked onto the one above when both span the same columns. Keys of a row
+// become one rectangle, and equal rows one block.
+std::vector<Rect> merged_cover(const std::vector<Rect>& pieces) {
+    // Edges closer than this are one edge: layout decimals scaled to pixels.
+    constexpr double near = 1e-6;
+    std::vector<double> xs, ys;
+    for (const auto& r : pieces) {
+        if (r.width > near && r.height > near) {
+            xs.insert(xs.end(), {r.x, r.x + r.width});
+            ys.insert(ys.end(), {r.y, r.y + r.height});
+        }
+    }
+    const auto unique = [](std::vector<double>& edges) {
+        std::sort(edges.begin(), edges.end());
+        edges.erase(std::unique(edges.begin(), edges.end(),
+                                [&](double a, double b) { return std::abs(a - b) < near; }),
+                    edges.end());
+    };
+    unique(xs);
+    unique(ys);
+    if (xs.size() < 2 || ys.size() < 2) {
+        return {};
+    }
+    const std::size_t columns = xs.size() - 1, rows = ys.size() - 1;
+    std::vector<char> covered(columns * rows, 0);
+    const auto index = [&](const std::vector<double>& edges, double value) {
+        return static_cast<std::size_t>(std::lower_bound(edges.begin(), edges.end(), value - near) -
+                                        edges.begin());
+    };
+    for (const auto& r : pieces) {
+        if (r.width <= near || r.height <= near) {
+            continue;
+        }
+        const auto x0 = index(xs, r.x), x1 = index(xs, r.x + r.width);
+        const auto y0 = index(ys, r.y), y1 = index(ys, r.y + r.height);
+        for (auto y = y0; y < y1 && y < rows; ++y) {
+            std::fill(covered.begin() + static_cast<std::ptrdiff_t>(y * columns + x0),
+                      covered.begin() + static_cast<std::ptrdiff_t>(y * columns + std::min(x1, columns)),
+                      1);
+        }
+    }
+    std::vector<Rect> result;
+    // The runs still open from the row above, by their columns.
+    std::vector<std::pair<std::pair<std::size_t, std::size_t>, std::size_t>> open;
+    for (std::size_t y = 0; y < rows; ++y) {
+        std::vector<std::pair<std::size_t, std::size_t>> runs;
+        for (std::size_t x = 0; x < columns;) {
+            if (!covered[y * columns + x]) {
+                ++x;
+                continue;
+            }
+            auto end = x;
+            while (end < columns && covered[y * columns + end]) {
+                ++end;
+            }
+            runs.emplace_back(x, end);
+            x = end;
+        }
+        decltype(open) next;
+        for (const auto& run : runs) {
+            const auto above =
+                std::find_if(open.begin(), open.end(), [&](const auto& o) { return o.first == run; });
+            if (above != open.end()) {
+                result[above->second].height = ys[y + 1] - result[above->second].y;
+                next.emplace_back(run, above->second);
+            } else {
+                result.push_back(
+                    {xs[run.first], ys[y], xs[run.second] - xs[run.first], ys[y + 1] - ys[y]});
+                next.emplace_back(run, result.size() - 1);
+            }
+        }
+        open = std::move(next);
+    }
+    return result;
+}
+// Each group of touching rectangles as its bounding rectangle.
+std::vector<Rect> block_bounds(const std::vector<Rect>& rects) {
+    constexpr double near = 1e-6;
+    std::vector<std::size_t> group(rects.size());
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        group[i] = i;
+    }
+    const std::function<std::size_t(std::size_t)> root = [&](std::size_t i) {
+        return group[i] == i ? i : group[i] = root(group[i]);
+    };
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        for (std::size_t j = i + 1; j < rects.size(); ++j) {
+            const auto& a = rects[i];
+            const auto& b = rects[j];
+            if (a.x <= b.x + b.width + near && b.x <= a.x + a.width + near &&
+                a.y <= b.y + b.height + near && b.y <= a.y + a.height + near) {
+                group[root(i)] = root(j);
+            }
+        }
+    }
+    std::map<std::size_t, Rect> bounds;
+    for (std::size_t i = 0; i < rects.size(); ++i) {
+        const auto [at, fresh] = bounds.try_emplace(root(i), rects[i]);
+        if (!fresh) {
+            at->second = joined(at->second, rects[i]);
+        }
+    }
+    std::vector<Rect> result;
+    for (const auto& [_, r] : bounds) {
+        result.push_back(r);
+    }
+    return result;
+}
+} // namespace
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved) {
+    // As today: the case, an open menu, the flick preview a flick may leave
+    // the case over, and the shortcut bar's plates and menu above the case.
+    std::vector<Rect> extra;
+    if (view.popup) {
+        extra.push_back(*view.popup);
+    }
+    if (const auto preview = flick_preview_bounds(view)) {
+        extra.push_back(*preview);
+    }
+    for (const auto& area : shortcut_bar_bounds(view)) {
+        extra.push_back(area);
+    }
+    LaserAreas whole;
+    whole.areas.push_back(panel_case_bounds(view));
+    whole.areas.insert(whole.areas.end(), extra.begin(), extra.end());
+    // Background Disabled lets the laser through between key groups (R380),
+    // but never in Settings, the shortcut editor or a question, nor while a
+    // press that began on the keyboard goes on.
+    if (!view.click_through || !view.laser_key_areas || view.settings || view.shortcut_editor ||
+        view.confirm || view.pointer_held) {
+        return whole;
+    }
+    std::vector<Rect> pieces = extra;
+    for (const auto& area : *view.laser_key_areas) {
+        pieces.push_back(panel_rect(view, area.bounds));
+    }
+    // The toolbar's buttons, the X and the editor's own controls, grown into
+    // the narrow gaps between them as keys are.
+    Layout controls;
+    controls.width = panel_width;
+    controls.height = panel_height;
+    for (const auto& control : view.controls) {
+        auto r = control.bounds;
+        if (control.clip) {
+            const double left = std::max(r.x, control.clip->x), top = std::max(r.y, control.clip->y);
+            const double right = std::min(r.x + r.width, control.clip->x + control.clip->width);
+            const double bottom = std::min(r.y + r.height, control.clip->y + control.clip->height);
+            r = {left, top, right - left, bottom - top};
+        }
+        if (r.width > 0 && r.height > 0) {
+            Key key;
+            key.bounds = r;
+            controls.keys.push_back(std::move(key));
+        }
+    }
+    for (const auto& area : key_areas(controls)) {
+        pieces.push_back(area.bounds);
+    }
+    if (view.emoji) {
+        pieces.push_back(view.emoji->tabs);
+        pieces.push_back(view.emoji->grid);
+        if (view.emoji->popup) {
+            pieces.push_back(view.emoji->popup->bounds);
+        }
+    }
+    if (view.dictation) {
+        pieces.push_back(view.dictation->bounds);
+    }
+    // A status too long to show whole scrolls only under the laser. One that
+    // fits stays open: its line spans the wide space between the toolbar's
+    // button groups, and dictation mode shows a status most of the time.
+    if (dictation_status_scrolls(view)) {
+        pieces.push_back(dictation_status_bounds(view));
+    }
+    if (view.candidates) {
+        pieces.push_back(view.candidates->area);
+        if (view.candidates->list) {
+            pieces.push_back(*view.candidates->list);
+        }
+    }
+    LaserAreas result;
+    result.areas = merged_cover(pieces);
+    const std::size_t room = max_laser_areas > reserved ? max_laser_areas - reserved : 0;
+    if (result.areas.size() > room) {
+        result.areas = block_bounds(result.areas);
+        result.fallback = 1;
+    }
+    if (result.areas.size() > room) {
+        whole.fallback = 2;
+        return whole;
+    }
+    return result;
+}
+std::vector<Rect> pointer_bounds(const PanelView& view) {
+    // The move handle, which SteamVR's mask holds too, takes one place.
+    return laser_areas(view, panel_move_handle_bounds(view) ? 1 : 0).areas;
+}
+bool takes_pointer(const PanelView& view, double x, double y) {
+    const auto areas = pointer_bounds(view);
+    return std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+}
+std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now) {
+    if (!before.shortcut_bar || !now.shortcut_bar || before.shortcut_bar == now.shortcut_bar ||
+        before.settings || now.settings) {
+        return {};
+    }
+    const auto& a = *before.shortcut_bar;
+    const auto& b = *now.shortcut_bar;
+    // Everything but the states and the buttons' scrolled places must match.
+    const auto still = [](ShortcutBarView v) {
+        v.buttons.clear();
+        v.more_before = v.more_after = false;
+        v.picker_hovered = v.picker_pressed = false;
+        return v;
+    };
+    if (still(a) != still(b)) {
+        return {};
+    }
+    std::vector<Rect> damage;
+    const bool same_places = a.buttons.size() == b.buttons.size() && a.more_before == b.more_before &&
+                             a.more_after == b.more_after &&
+                             std::equal(a.buttons.begin(), a.buttons.end(), b.buttons.begin(),
+                                        [](const auto& x, const auto& y) {
+                                            return x.bounds == y.bounds && x.label == y.label;
+                                        });
+    if (!same_places) {
+        damage.push_back(pixel_bounds(b.plate, 1)); // scrolled: the whole strip moves
+    } else {
+        for (std::size_t i = 0; i < b.buttons.size(); ++i) {
+            if (a.buttons[i] != b.buttons[i]) {
+                // Its side reaches below the face, and its edge light a little
+                // around it; the plate's margin holds both.
+                const auto& r = b.buttons[i].bounds;
+                const double left = std::max(b.strip.x, r.x - 2);
+                const double right = std::min(b.strip.x + b.strip.width, r.x + r.width + 2);
+                damage.push_back(pixel_bounds({left, b.plate.y + 4, right - left, b.plate.height - 8}));
+            }
+        }
+    }
+    if (a.picker_hovered != b.picker_hovered || a.picker_pressed != b.picker_pressed) {
+        // The tab draws nothing outside itself: its own edge's anti-aliasing.
+        damage.push_back(pixel_bounds(b.picker, 1));
+    }
+    // The menu lies over keys, whose own repaints would cut through its rows'
+    // text with their clips: a change in it repaints whole.
+    if (a.menu != b.menu) {
+        return {};
+    }
+    return damage;
+}
+double band_toolbar_room(const PanelView& view) {
+    // Under the normal toolbar, a layout this much taller is centered as
+    // `view` centers its own, with its keys as far down: what the case
+    // leaves beyond that (reading_case_room's whole pixels) stays split
+    // above and below them, as it is in `view`.
+    // The taller layout's height in one sum, less the layout's own (an exact
+    // difference): its keys' scale then comes out as `view`'s to the last
+    // bit, so the case and the toolbar laid out from it stay put too.
+    const double scale = placement(view).scale, height = view.layout->height;
+    return (height * scale + keys_toolbar_height(view) - normal_toolbar_height) / scale - height;
 }
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick) {
+    const double margin = theme.padding;
     if (flick) {
-        return second_row_room;
+        // As wide as a full layout's case without its numpad: the keys at
+        // that width, under the band's two rows, need `needed` of the case.
+        // Whole pixels, as a full layout's: the case is at least that tall.
+        const double scale = (flick_case_width - 2 * margin) / layout.width;
+        const double needed = ime_two_row_height + 2 * margin + theme.depth + layout.height * scale;
+        return std::max(0.0, std::floor(panel_height - needed));
     }
     // The scale placement() gives the keys under the normal toolbar in the
     // full case; under the reading line's taller toolbar, at that scale, they
     // need `needed` of the case.
-    const double margin = theme.padding;
     const double scale =
         std::min((panel_width - 2 * margin) / layout.width,
                  (panel_height - normal_toolbar_height - 2 * margin - theme.depth) / layout.height);
@@ -2080,6 +2593,7 @@ ImeBand ime_band(const PanelView& view) {
         case ControlKind::SwipeToggle:
         case ControlKind::SoundsToggle:
         case ControlKind::KeyFlicksToggle:
+        case ControlKind::ShortcutsToggle:
         case ControlKind::LanguageCycle:
             if (r.y < 50) {
                 first = std::max(first, r.x + r.width);
@@ -2140,6 +2654,9 @@ Rect candidate_list_area(const PanelView& view) {
     return {band.band.x, top, band.band.width, std::max(0.0, bottom - top)};
 }
 double candidate_text_width(const std::string& text, const std::string& family) {
+    return interface_text_width(text, candidate_font_size, family);
+}
+double interface_text_width(const std::string& text, double size, const std::string& family) {
     // Measuring needs a context but no pixels: one tiny surface per thread.
     thread_local struct Measuring {
         cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
@@ -2156,14 +2673,14 @@ double candidate_text_width(const std::string& text, const std::string& family) 
         // (a kaomoji under many readings): each is laid out once.
         std::unordered_map<std::string, double> widths;
     } measuring;
-    auto key = family + '\n' + text;
+    auto key = std::to_string(size) + '\n' + family + '\n' + text;
     if (const auto known = measuring.widths.find(key); known != measuring.widths.end()) {
         return known->second;
     }
     if (measuring.widths.size() >= 4096) {
         measuring.widths.clear();
     }
-    const double width = text_width(measuring.context, text, candidate_font_size, family);
+    const double width = text_width(measuring.context, text, size, family);
     measuring.widths.emplace(std::move(key), width);
     return width;
 }
@@ -2325,6 +2842,7 @@ std::optional<Rect> dictation_counter_bounds(const PanelView& view) {
 }
 // Narrower than this, no word of a status would fit.
 constexpr double min_status_width = 40;
+constexpr double status_font_size = 15;
 // The editor covers the status line, so it moves up into the toolbar row,
 // between the left buttons and the next control or the counter.
 Rect dictation_status_line(const PanelView& view) {
@@ -2365,6 +2883,9 @@ struct ShownTooltip {
     bool operator==(const ShownTooltip&) const = default;
     std::string text;
     Rect button; // the button it points at
+    // One of the shortcut bar's own (picker, Manage, assign): it stands above
+    // the bar. The others stand above the case, the bar or not (R358).
+    bool bar{};
 };
 std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
     auto button = [&](std::string_view id) -> const Control* {
@@ -2381,10 +2902,21 @@ std::optional<ShownTooltip> shown_tooltip(const PanelView& view) {
         hovered && !hovered->label.empty()) {
         return ShownTooltip{hovered->label, hovered->bounds};
     }
+    if (!view.bar_tooltip.empty() && view.shortcut_bar && !view.settings) {
+        return ShownTooltip{view.bar_tooltip, view.bar_tooltip_at, true};
+    }
     return {};
 }
+// Where the status card and the bar's own tooltips stand: above the case,
+// or above the shortcut bar while it shows.
+double above_case(const PanelView& view) {
+    return view.shortcut_bar && !view.settings ? view.shortcut_bar->plate.y : panel_case_bounds(view).y;
+}
 // Where the tooltip may lie: above the case, centred on its button and kept
-// on the panel. Its card is as wide as its text, up to this.
+// on the panel. Its card is as wide as its text, up to this. A toolbar's
+// tooltip keeps that place over the shortcut bar, drawn over it and taking
+// no pointer (pointer_bounds leaves it out); only the bar's own tooltips
+// stand above the bar (R358).
 constexpr double focus_tooltip_height = 46, focus_tooltip_pointer = 10;
 std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optional<ShownTooltip>& tip) {
     if (!tip) {
@@ -2392,7 +2924,8 @@ std::optional<Rect> focus_tooltip_area(const PanelView& view, const std::optiona
     }
     constexpr double width = 640;
     const double centre = tip->button.x + tip->button.width / 2;
-    const double bottom = panel_case_bounds(view).y - 4; // the pointer's tip
+    const double base = tip->bar ? above_case(view) : panel_case_bounds(view).y;
+    const double bottom = base - 4; // the pointer's tip
     return Rect{std::clamp(centre - width / 2, 8.0, panel_width - 8 - width),
                 bottom - focus_tooltip_pointer - focus_tooltip_height, width,
                 focus_tooltip_height + focus_tooltip_pointer};
@@ -2437,26 +2970,42 @@ void draw_card(cairo_t* cr, const Theme& t, const Rect& card) {
     cairo_stroke(cr);
 }
 // The keyboard's messages: a card above the case, at the focus tooltip's
-// height, centred on the case. Beside the tooltip when both show, or above
-// it when the panel has no room beside it.
-void draw_status_card(cairo_t* cr, const PanelView& view) {
-    constexpr double size = 17, pad = 20, gap = 12;
+// height, centred on the case, or above the shortcut bar while it shows.
+// Beside a tooltip in its row when both show, or above it when the panel has
+// no room beside it. Above the bar there is no room above the bar's own
+// tooltip: the card stays and that tooltip waits. A toolbar's tooltip stands
+// over the bar, below the card's row, so both show (R358).
+constexpr double status_card_size = 17, status_card_pad = 20;
+Rect status_card_bounds(cairo_t* cr, const PanelView& view, bool* tooltip_waits = nullptr) {
+    constexpr double gap = 12;
     const auto body = panel_case_bounds(view);
-    const double width =
-        std::min(text_width(cr, view.status, size, view.interface_font) + 2 * pad, panel_width - 16.0);
+    const double width = std::min(text_width(cr, view.status, status_card_size, view.interface_font) +
+                                      2 * status_card_pad,
+                                  panel_width - 16.0);
     Rect card{std::clamp(body.x + (body.width - width) / 2, 8.0, panel_width - 8 - width),
-              body.y - 4 - focus_tooltip_pointer - focus_tooltip_height, width, focus_tooltip_height};
-    if (const auto tooltip = focus_tooltip_card(cr, view); tooltip &&
-                                                           card.x < tooltip->x + tooltip->width + gap &&
-                                                           tooltip->x < card.x + card.width + gap) {
+              above_case(view) - 4 - focus_tooltip_pointer - focus_tooltip_height, width,
+              focus_tooltip_height};
+    if (const auto tooltip = focus_tooltip_card(cr, view);
+        tooltip && card.x < tooltip->x + tooltip->width + gap &&
+        tooltip->x < card.x + card.width + gap && card.y < tooltip->y + tooltip->height &&
+        tooltip->y < card.y + card.height) {
         if (const double right = tooltip->x + tooltip->width + gap; right + width <= panel_width - 8) {
             card.x = std::max(card.x, right);
         } else if (const double left = tooltip->x - gap - width; left >= 8) {
             card.x = std::min(card.x, left);
+        } else if (view.shortcut_bar && !view.settings) {
+            if (tooltip_waits) {
+                *tooltip_waits = true;
+            }
         } else {
             card.y = tooltip->y - 8 - focus_tooltip_height;
         }
     }
+    return card;
+}
+void draw_status_card(cairo_t* cr, const PanelView& view) {
+    constexpr double size = status_card_size, pad = status_card_pad;
+    const auto card = status_card_bounds(cr, view);
     draw_card(cr, *view.theme, card);
     // label() sets text 4 px inside its area.
     interface_label(cr, view.status, {card.x + pad - 4, card.y, card.width - 2 * pad + 8, card.height},
@@ -2466,6 +3015,18 @@ void draw_focus_tooltip(cairo_t* cr, const PanelView& view) {
     const auto found = focus_tooltip_card(cr, view);
     if (!found) {
         return;
+    }
+    // Over the shortcut bar a message and one of the bar's own tooltips that
+    // can't sit side by side: the message shows (draw_status_card), the
+    // tooltip waits. The status card shows whenever there is a status: the
+    // bar is never shown with dictation's editor, whose status sits in its
+    // toolbar.
+    if (view.shortcut_bar && !view.settings && !view.status.empty()) {
+        bool waits = false;
+        status_card_bounds(cr, view, &waits);
+        if (waits) {
+            return;
+        }
     }
     const auto& t = *view.theme;
     const auto tooltip = shown_tooltip(view);
@@ -2625,9 +3186,10 @@ Color draw_well(cairo_t* cr, const Theme& t, const Rect& r) {
     cairo_stroke(cr);
     return well;
 }
-// A see-through case (Background other than Visible); Settings keeps it opaque.
+// A see-through case (Background other than Visible); Settings and the
+// shortcut editor keep it opaque, whatever Background says (R380).
 bool clear_case(const PanelView& view) {
-    return view.case_opacity < 1 && !view.settings;
+    return view.case_opacity < 1 && !view.settings && !view.shortcut_editor;
 }
 // Over a clear case, text drawn on the case itself gets a piece of it back:
 // a plate in the case color, fitted to the text and kept inside `area`, so
@@ -3080,9 +3642,1096 @@ void draw_flick_preview(cairo_t* cr, const PanelView& view, const std::array<Rec
               static_cast<int>(i) == preview.selected ? t.latched_legend : t.legend, true);
     }
 }
+// A bar button's label: its one or two lines centred on the face, shrunk to
+// fit its width down to 70%, then each line ends in an ellipsis.
+// `mark`: the Run mark's scale (draw_run_mark), 0 without one. A first line
+// that would reach into the mark moves the label down, within the face.
+void bar_label(cairo_t* cr, const std::string& text, const Rect& face, double size,
+               const std::string& family, Color color, double mark = 0) {
+    constexpr double smallest = .7;
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, family.c_str());
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+    // Two lines share the face's height, with a little room between them.
+    pango_layout_set_spacing(layout, static_cast<int>(-size * .12 * PANGO_SCALE));
+    const double room = std::max(1.0, face.width - 10);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    double drawn = size;
+    if (width > room) {
+        drawn = std::max(size * smallest, size * room / width * .96);
+        pango_font_description_set_absolute_size(font, drawn * PANGO_SCALE);
+        pango_layout_set_font_description(layout, font);
+    }
+    // Each line (paragraph) ends in "…" where it still does not fit.
+    pango_layout_set_width(layout, static_cast<int>(room * PANGO_SCALE));
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    pango_layout_get_pixel_size(layout, &width, &height);
+    if (label_fits) {
+        label_fits->push_back({text, family, drawn / size, pango_layout_get_line_count(layout),
+                               pango_layout_is_ellipsized(layout) != 0});
+    }
+    double top = face.y + (face.height - height) / 2;
+    if (mark > 0) {
+        PangoRectangle ink{}, logical{};
+        pango_layout_line_get_pixel_extents(pango_layout_get_line_readonly(layout, 0), &ink, &logical);
+        // The first line's ink, centred in the room as the layout places it.
+        const double right = face.x + 5 + (room + ink.width) / 2 + 1;
+        const double mark_left = face.x + face.width - 23 * mark, mark_bottom = face.y + 19 * mark;
+        int baseline = pango_layout_get_baseline(layout) / PANGO_SCALE;
+        const double ink_top = top + baseline + ink.y; // ink.y is above the baseline
+        if (right > mark_left && ink_top < mark_bottom + 1) {
+            top = std::min(top + mark_bottom + 1 - ink_top, face.y + face.height - height);
+        }
+    }
+    source(cr, color);
+    cairo_move_to(cr, face.x + 5, top);
+    pango_cairo_show_layout(cr, layout);
+    pango_font_description_free(font);
+    g_object_unref(layout);
+}
+// A Run button's mark (design, The bar on the keyboard): >_ in the keyboard's
+// icon style, 16 x 12 with its corner 7 px in from the face's top right at
+// the full layout's scale, `k` its share of that scale.
+void draw_run_mark(cairo_t* cr, const Rect& face, double k, Color color) {
+    const double w = 16 * k;
+    const double x = face.x + face.width - 7 * k - w, y = face.y + 7 * k;
+    cairo_save(cr);
+    cairo_new_path(cr);
+    source(cr, color);
+    cairo_set_line_width(cr, 1.7 * k);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_move_to(cr, x + 1.5 * k, y + 1.5 * k); // the chevron
+    cairo_line_to(cr, x + 6.5 * k, y + 6 * k);
+    cairo_line_to(cr, x + 1.5 * k, y + 10.5 * k);
+    cairo_move_to(cr, x + 9 * k, y + 10.5 * k); // the underscore
+    cairo_line_to(cr, x + 15 * k, y + 10.5 * k);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+// A bar button drawn as a key in Ctrl's tone at `scale`, from its resting
+// face, its label on it: on the bar and in the shortcut editor's strip.
+void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::Button& button,
+                     double scale) {
+    const auto& t = *view.theme;
+    const auto tone = key_tone(t, false); // Ctrl's
+    const auto& r = button.bounds;
+    const double amount = button.pressed && button.enabled ? 1 : 0;
+    // As a key: a theme with a pressed color fills one held down.
+    const KeyFace fill = !button.enabled           ? KeyFace::Disabled
+                         : button.running          ? KeyFace::Latched
+                         : t.pressed && amount > 0 ? KeyFace::Pressed
+                                                   : KeyFace::Plain;
+    const double lift = button.hovered && button.enabled ? 1 : 0;
+    cairo_save(cr);
+    cairo_translate(cr, r.x, r.y);
+    cairo_scale(cr, scale, scale);
+    cairo_new_path(cr);
+    const auto cap = draw_keycap(cr, t, tone, {0, 0, r.width / scale, r.height / scale}, amount, lift,
+                                 fill, lift > 0 || amount > 0);
+    if (button.progress_px >= 0) {
+        // A long run's progress: a stroke clockwise around the border from the top center, as a
+        // modifier's lock ring is drawn (R372).
+        draw_lock_ring(cr, t, cap, std::min(1.0, button.progress_px / bar_border_pixels(r)), 1);
+    }
+    cairo_new_path(cr);
+    cairo_restore(cr);
+    const Rect face{r.x, r.y + amount * t.travel * scale, r.width, r.height};
+    const Color ink = !button.enabled            ? disabled_legend(t)
+                      : button.running           ? t.latched_legend
+                      : fill == KeyFace::Pressed ? t.pressed_legend
+                                                 : t.legend;
+    bar_label(cr, button.label, face, t.small_font_size * 1.15 * scale, view.interface_font, ink,
+              button.run ? scale / full_layout_scale : 0);
+    if (button.run) {
+        // Quieter than the label, as a key's Shift character is: on a
+        // disabled face, quieter than its dim label.
+        const Color face_color = !button.enabled                         ? mix(t.bottom, t.surface, .4)
+                                 : button.running                        ? t.latched
+                                 : fill == KeyFace::Pressed && t.pressed ? *t.pressed
+                                                                         : tone.middle;
+        const Color mark = plain_keys(t) && button.enabled ? ink : mix(ink, face_color, .42);
+        draw_run_mark(cr, face, scale / full_layout_scale, mark);
+    }
+}
+// Typed text in a recessed well with its caret at a byte offset: one line
+// left-aligned, or a label's one or two lines centred.
+void draw_typed(cairo_t* cr, const PanelView& view, const Rect& r, const std::string& text,
+                std::size_t cursor, double size, bool centred) {
+    const auto& t = *view.theme;
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, view.language->font.empty() ? view.interface_font.c_str()
+                                                                        : view.language->font.c_str());
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    pango_layout_set_alignment(layout, centred ? PANGO_ALIGN_CENTER : PANGO_ALIGN_LEFT);
+    pango_layout_set_spacing(layout, static_cast<int>(-size * .12 * PANGO_SCALE));
+    const double pad = centred ? 4 : 14;
+    // Left-aligned text stays one line, however long, such as a command:
+    // it scrolls to keep its caret in view instead of wrapping.
+    if (centred) {
+        pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 2 * pad) * PANGO_SCALE));
+    }
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    height = std::max(height, static_cast<int>(size * 1.3));
+    const double x = r.x + pad, y = r.y + (r.height - height) / 2;
+    cairo_save(cr);
+    cairo_rectangle(cr, r.x + 2, r.y + 2, r.width - 4, r.height - 4);
+    cairo_clip(cr);
+    // A long line keeps its caret in view.
+    PangoRectangle caret;
+    pango_layout_index_to_pos(layout, static_cast<int>(std::min(cursor, text.size())), &caret);
+    const double caret_x = caret.x / static_cast<double>(PANGO_SCALE);
+    const double shift = centred ? 0 : std::max(0.0, caret_x - (r.width - 2 * pad - 4));
+    source(cr, t.legend);
+    cairo_move_to(cr, x - shift, y);
+    pango_cairo_show_layout(cr, layout);
+    rounded(cr,
+            {x - shift + caret_x - 1, y + caret.y / static_cast<double>(PANGO_SCALE), 2,
+             std::max(size, caret.height / static_cast<double>(PANGO_SCALE))},
+            1);
+    source(cr, t.legend);
+    cairo_fill(cr);
+    cairo_restore(cr);
+    g_object_unref(layout);
+}
+// A bar button whose label is being typed: a well with the text and caret.
+void draw_label_field(cairo_t* cr, const PanelView& view, const Rect& r, const std::string& text,
+                      std::size_t cursor, double size) {
+    draw_well(cr, *view.theme, r);
+    draw_typed(cr, view, r, text, cursor, size, true);
+}
+// The shortcut bar (docs/shortcut-bar-design.md): its plate in the case's
+// color and opacity with the picker's tab grown out of its right side,
+// buttons drawn as keys in Ctrl's tone. Every color derives from the theme.
+void draw_shortcut_bar(cairo_t* cr, const PanelView& view) {
+    const auto& bar = *view.shortcut_bar;
+    const auto& t = *view.theme;
+    const double opacity = clear_case(view) ? view.case_opacity : 1;
+    constexpr double plate_radius = 18, tab_radius = 14;
+    // The tab, square where it joins the plate: its rectangle reaches into
+    // the plate, clipped to the tab for its own fills.
+    const auto& tab = bar.picker;
+    const Rect tab_shape{tab.x - tab_radius, tab.y, tab.width + tab_radius, tab.height};
+    if (opacity > 0) {
+        // One fill for both, so the joint has no seam and no doubled edge.
+        rounded(cr, bar.plate, plate_radius);
+        rounded(cr, tab_shape, tab_radius);
+        cairo_set_fill_rule(cr, CAIRO_FILL_RULE_WINDING);
+        cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
+        cairo_fill(cr);
+    }
+    // The buttons, clipped to the strip; a side with more beyond it fades
+    // out, the buttons drawn as a group and masked.
+    cairo_save(cr);
+    cairo_rectangle(cr, bar.strip.x, bar.plate.y, bar.strip.width, bar.plate.height);
+    cairo_clip(cr);
+    const bool fades = bar.more_before || bar.more_after;
+    if (fades) {
+        cairo_push_group(cr);
+    }
+    for (std::size_t i = 0; i < bar.buttons.size(); ++i) {
+        if (bar.field == i) {
+            draw_label_field(cr, view, bar.buttons[i].bounds, bar.field_text, bar.field_cursor,
+                             t.small_font_size * 1.15 * bar.scale);
+        } else {
+            draw_bar_button(cr, view, bar.buttons[i], bar.scale);
+        }
+    }
+    if (fades) {
+        cairo_pop_group_to_source(cr);
+        constexpr double fade = 36;
+        const auto& r = bar.strip;
+        auto* mask = cairo_pattern_create_linear(r.x, 0, r.x + r.width, 0);
+        const double edge = std::min(.45, fade / r.width);
+        cairo_pattern_add_color_stop_rgba(mask, 0, 0, 0, 0, bar.more_before ? 0 : 1);
+        cairo_pattern_add_color_stop_rgba(mask, edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1 - edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1, 0, 0, 0, bar.more_after ? 0 : 1);
+        cairo_mask(cr, mask);
+        cairo_pattern_destroy(mask);
+    }
+    cairo_restore(cr);
+    // The chevrons sit over the faded sides, in the plate's margin and the
+    // strip's edge.
+    if (bar.more_before) {
+        draw_icon(cr, Icon::ChevronLeft, {bar.plate.x + 2, bar.plate.y, 30, bar.plate.height}, t.legend,
+                  18);
+    }
+    if (bar.more_after) {
+        draw_icon(cr, Icon::ChevronRight,
+                  {bar.plate.x + bar.plate.width - 32, bar.plate.y, 30, bar.plate.height}, t.legend, 18);
+    }
+    // The picker: the whole tab is the button, lit while its menu is open.
+    // Joined to the plate, its light is square where they meet; with no
+    // plate drawn (Invisible, Disabled) it stands alone, all four corners
+    // rounded as the bar's buttons are (R383).
+    const bool open = bar.menu.has_value();
+    if (open || bar.picker_pressed || bar.picker_hovered) {
+        const bool alone = opacity <= 0;
+        const Rect shape = alone ? tab : tab_shape;
+        const double radius = alone ? t.radius * bar.scale : tab_radius;
+        cairo_save(cr);
+        cairo_rectangle(cr, tab.x, tab.y, tab.width, tab.height);
+        cairo_clip(cr);
+        if (open || bar.picker_pressed) {
+            fill_latched(cr, t, shape, radius);
+        } else {
+            rounded(cr, shape, radius);
+            source(cr, t.hover);
+            cairo_fill(cr);
+        }
+        cairo_restore(cr);
+    }
+    draw_icon(cr, Icon::BarPicker, tab, open || bar.picker_pressed ? t.latched_legend : t.legend, 22);
+}
+// A raised panel floating over the keys, as the Settings dropdowns are.
+void raised_panel(cairo_t* cr, const Theme& t, const Rect& r) {
+    const double radius = t.radius + 4;
+    soft_shadow(cr, r, radius, 14);
+    rounded(cr, r, radius);
+    source(cr, mix(t.bottom, t.surface, .25));
+    cairo_fill(cr);
+    cairo_move_to(cr, r.x + radius, r.y + 1.5);
+    cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+}
+// Chips in a row, a chevron between each and the next: a shortcut's
+// combinations, sent in that order.
+void draw_chord_chips(cairo_t* cr, const PanelView& view, const std::vector<ShortcutChip>& chips) {
+    const auto& t = *view.theme;
+    for (std::size_t i = 0; i < chips.size(); ++i) {
+        const auto& r = chips[i].bounds;
+        draw_cap(cr, t, r, false, false, true);
+        interface_label(cr, chips[i].text, r, 20, view.interface_font, t.legend);
+        if (i + 1 < chips.size()) {
+            const double gap = chips[i + 1].bounds.x - (r.x + r.width);
+            draw_icon(cr, Icon::ChevronRight, {r.x + r.width, r.y, gap, r.height}, disabled_legend(t),
+                      14);
+        }
+    }
+}
+// Chips drawn by `draw` clipped to `strip`; a side with more beyond it fades
+// out, as the bar's buttons do (R331).
+template <class Draw>
+void faded_strip(cairo_t* cr, const Rect& strip, bool before, bool after, const Draw& draw) {
+    cairo_save(cr);
+    cairo_rectangle(cr, strip.x, strip.y, strip.width, strip.height);
+    cairo_clip(cr);
+    const bool fades = before || after;
+    if (fades) {
+        cairo_push_group(cr);
+    }
+    draw();
+    if (fades) {
+        cairo_pop_group_to_source(cr);
+        constexpr double fade = 36;
+        auto* mask = cairo_pattern_create_linear(strip.x, 0, strip.x + strip.width, 0);
+        const double edge = std::min(.45, fade / strip.width);
+        cairo_pattern_add_color_stop_rgba(mask, 0, 0, 0, 0, before ? 0 : 1);
+        cairo_pattern_add_color_stop_rgba(mask, edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1 - edge, 0, 0, 0, 1);
+        cairo_pattern_add_color_stop_rgba(mask, 1, 0, 0, 0, after ? 0 : 1);
+        cairo_mask(cr, mask);
+        cairo_pattern_destroy(mask);
+    }
+    cairo_restore(cr);
+}
+// One line of text that ends in an ellipsis when it is too long for `r`.
+void ellipsized_label(cairo_t* cr, const std::string& text, const Rect& r, double size,
+                      const std::string& family, Color color) {
+    auto* layout = pango_cairo_create_layout(cr);
+    auto* font = pango_font_description_new();
+    pango_font_description_set_family(font, family.c_str());
+    pango_font_description_set_weight(font, PANGO_WEIGHT_MEDIUM);
+    pango_font_description_set_absolute_size(font, size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, font);
+    pango_font_description_free(font);
+    pango_layout_set_text(layout, text.c_str(), static_cast<int>(text.size()));
+    pango_layout_set_width(layout, static_cast<int>(std::max(1.0, r.width - 8) * PANGO_SCALE));
+    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+    int width = 0, height = 0;
+    pango_layout_get_pixel_size(layout, &width, &height);
+    source(cr, color);
+    cairo_move_to(cr, r.x + 4, r.y + (r.height - height) / 2);
+    pango_cairo_show_layout(cr, layout);
+    g_object_unref(layout);
+}
+// The keyboard's strip while a label is renamed in place (ShortcutFieldView);
+// its buttons are drawn as controls after it.
+void draw_shortcut_field(cairo_t* cr, const PanelView& view) {
+    const auto& f = *view.shortcut_field;
+    const auto& t = *view.theme;
+    interface_label(cr, f.title, {f.strip.x, f.strip.y, 150, f.strip.height}, 21, view.interface_font,
+                    t.legend, false, PANGO_ALIGN_LEFT);
+    if (f.hint_bounds.width > 0) {
+        interface_label(cr, f.hint, f.hint_bounds, 18, view.interface_font, disabled_legend(t), false,
+                        PANGO_ALIGN_LEFT);
+    }
+}
+// A keycap button of the editor: its label or icon, lit under the laser.
+void editor_button(cairo_t* cr, const PanelView& view, const Control& c, double size = 21) {
+    const auto& t = *view.theme;
+    const bool hovered = c.enabled && view.hovered_controls.contains(c.id);
+    draw_cap(cr, t, c.bounds, hovered, c.selected, c.enabled);
+    const Color ink = !c.enabled ? disabled_legend(t) : c.selected ? t.latched_legend : t.legend;
+    if (c.icon != Icon::None && c.label.empty()) {
+        draw_icon(cr, c.icon, c.bounds, ink, 22);
+    } else if (c.icon != Icon::None) {
+        draw_icon(cr, c.icon, {c.bounds.x + 8, c.bounds.y, 36, c.bounds.height}, ink, 20);
+        interface_label(cr, c.label, {c.bounds.x + 40, c.bounds.y, c.bounds.width - 48, c.bounds.height},
+                        size, view.interface_font, ink, false, PANGO_ALIGN_LEFT);
+    } else {
+        interface_label(cr, c.label, c.bounds, size, view.interface_font, ink);
+    }
+}
+// A macro step's kind, small, before its content: a keyboard for Keys, a
+// clock for Wait.
+void step_icon(cairo_t* cr, bool wait, double cx, double cy, Color color) {
+    cairo_new_path(cr);
+    source(cr, color);
+    cairo_set_line_width(cr, 1.6);
+    if (wait) {
+        cairo_arc(cr, cx, cy, 9, 0, 2 * 3.141592653589793);
+        cairo_move_to(cr, cx, cy - 5);
+        cairo_line_to(cr, cx, cy);
+        cairo_line_to(cr, cx + 4, cy + 3);
+        cairo_stroke(cr);
+        return;
+    }
+    rounded(cr, {cx - 11, cy - 7, 22, 14}, 3);
+    cairo_stroke(cr);
+    for (int i = 0; i < 4; ++i) {
+        cairo_rectangle(cr, cx - 7.5 + 4.5 * i, cy - 3.5, 2, 2);
+    }
+    cairo_rectangle(cr, cx - 5, cy + 1.5, 10, 2);
+    cairo_fill(cr);
+}
+// A row's handle: two columns of three dots, where a drag takes it.
+void grip_dots(cairo_t* cr, double cx, double cy, Color color) {
+    cairo_new_path(cr);
+    source(cr, color);
+    for (int column = 0; column < 2; ++column) {
+        for (int row = 0; row < 3; ++row) {
+            cairo_arc(cr, cx - 3 + 6 * column, cy - 6 + 6 * row, 1.4, 0, 2 * 3.141592653589793);
+            cairo_fill(cr);
+        }
+    }
+}
+// One step's row: its body, handle and kind, then a Keys step's chips or a
+// Wait step's caption and time; its − + and ✕ are controls drawn after.
+void draw_step_row(cairo_t* cr, const PanelView& view, const ShortcutStepView& step, bool hovered) {
+    const auto& t = *view.theme;
+    const auto& e = *view.shortcut_editor;
+    const Color quiet = disabled_legend(t);
+    const auto& r = step.bounds;
+    rounded(cr, r, t.radius);
+    source(cr, hovered ? t.hover : mix(t.bottom, t.surface, .45));
+    cairo_fill(cr);
+    grip_dots(cr, r.x + 22, r.y + r.height / 2, quiet);
+    step_icon(cr, step.wait, r.x + 60, r.y + r.height / 2, mix(t.legend, t.surface, .3));
+    if (step.wait) {
+        interface_label(cr, e.wait_caption, {r.x + 88, r.y, 70, r.height}, 20, view.interface_font,
+                        t.legend, false, PANGO_ALIGN_LEFT);
+        interface_label(cr, step.time, step.time_bounds, 20, view.interface_font, t.legend);
+        return;
+    }
+    draw_chord_chips(cr, view, step.chips);
+    if (step.more) {
+        interface_label(cr, "…", step.more_bounds, 20, view.interface_font, t.legend);
+    }
+}
+// The Macro view's steps (design, Settings and the editor): rows in a well
+// that scrolls, a lifted one over them where the laser holds it.
+void draw_macro_steps(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& t = *view.theme;
+    const auto hovered = [&](const std::string& id) { return view.hovered_controls.contains(id); };
+    interface_label(cr, e.steps_caption, {e.divider + 16, e.steps_well.y, 96, 52}, 22,
+                    view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+    draw_well(cr, t, e.steps_well);
+    cairo_save(cr);
+    cairo_rectangle(cr, e.steps_well.x, e.steps_well.y + 2, e.steps_well.width, e.steps_well.height - 4);
+    cairo_clip(cr);
+    for (std::size_t i = 0; i < e.steps.size(); ++i) {
+        // A lifted step leaves its place empty.
+        const auto id = "shortcuts-step-" + std::to_string(i);
+        if (std::none_of(view.controls.begin(), view.controls.end(),
+                         [&](const Control& c) { return c.id == id; })) {
+            continue;
+        }
+        draw_step_row(cr, view, e.steps[i], hovered(id));
+    }
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-step-minus-") || c.id.starts_with("shortcuts-step-plus-")) {
+            editor_button(cr, view, c, 22);
+        } else if (c.id.starts_with("shortcuts-step-delete-")) {
+            if (hovered(c.id)) {
+                cairo_new_path(cr);
+                cairo_arc(cr, c.bounds.x + c.bounds.width / 2, c.bounds.y + c.bounds.height / 2, 15, 0,
+                          2 * 3.141592653589793);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            draw_icon(cr, Icon::Close, c.bounds, t.legend, 14);
+        }
+    }
+    cairo_restore(cr);
+    if (e.steps_thumb) {
+        rounded(cr, *e.steps_thumb, 1.5);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    if (e.lifted_step) {
+        // The carried row with its own − + and ✕, which are controls only
+        // in their place (R337).
+        const auto& step = *e.lifted_step;
+        soft_shadow(cr, step.bounds, t.radius + 2, tone_shadow);
+        draw_step_row(cr, view, step, true);
+        if (step.wait) {
+            for (const auto& [r, sign] :
+                 {std::pair{step.minus_bounds, "−"}, std::pair{step.plus_bounds, "+"}}) {
+                draw_cap(cr, t, r, false, false, true);
+                interface_label(cr, sign, r, 22, view.interface_font, t.legend);
+            }
+        }
+        draw_icon(cr, Icon::Close, step.remove_bounds, t.legend, 14);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-add-keys" || c.id == "shortcuts-add-wait" ||
+            c.id == "shortcuts-count-minus" || c.id == "shortcuts-count-plus") {
+            editor_button(cr, view, c, 22);
+        }
+    }
+    if (!e.count.empty()) {
+        draw_well(cr, t, e.count_bounds);
+        interface_label(cr, e.count, e.count_bounds, 22, view.interface_font, t.legend);
+    }
+}
+// The Run view (design, Settings and the editor): Script's list of the
+// scripts folder as rows in a well that scroll, the chosen one lit, a gone
+// one marked missing in the disabled color; Refresh beside it. Command's
+// field is drawn with the label's.
+void draw_run_body(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& t = *view.theme;
+    const Color quiet = disabled_legend(t);
+    const auto hovered = [&](const std::string& id) { return view.hovered_controls.contains(id); };
+    if (e.scripts_well.width <= 0) {
+        return; // Command: its field is a control
+    }
+    const auto& well = e.scripts_well;
+    interface_label(cr, e.run_caption, {e.divider + 16, well.y, 96, 52}, 22, view.interface_font,
+                    t.legend, false, PANGO_ALIGN_LEFT);
+    draw_well(cr, t, well);
+    cairo_save(cr);
+    cairo_rectangle(cr, well.x, well.y + 2, well.width, well.height - 4);
+    cairo_clip(cr);
+    for (std::size_t i = 0; i < e.scripts.size(); ++i) {
+        const auto& row = e.scripts[i];
+        const auto id = "shortcuts-script-" + std::to_string(i);
+        const auto& r = row.bounds;
+        if (r.y + r.height <= well.y || r.y >= well.y + well.height) {
+            continue;
+        }
+        if (row.chosen) {
+            fill_latched(cr, t, r, t.radius);
+        } else {
+            rounded(cr, r, t.radius);
+            source(cr, hovered(id) ? t.hover : mix(t.bottom, t.surface, .45));
+            cairo_fill(cr);
+        }
+        const Color ink = row.missing ? quiet : row.chosen ? t.latched_legend : t.legend;
+        const double mark = row.missing ? 120 : 0;
+        ellipsized_label(cr, row.name, {r.x + 22, r.y, r.width - 44 - mark, r.height}, 20,
+                         view.interface_font, ink);
+        if (row.missing) {
+            interface_label(cr, e.missing_mark, {r.x + r.width - 20 - mark, r.y, mark, r.height}, 17,
+                            view.interface_font, quiet, false, PANGO_ALIGN_RIGHT);
+        }
+    }
+    if (!e.scripts_note.empty()) {
+        interface_label(cr, e.scripts_note, {well.x + 20, well.y, well.width - 40, well.height}, 19,
+                        view.interface_font, quiet, false, PANGO_ALIGN_CENTER, true);
+    }
+    cairo_restore(cr);
+    if (e.scripts_thumb) {
+        rounded(cr, *e.scripts_thumb, 1.5);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-refresh") {
+            editor_button(cr, view, c, 22);
+        }
+    }
+}
+// A recorder's red dot.
+void record_dot(cairo_t* cr, const Theme& t, double x, double y, bool on) {
+    cairo_new_path(cr);
+    cairo_arc(cr, x, y, 6, 0, 2 * 3.141592653589793);
+    source(cr, on ? t.error : disabled_legend(t));
+    cairo_fill(cr);
+}
+// The editor's popup (design, Typing and recording): the editor dimmed but
+// its strip, where a label shows as it is typed; a raised panel with what is
+// edited and its buttons, the text or the combinations in a recessed strip,
+// and the mini keyboard: the keyboard's own keys, drawn at the popup's scale
+// with US legends and the popup's own latches. Its controls are drawn here.
+void draw_shortcut_popup(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& p = *e.popup;
+    const auto& t = *view.theme;
+    const Color quiet = disabled_legend(t);
+    const auto body = panel_case_bounds(view);
+    cairo_save(cr);
+    cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_new_path(cr);
+    rounded(cr, body, t.surface_radius);
+    if (e.strip_well.width > 0) {
+        rounded(cr, e.strip_well, t.radius + 2);
+    }
+    cairo_set_source_rgba(cr, 0, 0, 0, .45);
+    cairo_fill(cr);
+    cairo_restore(cr);
+    raised_panel(cr, t, p.panel);
+    // Row 1: what is edited, a hint after it where it fits, and the buttons.
+    double x = p.title_bounds.x;
+    const double middle = p.title_bounds.y + p.title_bounds.height / 2;
+    if (p.kind == ShortcutPopupView::Kind::Recording) {
+        record_dot(cr, t, x + 8, middle, true);
+        x += 26;
+    }
+    interface_label(cr, p.title, {x, p.title_bounds.y, p.title_bounds.width, p.title_bounds.height}, 20,
+                    view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+    const double after = x + text_width(cr, p.title, 20, view.interface_font) + 16;
+    const double right = p.hint_bounds.x + p.hint_bounds.width;
+    if (!p.hint.empty() && right - after > 120) {
+        interface_label(cr, p.hint, {after, p.hint_bounds.y, right - after, p.hint_bounds.height}, 16,
+                        view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-popup-done" || c.id == "shortcuts-popup-cancel") {
+            editor_button(cr, view, c, 20);
+        }
+    }
+    // Row 2: the text with its caret, or the combinations so far.
+    draw_well(cr, t, p.well);
+    cairo_save(cr);
+    cairo_rectangle(cr, p.well.x + 2, p.well.y, p.well.width - 4, p.well.height);
+    cairo_clip(cr);
+    // Remove last at the well's right end: the combinations fade short of it.
+    const auto remove_last =
+        std::find_if(view.controls.begin(), view.controls.end(),
+                     [](const Control& c) { return c.id == "shortcuts-popup-remove-last"; });
+    if (p.kind == ShortcutPopupView::Kind::Recording) {
+        const double strip_right =
+            remove_last != view.controls.end() ? remove_last->bounds.x - 6 : p.well.x + p.well.width - 4;
+        faded_strip(cr, {p.well.x + 4, p.well.y, strip_right - p.well.x - 4, p.well.height},
+                    p.chords_before, p.chords_after, [&] {
+                        draw_chord_chips(cr, view, p.chords);
+                        for (const auto& c : view.controls) {
+                            if (c.id != "shortcuts-popup-pending") {
+                                continue;
+                            }
+                            // The modifiers latched so far, after the chips'
+                            // chevron: a press records them alone.
+                            if (!p.chords.empty()) {
+                                const auto& last = p.chords.back().bounds;
+                                draw_icon(cr, Icon::ChevronRight,
+                                          {last.x + last.width, c.bounds.y,
+                                           c.bounds.x - last.x - last.width, c.bounds.height},
+                                          quiet, 14);
+                            }
+                            const bool lit = view.hovered_controls.contains(c.id);
+                            draw_cap(cr, t, c.bounds, lit, false, true);
+                            interface_label(cr, c.label, c.bounds, 20, view.interface_font, t.legend);
+                        }
+                    });
+        if (!p.full.empty()) {
+            interface_label(cr, p.full, p.full_bounds, 16, view.interface_font, quiet, false,
+                            PANGO_ALIGN_LEFT);
+        }
+    } else {
+        // A line break shows as ↵ between spaces; the caret keeps its place.
+        std::string shown;
+        std::size_t caret = 0;
+        for (std::size_t i = 0; i <= p.text.size(); ++i) {
+            if (i == p.cursor) {
+                caret = shown.size();
+            }
+            if (i < p.text.size()) {
+                shown += p.text[i] == '\n' ? std::string(" ↵ ") : std::string(1, p.text[i]);
+            }
+        }
+        draw_typed(cr, view, {p.well.x + 4, p.well.y, p.well.width - 8, p.well.height}, shown, caret, 20,
+                   false);
+    }
+    cairo_restore(cr);
+    if (remove_last != view.controls.end()) {
+        editor_button(cr, view, *remove_last);
+    }
+    // The keys, as the keyboard draws its own, at the popup's scale.
+    if (p.layout && p.keymap && p.language) {
+        PanelView mini;
+        mini.layout = p.layout;
+        mini.theme = view.theme;
+        mini.language = p.language;
+        mini.keymap = p.keymap;
+        mini.keyboard = view.keyboard;
+        mini.key_marks = p.marks;
+        mini.disabled_keys = p.disabled;
+        mini.interface_font = view.interface_font;
+        constexpr std::string_view prefix = "shortcuts-popup-key-";
+        for (const auto& id : view.hovered_controls) {
+            if (id.starts_with(prefix)) {
+                mini.hovered_keys.insert(id.substr(prefix.size()));
+            }
+        }
+        cairo_save(cr);
+        cairo_translate(cr, p.keys.x, p.keys.y);
+        cairo_scale(cr, p.scale, p.scale);
+        for (const auto& key : p.layout->keys) {
+            draw_key(cr, mini, key, p.pressed.contains(key.id) ? 1 : 0,
+                     mini.hovered_keys.contains(key.id) ? 1 : 0);
+        }
+        cairo_restore(cr);
+    }
+}
+// The shortcut editor's screen (docs/shortcut-bar-design.md, Settings and
+// the editor), over the case in place of the keys: the bars at the left,
+// the selected bar's strip, and the selected button's label and keys. Its
+// controls are named shortcuts-…; it draws them here, by name.
+void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
+    const auto& e = *view.shortcut_editor;
+    const auto& t = *view.theme;
+    const Color quiet = disabled_legend(t);
+    const auto body = panel_case_bounds(view);
+    const auto hovered = [&](const Control& c) {
+        return c.enabled && view.hovered_controls.contains(c.id);
+    };
+    const auto clipped = [&](const Rect& clip, const auto& draw) {
+        cairo_save(cr);
+        cairo_rectangle(cr, clip.x, clip.y, clip.width, clip.height);
+        cairo_clip(cr);
+        draw();
+        cairo_restore(cr);
+    };
+    interface_label(cr, e.title, {body.x + 166, 12, 420, 42}, 24, view.interface_font, t.legend, false,
+                    PANGO_ALIGN_LEFT);
+    if (!e.notice.empty()) {
+        interface_label(cr, e.notice, {body.x + 600, 8, body.width - 620, 52}, 16, view.interface_font,
+                        t.warning, false, PANGO_ALIGN_LEFT, true);
+    }
+    interface_label(cr, e.profiles_caption, {e.column.x + 12, e.column.y, e.column.width, 30}, 17,
+                    view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    // The line between the column and the rest.
+    cairo_move_to(cr, std::round(e.divider) + .5, e.column.y);
+    cairo_line_to(cr, std::round(e.divider) + .5, e.column.y + e.column.height);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .07);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+    clipped(e.profiles_list, [&] {
+        // The row a carried button would go to, lit as under the laser, a
+        // little stronger.
+        if (e.drop_row) {
+            const auto& r = *e.drop_row;
+            rounded(cr, {r.x, r.y + 2, r.width, r.height - 4}, t.radius);
+            source(cr, mix(t.hover, t.legend, .12));
+            cairo_fill(cr);
+        }
+        for (const auto& c : view.controls) {
+            if (!c.id.starts_with("shortcuts-row-")) {
+                continue;
+            }
+            if (c.selected) {
+                fill_latched(cr, t, c.bounds, t.radius);
+            } else if (hovered(c)) {
+                rounded(cr, c.bounds, t.radius);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            interface_label(
+                cr, c.label,
+                {c.bounds.x + 14, c.bounds.y, c.bounds.width - (c.selected ? 104 : 28), c.bounds.height},
+                21, view.interface_font, c.selected ? t.latched_legend : t.legend, false,
+                PANGO_ALIGN_LEFT);
+        }
+        for (const auto& c : view.controls) {
+            if (c.id == "shortcuts-rename" || c.id == "shortcuts-delete") {
+                if (hovered(c)) {
+                    rounded(cr,
+                            {c.bounds.x + 4, c.bounds.y + 6, c.bounds.width - 8, c.bounds.height - 12},
+                            t.radius);
+                    source(cr, mix(t.latched, t.latched_legend, .15));
+                    cairo_fill(cr);
+                }
+                draw_icon(cr, c.icon, c.bounds, t.latched_legend, 20);
+            }
+        }
+    });
+    if (e.profiles_thumb) {
+        rounded(cr, *e.profiles_thumb, 3);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    if (e.lifted_row) {
+        const auto& r = e.lifted_row->bounds;
+        soft_shadow(cr, r, t.radius + 2, tone_shadow);
+        fill_latched(cr, t, r, t.radius);
+        interface_label(cr, e.lifted_row->text, {r.x + 14, r.y, r.width - 28, r.height}, 21,
+                        view.interface_font, t.latched_legend, false, PANGO_ALIGN_LEFT);
+    }
+    if (!e.used_caption.empty()) {
+        interface_label(cr, e.used_caption, {e.used.x, e.used.y, e.used.width, 30}, 17,
+                        view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    }
+    for (const auto& chip : e.ties) {
+        rounded(cr, chip.bounds, chip.bounds.height / 2);
+        source(cr, t.bottom);
+        cairo_fill(cr);
+        interface_label(cr, chip.text,
+                        {chip.bounds.x + 14, chip.bounds.y, chip.bounds.width - 46, chip.bounds.height},
+                        19, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-tie-")) {
+            if (hovered(c)) {
+                cairo_new_path(cr);
+                cairo_arc(cr, c.bounds.x + c.bounds.width / 2, c.bounds.y + c.bounds.height / 2,
+                          c.bounds.height / 2 - 4, 0, 2 * 3.141592653589793);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            draw_icon(cr, Icon::Close, c.bounds, t.legend, 14);
+        } else if (c.id == "shortcuts-new-profile") {
+            if (hovered(c)) {
+                rounded(cr, c.bounds, t.radius);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            const Color ink = c.enabled ? mix(t.legend, t.surface, .2) : quiet;
+            const Rect plus{c.bounds.x + 8, c.bounds.y, 36, c.bounds.height};
+            cairo_move_to(cr, plus.x + 18, plus.y + plus.height / 2 - 9);
+            cairo_line_to(cr, plus.x + 18, plus.y + plus.height / 2 + 9);
+            cairo_move_to(cr, plus.x + 9, plus.y + plus.height / 2);
+            cairo_line_to(cr, plus.x + 27, plus.y + plus.height / 2);
+            source(cr, ink);
+            cairo_set_line_width(cr, 2);
+            cairo_stroke(cr);
+            interface_label(cr, c.label,
+                            {c.bounds.x + 48, c.bounds.y, c.bounds.width - 56, c.bounds.height}, 21,
+                            view.interface_font, ink, false, PANGO_ALIGN_LEFT);
+        } else if (c.id == "shortcuts-record") {
+            // The red dot, then the label centered in the room right of it, so
+            // a longer word than Record shrinks there rather than running under
+            // the dot.
+            auto cap = c;
+            cap.label.clear();
+            editor_button(cr, view, cap);
+            cairo_new_path(cr);
+            cairo_arc(cr, c.bounds.x + 30, c.bounds.y + c.bounds.height / 2, 6, 0,
+                      2 * 3.141592653589793);
+            source(cr, c.enabled ? t.error : quiet);
+            cairo_fill(cr);
+            const Color ink = !c.enabled ? disabled_legend(t) : c.selected ? t.latched_legend : t.legend;
+            interface_label(cr, c.label,
+                            {c.bounds.x + 44, c.bounds.y, c.bounds.width - 52, c.bounds.height}, 21,
+                            view.interface_font, ink);
+        } else if (c.id == "shortcuts-back" || c.id == "shortcuts-save" || c.id == "shortcuts-clear") {
+            editor_button(cr, view, c);
+        }
+    }
+    if (!e.used_hint.empty()) {
+        interface_label(cr, e.used_hint, {e.used.x, e.used.y + e.used.height - 52, e.used.width, 50}, 15,
+                        view.interface_font, quiet, false, PANGO_ALIGN_LEFT, true);
+    }
+    if (e.strip_well.width > 0) {
+        draw_well(cr, t, e.strip_well);
+        clipped(e.strip, [&] {
+            for (const auto& c : view.controls) {
+                if (!c.id.starts_with("shortcuts-button-")) {
+                    continue;
+                }
+                ShortcutBarView::Button button;
+                button.label = c.label;
+                button.bounds = c.bounds;
+                button.hovered = hovered(c);
+                button.running = c.selected; // the selected button stands out, lit
+                button.run = c.icon == Icon::RunMark;
+                draw_bar_button(cr, view, button, e.scale);
+            }
+            for (const auto& c : view.controls) {
+                if (c.id != "shortcuts-add") {
+                    continue;
+                }
+                // A dashed slot with a plus: where a new button goes.
+                const Color ink = !c.enabled   ? quiet
+                                  : hovered(c) ? t.legend
+                                               : mix(t.legend, t.surface, .35);
+                rounded(cr, {c.bounds.x + 1, c.bounds.y + 1, c.bounds.width - 2, c.bounds.height - 2},
+                        t.radius);
+                const double dash[] = {5, 4};
+                cairo_set_dash(cr, dash, 2, 0);
+                source(cr, ink);
+                cairo_set_line_width(cr, 1.5);
+                cairo_stroke(cr);
+                cairo_set_dash(cr, nullptr, 0, 0);
+                cairo_move_to(cr, c.bounds.x + c.bounds.width / 2,
+                              c.bounds.y + c.bounds.height / 2 - 10);
+                cairo_line_to(cr, c.bounds.x + c.bounds.width / 2,
+                              c.bounds.y + c.bounds.height / 2 + 10);
+                cairo_move_to(cr, c.bounds.x + c.bounds.width / 2 - 10,
+                              c.bounds.y + c.bounds.height / 2);
+                cairo_line_to(cr, c.bounds.x + c.bounds.width / 2 + 10,
+                              c.bounds.y + c.bounds.height / 2);
+                cairo_stroke(cr);
+            }
+        });
+        if (e.more_before) {
+            draw_icon(cr, Icon::ChevronLeft, {e.strip_well.x, e.strip.y, 24, e.strip.height}, t.legend,
+                      16);
+        }
+        if (e.more_after) {
+            draw_icon(cr, Icon::ChevronRight,
+                      {e.strip_well.x + e.strip_well.width - 24, e.strip.y, 24, e.strip.height},
+                      t.legend, 16);
+        }
+        if (e.wide && !e.strip_hint.empty()) {
+            interface_label(
+                cr, e.strip_hint,
+                {e.strip_well.x + e.strip_well.width - 420, e.strip_well.y, 400, e.strip_well.height},
+                17, view.interface_font, quiet, false, PANGO_ALIGN_RIGHT);
+        }
+    }
+    if (!e.empty_hint.empty()) {
+        const double left = e.divider + 30;
+        interface_label(cr, e.empty_hint, {left, e.column.y + 140, body.x + body.width - 30 - left, 60},
+                        20, view.interface_font, quiet, false, PANGO_ALIGN_CENTER, true);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-label" || c.id == "shortcuts-command") {
+            // Command's caption has the room up to its field, which starts
+            // as far right as the caption needs (R348).
+            const Rect caption =
+                c.id == "shortcuts-label"
+                    ? Rect{c.bounds.x - 100, c.bounds.y, 96, c.bounds.height}
+                    : Rect{e.divider + 16, c.bounds.y, c.bounds.x - e.divider - 20, c.bounds.height};
+            interface_label(cr, c.id == "shortcuts-label" ? e.label_caption : e.run_caption, caption, 22,
+                            view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+            draw_well(cr, t, c.bounds);
+            if (hovered(c)) {
+                rounded(cr, {c.bounds.x + .5, c.bounds.y + .5, c.bounds.width - 1, c.bounds.height - 1},
+                        t.radius + 2);
+                cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .18);
+                cairo_set_line_width(cr, 1);
+                cairo_stroke(cr);
+            }
+            // A line break shows as ↵.
+            std::string shown = c.label;
+            for (auto at = shown.find('\n'); at != std::string::npos; at = shown.find('\n')) {
+                shown.replace(at, 1, " ↵ ");
+            }
+            const Rect text{c.bounds.x + 18, c.bounds.y, c.bounds.width - 36, c.bounds.height};
+            if (c.id == "shortcuts-label") {
+                interface_label(cr, shown, text, 22, view.interface_font, t.legend, false,
+                                PANGO_ALIGN_LEFT);
+            } else {
+                ellipsized_label(cr, shown, text, 22, view.interface_font, t.legend); // a long command
+            }
+        } else if (c.id.starts_with("shortcuts-kind-") || c.id.starts_with("shortcuts-repeat-") ||
+                   c.id.starts_with("shortcuts-run-")) {
+            const auto& r = c.bounds;
+            if (c.action.index == 0 && c.id.starts_with("shortcuts-kind-")) {
+                interface_label(cr, e.action_caption, {r.x - 120, r.y, 112, r.height}, 22,
+                                view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+            } else if (c.action.index == 0) {
+                interface_label(cr,
+                                c.id.starts_with("shortcuts-run-") ? e.start_caption : e.repeat_caption,
+                                {e.divider + 16, r.y, 96, r.height}, 22, view.interface_font, t.legend,
+                                false, PANGO_ALIGN_LEFT);
+            }
+            // Each segment paints its slice of the shared well.
+            cairo_save(cr);
+            cairo_rectangle(cr, r.x, r.y, r.width, r.height);
+            cairo_clip(cr);
+            draw_well(
+                cr, t,
+                {r.x - c.action.index * r.width, r.y, r.width * std::max(1, c.segments), r.height});
+            cairo_restore(cr);
+            const Rect thumb{r.x + 4, r.y + 4, r.width - 8, r.height - 8};
+            if (c.selected) {
+                fill_latched(cr, t, thumb, t.radius);
+            } else if (hovered(c)) {
+                rounded(cr, thumb, t.radius);
+                source(cr, t.hover);
+                cairo_fill(cr);
+            }
+            interface_label(cr, c.label, r, 21, view.interface_font,
+                            c.selected  ? t.latched_legend
+                            : c.enabled ? t.legend
+                                        : quiet);
+        }
+    }
+    if (!e.keys_caption.empty()) {
+        for (const auto& c : view.controls) {
+            if (c.id == "shortcuts-record") {
+                const double left = e.divider + 16; // under Label
+                interface_label(cr, e.keys_caption, {left, c.bounds.y, 96, c.bounds.height}, 22,
+                                view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+            }
+        }
+    }
+    faded_strip(cr, e.chords_strip, e.chords_before, e.chords_after,
+                [&] { draw_chord_chips(cr, view, e.chords); });
+    if (e.steps_well.width > 0) {
+        draw_macro_steps(cr, view);
+    }
+    draw_run_body(cr, view);
+    for (std::size_t i = 0; i < e.explanation.size(); ++i) {
+        const auto& r = e.explanation_bounds;
+        const Rect line{r.x, r.y + 26 * static_cast<double>(i), r.width, 26};
+        // What a button sends ends in an ellipsis when too long (R331).
+        if (i == 0) {
+            ellipsized_label(cr, e.explanation[i], line, 17, view.interface_font, quiet);
+        } else {
+            interface_label(cr, e.explanation[i], line, 17, view.interface_font, quiet, false,
+                            PANGO_ALIGN_LEFT);
+        }
+    }
+    if (e.lifted_button) {
+        ShortcutBarView::Button button;
+        button.label = e.lifted_button->text;
+        button.bounds = e.lifted_button->bounds;
+        button.hovered = true;
+        button.run = e.lifted_run;
+        soft_shadow(cr, button.bounds, t.radius + 2, tone_shadow);
+        cairo_push_group(cr);
+        draw_bar_button(cr, view, button, e.scale);
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, e.lifted_removing ? .4 : 1);
+    }
+    // Move and Copy beside the row a button was dropped on.
+    if (e.carry_panel) {
+        raised_panel(cr, t, *e.carry_panel);
+        for (const auto& c : view.controls) {
+            if (c.id.starts_with("shortcuts-carry-")) {
+                editor_button(cr, view, c, 21);
+            }
+        }
+    }
+    if (e.popup) {
+        draw_shortcut_popup(cr, view);
+    }
+}
+// The picker's menu: a raised panel, as the Settings dropdowns are, over the
+// case. A header with Manage at its right, and a row per profile with its
+// assign button.
+void draw_shortcut_menu(cairo_t* cr, const PanelView& view) {
+    const auto& menu = *view.shortcut_bar->menu;
+    const auto& t = *view.theme;
+    const auto r = menu.bounds;
+    const double radius = t.radius + 4;
+    soft_shadow(cr, r, radius, 14);
+    rounded(cr, r, radius);
+    source(cr, mix(t.bottom, t.surface, .25));
+    cairo_fill(cr);
+    cairo_move_to(cr, r.x + radius, r.y + 1.5);
+    cairo_line_to(cr, r.x + r.width - radius, r.y + 1.5);
+    cairo_set_source_rgba(cr, t.legend.r, t.legend.g, t.legend.b, .1);
+    cairo_set_line_width(cr, 1);
+    cairo_stroke(cr);
+    const Color quiet = disabled_legend(t);
+    const auto& h = menu.header;
+    interface_label(cr, menu.title, {h.x + 8, h.y, menu.manage.x - h.x - 16, h.height}, 17,
+                    view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
+    // Manage: a button with the pencil, its hover and press as a row's.
+    const auto& e = menu.manage;
+    if (menu.manage_enabled && (menu.manage_hovered || menu.manage_pressed)) {
+        rounded(cr, e, t.radius);
+        source(cr, t.hover);
+        cairo_fill(cr);
+    }
+    draw_edge(cr, t, e, t.radius, menu.manage_hovered, menu.manage_enabled);
+    const Color ink = menu.manage_enabled ? t.legend : quiet;
+    draw_icon(cr, Icon::Pencil, {e.x + 4, e.y, 36, e.height}, ink, 20);
+    interface_label(cr, menu.manage_label, {e.x + 40, e.y, e.width - 50, e.height}, 19,
+                    view.interface_font, ink, false, PANGO_ALIGN_LEFT);
+    cairo_save(cr);
+    cairo_rectangle(cr, menu.list.x, menu.list.y, menu.list.width, menu.list.height);
+    cairo_clip(cr);
+    for (const auto& row : menu.rows) {
+        const Rect name{row.bounds.x, row.bounds.y + 2, row.assign.x - row.bounds.x - 6,
+                        row.bounds.height - 4};
+        if (row.shown) {
+            fill_latched(cr, t, name, t.radius);
+        } else if (row.hovered || row.pressed) {
+            rounded(cr, name, t.radius);
+            source(cr, t.hover);
+            cairo_fill(cr);
+        }
+        interface_label(cr, row.name, {name.x + 12, name.y, name.width - 18, name.height}, 21,
+                        view.interface_font, row.shown ? t.latched_legend : t.legend, false,
+                        PANGO_ALIGN_LEFT);
+        // The assign button: a window, its check once the app has this bar.
+        const auto& a = row.assign;
+        if (row.assigned && row.assign_enabled) {
+            fill_latched(cr, t, a, t.radius);
+        } else {
+            rounded(cr, a, t.radius);
+            source(cr, !row.assign_enabled  ? mix(t.bottom, t.surface, .4)
+                       : row.assign_hovered ? t.hover
+                                            : t.bottom);
+            cairo_fill(cr);
+        }
+        draw_edge(cr, t, a, t.radius, row.assign_hovered, row.assign_enabled);
+        draw_icon(cr, row.assigned ? Icon::AppWindowAssigned : Icon::AppWindow, a,
+                  !row.assign_enabled ? quiet
+                  : row.assigned      ? t.latched_legend
+                                      : t.legend,
+                  22);
+    }
+    cairo_restore(cr);
+    if (menu.thumb) {
+        rounded(cr, *menu.thumb, 3);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+}
 } // namespace
 Rect dictation_status_bounds(const PanelView& view) {
     return dictation_status_line(view);
+}
+bool dictation_status_scrolls(const PanelView& view) {
+    if (!view.dictation || view.settings || view.status_card || view.status.empty()) {
+        return false;
+    }
+    // Measured once per text and font (interface_text_width keeps it).
+    const auto line = dictation_status_line(view);
+    return line.width >= min_status_width &&
+           interface_text_width(view.status, status_font_size, view.interface_font) > 1.8 * line.width;
+}
+bool PanelRenderer::drawn_by_itself(const PanelView& view, const Key& key, const KeyMarks& marks) const {
+    const auto amount = animations_.find(key.id), lift = hovers_.find(key.id);
+    const auto ring = lock_rings_.find(key.id);
+    return (amount != animations_.end() && amount->second.amount > 0) ||
+           (lift != hovers_.end() && lift->second.amount > 0) || view.hovered_keys.contains(key.id) ||
+           (ring != lock_rings_.end() && ring->second >= 0) || key.icon == Icon::Mic ||
+           (view.key_flick && view.key_flick->key == key.id) ||
+           (key.action_kind == ActionKind::Key && marks.locked.contains(key_code(key.action)));
 }
 PanelRenderer::PanelRenderer() {
     surface_ = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, panel_width, texture_height);
@@ -3220,7 +4869,7 @@ std::pair<double, double> PanelRenderer::layout_point(const PanelView& view, dou
 const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) const {
     // No key takes a press while the candidate list is open; one outside it
     // still shows, and a press there closes the list (App::down).
-    if (view.settings || list_open(view)) {
+    if (view.settings || view.shortcut_editor || list_open(view)) {
         return nullptr;
     }
     const auto p = placement(view);
@@ -3257,7 +4906,7 @@ const Key* PanelRenderer::hit_key(const PanelView& view, double x, double y) con
     return nearest;
 }
 const Key* PanelRenderer::swipe_key(const PanelView& view, double x, double y) const {
-    if (!view.swipe_reach || view.settings || list_open(view)) {
+    if (!view.swipe_reach || view.settings || view.shortcut_editor || list_open(view)) {
         return nullptr;
     }
     const auto [lx, ly] = layout_point(view, x, y);
@@ -3320,20 +4969,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // the microphone's bars move, so the text is measured once.
         std::optional<Rect> status_line;
         double status_overflow = 0;
-        if (status_shown && (status_measured_ != view.status || status_font_ != view.interface_font)) {
-            auto* measure = cairo_create(surface_);
-            grey_text(measure);
-            status_width_ = text_width(measure, view.status, 15, view.interface_font);
-            cairo_destroy(measure);
-            status_measured_ = view.status;
-            status_font_ = view.interface_font;
-        }
-        if (!choice && status_shown) {
-            const auto line = dictation_status_line(view);
-            if (status_width_ > 1.8 * line.width) {
-                status_line = line;
-                status_overflow = status_width_ - (line.width - 8);
-            }
+        if (!choice && dictation_status_scrolls(view)) {
+            status_line = dictation_status_line(view);
+            status_overflow = interface_text_width(view.status, status_font_size, view.interface_font) -
+                              (status_line->width - 8);
         }
         const std::string hovered = choice ? choice->id : status_line ? "status: " + view.status : "";
         if (status_line) {
@@ -3398,6 +5037,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
     };
     const auto theme_cards = previous_ ? theme_cards_damage(previous_->view, view) : std::vector<Rect>{};
     const auto theme_hover = previous_ ? theme_hover_damage(previous_->view, view) : std::vector<Rect>{};
+    // The shortcut bar repaints its own buttons, or the strip when it
+    // scrolled; anything else in it, or the bar coming or going, repaints all.
+    const auto bar_damage = previous_ ? shortcut_bar_damage(previous_->view, view) : std::vector<Rect>{};
+    const bool bar_changed =
+        previous_ && previous_->view.shortcut_bar != view.shortcut_bar && bar_damage.empty();
     const bool controls_changed =
         previous_ && theme_cards.empty() &&
         without_candidates(previous_->view.controls) != without_candidates(view.controls);
@@ -3406,9 +5050,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         previous_->language != *view.language || previous_->modifiers != modifiers ||
         previous_->caps != view.keyboard->caps() || previous_->num != view.keyboard->num() ||
         previous_->shift_locked != shift_locked ||
-        previous_->locked != view.keyboard->locked_modifiers() || controls_changed ||
-        previous_->view.status != view.status || previous_->view.settings != view.settings ||
-        previous_->view.reading_room != view.reading_room ||
+        previous_->locked != view.keyboard->locked_modifiers() || controls_changed || bar_changed ||
+        // The shortcut editor and its fields repaint whole while they show.
+        view.shortcut_editor || previous_->view.shortcut_editor ||
+        previous_->view.shortcut_field != view.shortcut_field || previous_->view.status != view.status ||
+        previous_->view.settings != view.settings || previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
         (!view.status.empty() && shown_tooltip(previous_->view) != shown_tooltip(view)) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||
@@ -3997,9 +5643,28 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
              {focus_tooltip_area(previous_->view, before), focus_tooltip_area(view, after)}) {
             if (bounds && before != after) {
                 // The card's shadow spreads a few pixels past it.
-                const double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
-                damage_area({left, top, std::ceil(bounds->x + bounds->width + 8) - left,
-                             std::ceil(bounds->y + bounds->height + 8) - top});
+                double left = std::floor(bounds->x - 8), top = std::floor(bounds->y - 4);
+                double right = std::ceil(bounds->x + bounds->width + 8);
+                double bottom = std::ceil(bounds->y + bounds->height + 8);
+                // Over the shortcut bar the area takes in the bar whole, its
+                // plate and tab: its edges would cut through button labels,
+                // which a clip draws differently (R358).
+                for (const PanelView* shown : std::array<const PanelView*, 2>{&previous_->view, &view}) {
+                    if (!shown->shortcut_bar || shown->settings) {
+                        continue;
+                    }
+                    const auto& b = *shown->shortcut_bar;
+                    const auto plate = pixel_bounds(
+                        {b.plate.x, b.plate.y, b.picker.x + b.picker.width - b.plate.x, b.plate.height},
+                        1);
+                    if (overlaps(plate, {left, top, right - left, bottom - top})) {
+                        left = std::min(left, plate.x);
+                        top = std::min(top, plate.y);
+                        right = std::max(right, plate.x + plate.width);
+                        bottom = std::max(bottom, plate.y + plate.height);
+                    }
+                }
+                damage_area({left, top, right - left, bottom - top});
             }
         }
     }
@@ -4066,7 +5731,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
     }
     if (!full) {
-        for (const auto* areas : {&theme_cards, &theme_hover}) {
+        for (const auto* areas : {&theme_cards, &theme_hover, &bar_damage}) {
             for (const auto& area : *areas) {
                 damage_area(area);
             }
@@ -4264,6 +5929,12 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         cairo_destroy(preview);
         cairo_surface_flush(preview_image.get());
     }
+    // Keys drawn by themselves, each drawn once into its image on its first
+    // pass of this paint and copied in every later one (R347). Nothing is
+    // kept past the paint: no per-key caches.
+    std::map<std::string, std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>>
+        alone_images;
+    const auto marks = key_marks(view);
     auto draw = [&](const std::vector<Rect>& pass) {
         // Clear and restore the case only inside the damaged pixels. Any neighboring
         // key intersecting that region is repainted in the original stacking order.
@@ -4279,7 +5950,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             cairo_set_source_rgba(cr, t.surface.r, t.surface.g, t.surface.b, opacity);
             cairo_fill(cr);
         }
-        if (!view.settings) {
+        if (!view.settings && !view.shortcut_editor) {
             const auto p = placement(view);
             cairo_save(cr);
             cairo_translate(cr, p.x, p.y);
@@ -4294,6 +5965,40 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                         return bounds.x < r.x + r.width && bounds.x + bounds.width > r.x &&
                                bounds.y < r.y + r.height && bounds.y + bounds.height > r.y;
                     });
+                if (intersects && drawn_by_itself(view, key, marks)) {
+                    // Into an image at whole pixels, copied (drawn_by_itself).
+                    auto made = alone_images.find(key.id);
+                    if (made == alone_images.end()) {
+                        std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)> image(
+                            cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                                       static_cast<int>(bounds.width),
+                                                       static_cast<int>(bounds.height)),
+                            cairo_surface_destroy);
+                        if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
+                            auto* alone = cairo_create(image.get());
+                            grey_text(alone);
+                            cairo_translate(alone, p.x - bounds.x, p.y - bounds.y);
+                            cairo_scale(alone, p.scale, p.scale);
+                            draw_key(alone, view, key, animations_.at(key.id).amount,
+                                     hovers_.at(key.id).amount, mic_phase_, ring_time_,
+                                     lock_rings_.at(key.id));
+                            cairo_destroy(alone);
+                            cairo_surface_flush(image.get());
+                        } else {
+                            image.reset(); // drawn directly below, as before
+                        }
+                        made = alone_images.emplace(key.id, std::move(image)).first;
+                    }
+                    if (made->second) {
+                        cairo_save(cr);
+                        cairo_identity_matrix(cr);
+                        cairo_translate(cr, 0, popup_margin);
+                        cairo_set_source_surface(cr, made->second.get(), bounds.x, bounds.y);
+                        cairo_paint(cr);
+                        cairo_restore(cr);
+                        continue;
+                    }
+                }
                 if (intersects) {
                     draw_key(cr, view, key, animations_.at(key.id).amount, hovers_.at(key.id).amount,
                              mic_phase_, ring_time_, lock_rings_.at(key.id));
@@ -4427,9 +6132,17 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
                 draw_candidates(cr, view, *view.candidates); // on the band over its foot
             }
         }
-        draw_focus_tooltip(cr, view);
-        if (!view.status.empty() && (!in_editor || view.status_card)) {
-            draw_status_card(cr, view);
+        // The tooltip and the message card; over the shortcut bar while it
+        // shows, so drawn after it there (R358).
+        const bool bar_drawn = view.shortcut_bar && !view.settings;
+        const auto draw_cards = [&] {
+            draw_focus_tooltip(cr, view);
+            if (!view.status.empty() && (!in_editor || view.status_card)) {
+                draw_status_card(cr, view);
+            }
+        };
+        if (!bar_drawn) {
+            draw_cards();
         }
         if (view.ime_band && !view.settings) {
             draw_ime_band(cr, view);
@@ -4445,7 +6158,7 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         const auto hidden = [&](const Rect& r) {
             return covering && hidden_under(r, *covering, t.radius + 6); // modal_panel's corners
         };
-        constexpr Rect settings_cards_area{18, 78, 1564, 476};
+        constexpr Rect settings_cards_area{18, 62, 1564, 476}; // SettingsUi::viewport
         if (view.settings && !hidden(settings_cards_area)) {
             cairo_save(cr);
             cairo_rectangle(cr, settings_cards_area.x, settings_cards_area.y, settings_cards_area.width,
@@ -4704,11 +6417,22 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             }
             cairo_restore(cr);
         };
+        if (view.shortcut_field && !view.settings) {
+            draw_shortcut_field(cr, view);
+        }
         for (const auto& control : view.controls) {
             if (control.style != ControlStyle::MenuItem && control.id != "scroll-menu" &&
-                !popup_control(control.id) && !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
+                !popup_control(view, control.id) &&
+                !hidden(pixel_bounds(control.bounds, tone_shadow + 1))) {
                 draw_control(control);
             }
+        }
+        if (view.shortcut_editor && !view.settings) {
+            draw_shortcut_editor(cr, view);
+        }
+        if (bar_drawn) {
+            draw_shortcut_bar(cr, view);
+            draw_cards();
         }
         if (view.settings && !view.version.empty()) {
             // Beside the button that acts on it, quiet enough to overlook.
@@ -4725,11 +6449,11 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         }
         if (status_shown) {
             const auto line = dictation_status_line(view);
-            case_plate(cr, view, line, view.status, 15, PANGO_ALIGN_LEFT);
+            case_plate(cr, view, line, view.status, status_font_size, PANGO_ALIGN_LEFT);
             if (marquee_status) {
-                scrolled_label(cr, view.status, line, 15, view.interface_font, t.legend, marquee_shift);
+                scrolled_label(cr, view.status, line, status_font_size, view.interface_font, t.legend, marquee_shift);
             } else {
-                interface_label(cr, view.status, line, 15, view.interface_font, t.legend, false,
+                interface_label(cr, view.status, line, status_font_size, view.interface_font, t.legend, false,
                                 PANGO_ALIGN_LEFT, true);
             }
         }
@@ -4775,6 +6499,10 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
             emoji_image(lifted.text, r);
             cairo_pop_group_to_source(cr);
             cairo_paint_with_alpha(cr, lifted.removing ? .4 : 1);
+        }
+        // The picker's menu drops over the keys and the toolbar.
+        if (view.shortcut_bar && view.shortcut_bar->menu && !view.settings) {
+            draw_shortcut_menu(cr, view);
         }
         // Popup is the last layer and deliberately bypasses both card and case clips.
         if (view.popup) {
@@ -5116,10 +6844,15 @@ std::vector<unsigned char> PanelRenderer::rgba() const {
 void PanelRenderer::write_png(const fs::path& path) const {
     // Include overflow controls in previews instead of cropping the movement line.
     const bool popup = previous_ && previous_->view.popup.has_value();
+    // The shortcut bar, and the tooltips over it, use the room above the case.
+    const bool bar = previous_ && previous_->view.shortcut_bar && !previous_->view.settings;
     const auto handle = previous_ ? panel_move_handle_bounds(previous_->view) : std::nullopt;
     const int height = handle ? static_cast<int>(handle->y + handle->height + 12) : panel_height;
-    auto* output = cairo_surface_create_for_rectangle(surface_, 0, popup ? 0 : popup_margin, panel_width,
-                                                      popup ? texture_height : height);
+    auto* output =
+        cairo_surface_create_for_rectangle(surface_, 0, popup || bar ? 0 : popup_margin, panel_width,
+                                           popup ? texture_height
+                                           : bar ? popup_margin + height
+                                                 : height);
     const auto status = cairo_surface_write_to_png(output, path.c_str());
     cairo_surface_destroy(output);
     if (status != CAIRO_STATUS_SUCCESS) {

@@ -14,6 +14,7 @@ PY = "bridge/native_bridge.py"
 CPP = "src/native_replacement.cpp"
 VR = "src/vr.cpp"
 GUARD = "src/native_restore_guard.cpp"
+LIBRARY = "stream/openvr_passthrough.c"
 
 # Match the actual use sites, not arbitrary occurrences of .7 or .6. A source
 # refactor must update these anchors explicitly rather than silently skipping a check.
@@ -36,6 +37,11 @@ SPECS = (
     ("stream text start", PY, r"\bSTREAM_TEXT_START\s*=\s*" + NUMBER, 1, 1),
     ("stream text finish", PY, r"\bSTREAM_TEXT_FINISH\s*=\s*" + NUMBER, 1, 1),
     ("stream text per byte", PY, r"\bSTREAM_TEXT_WAIT_PER_BYTE\s*=\s*" + NUMBER, 1, 1),
+    # R369: how long the library counts each of our key-downs on the way before a text, and the
+    # helper's and the app's copies of it for their waits.
+    ("library key on the way", LIBRARY, r"\bkSameKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
+    ("stream key on the way", PY, r"\bSTREAM_KEY_ON_THE_WAY\s*=\s*" + NUMBER, 1, 1),
+    ("app stream key on the way", CPP, r"\bstream_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
     # The app's stream text wait is base + per byte * size, from the same send time.
     ("app stream text wait", CPP, r"pending_limit_\s*=\s*state_\.stream\s*\?\s*" + PLAIN + r"(?=\s*\+)", 1, 1),
     ("app stream text per byte", CPP,
@@ -97,6 +103,11 @@ def check_ordering(sources):
     if helper >= values["app stream text wait"][0]:
         raise AssertionError(f"timing rule broken: stream text start + finish < app stream text wait; "
                              f"got {helper} and {values['app stream text wait'][0]} seconds")
+    # The helper's and the app's waits allow at least the time the library holds a text back.
+    for allowance in ("stream key on the way", "app stream key on the way"):
+        if values[allowance][0] < values["library key on the way"][0]:
+            raise AssertionError(f"timing rule broken: library key on the way <= {allowance}; got "
+                                 f"{values['library key on the way'][0]} and {values[allowance][0]} seconds")
     if values["stream text per byte"][0] > values["app stream text per byte"][0]:
         raise AssertionError("timing rule broken: stream text per byte <= app stream text per byte; got "
                              f"{values['stream text per byte'][0]} and {values['app stream text per byte'][0]}")
@@ -137,6 +148,13 @@ class TimingOrdering(unittest.TestCase):
         sources[PY] = re.sub(r"(STREAM_TEXT_WAIT_PER_BYTE\s*=\s*)" + NUMBER,
                              lambda match: match[1] + "0.2", sources[PY], flags=re.MULTILINE)
         with self.assertRaisesRegex(AssertionError, "stream text per byte <= app stream text per byte"):
+            check_ordering(sources)
+
+    def test_key_allowance_shorter_than_the_library_is_rejected(self):
+        sources = dict(self.sources)
+        sources[PY] = re.sub(r"(STREAM_KEY_ON_THE_WAY\s*=\s*)" + NUMBER,
+                             lambda match: match[1] + "0.1", sources[PY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "library key on the way <= stream key on the way"):
             check_ordering(sources)
 
     def test_delivery_outliving_the_lease_is_rejected(self):

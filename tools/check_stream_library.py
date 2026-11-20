@@ -7,7 +7,8 @@ It stands in for libopenvr_api.so inside the streaming client, so it must:
   client's LD_LIBRARY_PATH it binds that copy, never another one on the system, and nothing of the
   build machine is in it;
 - depend on nothing else but the C library;
-- offer only the one call it wraps, so every other OpenVR symbol resolves to the real library.
+- offer only the one call it wraps, so every other OpenVR symbol resolves to the real library;
+- carry no test hook.
 """
 import os
 import re
@@ -17,6 +18,8 @@ import sys
 REAL_LIBRARY = "libopenvr_api.so"
 ALLOWED_DEPENDENCIES = {REAL_LIBRARY, "libc.so.6", "ld-linux-aarch64.so.1"}
 WRAPPED = {"VR_GetGenericInterface"}
+# The prefix of the test hooks earlier versions looked up in the streaming client.
+TEST_HOOK = b"framekeyboard_stream_test"
 # Section marks some linkers define in every shared object.
 LINKER_SYMBOLS = {"_init", "_fini", "_edata", "_end", "__bss_start", "__bss_start__", "__bss_end__",
                   "__end__", "_bss_end__"}
@@ -47,6 +50,10 @@ def validate(library):
             defined.add(fields[7].split("@")[0])
     if defined - LINKER_SYMBOLS != WRAPPED:
         raise ValueError(f"stream library offers {sorted(defined - LINKER_SYMBOLS)}, expected {sorted(WRAPPED)}")
+    # No test hook in what ships: tests reach the library only through what any program can offer it.
+    with open(library, "rb") as file:
+        if TEST_HOOK in file.read():
+            raise ValueError(f"stream library contains a test hook ({TEST_HOOK.decode()}...)")
 
 
 if __name__ == "__main__":

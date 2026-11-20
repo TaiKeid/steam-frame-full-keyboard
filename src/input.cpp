@@ -103,6 +103,18 @@ const std::map<std::string, int> key_codes = {{"Escape", KEY_ESC},
                                               {"F10", KEY_F10},
                                               {"F11", KEY_F11},
                                               {"F12", KEY_F12},
+                                              {"F13", KEY_F13},
+                                              {"F14", KEY_F14},
+                                              {"F15", KEY_F15},
+                                              {"F16", KEY_F16},
+                                              {"F17", KEY_F17},
+                                              {"F18", KEY_F18},
+                                              {"F19", KEY_F19},
+                                              {"F20", KEY_F20},
+                                              {"F21", KEY_F21},
+                                              {"F22", KEY_F22},
+                                              {"F23", KEY_F23},
+                                              {"F24", KEY_F24},
                                               {"Insert", KEY_INSERT},
                                               {"Delete", KEY_DELETE},
                                               {"Home", KEY_HOME},
@@ -744,6 +756,14 @@ bool KeyboardState::make_room_for_shortcut(const std::vector<int>& chord) {
             output_->send(code, 0);
         }
     }
+    return true;
+}
+bool KeyboardState::clear_for_shortcut() {
+    // No chord of its own: every kept-down modifier comes up.
+    if (!make_room_for_shortcut({})) {
+        return false;
+    }
+    use_modifiers();
     return true;
 }
 void KeyboardState::note_new_lock(unsigned pointer) {

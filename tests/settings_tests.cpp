@@ -7,11 +7,14 @@
 #include <algorithm>
 #include <atomic>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <limits>
 #include <linux/input-event-codes.h>
+#include <mutex>
 #include <stdexcept>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace framekeyboard;
@@ -76,6 +79,9 @@ Control shown_control(App& app, const std::string& id) {
     return control(app.view(), id);
 }
 void click(App& app, const std::string& id, unsigned pointer = 0) {
+    // A row below the fold of a card in view, first; then the cards cut
+    // off at the right, which leave those at the left out once scrolled.
+    reveal(app, id, pointer);
     if (!has(app.view(), id) && app.view().settings) {
         // The Integration card is cut off at the right until the row scrolls.
         app.move(pointer, 800, 300);
@@ -1267,17 +1273,17 @@ void legacy_background_surface_tests() {
         auto values =
             json_ptr(json_tokener_parse(R"({"background_surface":"disabled","hide_numpad":true})"));
         require(app.host_settings_set(values.get(), 1).first.empty(),
-                "protocol 1 accepts the legacy disabled background surface");
+                "protocol 1 accepts the disabled background surface");
         const auto settings = app.host_settings();
         require(std::string(json_object_get_string(
-                    json_object_object_get(settings.get(), "background_surface"))) == "invisible" &&
-                    app.view().case_opacity == 0 && app.view().hide_numpad,
-                "the legacy surface becomes invisible and other settings in the request apply");
+                    json_object_object_get(settings.get(), "background_surface"))) == "disabled" &&
+                    app.view().case_opacity == 0 && app.view().click_through && app.view().hide_numpad,
+                "Disabled is its own value again (R380), and other settings in the request apply");
         app.flush_settings();
         std::vector<std::string> errors;
         const auto saved = load_settings(directory.path, errors);
-        require(errors.empty() && saved.background_surface == "invisible" && saved.hide_numpad,
-                "the legacy surface saves in canonical form");
+        require(errors.empty() && saved.background_surface == "disabled" && saved.hide_numpad,
+                "and it saves as written");
         require(sink.events.empty(), "legacy settings compatibility sends no input");
     }
 }
@@ -1338,14 +1344,36 @@ void background_surface_setting() {
                 "keys keep their theme over a transparent case");
     }
     app.renderer.write_png("/tmp/framekeyboard-transparent-background.png");
-    // Disabled, which let the laser through the case's gaps, is gone.
-    app.show_settings();
-    click(app, "background-surface");
-    require(has(app.view(), "choose:background-surface:invisible") &&
-                !has(app.view(), "choose:background-surface:disabled"),
-            "Background offers no Disabled choice");
-    app.back();
-    app.back();
+    // Disabled (R380): drawn as Invisible, and the laser passes between key
+    // groups.
+    {
+        const auto invisible = app.renderer.rgba();
+        app.show_settings();
+        select(app, "background-surface", "disabled");
+        click(app, "apply");
+        require(saved(app).background_surface == "disabled" && app.view().case_opacity == 0 &&
+                    app.view().click_through,
+                "Apply saves Disabled");
+        app.paint(1.6);
+        require(app.renderer.rgba() == invisible, "Disabled draws the keyboard exactly as Invisible");
+        const auto view = app.view();
+        const auto esc = panel_rect(
+            view, std::find_if(view.layout->keys.begin(), view.layout->keys.end(), [](const Key& k) {
+                      return k.id == "Escape";
+                  })->bounds);
+        const auto f1 = panel_rect(
+            view, std::find_if(view.layout->keys.begin(), view.layout->keys.end(), [](const Key& k) {
+                      return k.id == "F1";
+                  })->bounds);
+        const double gap_x = (esc.x + esc.width + f1.x) / 2, gap_y = esc.y + esc.height / 2;
+        require(!takes_pointer(view, gap_x, gap_y) && takes_pointer(view, esc.x + 4, gap_y),
+                "between Esc and F1 the laser passes; on Esc it does not");
+        app.show_settings();
+        require(takes_pointer(app.view(), gap_x, gap_y), "Settings takes the whole case");
+        select(app, "background-surface", "invisible");
+        click(app, "apply");
+        require(takes_pointer(app.view(), gap_x, gap_y), "Invisible takes the whole case again");
+    }
     // A message shows on an opaque card above the case, centred on it, as
     // the focus tooltip does; the transparent case under it stays clear.
     {
@@ -1402,15 +1430,15 @@ void background_surface_setting() {
                 "an unknown background surface is reported and the rest still loads");
     }
     {
-        // A saved Disabled, now removed, becomes Invisible, which looks the same.
+        // A saved Disabled is its own value again (R380), not Invisible.
         TemporaryDirectory edited;
         std::ofstream(edited.path / "config.json")
             << R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
                R"("theme":"graphite"},"background_surface":"disabled"})";
         std::vector<std::string> errors;
         const auto loaded = load_settings(edited.path, errors);
-        require(loaded.background_surface == "invisible" && errors.empty(),
-                "a saved Disabled background loads as Invisible");
+        require(loaded.background_surface == "disabled" && errors.empty(),
+                "a saved Disabled background loads as Disabled");
     }
     // The reading line of a composing language: a plate behind its hint.
     {
@@ -2116,16 +2144,19 @@ void behavior_settings() {
     app.show_settings();
     const auto settings_view = app.view();
     require(settings_view.cards.size() == 4 && settings_view.cards[1].title == "General" &&
-                !control(settings_view, "use-drag-to-move").selected,
+                !shown_control(app, "use-drag-to-move").selected,
             "General card has an unchecked movement preference");
     // Auto leveling, the General card's last row, lies below its fold until the card scrolls.
     reveal(app, "auto-leveling");
     const auto scrolled_view = app.view();
     const auto numpad_bounds = control(scrolled_view, "hide-numpad").bounds;
+    const auto shortcuts_bounds = control(scrolled_view, "shortcuts").bounds;
     const auto movement_bounds = control(scrolled_view, "use-drag-to-move").bounds;
     const auto leveling_bounds = control(scrolled_view, "auto-leveling").bounds;
     require(numpad_bounds.x == movement_bounds.x && movement_bounds.x == leveling_bounds.x &&
-                movement_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y,
+                shortcuts_bounds.x == numpad_bounds.x &&
+                shortcuts_bounds.y - numpad_bounds.y == leveling_bounds.y - movement_bounds.y &&
+                movement_bounds.y - shortcuts_bounds.y == leveling_bounds.y - movement_bounds.y,
             "General checkboxes form one evenly spaced vertical column");
     const auto theme_bounds = control(settings_view, "theme").bounds;
     require(movement_bounds.x + movement_bounds.width == theme_bounds.x + theme_bounds.width,
@@ -2133,7 +2164,7 @@ void behavior_settings() {
     const std::array<std::pair<const char*, const PanelView*>, 4> labels{
         {{"Theme", &settings_view},
          {"Hide numpad", &settings_view},
-         {"Grab to move", &settings_view},
+         {"Grab to move", &scrolled_view},
          {"Auto leveling", &scrolled_view}}};
     for (const auto& [text, view] : labels) {
         require(std::any_of(view->field_labels.begin(), view->field_labels.end(),
@@ -2147,11 +2178,11 @@ void behavior_settings() {
     app.paint(2);
     app.renderer.write_png("/tmp/framekeyboard-behavior-settings.png");
     click(app, "use-drag-to-move");
-    require(control(app.view(), "use-drag-to-move").selected && !app.use_drag_to_move(),
+    require(shown_control(app, "use-drag-to-move").selected && !app.use_drag_to_move(),
             "movement preference remains staged until Apply");
     app.back();
     app.show_settings();
-    require(!control(app.view(), "use-drag-to-move").selected, "Back discards a staged movement change");
+    require(!shown_control(app, "use-drag-to-move").selected, "Back discards a staged movement change");
     click(app, "use-drag-to-move");
     click(app, "apply");
     require(app.use_drag_to_move() && saved(app).use_drag_to_move &&
@@ -3775,6 +3806,3323 @@ void scroll_cards() {
     renderer.write_png("/tmp/framekeyboard-settings-scroll-cards.png");
 }
 } // namespace
+// The shortcut bar (docs/shortcut-bar-design.md): its Settings card, the
+// toolbar button's place and three cases, the picker's menu, scrolling, a
+// button's keys and what is saved.
+Rect middle(const Rect& r) {
+    return {r.x + r.width / 2, r.y + r.height / 2, 0, 0};
+}
+void tap_at(App& app, double x, double y, unsigned pointer = 0) {
+    static double now = 700;
+    app.move(pointer, x, y);
+    app.down(pointer, x, y, now += .1);
+    app.up(pointer, x, y);
+    app.tick(now += .02);
+}
+void tap_rect(App& app, const Rect& r) {
+    const auto point = middle(r);
+    tap_at(app, point.x, point.y);
+}
+ShortcutModel saved_shortcuts(App& app) {
+    app.flush_settings();
+    std::ifstream file(shortcuts_path(app.config_dir()));
+    return parse_shortcuts({std::istreambuf_iterator<char>(file), {}});
+}
+void write_shortcuts(const fs::path& dir, const ShortcutModel& model) {
+    std::ofstream(shortcuts_path(dir)) << serialize_shortcuts(model);
+}
+ShortcutButton shortcut_button(std::string label, std::vector<ShortcutChord> chords) {
+    ShortcutButton button;
+    button.label = std::move(label);
+    button.action.chords = std::move(chords);
+    return button;
+}
+void shortcut_bar_settings() {
+    TemporaryDirectory directory;
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    options.debug = true;
+    CaptureSink sink;
+    {
+        App app(options, sink);
+        require(!has(app.view(), "bar-toggle") && !app.view().shortcut_bar,
+                "Shortcuts and macros starts off: no button and no bar");
+        app.show_settings();
+        click(app, "shortcuts");
+        const auto row = control(app.view(), "shortcuts"), numpad = control(app.view(), "hide-numpad");
+        require(row.bounds.x == numpad.bounds.x && row.bounds.y > numpad.bounds.y &&
+                    app.view().cards[1].title == "General",
+                "its switch is a General row after Hide numpad");
+        require(row.selected && !saved(app).shortcuts, "the switch is pending until Apply");
+        click(app, "apply");
+        require(saved(app).shortcuts && saved(app).shortcuts_switch,
+                "Apply saves it; the toolbar's own switch is on");
+        // The toolbar button after Pull for Shift's place, before the language.
+        auto view = app.view();
+        const auto toggle = control(view, "bar-toggle");
+        require(toggle.bounds.y == 12 && toggle.bounds.x == control(view, "passthrough").bounds.x + 70,
+                "the button follows the toolbar's switches on a full case");
+        // Turned on with no bars, the empty bar shows once.
+        require(view.shortcut_bar && view.shortcut_bar->slots && view.shortcut_bar->buttons.empty() &&
+                    toggle.icon == Icon::ShortcutBar && toggle.label == "Hide shortcut bar",
+                "turned on with no bars, the empty bar shows, so the picker can be reached");
+        const auto plate = view.shortcut_bar->plate;
+        const auto body = panel_case_bounds(view);
+        require(plate.y + plate.height == body.y - 10 && plate.height == 90,
+                "the plate stands 10 px above the case, 90 tall");
+        // A bar shows: it hides, and the switch is saved off.
+        click(app, "bar-toggle");
+        require(!app.view().shortcut_bar && !saved(app).shortcuts_switch &&
+                    control(app.view(), "bar-toggle").icon == Icon::ShortcutBarOff &&
+                    control(app.view(), "bar-toggle").label == "Show shortcut bar",
+                "pressed while a bar shows, it hides, crossed, and stays off");
+        // Nothing shows and no bar is due: the empty bar with two slots.
+        click(app, "bar-toggle");
+        view = app.view();
+        require(view.shortcut_bar && view.shortcut_bar->slots && saved(app).shortcuts_switch,
+                "pressed with no bar due, the empty bar shows");
+        app.show_settings();
+        require(!app.view().shortcut_bar, "the bar hides in Settings");
+        // R322: ✓ with the shortcut switches unchanged keeps the empty bar.
+        click(app, "apply");
+        view = app.view();
+        require(view.shortcut_bar && view.shortcut_bar->slots && view.shortcut_bar->buttons.empty(),
+                "Settings' ✓ keeps the empty bar");
+        app.show_settings();
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+        // The Debug card's sample bars, saved at once.
+        click(app, "debug-sample-shortcuts");
+        const auto samples = saved_shortcuts(app);
+        require(samples.profiles.size() == 3 && samples.profiles[1].buttons.size() == 18 &&
+                    samples.free_profile == samples.profiles[0].id && samples.apps.size() == 1 &&
+                    samples.apps[0].profile == samples.profiles[2].id,
+                "Add sample shortcuts saves three profiles, the first the free one, the last assigned");
+        require(!control(app.view(), "debug-sample-shortcuts").enabled, "and only while there are none");
+#else
+        app.back();
+        return;
+#endif
+        app.back();
+        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 8,
+                "the sample bar shows");
+    }
+    App app(options, sink);
+    auto view = app.view();
+    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 8 &&
+                view.shortcut_bar->buttons[0].label == "Undo" &&
+                view.shortcut_bar->buttons[4].label == "Select\nall",
+            "a restart loads the bars; the free bar shows");
+    const auto picker = view.shortcut_bar->picker;
+    const auto spot = middle(picker);
+    app.move(0, spot.x, spot.y);
+    require(app.view().bar_tooltip == "Choose a profile", "the picker's tooltip");
+    tap_rect(app, picker);
+    view = app.view();
+    require(view.shortcut_bar->menu && view.shortcut_bar->menu->rows.size() == 3 &&
+                view.shortcut_bar->menu->rows[0].shown && !view.shortcut_bar->menu->rows[1].shown &&
+                view.shortcut_bar->menu->title == "Profiles" &&
+                view.shortcut_bar->menu->manage_label == "Manage" &&
+                !view.shortcut_bar->menu->rows[0].assign_enabled,
+            "the picker opens its menu: the profile showing filled, Manage in its header; no app to "
+            "assign");
+    {
+        // Manage sits in the header, as tall as an assign button; no Edit
+        // shortcuts row under the list.
+        const auto& m = *view.shortcut_bar->menu;
+        require(m.header.contains(m.manage.x + 1, m.manage.y + 1) &&
+                    m.manage.x + m.manage.width == m.header.x + m.header.width &&
+                    m.manage.height >= m.rows[0].assign.height &&
+                    m.bounds.y + m.bounds.height <= m.list.y + m.list.height + 8.5,
+                "Manage at the header's right; the menu ends with its last row");
+        const auto at = middle(m.manage);
+        app.move(0, at.x, at.y);
+        require(app.view().bar_tooltip == "Edit profiles and buttons" &&
+                    app.view().shortcut_bar->menu->manage_hovered,
+                "Manage's hover and tooltip");
+    }
+    // R319: the bar's plate, the picker's tab and the menu above the case
+    // take the pointer, as the case does; the margin above the plate doesn't,
+    // nor the place right of the tab where the picker's own plate was.
+    {
+        const auto body = panel_case_bounds(view);
+        const auto& bar = *view.shortcut_bar;
+        const auto plate = middle(bar.plate), tab = middle(bar.picker);
+        const auto menu = bar.menu->bounds;
+        require(bar.picker.x == bar.plate.x + bar.plate.width && bar.picker.width == 44 &&
+                    bar.picker.height == 56 &&
+                    bar.picker.y == bar.plate.y + (bar.plate.height - bar.picker.height) / 2,
+                "the picker is a 44 × 56 tab on the plate's right side, centered on its height");
+        require(menu.y == body.y - 4 && !body.contains(menu.x + 10, body.y - 2) &&
+                    takes_pointer(view, menu.x + 10, body.y - 2) &&
+                    takes_pointer(view, plate.x, plate.y) && takes_pointer(view, tab.x, tab.y) &&
+                    !takes_pointer(view, plate.x, bar.plate.y - 20),
+                "the bar's plate, its tab and its menu take the pointer, above the case");
+        require(std::abs(menu.x + menu.width - (bar.picker.x + bar.picker.width)) < .5,
+                "the menu's right edge is the tab's");
+        require(
+            !takes_pointer(view, bar.picker.x + bar.picker.width + 20, tab.y) &&
+                !takes_pointer(view, tab.x, bar.plate.y + 4),
+            "right of the tab and above it, where the picker's plate was, nothing takes the pointer");
+    }
+    // A click outside the menu closes it and goes nowhere else.
+    const auto [kx, ky] = key_point(app, "Space");
+    tap_at(app, kx, ky);
+    require(!app.view().shortcut_bar->menu && sink.events.empty(), "a click outside closes the menu");
+    tap_rect(app, picker);
+    const auto row = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, row.x + 30, row.y + row.height / 2);
+    view = app.view();
+    require(!view.shortcut_bar->menu && view.shortcut_bar->buttons.size() == 15 &&
+                view.shortcut_bar->buttons[0].label == "Home" && view.shortcut_bar->more_after &&
+                !view.shortcut_bar->more_before,
+            "a bar chosen shows, the menu closed; 15 slots, the rest scroll");
+    require(saved_shortcuts(app).free_profile == "sample-keys",
+            "a free bar chosen is saved as the free bar");
+    // The stick scrolls a button at a time, eased.
+    const auto first = view.shortcut_bar->buttons[0].bounds;
+    const auto over = middle(view.shortcut_bar->plate);
+    app.move(0, over.x, over.y);
+    require(app.scroll_room(0) == ScrollRoom{false, true}, "the bar can scroll forward only");
+    require(app.scroll(0, 1, 0), "a stick step scrolls the bar");
+    for (double now = 800; now < 801; now += .05) {
+        app.tick(now);
+    }
+    view = app.view();
+    const double pitch = view.shortcut_bar->buttons[1].bounds.x - view.shortcut_bar->buttons[0].bounds.x;
+    require(view.shortcut_bar->buttons[0].label == "End" &&
+                std::abs(view.shortcut_bar->buttons[0].bounds.x - first.x) < 1 &&
+                view.shortcut_bar->more_before,
+            "one step moves one button");
+    require(pitch > 70 && pitch < 90, "buttons are left Ctrl's size, 6 units apart");
+    // A press dragged past 12 px scrolls instead of acting.
+    const auto press = middle(view.shortcut_bar->buttons[2].bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 802);
+    app.move(0, press.x - 5, press.y);
+    app.move(0, press.x - 60, press.y);
+    app.up(0, press.x - 60, press.y);
+    view = app.view();
+    require(view.shortcut_bar->buttons[0].bounds.x < first.x - 30, "a drag scrolls the bar");
+    // Each bar keeps its own place. This bar is wider: its picker moved.
+    tap_rect(app, view.shortcut_bar->picker);
+    const auto back = app.view().shortcut_bar->menu->rows[0].bounds;
+    tap_at(app, back.x + 30, back.y + back.height / 2);
+    require(app.view().shortcut_bar->buttons[0].label == "Undo", "the other bar from its start");
+    // Manage opens the editor, and ← without changes returns.
+    tap_rect(app, app.view().shortcut_bar->picker);
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
+    require(app.view().shortcut_editor && !app.view().settings, "Manage opens the editor");
+    tap_rect(app, control(app.view(), "shortcuts-back").bounds);
+    require(!app.view().shortcut_editor && app.view().shortcut_bar && !app.view().shortcut_bar->menu,
+            "← returns to the keyboard, the menu closed");
+    // Nothing shows and a bar is due: that bar.
+    click(app, "bar-toggle");
+    require(!app.view().shortcut_bar, "hidden by hand");
+    click(app, "bar-toggle");
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons[0].label == "Undo",
+            "pressed with a bar due, that bar shows");
+    // A compact case: the button on the second row.
+    {
+        Settings settings = saved(app);
+        settings.hide_numpad = true;
+        TemporaryDirectory narrow;
+        save_settings(narrow.path, settings);
+        Options compact = options;
+        compact.config_dir = narrow.path;
+        App small(compact, sink);
+        const auto v = small.view();
+        require(control(v, "bar-toggle").bounds.y == second_row_top &&
+                    control(v, "bar-toggle").bounds.x == control(v, "passthrough").bounds.x + 70,
+                "on a narrow case the button joins the second row");
+        const auto b = shortcut_bar_geometry(v, 30);
+        require(b.slots == 15 && b.picker.x + b.picker.width - b.plate.x <= panel_case_bounds(v).width,
+                "with the numpad hidden the bar keeps its 15 slots, within the case");
+    }
+}
+// A button's keys go out through the output queue, and the buttons that
+// can't send are drawn disabled.
+void shortcut_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton macro;
+    macro.label = "Macro";
+    macro.action.kind = ShortcutAction::Kind::Macro;
+    macro.action.steps.push_back({MacroStep::Kind::Wait, {}, 100});
+    ShortcutButton run;
+    run.label = "Run";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.command = "true";
+    model.profiles.push_back({"b",
+                              "Bar",
+                              {shortcut_button("Two", {{{"ControlLeft"}, "KeyK"}, {{}, "KeyS"}}),
+                               shortcut_button("Empty", {}), macro, run}});
+    model.free_profile = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    app.tick(900);
+    auto view = app.view();
+    const auto& buttons = view.shortcut_bar->buttons;
+    require(buttons.size() == 4 && buttons[0].enabled && !buttons[1].enabled && buttons[2].enabled &&
+                buttons[3].enabled,
+            "a macro and Run are enabled; an empty action is disabled");
+    require(!buttons[0].run && !buttons[1].run && !buttons[2].run && buttons[3].run,
+            "only the Run button has the >_ mark");
+    const auto press = middle(buttons[0].bounds);
+    app.move(0, press.x, press.y);
+    require(app.down(0, press.x, press.y, 900.1), "a button's press feels like a key's");
+    require(sink.events.empty(), "it acts on release");
+    require(app.up(0, press.x, press.y), "and its release too");
+    require(app.view().shortcut_bar->buttons[0].running, "a running button stays lit");
+    for (double now = 900.2; now < 900.5; now += .01) {
+        app.tick(now);
+    }
+    require(
+        sink.events ==
+            std::vector<std::pair<int, int>>{
+                {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
+        "its combinations go out in order");
+    require(!app.view().shortcut_bar->buttons[0].running, "and its light goes out");
+    // A latched Ctrl is cleared, not added.
+    sink.events.clear();
+    const auto [cx, cy] = key_point(app, "ControlLeft");
+    app.down(1, cx, cy, 901);
+    app.up(1, cx, cy);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 901.1);
+    app.up(0, press.x, press.y);
+    for (double now = 901.2; now < 901.5; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.size() == 6 && sink.events[0] == std::pair{KEY_LEFTCTRL, 1} &&
+                sink.events[4] == std::pair{KEY_S, 1},
+            "a latched Ctrl joins nothing");
+    // A press on a disabled button does nothing.
+    sink.events.clear();
+    const auto empty = middle(app.view().shortcut_bar->buttons[1].bounds);
+    app.move(0, empty.x, empty.y);
+    require(!app.down(0, empty.x, empty.y, 902), "a disabled button gives no press");
+    app.up(0, empty.x, empty.y);
+    app.tick(902.2);
+    require(sink.events.empty(), "and sends nothing");
+    // R324: a toolbar button pressed before the gap ends stops the run; the
+    // first combination, already queued, finishes.
+    const auto passthrough = middle(control(app.view(), "passthrough").bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 902.5);
+    app.up(0, press.x, press.y);
+    app.move(1, passthrough.x, passthrough.y);
+    app.down(1, passthrough.x, passthrough.y, 902.51);
+    app.up(1, passthrough.x, passthrough.y);
+    for (double now = 902.52; now < 902.9; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events ==
+                    std::vector<std::pair<int, int>>{
+                        {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}} &&
+                !app.view().shortcut_bar->buttons[0].running,
+            "a toolbar button stops a run: one combination sent");
+    app.move(1, passthrough.x, passthrough.y);
+    app.down(1, passthrough.x, passthrough.y, 902.95);
+    app.up(1, passthrough.x, passthrough.y);
+    sink.events.clear();
+    // Hiding stops a run: the second combination never goes.
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 903);
+    app.up(0, press.x, press.y);
+    app.set_interaction_active(false);
+    for (double now = 903.1; now < 903.5; now += .01) {
+        app.tick(now);
+    }
+    require(std::none_of(sink.events.begin(), sink.events.end(),
+                         [](const auto& event) { return event.first == KEY_S; }),
+            "hiding stops a run");
+    // A Steam field takes none of it: every button is disabled there.
+    struct SteamField : CaptureSink {
+        bool steam_field_target() const override { return true; }
+    } field;
+    App steam(options, field);
+    const auto shown = steam.view().shortcut_bar->buttons;
+    require(std::none_of(shown.begin(), shown.end() - 1, [](const auto& b) { return b.enabled; }) &&
+                shown.back().enabled,
+            "key buttons are disabled in a Steam field; Run, which types nothing, is not");
+    // What an assign button says, hovered in the picker menu.
+    const auto assign_tooltip = [](App& on) {
+        on.tick(905);
+        tap_rect(on, on.view().shortcut_bar->picker);
+        const auto at = middle(on.view().shortcut_bar->menu->rows[0].assign);
+        on.move(0, at.x, at.y);
+        return on.view().bar_tooltip;
+    };
+    require(assign_tooltip(steam) ==
+                "Can't assign here: this is one of Steam's own text fields, not an app",
+            "in a Steam field the assign buttons say so");
+    // R357: a game or app streamed from a PC with Streaming support takes the
+    // keyboard's own key presses, so its Shortcut and Macro buttons work. It
+    // is still reached through Steam (steam_field_target), with no window
+    // and no app reported.
+    struct StreamSession : CaptureSink {
+        bool steam_field_target() const override { return true; }
+        bool stream_session_target() const override { return true; }
+    } stream_sink;
+    App stream(options, stream_sink);
+    stream.tick(904);
+    const auto streamed = stream.view().shortcut_bar->buttons;
+    require(streamed[0].enabled && !streamed[1].enabled && streamed[2].enabled && streamed[3].enabled,
+            "in a stream Shortcut, Macro and Run buttons are enabled; an empty one is not");
+    const auto at = middle(streamed[0].bounds);
+    stream.move(0, at.x, at.y);
+    stream.down(0, at.x, at.y, 904.1);
+    stream.up(0, at.x, at.y);
+    for (double now = 904.2; now < 904.5; now += .01) {
+        stream.tick(now);
+    }
+    require(
+        stream_sink.events ==
+            std::vector<std::pair<int, int>>{
+                {KEY_LEFTCTRL, 1}, {KEY_K, 1}, {KEY_K, 0}, {KEY_LEFTCTRL, 0}, {KEY_S, 1}, {KEY_S, 0}},
+        "a press in a stream sends its combinations' downs and ups in order");
+    // Without a streaming client to read, it is the PC's stream (R359).
+    require(assign_tooltip(stream) == "Show Bar whenever your PC's desktop stream is in front",
+            "a stream is no Steam field: it can be assigned");
+}
+// R321: a button's press belongs to the bar it began on. Another window
+// takes the keys while it is held and the free bar comes back: letting go in
+// place sends nothing.
+void shortcut_press_bar_change() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.apps.push_back({{AppIdentity::Kind::Program, "app"}, "App", "t"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct WindowSink : CaptureSink {
+        std::uint32_t window{5};
+        std::uint32_t focused_window() const override { return window; }
+    } sink;
+    App app(options, sink);
+    app.tick(900);
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto row = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, row.x + 30, row.y + row.height / 2);
+    require(app.view().shortcut_bar->buttons[0].label == "T", "the picked bar shows");
+    const auto press = middle(app.view().shortcut_bar->buttons[0].bounds);
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 900.5);
+    sink.window = 6;
+    app.tick(900.6);
+    require(app.view().shortcut_bar->buttons[0].label == "A", "another window brings the free bar back");
+    app.up(0, press.x, press.y);
+    for (double now = 900.7; now < 901.2; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.empty(), "the press held over the change sends nothing on release");
+    // A press begun on the bar now showing still acts.
+    app.move(0, press.x, press.y);
+    app.down(0, press.x, press.y, 901.3);
+    app.up(0, press.x, press.y);
+    for (double now = 901.4; now < 901.9; now += .01) {
+        app.tick(now);
+    }
+    require(sink.events.size() == 4 && sink.events[1] == std::pair{KEY_A, 1},
+            "a press on the bar showing sends its own keys");
+}
+// The shortcut editor (docs/shortcut-bar-design.md, Settings and the
+// editor): opened from the picker, its bars column and strip with drags,
+// the Label and bar name fields and recording on the keyboard, the limits,
+// ✓ and ← with its question, at both widths.
+void tap_control(App& app, const std::string& id) {
+    tap_rect(app, control(app.view(), id).bounds);
+}
+void tap_key(App& app, const std::string& action) {
+    const auto [x, y] = key_point(app, action);
+    tap_at(app, x, y);
+}
+void open_editor(App& app) {
+    tap_rect(app, app.view().shortcut_bar->picker);
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
+}
+// A press on one of the editor popup's mini keys, by the US key's ID.
+void tap_mini(App& app, const std::string& key) {
+    tap_rect(app, control(app.view(), "shortcuts-popup-key-" + key).bounds);
+}
+std::string popup_text(App& app) {
+    return app.view().shortcut_editor->popup->text;
+}
+std::vector<std::string> popup_chips(const PanelView& view) {
+    std::vector<std::string> chips;
+    for (const auto& chip : view.shortcut_editor->popup->chords) {
+        chips.push_back(chip.text);
+    }
+    return chips;
+}
+// The popup sits under the strip, centered, 1051 × 380 at either width, its
+// keys inside it; a letter key is 42 × 48 with its side.
+void popup_fits(const PanelView& view, bool narrow) {
+    const auto& p = *view.shortcut_editor->popup;
+    const auto body = panel_case_bounds(view);
+    const auto& well = view.shortcut_editor->strip_well;
+    require(std::abs(p.panel.width - 1051) < 1 && p.panel.height == 380 &&
+                std::abs(p.panel.x + p.panel.width / 2 - (body.x + body.width / 2)) < .5 &&
+                p.panel.y >= well.y + well.height && p.panel.y + p.panel.height <= body.y + body.height,
+            narrow ? "the popup without the numpad: under the strip, centered, 1051 × 380, in the case"
+                   : "the popup: under the strip, centered, 1051 × 380, in the case");
+    require(std::abs(p.scale - .771) < .001, "the mini keyboard's scale is 0.771");
+    const auto letter = control(view, "shortcuts-popup-key-KeyQ").bounds;
+    require(std::abs(letter.width - 42) < .5 && std::abs(letter.height - 48) < .5,
+            "a letter key is 42 × 48");
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-popup-key-")) {
+            require(p.keys.x - .5 <= c.bounds.x &&
+                        c.bounds.x + c.bounds.width <= p.keys.x + p.keys.width + .5 &&
+                        c.bounds.y + c.bounds.height <= p.panel.y + p.panel.height,
+                    (c.id + " lies in the popup").c_str());
+        }
+    }
+    require(has(view, "shortcuts-popup-key-Numpad1") && has(view, "shortcuts-popup-key-F12") &&
+                !has(view, "shortcuts-popup-key-Emoji") && !has(view, "shortcuts-popup-key-Copy") &&
+                !has(view, "shortcuts-popup-key-Dictation"),
+            "the numpad stays, the side column goes");
+}
+std::vector<std::string> row_names(const PanelView& view) {
+    std::vector<std::string> names;
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-row-")) {
+            names.push_back(c.label);
+        }
+    }
+    return names;
+}
+std::vector<std::string> strip_labels(const PanelView& view) {
+    std::vector<std::string> labels;
+    for (const auto& c : view.controls) {
+        if (c.id.starts_with("shortcuts-button-")) {
+            labels.push_back(c.label);
+        }
+    }
+    return labels;
+}
+void drag(App& app, const Rect& from, double dx, double dy, unsigned pointer = 0) {
+    static double now = 950;
+    const auto start = middle(from);
+    app.move(pointer, start.x, start.y);
+    app.down(pointer, start.x, start.y, now += .1);
+    for (int step = 1; step <= 6; ++step) {
+        app.move(pointer, start.x + dx * step / 6, start.y + dy * step / 6);
+    }
+    app.up(pointer, start.x + dx, start.y + dy);
+    app.tick(now += .05);
+}
+// R323: the note that shortcuts.json can't be read goes once a save that
+// replaced the file reports success, in the editor and in Settings.
+void shortcut_invalid_note() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"profiles\":[{}]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    // The note is a line of text under the switch, not a control, below
+    // the General card's fold until the card scrolls.
+    const auto noted = [&] {
+        const auto cards = app.view().cards;
+        const auto general = std::find_if(cards.begin(), cards.end(),
+                                          [](const auto& card) { return card.title == "General"; });
+        require(general != cards.end(), "the General card is in view");
+        const auto card = general->bounds;
+        app.move(0, std::max(card.x, 0.0) + 40, 300);
+        app.scroll(0, 0, 20);
+        static double now = 960;
+        for (int i = 0; i < 40; ++i) {
+            app.tick(now += .05);
+        }
+        const auto labels = app.view().field_labels;
+        return std::any_of(labels.begin(), labels.end(), [](const FieldLabel& label) {
+            return label.text.starts_with("Your shortcuts file can't be read");
+        });
+    };
+    app.show_settings();
+    require(has(app.view(), "shortcuts") && noted(), "Settings notes the unreadable file");
+    app.back();
+    click(app, "bar-toggle");
+    open_editor(app);
+    require(app.view().shortcut_editor && !app.view().shortcut_editor->notice.empty(),
+            "so does the editor");
+    tap_control(app, "shortcuts-new-profile");
+    tap_mini(app, "Escape");
+    tap_control(app, "shortcuts-save");
+    require(saved_shortcuts(app).profiles.size() == 1, "✓ saves the new bar");
+    app.tick(950);
+    app.show_settings();
+    require(has(app.view(), "shortcuts") && !noted(), "the save that worked ends the note");
+}
+ShortcutModel editor_model() {
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"one",
+         "One",
+         {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+          shortcut_button("C", {{{}, "KeyC"}})}});
+    model.profiles.push_back({"two", "Two", {}});
+    model.apps.push_back({{AppIdentity::Kind::Program, "kate"}, "Kate", "one"});
+    model.free_profile = "two";
+    return model;
+}
+// The popup is the same whatever types: with the flick layout in use its
+// keyboard is still the US one, numpad included, in the no-numpad width's
+// editor; typing and recording there reach neither keys nor text.
+void shortcut_popup_flick() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.active = {"ja-flick-12", "ja-flick", "graphite"};
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct TextCapture : CaptureSink {
+        std::vector<std::string> texts;
+        bool text_available() override { return true; }
+        bool commit_text(const std::string& text) override {
+            texts.push_back(text);
+            return true;
+        }
+    } sink;
+    App app(options, sink);
+    app.tick(990);
+    require(app.view().layout->id == "ja-flick-12", "the flick layout is in use");
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-label");
+    const auto view = app.view();
+    require(panel_case_bounds(view).width == 1326 && panel_case_bounds(view).height == settings_height,
+            "the editor takes the no-numpad width, and Settings' height");
+    popup_fits(view, true);
+    tap_mini(app, "KeyH");
+    tap_mini(app, "KeyI");
+    tap_mini(app, "Numpad7");
+    tap_mini(app, "NumpadAdd");
+    tap_mini(app, "Enter");
+    require(control(app.view(), "shortcuts-label").label == "Ahi7+",
+            "US letters, whatever the language; the numpad types its digits and signs");
+    tap_control(app, "shortcuts-record");
+    tap_mini(app, "ControlLeft");
+    tap_mini(app, "KeyS");
+    tap_mini(app, "Numpad7");
+    tap_control(app, "shortcuts-popup-done");
+    require(app.view().shortcut_editor->chords.size() == 2 &&
+                app.view().shortcut_editor->chords[0].text == "Ctrl + S" &&
+                app.view().shortcut_editor->chords[1].text == "Num 7",
+            "recorded by the key's name; a numpad key as itself, never as Home");
+    require(sink.events.empty() && sink.texts.empty(),
+            "nothing reaches the app while the popup is open");
+}
+// R331: four combinations of four keys each at the no-numpad width. Record
+// and clear stay where a one-key shortcut has them, inside the case; the
+// chips scroll in their strip, and the popup's row shows the newest chip.
+void long_combinations() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = true;
+    save_settings(directory.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"b",
+         "Bar",
+         {shortcut_button("One", {{{}, "KeyA"}}),
+          shortcut_button("Long", {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}})}});
+    model.free_profile = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    auto view = app.view();
+    const auto body = panel_case_bounds(view);
+    const auto record = control(view, "shortcuts-record").bounds,
+               clear = control(view, "shortcuts-clear").bounds;
+    tap_control(app, "shortcuts-button-1");
+    view = app.view();
+    require(control(view, "shortcuts-record").bounds == record &&
+                control(view, "shortcuts-clear").bounds == clear &&
+                clear.x + clear.width <= body.x + body.width,
+            "Record and clear stay in place, inside the case, whatever is recorded");
+    const auto& e = *view.shortcut_editor;
+    require(e.chords.size() == 4 && e.chords_after && !e.chords_before &&
+                e.chords.back().bounds.x + e.chords.back().bounds.width >
+                    e.chords_strip.x + e.chords_strip.width &&
+                e.chords_strip.x + e.chords_strip.width <= record.x,
+            "the chips overflow their strip, which ends before Record, and fade at its end");
+    require(std::abs(e.chords[0].bounds.width -
+                     (interface_text_width(e.chords[0].text, 20, view.interface_font) + 24)) < .5,
+            "a chip is its text and 12 px on each side");
+    // The stick over the strip scrolls it to its last chip.
+    const auto strip = e.chords_strip;
+    app.move(0, strip.x + strip.width / 2, strip.y + strip.height / 2);
+    require(app.scroll_room(0) == ScrollRoom{false, true}, "the strip can scroll forward");
+    for (int i = 0; i < 20; ++i) {
+        app.scroll(0, 1, 0);
+    }
+    for (double now = 980; now < 982; now += .05) {
+        app.tick(now);
+    }
+    view = app.view();
+    const auto last = view.shortcut_editor->chords.back().bounds;
+    require(std::abs(last.x + last.width - (strip.x + strip.width)) < .5 &&
+                view.shortcut_editor->chords_before && !view.shortcut_editor->chords_after,
+            "the strip scrolls to its last chip");
+    // A drag takes it back.
+    app.move(0, strip.x + 100, strip.y + 20);
+    app.down(0, strip.x + 100, strip.y + 20, 983);
+    app.move(0, strip.x + 900, strip.y + 20);
+    app.up(0, strip.x + 900, strip.y + 20);
+    require(!app.view().shortcut_editor->chords_before, "a drag scrolls it back to its start");
+    // Recording the same: the popup's row follows the newest chip.
+    tap_control(app, "shortcuts-record");
+    for (const char* key : {"KeyZ", "KeyX", "KeyC", "KeyV"}) {
+        tap_mini(app, "ControlLeft");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "AltLeft");
+        tap_mini(app, key);
+    }
+    view = app.view();
+    const auto& p = *view.shortcut_editor->popup;
+    const auto newest = p.chords.back().bounds;
+    require(p.chords.size() == 4 && p.chords.back().text == "Ctrl + Shift + Alt + V" &&
+                newest.x >= p.well.x && newest.x + newest.width <= p.well.x + p.well.width,
+            "the popup's row shows the newest chip");
+}
+// The Macro view's steps as their rows show them: "keys:Ctrl + A" or "wait:0.5 s".
+std::vector<std::string> step_rows(const PanelView& view) {
+    std::vector<std::string> rows;
+    for (const auto& step : view.shortcut_editor->steps) {
+        if (step.wait) {
+            rows.push_back("wait:" + step.time);
+            continue;
+        }
+        std::string keys;
+        for (const auto& chip : step.chips) {
+            keys += (keys.empty() ? "" : " ") + chip.text;
+        }
+        rows.push_back("keys:" + keys + (step.more ? " …" : ""));
+    }
+    return rows;
+}
+// The Macro view (design, Settings and the editor): switching to it and
+// back, every flow of its steps, Repeat and the limits, at both widths.
+void shortcut_macro_view() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(directory.path, settings);
+        write_shortcuts(directory.path, editor_model());
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        // Shortcut to Macro: its combinations become one Keys step.
+        tap_control(app, "shortcuts-kind-1");
+        auto view = app.view();
+        require(control(view, "shortcuts-kind-1").selected &&
+                    step_rows(view) == std::vector<std::string>{"keys:Ctrl + A"} &&
+                    has(view, "shortcuts-add-keys") && has(view, "shortcuts-add-wait") &&
+                    control(view, "shortcuts-repeat-0").selected && !has(view, "shortcuts-record") &&
+                    view.shortcut_editor->explanation[0] == "Sends Ctrl + A, once per press.",
+                "a shortcut turned into a macro starts as one Keys step holding its combinations");
+        // And back: each keeps what it was given.
+        tap_control(app, "shortcuts-kind-0");
+        view = app.view();
+        require(view.shortcut_editor->chords.size() == 1 && view.shortcut_editor->steps.empty(),
+                "back to Shortcut, its combinations are there");
+        tap_control(app, "shortcuts-kind-1");
+        tap_control(app, "shortcuts-add-wait");
+        require(step_rows(app.view()) == std::vector<std::string>{"keys:Ctrl + A", "wait:0.5 s"},
+                "+ Wait adds half a second");
+        tap_control(app, "shortcuts-kind-0");
+        tap_control(app, "shortcuts-kind-1");
+        require(step_rows(app.view()).size() == 2, "switching loses none of the steps");
+        // A wait's − and +, a tenth of a second each; held, + goes on.
+        tap_control(app, "shortcuts-step-plus-1");
+        tap_control(app, "shortcuts-step-minus-1");
+        tap_control(app, "shortcuts-step-minus-1");
+        require(step_rows(app.view())[1] == "wait:0.4 s", "− and + change a wait by 0.1 s");
+        {
+            const auto plus = middle(control(app.view(), "shortcuts-step-plus-1").bounds);
+            app.move(0, plus.x, plus.y);
+            app.down(0, plus.x, plus.y, 1000);
+            for (double now = 1000; now < 1001; now += .02) {
+                app.tick(now);
+            }
+            app.up(0, plus.x, plus.y);
+            const auto held = step_rows(app.view())[1];
+            require(held != "wait:0.5 s" && held != "wait:0.4 s", "a held + goes on");
+        }
+        // + Keys opens the recorder for a new step, added on Done.
+        tap_control(app, "shortcuts-add-keys");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording,
+                "+ Keys opens the recorder");
+        tap_mini(app, "KeyL");
+        tap_mini(app, "KeyS");
+        tap_mini(app, "Enter");
+        tap_control(app, "shortcuts-popup-done");
+        view = app.view();
+        require(view.shortcut_editor->steps.size() == 3 && step_rows(view)[2] == "keys:L S Enter",
+                "Done adds the recorded step");
+        tap_control(app, "shortcuts-add-keys");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(app.view().shortcut_editor->steps.size() == 3, "Cancel adds nothing");
+        // A Keys step's row opens the recorder for it, from nothing; Done replaces.
+        tap_control(app, "shortcuts-step-0");
+        require(popup_chips(app.view()).empty(), "a step's recording starts from nothing");
+        tap_mini(app, "F5");
+        tap_control(app, "shortcuts-popup-done");
+        require(step_rows(app.view())[0] == "keys:F5", "Done replaces a step's keys");
+        tap_control(app, "shortcuts-step-0");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(step_rows(app.view())[0] == "keys:F5", "Cancel keeps them");
+        // A step's recording takes up to 32 combinations.
+        tap_control(app, "shortcuts-step-2");
+        for (int i = 0; i < 33; ++i) {
+            tap_mini(app, i % 2 ? "KeyA" : "KeyB");
+        }
+        require(popup_chips(app.view()).size() == 32, "a Keys step stops at 32 combinations");
+        tap_control(app, "shortcuts-popup-done");
+        require(step_rows(app.view())[2].ends_with(" …"), "a long step ends its row in an ellipsis");
+        // A drag moves a step; ✕ deletes one.
+        drag(app, control(app.view(), "shortcuts-step-2").bounds, 0, -2 * 54);
+        view = app.view();
+        require(step_rows(view)[1] == "keys:F5" && step_rows(view)[2].starts_with("wait:"),
+                "a step dragged up moves");
+        tap_control(app, "shortcuts-step-delete-0");
+        require(step_rows(app.view()).size() == 2 && step_rows(app.view())[0] == "keys:F5",
+                "✕ deletes a step");
+        // Repeat: Times with its count, While held, Once.
+        tap_control(app, "shortcuts-repeat-1");
+        view = app.view();
+        require(control(view, "shortcuts-repeat-1").selected && view.shortcut_editor->count == "2" &&
+                    !control(view, "shortcuts-count-minus").enabled,
+                "Times starts at 2, its least");
+        tap_control(app, "shortcuts-count-plus");
+        tap_control(app, "shortcuts-count-plus");
+        require(app.view().shortcut_editor->count == "4" &&
+                    app.view().shortcut_editor->explanation[0].ends_with("4 times per press."),
+                "+ counts up, and the line says so");
+        tap_control(app, "shortcuts-repeat-2");
+        require(!has(app.view(), "shortcuts-count-plus") &&
+                    app.view().shortcut_editor->explanation[0].ends_with("again and again while held."),
+                "While held has no count");
+        // 32 steps: + Keys and + Wait are disabled; the list scrolls.
+        while (control(app.view(), "shortcuts-add-wait").enabled) {
+            tap_control(app, "shortcuts-add-wait");
+        }
+        view = app.view();
+        require(view.shortcut_editor->steps.size() == 32 &&
+                    !control(view, "shortcuts-add-keys").enabled &&
+                    view.shortcut_editor->steps_thumb.has_value(),
+                "32 steps: + Keys and + Wait are disabled, and the list scrolls");
+        // ✓ saves only the chosen action: the macro, and no shortcut beside it.
+        tap_control(app, "shortcuts-save");
+        const auto saved = saved_shortcuts(app);
+        const auto& action = saved.profiles[0].buttons[0].action;
+        require(action.kind == ShortcutAction::Kind::Macro && action.steps.size() == 32 &&
+                    action.chords.empty() && action.repeat.mode == MacroRepeat::Mode::WhileHeld &&
+                    saved.profiles[0].buttons[1] == editor_model().profiles[0].buttons[1],
+                "✓ saves the macro alone; other buttons as they were");
+    }
+}
+// Macro buttons on the bar (design, Macro): Times runs its passes; a While
+// held one starts on press, keeps running as the laser drifts, never drags
+// the bar, and lets go with the trigger, its pass finishing.
+void macro_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton twice;
+    twice.label = "Twice";
+    twice.action.kind = ShortcutAction::Kind::Macro;
+    twice.action.steps.push_back({MacroStep::Kind::Keys, {{{}, "KeyA"}}, 0});
+    twice.action.repeat = {MacroRepeat::Mode::Times, 2};
+    ShortcutButton held = twice;
+    held.label = "Held";
+    held.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyB"}}, 0}, {MacroStep::Kind::Wait, {}, 100}};
+    held.action.repeat = {MacroRepeat::Mode::WhileHeld, 0};
+    std::vector<ShortcutButton> buttons{twice, held};
+    for (int i = 0; i < 20; ++i) {
+        buttons.push_back(shortcut_button("K", {{{}, "KeyK"}})); // enough to scroll
+    }
+    model.profiles.push_back({"b", "Bar", buttons});
+    model.free_profile = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    app.tick(900);
+    const auto count = [&](int code) {
+        return std::count(sink.events.begin(), sink.events.end(), std::pair{code, 1});
+    };
+    auto view = app.view();
+    require(view.shortcut_bar->buttons[0].enabled && view.shortcut_bar->buttons[1].enabled,
+            "macro buttons are enabled where keys can go");
+    const auto first = middle(view.shortcut_bar->buttons[0].bounds);
+    app.move(0, first.x, first.y);
+    app.down(0, first.x, first.y, 900.1);
+    app.up(0, first.x, first.y);
+    for (double now = 900.1; now < 900.6; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_A) == 2, "Times runs its passes from one press");
+    // While held: on press, before any release.
+    const auto second = middle(view.shortcut_bar->buttons[1].bounds);
+    const double scrolled = view.shortcut_bar->buttons[0].bounds.x;
+    app.move(0, second.x, second.y);
+    require(app.down(0, second.x, second.y, 901), "a held macro's press feels like a key's");
+    require(count(KEY_B) == 1 && app.view().shortcut_bar->buttons[1].running, "it starts on press, lit");
+    require(app.holds_repeat(0), "a held macro is held as a repeating key is");
+    // Drifting sideways off the button: no drag of the bar, and it runs on.
+    app.move(0, second.x + 200, second.y);
+    app.move(0, second.x + 300, second.y + 300);
+    for (double now = 901; now < 901.6; now += .01) {
+        app.tick(now);
+    }
+    require(app.view().shortcut_bar->buttons[0].bounds.x == scrolled,
+            "a held macro's press drags nothing");
+    require(count(KEY_B) >= 3 && app.view().shortcut_bar->buttons[1].running,
+            "it keeps running while held, the laser off the button");
+    app.up(0, second.x + 300, second.y + 300);
+    const auto after = count(KEY_B);
+    for (double now = 901.6; now < 902.5; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_B) == after && !app.view().shortcut_bar->buttons[1].running,
+            "the trigger let go: the pass under way finishes and no other starts");
+    // A cancel ends a hold too (the laser left, or the hold's own limit).
+    app.move(0, second.x, second.y);
+    app.down(0, second.x, second.y, 903);
+    app.cancel_pointer(0);
+    const auto canceled = count(KEY_B);
+    for (double now = 903; now < 904; now += .01) {
+        app.tick(now);
+    }
+    require(count(KEY_B) == canceled && !app.view().shortcut_bar->buttons[1].running,
+            "a cancel lets it go");
+}
+// R379: a bar button is one size on every bundled layout, numpad shown or hidden: the full layout's
+// left Ctrl at its scale, the flick layout's larger scale notwithstanding.
+void bar_button_one_size() {
+    const auto profiles = load_profiles({}, {});
+    std::optional<Rect> size;
+    for (const auto& [id, layout] : profiles.layouts) {
+        for (const bool hide : {false, true}) {
+            TemporaryDirectory directory;
+            ShortcutModel model;
+            model.profiles.push_back(
+                {"p",
+                 "Profile",
+                 {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+                  shortcut_button("C", {{{}, "KeyC"}})}});
+            model.free_profile = "p";
+            write_shortcuts(directory.path, model);
+            const auto language =
+                profiles.languages.contains(layout.language) ? layout.language : "en-us";
+            std::ofstream(directory.path / "config.json")
+                << R"({"schema_version":1,"active":{"layout":")" << id << R"(","language":")" << language
+                << R"(","theme":"graphite"},"hide_numpad":)" << (hide ? "true" : "false")
+                << R"(,"shortcuts":true})";
+            Options options;
+            options.config_dir = directory.path;
+            options.mode = Mode::Vr;
+            options.input = InputBackend::Uinput;
+            options.start_enabled = true;
+            options.target_language = "en-us";
+            CaptureSink sink;
+            App app(options, sink);
+            app.tick(3000);
+            const auto view = app.view();
+            if (!view.shortcut_bar || view.shortcut_bar->buttons.size() < 2) {
+                throw std::runtime_error("the bar shows its buttons on " + id);
+            }
+            const auto& first = view.shortcut_bar->buttons[0].bounds;
+            const auto& second = view.shortcut_bar->buttons[1].bounds;
+            const Rect measured{0, 0, first.width, second.x - first.x}; // size and pitch
+            if (!size) {
+                size = measured;
+            }
+            if (std::abs(measured.width - size->width) > 1e-9 ||
+                std::abs(measured.height - size->height) > 1e-9 ||
+                std::abs(first.height - 62 * (1600.0 - 40) / 1480) > 1e-9) {
+                throw std::runtime_error("a bar button is the full layout's size on " + id +
+                                         (hide ? ", numpad hidden" : ""));
+            }
+        }
+    }
+}
+// R340: any press on the bar that acts stops a run. R342: a While held
+// button pressed again while its run finishes a pass takes the hold again.
+void bar_presses_and_holds() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    ShortcutButton thrice;
+    thrice.label = "Thrice";
+    thrice.action.kind = ShortcutAction::Kind::Macro;
+    thrice.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyA"}}, 0}, {MacroStep::Kind::Wait, {}, 300}};
+    thrice.action.repeat = {MacroRepeat::Mode::Times, 3};
+    ShortcutButton held = thrice;
+    held.label = "Held";
+    held.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyB"}}, 0}, {MacroStep::Kind::Wait, {}, 300}};
+    held.action.repeat = {MacroRepeat::Mode::WhileHeld, 0};
+    model.profiles.push_back({"b", "Bar", {thrice, held}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{}, "KeyO"}})}});
+    model.free_profile = "b";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 2000;
+    app.tick(now);
+    const auto count = [&](int code) {
+        return std::count(sink.events.begin(), sink.events.end(), std::pair{code, 1});
+    };
+    const auto run_to = [&](double until) {
+        for (; now < until; now += .01) {
+            app.tick(now);
+        }
+    };
+    const auto press = [&](const Rect& r) {
+        const auto at = middle(r);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now);
+    };
+    const auto release = [&](const Rect& r) {
+        const auto at = middle(r);
+        app.up(0, at.x, at.y);
+    };
+    auto view = app.view();
+    const auto thrice_button = view.shortcut_bar->buttons[0].bounds;
+    const auto held_button = view.shortcut_bar->buttons[1].bounds;
+    const auto picker = view.shortcut_bar->picker;
+    // R340: the picker pressed during a Times macro's wait.
+    press(thrice_button);
+    release(thrice_button);
+    run_to(2000.15);
+    require(count(KEY_A) == 1 && app.view().shortcut_bar->buttons[0].running, "the first pass, waiting");
+    press(picker);
+    release(picker);
+    run_to(2002);
+    require(count(KEY_A) == 1 && !app.view().shortcut_bar->buttons[0].running &&
+                app.view().shortcut_bar->menu,
+            "the picker's press stopped it: nothing more, no button lit");
+    press(picker);
+    release(picker); // closes the menu
+    run_to(2002.1);
+
+    // R342: hold, let go mid-pass, press again before the pass ends.
+    press(held_button);
+    run_to(2002.2);
+    require(count(KEY_B) == 1, "a held macro starts on press");
+    release(held_button);
+    run_to(2002.3);
+    press(held_button);
+    require(count(KEY_B) == 1 && app.view().shortcut_bar->buttons[1].running,
+            "pressed again while the pass finishes: nothing sent twice, still lit");
+    run_to(2003.1);
+    const auto while_held = count(KEY_B);
+    require(while_held >= 3, "the hold taken again: passes go on while held");
+    release(held_button);
+    run_to(2004);
+    require(count(KEY_B) == while_held && !app.view().shortcut_bar->buttons[1].running,
+            "let go: the pass finishes and no other starts");
+    // Once and Times keep the rule: their own button pressed again stops them.
+    press(thrice_button);
+    release(thrice_button);
+    run_to(now + .15);
+    press(thrice_button);
+    release(thrice_button);
+    run_to(now + 2);
+    require(count(KEY_A) == 2 && !app.view().shortcut_bar->buttons[0].running,
+            "a Times button pressed again only stops its run");
+
+    // R372: a long run's stroke around its button grows with it, in whole pixels of the
+    // border; a tick that leaves its end where it was repaints nothing for it. R375: while it
+    // moves it repaints at most once per 33 ms, here on the test clock's 2 ms ticks.
+    press(thrice_button);
+    release(thrice_button);
+    const double border = bar_border_pixels(thrice_button);
+    int last = -1, moves = 0;
+    double moved_at = -1;
+    bool still = false;
+    for (const double end = now + 3; now < end; now += .002) {
+        app.dirty = false;
+        app.tick(now);
+        const auto shown = app.view().shortcut_bar->buttons[0];
+        if (!shown.running) {
+            require(shown.progress_px == -1, "the stroke goes with the run");
+            break;
+        }
+        require(shown.progress_px >= last && shown.progress_px <= border, "the stroke only grows");
+        if (shown.progress_px != last) {
+            require(app.dirty, "a stroke that moves repaints");
+            // Closing to full paints at once.
+            require(last < 0 || shown.progress_px == static_cast<int>(border) ||
+                        now - moved_at >= .033 - 1e-9,
+                    "at most once per 33 ms");
+            ++moves;
+            moved_at = now;
+        } else {
+            still = still || !app.dirty;
+        }
+        last = shown.progress_px;
+    }
+    require(count(KEY_A) == 5 && moves > 15 && moves < 40 && last >= .95 * border && still,
+            "the stroke goes round as the run does, nearly closed as it ends");
+}
+// R337: a lifted Wait row carries its time, − and + and ✕ with it.
+void lifted_step_moves_whole() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-kind-1");
+    tap_control(app, "shortcuts-add-wait");
+    const auto before = app.view().shortcut_editor->steps.at(1);
+    const auto start = middle(control(app.view(), "shortcuts-step-1").bounds);
+    // Down by 30, past the dead zone, and past no other row: it is the last.
+    app.move(0, start.x, start.y);
+    app.down(0, start.x, start.y, 1400);
+    app.move(0, start.x, start.y + 15);
+    app.move(0, start.x, start.y + 30);
+    const auto lifted = app.view().shortcut_editor->lifted_step;
+    require(lifted && lifted->wait, "the Wait row is lifted");
+    for (const auto& [moved, was] : {std::pair{lifted->time_bounds, before.time_bounds},
+                                     std::pair{lifted->minus_bounds, before.minus_bounds},
+                                     std::pair{lifted->plus_bounds, before.plus_bounds},
+                                     std::pair{lifted->remove_bounds, before.remove_bounds}}) {
+        require(std::abs(moved.y - (was.y + 30)) < .5 && moved.x == was.x,
+                "its time, − and + and ✕ moved by the same 30 px");
+    }
+    app.up(0, start.x, start.y + 30);
+}
+// Phase 5 (design, Which profile shows, Picker menu and Apps): the app with
+// the keys from a fake focus, assigned in the picker and saved at once, the
+// bar following the focus, names looked up off the VR thread, and Used for.
+void shortcut_apps() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.profiles.push_back({"u", "Other", {shortcut_button("U", {{{"ControlLeft"}, "KeyU"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const AppIdentity notes{AppIdentity::Kind::Desktop, "org.example.Notes"},
+        terminal{AppIdentity::Kind::Desktop, "org.example.Terminal"},
+        game{AppIdentity::Kind::Steam, "4000010"};
+    // Names from the test itself; the game's waits until the test lets it go.
+    std::atomic<bool> game_named{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app == notes) {
+            return "Example Notes";
+        }
+        if (app == game) {
+            for (int i = 0; i < 2000 && !game_named; ++i) {
+                usleep(1000);
+            }
+            return "Example Game";
+        }
+        return {};
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint64_t serial{};
+        std::uint32_t focused_window() const override { return focus.window; }
+        std::uint64_t focus_serial() const override { return serial; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, notes, "kwin_wayland"};
+    App app(options, sink);
+    double now = 950;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto wait_for = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 1000 && !done(); ++i) {
+            usleep(2000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    require(label() == "A", "an app without a profile: the free profile");
+    const auto hover = [&](std::size_t row) {
+        const auto at = middle(menu().rows[row].assign);
+        app.move(0, at.x, at.y);
+        return app.view().bar_tooltip;
+    };
+    // The tooltips name the app: its own name until the lookup lands, then
+    // the one found. The menu itself names no app.
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(hover(0) == "Show Free whenever Notes is in front" ||
+                hover(0) == "Show Free whenever Example Notes is in front",
+            "first the last part of its ID");
+    require(wait_for([&] { return hover(0) == "Show Free whenever Example Notes is in front"; }),
+            "the name looked up arrives on a tick");
+    const auto rows = menu().rows;
+    require(std::all_of(rows.begin(), rows.end(),
+                        [](const auto& row) { return row.assign_enabled && !row.assigned; }),
+            "every assign button can tie the app; none is lit");
+    require(hover(1) == "Show Tied whenever Example Notes is in front",
+            "the tooltip says what the press will do, naming the profile and the app");
+    tap_rect(app, menu().rows[1].assign);
+    require(app.view().shortcut_bar->menu && menu().rows[1].assigned && !menu().rows[2].assigned &&
+                label() == "T",
+            "a tie lights its button, the menu stays open, and the profile tied shows at once");
+    const std::vector<AppTie> first_tie{{notes, "Example Notes", "t"}};
+    require(saved_shortcuts(app).apps == first_tie, "saved at once, with the name");
+    require(hover(1) == "Stop showing Tied for Example Notes", "a lit button's tooltip");
+    tap_rect(app, menu().rows[2].assign);
+    const std::vector<AppTie> moved_tie{{notes, "Example Notes", "u"}};
+    const auto moved_saved = saved_shortcuts(app).apps;
+    require(menu().rows[2].assigned && !menu().rows[1].assigned && label() == "U" &&
+                moved_saved == moved_tie,
+            "another profile's button moves the tie");
+    tap_rect(app, menu().rows[2].assign);
+    require(!menu().rows[2].assigned && saved_shortcuts(app).apps.empty() && label() == "U",
+            "a lit button unties; the bar stays as it is until the focus changes");
+    tap_rect(app, menu().rows[1].assign);
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!app.view().shortcut_bar->menu, "the picker closes its menu");
+
+    // The bar follows the focus.
+    sink.focus = {8, game, "game.x86_64"};
+    app.tick(now += .1);
+    require(label() == "A", "another app without a profile: the free one");
+    sink.focus = {7, notes, "kwin_wayland"};
+    app.tick(now += .1);
+    require(label() == "T", "back to the tied app: its profile, on the first tick");
+    sink.focus = {7, terminal, "kwin_wayland"};
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "A", "inside the Desktop another app in the same window is a change of focus");
+    sink.focus = {7, notes, "kwin_wayland"};
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "T", "and back");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto picked = menu().rows[2].bounds;
+    tap_at(app, picked.x + 30, picked.y + picked.height / 2);
+    require(label() == "U", "a profile picked");
+    ++sink.serial;
+    app.tick(now += .1);
+    require(label() == "U", "another window of the same app, such as a dialog, keeps the pick");
+    sink.focus.window = 9;
+    app.tick(now += .1);
+    require(label() == "T", "another window: a change of focus, rule 1 again");
+
+    // No identity: the assign buttons are disabled and say why.
+    app.set_dashboard_focus(true);
+    app.tick(now += .1);
+    // U was picked while an app with its own profile had the keys: that pick
+    // stayed temporary (R350).
+    require(label() == "A", "Steam's dashboard has no profile: the one picked last for such apps");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!menu().rows[0].assign_enabled && !menu().rows[1].assigned, "the buttons disabled");
+    require(hover(0) == "Can't assign here: Steam's dashboard is in front, not an app",
+            "a disabled button's tooltip names the cause");
+    tap_rect(app, menu().rows[0].assign);
+    require(app.view().shortcut_bar->menu && saved_shortcuts(app).apps.size() == 1,
+            "a press on a disabled button does nothing");
+    app.set_dashboard_focus(false);
+    sink.focus = {10, std::nullopt, ""};
+    app.tick(now += .1);
+    require(hover(0) == "Can't assign here: Full Keyboard can't see which app is in front",
+            "an app that can't be told");
+    // Steam's own window, not its dashboard: a reason of its own (R367).
+    sink.focus = {11, std::nullopt, "steamwebhelper", true};
+    app.tick(now += .1);
+    require(!menu().rows[0].assign_enabled &&
+                hover(0) == "Can't assign here: Steam itself is in front, not an app",
+            "Steam's own window");
+
+    // Assigned before its name arrives: saved with the program's name, then
+    // the name found, once.
+    sink.focus = {8, game, "game.x86_64"};
+    app.tick(now += .1);
+    require(hover(0) == "Show Free whenever game.x86_64 is in front",
+            "a Steam game's program name until its lookup lands");
+    tap_rect(app, menu().rows[2].assign);
+    const auto first_save = saved_shortcuts(app);
+    require(first_save.tie(game) && first_save.tie(game)->name == "game.x86_64",
+            "saved with that name at once");
+    game_named = true;
+    require(wait_for([&] { return hover(1) == "Show Tied whenever Example Game is in front"; }),
+            "the name arrives");
+    const auto named = saved_shortcuts(app);
+    require(named.tie(game) && named.tie(game)->name == "Example Game", "the tie takes it, saved");
+    tap_rect(app, app.view().shortcut_bar->picker);
+
+    // Used for: the profile's apps; a ✕ waits for ✓, and ← drops it.
+    open_editor(app);
+    tap_control(app, "shortcuts-row-1");
+    auto view = app.view();
+    require(view.shortcut_editor->ties.size() == 1 &&
+                view.shortcut_editor->ties[0].text == "Example Notes" && has(view, "shortcuts-tie-0"),
+            "Used for shows the selected profile's app, with its ✕");
+    tap_control(app, "shortcuts-tie-0");
+    require(app.view().shortcut_editor->ties.empty() && saved_shortcuts(app).tie(notes) != nullptr,
+            "the ✕ takes it off, pending");
+    tap_control(app, "shortcuts-back");
+    tap_control(app, "confirm-cancel");
+    require(!app.view().shortcut_editor && saved_shortcuts(app).tie(notes) != nullptr,
+            "← drops the change");
+    open_editor(app);
+    tap_control(app, "shortcuts-row-1");
+    tap_control(app, "shortcuts-tie-0");
+    tap_control(app, "shortcuts-save");
+    const auto stored = saved_shortcuts(app);
+    require(!stored.tie(notes) && stored.tie(game), "✓ saves the profile without the app");
+
+    // 128 apps have a tie: an untied app can't have one; a tied one can move.
+    {
+        TemporaryDirectory full;
+        save_settings(full.path, settings);
+        ShortcutModel many = model;
+        for (std::size_t i = 0; i < shortcut_limits::apps; ++i) {
+            many.apps.push_back({{AppIdentity::Kind::Program, "app" + std::to_string(i)}, "App", "t"});
+        }
+        write_shortcuts(full.path, many);
+        Options limited = options;
+        limited.config_dir = full.path;
+        limited.app_names = {};
+        FocusSink other;
+        other.focus = {3, AppIdentity{AppIdentity::Kind::Program, "new"}, "new"};
+        App capped(limited, other);
+        capped.tick(now += .1);
+        tap_rect(capped, capped.view().shortcut_bar->picker);
+        const auto rows = capped.view().shortcut_bar->menu->rows;
+        require(
+            std::none_of(rows.begin(), rows.end(), [](const auto& row) { return row.assign_enabled; }),
+            "at 128 ties an untied app's buttons are disabled");
+        const auto at = middle(rows[0].assign);
+        capped.move(0, at.x, at.y);
+        require(capped.view().bar_tooltip ==
+                    "128 apps have a profile already. Remove one under Used for in the editor first",
+                "and say why");
+        other.focus = {4, AppIdentity{AppIdentity::Kind::Program, "app5"}, "app5"};
+        capped.tick(now += .1);
+        const auto moved = capped.view().shortcut_bar->menu->rows;
+        require(moved[1].assigned && moved[0].assign_enabled, "a tied app's tie can still move");
+    }
+}
+// R339: over a macro's steps, the first row scrolls the list too; the
+// Shortcut view's chip strip, which lies there, is asked only for a shortcut.
+// R359: a stream from a PC is the streamed game, by the app ID Steam's
+// streaming client was started with, or the PC's stream as one app. Read
+// off the VR thread when a session begins, and only that session's answer
+// counts. The client lists here stand for /proc.
+void shortcut_stream_apps() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.profiles.push_back({"p", "PC", {shortcut_button("P", {{{"ControlLeft"}, "KeyP"}})}});
+    ShortcutButton slow;
+    slow.label = "Slow";
+    slow.action.kind = ShortcutAction::Kind::Macro;
+    slow.action.steps = {{MacroStep::Kind::Keys, {{{}, "KeyJ"}}, 0},
+                         {MacroStep::Kind::Wait, {}, 400},
+                         {MacroStep::Kind::Keys, {{{}, "KeyL"}}, 0}};
+    model.profiles[0].buttons.push_back(slow);
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    // What the client's arguments are now, and whether the read may answer.
+    using Clients = std::vector<std::vector<std::string>>;
+    std::mutex mutex;
+    std::optional<Clients> clients;
+    std::atomic<bool> hold_reads{};
+    const auto set_clients = [&](std::optional<Clients> next) {
+        std::lock_guard lock(mutex);
+        clients = std::move(next);
+    };
+    const auto client = [](const char* app_id) {
+        std::vector<std::string> arguments{"/usr/bin/streaming_client", "--server", "192.0.2.7:27036"};
+        if (app_id) {
+            arguments.insert(arguments.end(), {"--appid", app_id});
+        }
+        return Clients{arguments};
+    };
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.stream_clients = [&]() -> std::optional<Clients> {
+        for (int i = 0; i < 3000 && hold_reads; ++i) {
+            usleep(1000);
+        }
+        std::lock_guard lock(mutex);
+        return clients;
+    };
+    // The replacement's route: a stream session, or one of Steam's fields;
+    // neither has a window or an app of Gamescope's.
+    struct RouteSink : CaptureSink {
+        bool stream{}, field{};
+        FocusedApp local; // the local route's window and app, off Steam's route
+        bool steam_field_target() const override { return stream || field; }
+        bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return stream || field ? 0 : local.window; }
+        FocusedApp focused_app() const override { return stream || field ? FocusedApp{} : local; }
+    } sink;
+    // A local window that takes the keys between streams: after a stream
+    // ends with nothing local, the bar keeps its app (R364).
+    const FocusedApp desk{3, AppIdentity{AppIdentity::Kind::Program, "desk"}, "desk"};
+    App app(options, sink);
+    double now = 1200;
+    app.tick(now);
+    const auto label = [&] { return app.view().shortcut_bar->buttons[0].label; };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto settle_until = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 1000 && !done(); ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    const auto hover = [&](std::size_t row) {
+        const auto at = middle(menu().rows[row].assign);
+        app.move(0, at.x, at.y);
+        return app.view().bar_tooltip;
+    };
+    const auto assign = [&](std::size_t row) {
+        tap_rect(app, app.view().shortcut_bar->picker);
+        require(menu().rows[row].assign_enabled, "the assign buttons work in a stream");
+        tap_rect(app, menu().rows[row].assign);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    // A stream of a Steam game: its Steam identity, once this session's
+    // answer is in.
+    set_clients(client("4000020"));
+    sink.stream = true;
+    app.set_native_request(5);
+    app.tick(now += .01);
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const bool enabled = menu().rows[1].assign_enabled;
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return enabled;
+            }),
+            "a streamed game can be assigned once its app is read");
+    assign(1);
+    const auto saved = saved_shortcuts(app);
+    require(saved.apps.size() == 1 &&
+                saved.apps[0].app == AppIdentity{AppIdentity::Kind::Steam, "4000020"} &&
+                saved.apps[0].profile == "g" && label() == "G",
+            "the tie is the game's Steam identity, and its profile shows");
+    // The session ends and a local window takes the keys: the free profile;
+    // the game streamed again: its own.
+    sink.stream = false;
+    app.set_native_request(0);
+    sink.local = desk;
+    app.tick(now += .01);
+    require(label() == "A", "after the stream a local window shows the free profile");
+    sink.stream = true;
+    app.set_native_request(6);
+    require(settle_until([&] { return label() == "G"; }), "the game streamed again shows its profile");
+
+    // Another session with another game, whose read is slow: until its own
+    // answer is in, nothing of the last session's game is used; then the
+    // free profile, as for any app without one.
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    set_clients(client("4000030"));
+    hold_reads = true;
+    sink.stream = true;
+    app.set_native_request(7);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += .01);
+        require(label() == "A", "a new session never shows the last one's game");
+    }
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!menu().rows[1].assign_enabled &&
+                hover(1) == "Can't assign here: Full Keyboard can't see which app is in front",
+            "nothing to assign until its answer is in");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    hold_reads = false;
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const bool enabled = menu().rows[1].assign_enabled;
+                const auto tip = hover(1);
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return enabled && tip == "Show Game whenever App 4000030 is in front";
+            }) &&
+                label() == "A",
+            "the other game is an app of its own, without a profile");
+
+    // A run stops when the session changes, as for another app: J goes, L
+    // never does.
+    sink.events.clear();
+    const auto slow_at = middle(app.view().shortcut_bar->buttons[1].bounds);
+    app.move(0, slow_at.x, slow_at.y);
+    app.down(0, slow_at.x, slow_at.y, now);
+    app.up(0, slow_at.x, slow_at.y);
+    for (int i = 0; i < 10; ++i) {
+        app.tick(now += .01);
+    }
+    app.set_native_request(8);
+    for (int i = 0; i < 80; ++i) {
+        app.tick(now += .01);
+    }
+    require(std::count(sink.events.begin(), sink.events.end(), std::pair{KEY_J, 1}) == 1 &&
+                std::none_of(sink.events.begin(), sink.events.end(),
+                             [](const auto& event) { return event.first == KEY_L; }),
+            "another session stops a run");
+
+    // A stream with no usable app ID, such as the PC's desktop: the one
+    // stream app, named in the tooltip's own words and the editor's.
+    set_clients(client(nullptr));
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    sink.stream = true;
+    app.set_native_request(9);
+    require(settle_until([&] {
+                tap_rect(app, app.view().shortcut_bar->picker);
+                const auto tip = hover(2);
+                tap_rect(app, app.view().shortcut_bar->picker);
+                return tip == "Show PC whenever your PC's desktop stream is in front";
+            }),
+            "the PC's stream is named in the tooltip");
+    assign(2);
+    const auto both = saved_shortcuts(app);
+    require(both.apps.size() == 2 && both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"}) &&
+                both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"})->profile == "p" &&
+                both.tie(AppIdentity{AppIdentity::Kind::Stream, "pc"})->name == "PC desktop stream" &&
+                label() == "P",
+            "the PC's stream is tied as the stream app, its profile shows");
+
+    // One of Steam's own fields still can't be assigned. A local window
+    // first, so the bar no longer holds the stream's app (R364).
+    sink.stream = false;
+    app.set_native_request(0);
+    app.tick(now += .01);
+    sink.field = true;
+    app.set_native_request(10);
+    app.tick(now += .01);
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(!menu().rows[0].assign_enabled &&
+                hover(0) == "Can't assign here: this is one of Steam's own text fields, not an app" &&
+                label() == "A",
+            "a Steam field still can't be assigned; the free profile shows");
+}
+// R361: a tie saved while a program's identity held its arguments is moved
+// to the program's name when it has the keys, and saved at once; another
+// program's that only begins the same is left alone.
+void shortcut_long_program_tie() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"t", "Tied", {shortcut_button("T", {{{"ControlLeft"}, "KeyT"}})}});
+    model.profiles.push_back({"b", "Beta", {shortcut_button("B", {{{"ControlLeft"}, "KeyB"}})}});
+    const std::string line = "browser --enable-features=A,B --flag=x,y --mode=1";
+    model.apps.push_back({{AppIdentity::Kind::Program, line}, line, "t"});
+    model.apps.push_back(
+        {{AppIdentity::Kind::Program, "browser-beta --flag=x"}, "browser-beta --flag=x", "b"});
+    // A Wine game whose file name begins with another program's name and a
+    // space: not that program's flags (R366).
+    model.apps.push_back({{AppIdentity::Kind::Program, "Game Launcher.exe"}, "Game Launcher.exe", "b"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, AppIdentity{AppIdentity::Kind::Program, "browser"}, "browser"};
+    App app(options, sink);
+    app.tick(1300);
+    app.tick(1300.1);
+    require(app.view().shortcut_bar->buttons[0].label == "T",
+            "the old tie's profile shows for the program");
+    const auto saved = saved_shortcuts(app);
+    const auto* tie = saved.tie({AppIdentity::Kind::Program, "browser"});
+    require(saved.apps.size() == 3 && tie && tie->profile == "t" && tie->name == "browser" &&
+                !saved.tie({AppIdentity::Kind::Program, line}),
+            "the tie is the program's name alone now, saved at once");
+    require(saved.tie({AppIdentity::Kind::Program, "browser-beta --flag=x"}),
+            "another program's tie that only begins the same stays");
+    // "Game" has the keys: "Game Launcher.exe" keeps its tie.
+    sink.focus = {8, AppIdentity{AppIdentity::Kind::Program, "Game"}, "Game"};
+    app.tick(1300.2);
+    const auto after = saved_shortcuts(app);
+    require(after.tie({AppIdentity::Kind::Program, "Game Launcher.exe"}) &&
+                !after.tie({AppIdentity::Kind::Program, "Game"}),
+            "a file name with a space after another's name is not its flags");
+}
+// R350: an app without a profile shows the last profile picked for such
+// apps; tied to an app, the one picked before it that no app is tied to;
+// with every pick tied, the last pick all the same.
+void shortcut_pick_history() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "First", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"b", "Second", {shortcut_button("B", {{{"ControlLeft"}, "KeyB"}})}});
+    model.profiles.push_back({"c", "Never", {shortcut_button("C", {{{"ControlLeft"}, "KeyC"}})}});
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    const auto app_named = [](std::uint32_t window, const char* id) {
+        return FocusedApp{window, AppIdentity{AppIdentity::Kind::Program, id}, id};
+    };
+    sink.focus = app_named(1, "one");
+    App app(options, sink);
+    double now = 1400;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    const auto menu = [&] { return *app.view().shortcut_bar->menu; };
+    const auto pick = [&](std::size_t row) {
+        if (!app.view().shortcut_bar) {
+            tap_rect(app, control(app.view(), "bar-toggle").bounds); // the empty bar, for its picker
+        }
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto r = menu().rows[row].bounds;
+        tap_at(app, r.x + 30, r.y + r.height / 2);
+    };
+    const auto assign = [&](std::size_t row) {
+        require(app.view().shortcut_bar.has_value(), "a bar shows to assign from");
+        tap_rect(app, app.view().shortcut_bar->picker);
+        tap_rect(app, menu().rows[row].assign);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    const auto focus = [&](std::uint32_t window, const char* id) {
+        sink.focus = app_named(window, id);
+        app.tick(now += .1);
+    };
+    // Second, then First, picked in apps without a profile.
+    pick(1);
+    focus(2, "two");
+    pick(0);
+    focus(3, "three");
+    require(label() == "A", "the last pick shows in another app without a profile");
+    const auto saved = saved_shortcuts(app);
+    require(saved.free_profile == "a" && saved.earlier_picks == std::vector<std::string>{"b"},
+            "the picks are saved, newest first");
+    // First is tied to this app: elsewhere, the one picked before it.
+    assign(0);
+    focus(4, "four");
+    require(label() == "B", "the last pick tied to an app: the one picked before it");
+    // Second is tied too: every pick tied, the last pick all the same; Never,
+    // never picked, isn't chosen.
+    assign(1);
+    focus(5, "five");
+    require(label() == "A", "every pick tied: the last pick stays");
+}
+// R362: names found are kept in a record of their own, so a game streamed
+// before still has its name when its manifest is gone; a tie saved with the
+// identity's own name takes the real one whenever it is found. A stream's
+// game is looked up when its session's app is known.
+void shortcut_name_record() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"},
+        other{AppIdentity::Kind::Steam, "4000030"}, tool{AppIdentity::Kind::Program, "tool"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto record = directory.path / "cache" / "app-names.json";
+    // The manifests there are: the first game's only while `streaming`.
+    std::atomic<bool> streaming{true};
+    std::mutex mutex;
+    std::string app_id = "4000020";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = record;
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app == game) {
+            return streaming ? "Example Game" : "";
+        }
+        if (app == other) {
+            return "Other Game";
+        }
+        return app == tool ? "Some Tool" : ""; // a source may name a program; it isn't kept
+    };
+    options.stream_clients = [&]() -> std::optional<std::vector<std::vector<std::string>>> {
+        std::lock_guard lock(mutex);
+        return std::vector<std::vector<std::string>>{{"/usr/bin/streaming_client", "--appid", app_id}};
+    };
+    struct StreamSink : CaptureSink {
+        bool stream{};
+        FocusedApp focus;
+        bool steam_field_target() const override { return stream; }
+        bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {4, tool, "tool"};
+    const auto tooltip = [](App& app, double& now, const std::string& wanted) {
+        for (int i = 0; i < 1000; ++i) {
+            app.tick(now += .01);
+            tap_rect(app, app.view().shortcut_bar->picker);
+            const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+            app.move(0, at.x, at.y);
+            const auto tip = app.view().bar_tooltip;
+            tap_rect(app, app.view().shortcut_bar->picker);
+            if (tip == wanted) {
+                return true;
+            }
+            usleep(1000);
+        }
+        return false;
+    };
+    double now = 1500;
+    {
+        App app(options, sink);
+        app.tick(now);
+        // A program named by the source: nothing kept for it.
+        require(tooltip(app, now, "Show Game whenever Some Tool is in front"), "a program's name");
+        // A stream of a game whose manifest is there now: looked up when the
+        // session's app is known, without the menu.
+        sink.stream = true;
+        app.set_native_request(1);
+        require(tooltip(app, now, "Show Game whenever Example Game is in front"),
+                "the streamed game's name");
+        app.flush_settings();
+        struct stat file{};
+        require(stat(record.c_str(), &file) == 0 && (file.st_mode & 0777) == 0600,
+                "the record is the user's alone");
+        std::ifstream read(record);
+        const auto kept = parse_app_name_record({std::istreambuf_iterator<char>(read), {}});
+        require(kept == std::vector<RecordedName>{{game, "Example Game"}},
+                "the game's name is kept, the program's isn't");
+    }
+    // Later, with the manifest gone and the game tied under its ID's own
+    // name, and another game tied the same way.
+    streaming = false;
+    sink.stream = false;
+    model.apps = {{game, "App 4000020", "g"}, {other, "App 4000030", "a"}};
+    write_shortcuts(directory.path, model);
+    {
+        App app(options, sink);
+        app.tick(now += .01);
+        sink.stream = true;
+        app.set_native_request(2);
+        bool renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(game)->name == "Example Game";
+        }
+        require(renamed, "a tie under its ID's own name takes the name kept before");
+        require(tooltip(app, now, "Stop showing Game for Example Game"),
+                "the kept name shows with the manifest gone");
+        // The other game: its name found by a lookup in a later session.
+        sink.stream = false;
+        app.set_native_request(0);
+        app.tick(now += .01);
+        {
+            std::lock_guard lock(mutex);
+            app_id = "4000030";
+        }
+        sink.stream = true;
+        app.set_native_request(3);
+        renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(other)->name == "Other Game";
+        }
+        require(renamed, "a tie under its ID's own name takes a name found later");
+    }
+}
+// R313: recording no longer offers F13–F24, but a file's still load, show
+// their chips and send.
+void shortcut_fkeys_from_file() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"f",
+         "F keys",
+         {shortcut_button("Fs", {{{}, "F13"}, {{}, "F14"}, {{"ControlLeft"}, "F20"}, {{}, "F24"}})}});
+    model.free_profile = "f";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 1600;
+    app.tick(now);
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.size() == 1 &&
+                app.view().shortcut_bar->buttons[0].enabled,
+            "a file with F13–F24 loads, its button enabled");
+    const auto at = middle(app.view().shortcut_bar->buttons[0].bounds);
+    app.move(0, at.x, at.y);
+    app.down(0, at.x, at.y, now);
+    app.up(0, at.x, at.y);
+    for (int i = 0; i < 60; ++i) {
+        app.tick(now += .02);
+    }
+    require(sink.events == std::vector<std::pair<int, int>>{{KEY_F13, 1},
+                                                            {KEY_F13, 0},
+                                                            {KEY_F14, 1},
+                                                            {KEY_F14, 0},
+                                                            {KEY_LEFTCTRL, 1},
+                                                            {KEY_F20, 1},
+                                                            {KEY_F20, 0},
+                                                            {KEY_LEFTCTRL, 0},
+                                                            {KEY_F24, 1},
+                                                            {KEY_F24, 0}},
+            "its keys are sent");
+    open_editor(app);
+    tap_control(app, "shortcuts-button-0");
+    const auto view = app.view();
+    const auto& chords = view.shortcut_editor->chords;
+    require(chords.size() == 4 && chords[0].text == "F13" && chords[2].text == "Ctrl + F20" &&
+                chords[3].text == "F24",
+            "the editor shows their chips");
+}
+// R364: when a stream's session ends, as when the panel hides, Gamescope
+// reports no window and no app: the bar keeps the stream's app, its pick and
+// its empty bar, until a window, the dashboard or another game takes the keys.
+void shortcut_stream_focus_held() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity game{AppIdentity::Kind::Steam, "4000020"};
+    ShortcutModel model;
+    model.profiles.push_back({"g", "Game", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{"ControlLeft"}, "KeyO"}})}});
+    model.apps.push_back({game, "Game", "g"});
+    write_shortcuts(directory.path, model); // nothing picked ever: no profile for other apps
+    std::mutex mutex;
+    std::string app_id = "4000020";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.stream_clients = [&]() -> std::optional<std::vector<std::vector<std::string>>> {
+        std::lock_guard lock(mutex);
+        return std::vector<std::vector<std::string>>{{"/usr/bin/streaming_client", "--appid", app_id}};
+    };
+    struct StreamSink : CaptureSink {
+        bool stream{};
+        FocusedApp focus; // the local route's: nothing during a stream
+        bool steam_field_target() const override { return stream; }
+        bool stream_session_target() const override { return stream; }
+        std::uint32_t focused_window() const override { return stream ? 0 : focus.window; }
+        FocusedApp focused_app() const override { return stream ? FocusedApp{} : focus; }
+    } sink;
+    App app(options, sink);
+    double now = 1700;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return !view.shortcut_bar         ? std::string("(hidden)")
+               : view.shortcut_bar->slots ? std::string("(empty)")
+                                          : view.shortcut_bar->buttons[0].label;
+    };
+    std::uint64_t request = 0;
+    const auto begin = [&](const char* id) {
+        {
+            std::lock_guard lock(mutex);
+            app_id = id;
+        }
+        sink.stream = true;
+        app.set_native_request(++request);
+    };
+    const auto end = [&] {
+        sink.stream = false;
+        app.set_native_request(0);
+    };
+    // Every tick until `ticks` pass, the bar shows `wanted`.
+    const auto steady = [&](const std::string& wanted, int ticks = 60) {
+        for (int i = 0; i < ticks; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            if (label() != wanted) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto until = [&](const std::string& wanted) {
+        for (int i = 0; i < 1000 && label() != wanted; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        return label() == wanted;
+    };
+    begin("4000020");
+    require(until("G"), "the streamed game's profile");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto other = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, other.x + 30, other.y + other.height / 2);
+    require(label() == "O", "another profile picked by hand in the stream");
+    // Hidden: the route goes local, where a stream has no window and no app.
+    app.set_interaction_active(false);
+    end();
+    require(steady("O"), "hidden over the stream, the pick stays");
+    app.set_interaction_active(true);
+    begin("4000020");
+    require(steady("O"), "shown again over the same game: the pick, with no moment of its own profile");
+    // Keep open: the game's request ends while the panel stays.
+    end();
+    require(steady("O"), "the request ending keeps the pick");
+    // Another game: its own bar; then its empty bar, opened by hand, stays.
+    begin("4000030");
+    require(until("(hidden)"), "another game without a profile: nothing");
+    tap_rect(app, control(app.view(), "bar-toggle").bounds);
+    require(label() == "(empty)", "the empty bar, opened by hand");
+    app.set_interaction_active(false);
+    end();
+    require(steady("(empty)"), "hidden over the stream, the empty bar stays");
+    app.set_interaction_active(true);
+    begin("4000030");
+    require(steady("(empty)"), "and shows again");
+    // A second session with another game switches.
+    end();
+    app.tick(now += .01);
+    begin("4000020");
+    require(until("G"), "another game's session switches");
+    // A local window taking the keys after the stream switches.
+    end();
+    require(steady("G", 5), "the game's bar held after its session");
+    sink.focus = {5, AppIdentity{AppIdentity::Kind::Program, "editor"}, "editor"};
+    require(until("(hidden)"), "a local window takes the keys: its own bar");
+}
+// R363: inside SteamOS's Desktop a Flatpak's window reports its class, which
+// no desktop file is named by; its name comes from the file whose
+// StartupWMClass= it is, and a tie saved under the class takes it. The name
+// is kept, so the next start scans nothing.
+void shortcut_window_class_name() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity browser{AppIdentity::Kind::Desktop, "example-browser"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"w", "Web", {shortcut_button("W", {{{"ControlLeft"}, "KeyW"}})}});
+    model.apps.push_back({browser, "example-browser", "w"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto applications = directory.path / "applications";
+    fs::create_directories(applications);
+    std::ofstream(applications / "com.example.Browser.desktop")
+        << "[Desktop Entry]\nName=Example Browser\nStartupWMClass=example-browser\n";
+    std::atomic<int> lookups{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = directory.path / "cache" / "app-names.json";
+    options.app_names = [&, folders = AppNameFolders{{}, {applications}}](const AppIdentity& app) {
+        ++lookups;
+        return look_up_app_name(app, folders);
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {6, browser, "kwin_wayland"};
+    double now = 1800;
+    const auto open_menu = [&](App& app) {
+        app.tick(now += .01);
+        tap_rect(app, app.view().shortcut_bar->picker);
+        tap_rect(app, app.view().shortcut_bar->picker);
+    };
+    {
+        App app(options, sink);
+        open_menu(app);
+        bool renamed = false;
+        for (int i = 0; i < 1000 && !renamed; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+            renamed = saved_shortcuts(app).tie(browser)->name == "Example Browser";
+        }
+        require(renamed, "a tie saved under the window class takes the name its file gives");
+        app.flush_settings();
+    }
+    // Untied now, only the kept name stands between the next start and a scan.
+    model.apps.clear();
+    write_shortcuts(directory.path, model);
+    const int scans = lookups;
+    {
+        App app(options, sink);
+        open_menu(app);
+        for (int i = 0; i < 50; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+        app.move(0, at.x, at.y);
+        require(lookups == scans + 1 &&
+                    app.view().bar_tooltip == "Show Web whenever Example Browser is in front",
+                "a name kept before shows, and is looked up once in this run (R376)");
+    }
+}
+// R376: a kept name shows until a lookup answers; a name found replaces it, and none found keeps
+// it. An app is looked up once per run, however often its menu opens or it comes back to the front.
+void shortcut_kept_name_refresh() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity editor{AppIdentity::Kind::Desktop, "org.example.Editor"};
+    const AppIdentity other{AppIdentity::Kind::Desktop, "org.example.Other"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"w", "Web", {shortcut_button("W", {{{"ControlLeft"}, "KeyW"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    std::mutex lock;
+    std::string answer = "Old Editor";
+    std::atomic<int> lookups{};
+    std::atomic<bool> open{true};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = directory.path / "cache" / "app-names.json";
+    options.app_names = [&](const AppIdentity& app) -> std::string {
+        if (app != editor) {
+            return {};
+        }
+        ++lookups;
+        while (!open) {
+            usleep(1000);
+        }
+        std::lock_guard guard(lock);
+        return answer;
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {6, editor, "kwin_wayland"};
+    double now = 1900;
+    const auto tooltip = [&](App& app) {
+        app.tick(now += .01);
+        tap_rect(app, app.view().shortcut_bar->picker);
+        const auto at = middle(app.view().shortcut_bar->menu->rows[1].assign);
+        app.move(0, at.x, at.y);
+        const auto text = app.view().bar_tooltip;
+        tap_rect(app, app.view().shortcut_bar->picker);
+        return text;
+    };
+    const auto settle_names = [&](App& app) {
+        for (int i = 0; i < 100; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+    };
+    {
+        App app(options, sink);
+        tooltip(app);
+        settle_names(app);
+        require(tooltip(app) == "Show Web whenever Old Editor is in front",
+                "the first name found is kept");
+        app.flush_settings();
+    }
+    {
+        // Renamed since: the kept name shows while the lookup runs, then the new one.
+        {
+            std::lock_guard guard(lock);
+            answer = "New Editor";
+        }
+        open = false;
+        App app(options, sink);
+        require(tooltip(app) == "Show Web whenever Old Editor is in front",
+                "the kept name shows until an answer");
+        open = true;
+        settle_names(app);
+        require(tooltip(app) == "Show Web whenever New Editor is in front",
+                "a name found replaces the kept one");
+        // Away and back, and the menu again: no second lookup in this run.
+        sink.focus = {7, other, "kwin_wayland"};
+        settle_names(app);
+        sink.focus = {6, editor, "kwin_wayland"};
+        settle_names(app);
+        tooltip(app);
+        settle_names(app);
+        require(lookups == 2, "an app is looked up once per run");
+        app.flush_settings();
+    }
+    {
+        // Its files gone: the lookup finds nothing, and the kept name stays.
+        {
+            std::lock_guard guard(lock);
+            answer.clear();
+        }
+        App app(options, sink);
+        tooltip(app);
+        settle_names(app);
+        require(lookups == 3 && tooltip(app) == "Show Web whenever New Editor is in front",
+                "a lookup that finds nothing keeps the kept name");
+    }
+}
+// R362: a desktop stream starts with the ID of Steam's Remote Play Client app; it is the PC's stream,
+// and a tie saved under that ID as a Steam app moves over, or goes when the stream has its own.
+void shortcut_remote_play_tie() {
+    const AppIdentity remote{AppIdentity::Kind::Steam, "202355"};
+    for (const bool stream_tied : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        save_settings(directory.path, settings);
+        ShortcutModel model;
+        model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+        model.profiles.push_back({"d", "Desk", {shortcut_button("D", {{{"ControlLeft"}, "KeyD"}})}});
+        model.profiles.push_back({"s", "Stream", {shortcut_button("S", {{{"ControlLeft"}, "KeyS"}})}});
+        model.apps.push_back({remote, "Remote Play Client", "d"});
+        if (stream_tied) {
+            model.apps.push_back({pc_stream_identity(), "PC desktop stream", "s"});
+        }
+        model.free_profile = "a";
+        write_shortcuts(directory.path, model);
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Vr;
+        options.input = InputBackend::Uinput;
+        options.start_enabled = true;
+        options.target_language = "en-us";
+        options.stream_clients = []() -> std::optional<std::vector<std::vector<std::string>>> {
+            return std::vector<std::vector<std::string>>{
+                {"/usr/bin/streaming_client", "--appid", "202355"}};
+        };
+        struct StreamSink : CaptureSink {
+            bool steam_field_target() const override { return true; }
+            bool stream_session_target() const override { return true; }
+        } sink;
+        App app(options, sink);
+        app.set_native_request(1);
+        double now = 1900;
+        for (int i = 0;
+             i < 200 && app.view().shortcut_bar && app.view().shortcut_bar->buttons[0].label == "A";
+             ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        const auto saved = saved_shortcuts(app);
+        const auto* tie = saved.tie(pc_stream_identity());
+        require(!saved.tie(remote) && saved.apps.size() == 1 && tie &&
+                    tie->profile == (stream_tied ? "s" : "d"),
+                stream_tied ? "the stream's own tie stands, the old one goes"
+                            : "the old tie moves to the PC's stream");
+        require(app.view().shortcut_bar->buttons[0].label == (stream_tied ? "S" : "D"),
+                "and its profile shows for the desktop stream");
+    }
+}
+void macro_first_row_scrolls() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    const auto chips = app.view().shortcut_editor->chords_strip;
+    tap_control(app, "shortcuts-kind-1");
+    for (int i = 0; i < 5; ++i) {
+        tap_control(app, "shortcuts-add-wait");
+    }
+    for (double now = 1500; now < 1501; now += .05) {
+        app.tick(now);
+    }
+    auto view = app.view();
+    require(view.shortcut_editor->steps.size() == 6, "six steps");
+    // The top visible row, where it overlaps the Shortcut view's chip strip.
+    const auto well = view.shortcut_editor->steps_well;
+    Rect top{};
+    for (const auto& step : view.shortcut_editor->steps) {
+        if (step.bounds.y >= well.y - .5 && (top.height == 0 || step.bounds.y < top.y)) {
+            top = step.bounds;
+        }
+    }
+    // Where the two overlap: the row's top and the strip's foot.
+    const double x = std::max(chips.x, top.x) + 20,
+                 y = (std::max(top.y, chips.y) + std::min(top.y + top.height, chips.y + chips.height)) /
+                     2;
+    require(top.height > 0 && chips.contains(x, y) && well.contains(x, y),
+            "the point lies in the first row and in the chip strip's place");
+    app.move(0, x, y);
+    const auto room = app.scroll_room(0);
+    require(room && room->back, "the first row reports room to scroll back");
+    const double was = view.shortcut_editor->steps[0].bounds.y;
+    require(app.scroll(0, 0, -1), "a scroll there moves the list");
+    for (double now = 1501; now < 1502; now += .05) {
+        app.tick(now);
+    }
+    require(app.view().shortcut_editor->steps[0].bounds.y > was + 1, "the list moved down");
+}
+// R341: scrolling the profiles column closes the Move/Copy popover, and the
+// button goes back.
+void carry_closes_on_scroll() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"one", "One", {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}})}});
+    for (int i = 2; i <= 10; ++i) {
+        model.profiles.push_back({"p" + std::to_string(i), "Profile " + std::to_string(i), {}});
+    }
+    model.free_profile = "one";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    const auto start = middle(control(app.view(), "shortcuts-button-0").bounds);
+    const auto target = middle(control(app.view(), "shortcuts-row-1").bounds);
+    app.move(0, start.x, start.y);
+    app.down(0, start.x, start.y, 1600);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, start.x + (target.x - start.x) * step / 8,
+                 start.y + (target.y - start.y) * step / 8);
+    }
+    app.up(0, target.x, target.y);
+    require(has(app.view(), "shortcuts-carry-move") &&
+                strip_labels(app.view()) == std::vector<std::string>{"B"},
+            "dropped on Profile 2: the popover");
+    app.scroll(0, 0, 1);
+    for (double now = 1601; now < 1602; now += .05) {
+        app.tick(now);
+    }
+    require(!has(app.view(), "shortcuts-carry-move") && !app.view().shortcut_editor->carry_panel &&
+                strip_labels(app.view()) == std::vector<std::string>{"A", "B"},
+            "a scroll over the column closes it, the button back in its place");
+    tap_control(app, "shortcuts-save");
+    const auto saved = saved_shortcuts(app);
+    require(saved.profiles[0].buttons.size() == 2 && saved.profiles[1].buttons.empty(),
+            "nothing changed");
+}
+// R338: VR reads the stick for the bar, its menu and the editor too.
+void stick_scrolls_bar() {
+    TemporaryDirectory directory;
+    Settings settings;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    {
+        App off(options, sink);
+        require(!off.view().shortcut_bar && !off.stick_scrolls(), "the feature off: no stick");
+    }
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    App app(options, sink);
+    require(app.view().shortcut_bar && app.stick_scrolls(), "the bar showing: the stick");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    require(app.view().shortcut_bar->menu && app.stick_scrolls(), "the menu open: the stick");
+    tap_rect(app, app.view().shortcut_bar->menu->manage);
+    require(app.view().shortcut_editor && !app.view().shortcut_bar && app.stick_scrolls(),
+            "the editor open: the stick");
+    tap_control(app, "shortcuts-back");
+    click(app, "bar-toggle");
+    require(!app.view().shortcut_bar && !app.stick_scrolls(), "the bar hidden by hand: no stick");
+}
+// Run buttons (design, Run): never disabled for lack of a target, one start
+// per press with more presses waiting for its report, and a failed start's
+// status naming the button. In a temporary home only.
+void run_buttons() {
+    TemporaryDirectory directory, home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const auto marker = home.path / "marker";
+    ShortcutButton command;
+    command.label = "Mark\nit";
+    command.action.kind = ShortcutAction::Kind::Run;
+    command.action.command = "echo x >> '" + marker.string() + "'";
+    ShortcutButton missing;
+    missing.label = "Gone";
+    missing.action.kind = ShortcutAction::Kind::Run;
+    missing.action.script = "missing.sh";
+    ShortcutButton empty;
+    empty.label = "Empty";
+    empty.action.kind = ShortcutAction::Kind::Run;
+    ShortcutButton unlabeled = missing; // R353
+    unlabeled.label.clear();
+    ShortcutModel model;
+    model.profiles.push_back({"r", "Run", {command, missing, empty, unlabeled}});
+    model.free_profile = "r";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct SteamField : CaptureSink {
+        bool steam_field_target() const override { return true; }
+    } sink;
+    App app(options, sink);
+    double now = 3000;
+    app.tick(now);
+    const auto buttons = [&] { return app.view().shortcut_bar->buttons; };
+    require(buttons()[0].enabled && buttons()[1].enabled && !buttons()[2].enabled,
+            "in a Steam field Run buttons are enabled; an empty one is not");
+    require(buttons()[0].run && buttons()[1].run && buttons()[2].run,
+            "every Run button carries its mark, an empty one too");
+    app.set_dashboard_focus(true);
+    app.tick(now += .1);
+    require(buttons()[0].enabled && buttons()[1].enabled,
+            "with Steam's dashboard and no target they are enabled too");
+    const auto press = [&](std::size_t index) {
+        const auto at = middle(buttons()[index].bounds);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now);
+        app.up(0, at.x, at.y);
+    };
+    const auto lines = [&] {
+        std::ifstream file(marker);
+        return static_cast<int>(std::count(std::istreambuf_iterator<char>(file), {}, '\n'));
+    };
+    const auto settle_until = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 400 && !done(); ++i) {
+            usleep(5000);
+            app.tick(now += .01);
+        }
+        return done();
+    };
+    press(0);
+    press(0); // before its start is reported: ignored
+    require(settle_until([&] { return lines() == 1; }), "a press starts the command");
+    for (int i = 0; i < 40; ++i) {
+        usleep(5000);
+        app.tick(now += .01);
+    }
+    require(lines() == 1 && sink.events.empty(),
+            "the second press waited for the first's report; nothing typed");
+    press(0);
+    require(settle_until([&] { return lines() == 2; }), "once reported, the next press starts it again");
+    press(1);
+    require(settle_until([&] { return app.view().status.find("Gone") != std::string::npos; }) &&
+                app.view().status ==
+                    "Gone could not start. Check its script or command in the shortcut editor.",
+            "a missing script's status names the button");
+    press(2);
+    app.tick(now += .1);
+    require(lines() == 2, "an empty Run button does nothing");
+    press(3);
+    require(settle_until([&] { return app.view().status.starts_with("A Run button"); }) &&
+                app.view().status == "A Run button could not start. Check its script or command "
+                                     "in the shortcut editor.",
+            "a button without a label has a sentence of its own (R353)");
+    setenv("HOME", old_home.c_str(), 1);
+}
+// R343: the moment the keyboard opens in the dashboard, before the probe
+// answers, is no change of focus for the bar: a pick and the empty bar stay.
+// Only the dashboard actually having the keys drops them.
+void dashboard_unknown_keeps_focus() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"o", "Other", {shortcut_button("O", {{{"ControlLeft"}, "KeyO"}})}});
+    // Other belongs to another app, so picking it leaves the free profile.
+    model.apps.push_back({{AppIdentity::Kind::Program, "viewer"}, "viewer", "o"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    struct FocusSink : CaptureSink {
+        FocusedApp focus{7, AppIdentity{AppIdentity::Kind::Program, "editor"}, "editor"};
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    App app(options, sink);
+    double now = 7000;
+    app.tick(now);
+    const auto label = [&] {
+        const auto view = app.view();
+        return view.shortcut_bar && !view.shortcut_bar->buttons.empty()
+                   ? view.shortcut_bar->buttons[0].label
+                   : std::string();
+    };
+    tap_rect(app, app.view().shortcut_bar->picker);
+    const auto other = app.view().shortcut_bar->menu->rows[1].bounds;
+    tap_at(app, other.x + 30, other.y + other.height / 2);
+    require(label() == "O", "Other picked");
+    // Opened in the dashboard: typing waits, the probe hasn't answered.
+    app.set_dashboard_focus(true, false);
+    app.tick(now += .1);
+    require(label() == "O", "while the probe hasn't answered, the pick stays");
+    app.set_dashboard_focus(false, true);
+    app.tick(now += .1);
+    require(label() == "O", "the answer is the same app: the pick stays, no change of focus between");
+    app.set_dashboard_focus(true, false);
+    app.tick(now += .1);
+    app.set_dashboard_focus(true, true);
+    app.tick(now += .1);
+    require(label() == "A", "the dashboard having the keys is a change of focus: the free profile");
+    app.set_dashboard_focus(false, true);
+    app.tick(now += .1);
+    require(label() == "A", "and back to the app: the rule's profile, the pick gone");
+    // The empty bar likewise: no profile is due, the toolbar button opens it.
+    {
+        TemporaryDirectory empty_dir;
+        save_settings(empty_dir.path, settings);
+        ShortcutModel none = model;
+        none.free_profile.clear();
+        write_shortcuts(empty_dir.path, none);
+        Options empty_options = options;
+        empty_options.config_dir = empty_dir.path;
+        App empty(empty_options, sink);
+        empty.tick(now += .1);
+        require(!empty.view().shortcut_bar, "no profile is due: no bar");
+        click(empty, "bar-toggle");
+        require(empty.view().shortcut_bar && empty.view().shortcut_bar->slots, "the empty bar");
+        empty.set_dashboard_focus(true, false);
+        empty.tick(now += .1);
+        empty.set_dashboard_focus(false, true);
+        empty.tick(now += .1);
+        require(empty.view().shortcut_bar && empty.view().shortcut_bar->slots,
+                "an opening over the same app keeps the empty bar");
+        empty.set_dashboard_focus(true, true);
+        empty.tick(now += .1);
+        require(!empty.view().shortcut_bar, "the dashboard having the keys ends it");
+    }
+}
+// The name of the script row lit as chosen, or empty.
+std::string control_selected_script(App& app) {
+    for (const auto& row : app.view().shortcut_editor->scripts) {
+        if (row.chosen) {
+            return row.name;
+        }
+    }
+    return {};
+}
+// The editor's Run body (design, Settings and the editor), at both widths:
+// the scripts folder made and listed off the VR thread, choosing and
+// clearing, scrolling from any row, a missing script, Command's popup, each
+// kept while switching, and only the chosen one saved. In a temporary home.
+void run_editor() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory home;
+        const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+        setenv("HOME", home.path.c_str(), 1);
+        const auto config = home.path / ".config" / "framekeyboard";
+        fs::create_directories(config);
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(config, settings);
+        ShortcutModel model;
+        // Three buttons, the third edited: no drag may select another (R352).
+        model.profiles.push_back({"p",
+                                  "P",
+                                  {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}}),
+                                   shortcut_button("One", {{{"ControlLeft"}, "KeyO"}}),
+                                   shortcut_button("Two", {{{"ControlLeft"}, "KeyT"}})}});
+        model.free_profile = "p";
+        write_shortcuts(config, model);
+        Options options;
+        options.config_dir = config;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        open_editor(app);
+        tap_control(app, "shortcuts-button-2");
+        require(control(app.view(), "shortcuts-button-2").selected, "the third button is edited");
+        const auto folder = config / "scripts";
+        const auto settle = [&](const std::function<bool()>& done) {
+            static double now = 5000;
+            for (int i = 0; i < 400 && !done(); ++i) {
+                usleep(2000);
+                app.tick(now += .02);
+            }
+            return done();
+        };
+        require(control(app.view(), "shortcuts-button-2").icon == Icon::None, "a shortcut has no mark");
+        tap_control(app, "shortcuts-kind-2");
+        require(control(app.view(), "shortcuts-kind-2").selected &&
+                    control(app.view(), "shortcuts-run-0").selected,
+                "Run is chosen, Script first");
+        require(control(app.view(), "shortcuts-button-2").icon == Icon::RunMark &&
+                    control(app.view(), "shortcuts-button-0").icon == Icon::None,
+                "the strip shows the mark as soon as Run is chosen, pending as it is");
+        require(settle([&] { return !app.view().shortcut_editor->scripts_note.empty(); }) &&
+                    fs::is_directory(folder),
+                "the folder is made when the list first shows");
+        require(app.view().shortcut_editor->scripts_note ==
+                    "No scripts in ~/.config/framekeyboard/scripts",
+                "the empty list names the folder, with ~");
+        for (const char* name : {"a.sh", "b.sh", "c.sh", "d.sh", "e.sh", "f.sh", "g.sh"}) {
+            std::ofstream(folder / name) << "true\n";
+        }
+        tap_control(app, "shortcuts-refresh");
+        require(settle([&] { return app.view().shortcut_editor->scripts.size() == 7; }),
+                "Refresh reads the folder again");
+        auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (const char* id :
+             {"shortcuts-refresh", "shortcuts-run-0", "shortcuts-run-1", "shortcuts-script-0"}) {
+            const auto r = control(view, id).bounds;
+            require(body.contains(r.x, r.y) && body.contains(r.x + r.width - 1, r.y + r.height - 1),
+                    (std::string(id) + " lies in the case").c_str());
+        }
+        tap_control(app, "shortcuts-script-1");
+        require(control(app.view(), "shortcuts-script-1").selected &&
+                    app.view().shortcut_editor->explanation.front() == "Starts b.sh.",
+                "a press chooses a script; the line says what it starts");
+        tap_control(app, "shortcuts-script-1");
+        require(!control(app.view(), "shortcuts-script-1").selected &&
+                    app.view().shortcut_editor->explanation.front() ==
+                        "Choose a script from ~/.config/framekeyboard/scripts.",
+                "a press on the chosen one clears it");
+        tap_control(app, "shortcuts-script-2");
+        // Scrolling: the stick over the first row, and a drag from a row.
+        const auto first = middle(control(app.view(), "shortcuts-script-0").bounds);
+        app.move(0, first.x, first.y);
+        const auto room = app.scroll_room(0);
+        require(room && room->forward, "the list reports room under its first row");
+        const double top = app.view().shortcut_editor->scripts[0].bounds.y;
+        app.down(0, first.x, first.y, 6000);
+        app.move(0, first.x, first.y - 20);
+        require(control(app.view(), "shortcuts-button-2").selected &&
+                    !app.view().shortcut_editor->lifted_button,
+                "a drag lifted on the list selects no other button and carries none (R352)");
+        app.move(0, first.x, first.y - 90);
+        app.up(0, first.x, first.y - 90);
+        require(app.view().shortcut_editor->scripts[0].bounds.y < top - 60 &&
+                    control_selected_script(app) == "c.sh",
+                "a drag from a row scrolls the list and chooses nothing");
+        require(control(app.view(), "shortcuts-button-2").selected &&
+                    control(app.view(), "shortcuts-kind-2").selected,
+                "the third button stays edited, still Run");
+        // The chosen script gone: it stays, marked missing.
+        fs::remove(folder / "c.sh");
+        tap_control(app, "shortcuts-refresh");
+        require(settle([&] {
+                    const auto& rows = app.view().shortcut_editor->scripts;
+                    return rows.size() == 7 && rows[2].name == "c.sh" && rows[2].missing &&
+                           rows[2].chosen;
+                }),
+                "a chosen script that is gone stays in the list, marked missing");
+        require(app.view().shortcut_editor->explanation.front() ==
+                    "c.sh is no longer in the scripts folder.",
+                "and the line says so");
+        // Command: its field opens the popup, which types one line.
+        tap_control(app, "shortcuts-run-1");
+        require(has(app.view(), "shortcuts-command") && !has(app.view(), "shortcuts-refresh") &&
+                    app.view().shortcut_editor->explanation.front() ==
+                        "Type a command for /bin/sh to run.",
+                "Command shows its field");
+        {
+            // R348: its caption as large as Label's, the field starting after it.
+            const auto v = app.view();
+            const auto field = control(v, "shortcuts-command").bounds;
+            require(field.x - (v.shortcut_editor->divider + 16) >=
+                            interface_text_width("Command", 22, v.interface_font) + 4 &&
+                        field.x + field.width <= panel_case_bounds(v).x + panel_case_bounds(v).width,
+                    "the Command caption has room at full size; the field stays in the case");
+        }
+        tap_control(app, "shortcuts-command");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->title == "Command",
+                "the field opens the popup, titled Command");
+        tap_mini(app, "KeyL");
+        tap_mini(app, "KeyS");
+        tap_mini(app, "Enter");
+        require(!app.view().shortcut_editor->popup &&
+                    control(app.view(), "shortcuts-command").label == "ls" &&
+                    app.view().shortcut_editor->explanation.front() == "Starts ls",
+                "Enter saves the command");
+        tap_control(app, "shortcuts-command");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "Escape");
+        require(control(app.view(), "shortcuts-command").label == "ls", "Esc cancels");
+        tap_control(app, "shortcuts-run-0");
+        require(control_selected_script(app) == "c.sh", "back to Script: its choice is kept");
+        tap_control(app, "shortcuts-run-1");
+        require(control(app.view(), "shortcuts-command").label == "ls", "and Command's");
+        require(saved_shortcuts(app).profiles[0].buttons[2].action.kind == ShortcutAction::Kind::Keys,
+                "all of it pending until ✓");
+        tap_control(app, "shortcuts-save");
+        const auto saved_model = saved_shortcuts(app);
+        const auto saved = saved_model.profiles[0].buttons[2].action;
+        require(saved.kind == ShortcutAction::Kind::Run && saved.command == "ls" &&
+                    saved.script.empty() && saved.chords.empty(),
+                "✓ saves the command chosen alone");
+        require(saved_model.profiles[0].buttons[0] == model.profiles[0].buttons[0] &&
+                    saved_model.profiles[0].buttons[1] == model.profiles[0].buttons[1],
+                "the other buttons are saved unchanged");
+        setenv("HOME", old_home.c_str(), 1);
+    }
+}
+// R354: a chosen script that sorts past the 64 listed is in the folder, so
+// it shows as there, not missing; gone, it is missing.
+void run_script_past_list() {
+    TemporaryDirectory home;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", home.path.c_str(), 1);
+    const auto config = home.path / ".config" / "framekeyboard";
+    const auto folder = config / "scripts";
+    fs::create_directories(folder);
+    for (int i = 0; i < 70; ++i) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "n%02d.sh", i);
+        std::ofstream(folder / name) << "true\n";
+    }
+    std::ofstream(folder / "zz.sh") << "true\n";
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(config, settings);
+    ShortcutButton run;
+    run.label = "Z";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.script = "zz.sh";
+    ShortcutModel model;
+    model.profiles.push_back({"p", "P", {run}});
+    model.free_profile = "p";
+    write_shortcuts(config, model);
+    Options options;
+    options.config_dir = config;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    double now = 7000;
+    const auto settle = [&](const std::function<bool()>& done) {
+        for (int i = 0; i < 400 && !done(); ++i) {
+            usleep(2000);
+            app.tick(now += .02);
+        }
+        return done();
+    };
+    const auto last = [&] {
+        const auto& rows = app.view().shortcut_editor->scripts;
+        return rows.empty() ? ShortcutEditorView::ScriptRow{} : rows.back();
+    };
+    require(settle([&] { return app.view().shortcut_editor->scripts.size() == 65; }) &&
+                last().name == "zz.sh" && last().chosen && !last().missing &&
+                app.view().shortcut_editor->explanation.front() == "Starts zz.sh.",
+            "a chosen script past the 64 listed shows as there");
+    fs::remove(folder / "zz.sh");
+    tap_control(app, "shortcuts-refresh");
+    require(settle([&] { return last().missing; }) && last().name == "zz.sh" &&
+                app.view().shortcut_editor->explanation.front() ==
+                    "zz.sh is no longer in the scripts folder.",
+            "gone, it is missing");
+    setenv("HOME", old_home.c_str(), 1);
+}
+// R332: a new user's first bar shows as soon as ✓ saves it, and becomes
+// the free bar.
+void first_bar_shows() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    click(app, "bar-toggle");
+    require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(), "the empty bar");
+    open_editor(app);
+    tap_control(app, "shortcuts-new-profile");
+    tap_mini(app, "Escape");
+    tap_control(app, "shortcuts-add");
+    tap_control(app, "shortcuts-save");
+    const auto view = app.view();
+    const auto saved = saved_shortcuts(app);
+    require(!view.shortcut_editor && view.shortcut_bar && view.shortcut_bar->buttons.size() == 1 &&
+                saved.profiles.size() == 1 && saved.free_profile == saved.profiles[0].id,
+            "✓ shows the bar selected in the editor, saved as the free bar");
+}
+// R335: while one laser's press on a strip button is pending, before it
+// lifts, another laser's press does nothing in the editor, so the drag
+// still acts on its own bar's button: dropped outside, that one goes.
+void pending_drag_two_lasers() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    write_shortcuts(directory.path, editor_model());
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    tap_control(app, "shortcuts-row-0");
+    const auto button = middle(control(app.view(), "shortcuts-button-0").bounds);
+    app.move(0, button.x, button.y);
+    app.down(0, button.x, button.y, 1100);
+    // Another laser taps the other bar's row meanwhile.
+    const auto row = middle(control(app.view(), "shortcuts-row-1").bounds);
+    app.move(1, row.x, row.y);
+    app.down(1, row.x, row.y, 1100.1);
+    app.up(1, row.x, row.y);
+    require(control(app.view(), "shortcuts-row-0").selected,
+            "the other laser's press waits for the drag");
+    // The first laser drags its button off the strip.
+    for (int step = 1; step <= 6; ++step) {
+        app.move(0, button.x + 10 * step, button.y + 40 * step);
+    }
+    app.up(0, button.x + 60, button.y + 240);
+    const auto& bars = app.view();
+    require(strip_labels(bars) == std::vector<std::string>{"B", "C"} &&
+                control(bars, "shortcuts-row-0").selected,
+            "the drag deletes its own bar's button, no other");
+    tap_control(app, "shortcuts-row-1");
+    require(strip_labels(app.view()).empty(), "the other bar keeps what it had");
+    // The Macro view: a held + waits for no other laser's press either.
+    tap_control(app, "shortcuts-row-0");
+    tap_control(app, "shortcuts-kind-1");
+    tap_control(app, "shortcuts-add-wait");
+    const auto plus = middle(control(app.view(), "shortcuts-step-plus-1").bounds);
+    app.move(0, plus.x, plus.y);
+    app.down(0, plus.x, plus.y, 1200);
+    const auto other = middle(control(app.view(), "shortcuts-button-1").bounds);
+    app.move(1, other.x, other.y);
+    app.down(1, other.x, other.y, 1200.1);
+    app.up(1, other.x, other.y);
+    require(control(app.view(), "shortcuts-button-0").selected,
+            "while a + is held, another laser selects nothing");
+    app.up(0, plus.x, plus.y);
+}
+// R336: a save whose folder sync failed put the file in place: the status
+// says it was saved but isn't yet safe on disk, and the note that the old
+// file couldn't be read goes.
+void unsynced_save() {
+    if (geteuid() == 0) {
+        return; // root opens any folder: the sync can't be made to fail
+    }
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    std::ofstream(shortcuts_path(directory.path)) << "{\"schema_version\":1,\"profiles\":[{}]}";
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    click(app, "bar-toggle");
+    open_editor(app);
+    require(!app.view().shortcut_editor->notice.empty(), "the editor notes the unreadable file");
+    tap_control(app, "shortcuts-new-profile");
+    tap_mini(app, "Escape");
+    // A folder that can't be opened for reading still takes the file.
+    fs::permissions(directory.path, fs::perms::owner_write | fs::perms::owner_exec);
+    tap_control(app, "shortcuts-save");
+    app.flush_settings();
+    fs::permissions(directory.path, fs::perms::owner_all);
+    app.tick(1200);
+    const auto view = app.view();
+    require(view.status.find("not yet safe on disk") != std::string::npos &&
+                view.status.find("not saved") == std::string::npos,
+            "the status says the bars were saved, not yet safe on disk");
+    open_editor(app);
+    require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
+            "the file was replaced: the unreadable-file note goes");
+}
+// Carrying a button to another profile (design, Settings and the editor):
+// the row under it lights up; dropped there, Move or Copy put it at that
+// profile's end, a press elsewhere puts it back; a full profile and its own
+// take no drop; the selected profile stays selected.
+void carry_buttons() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back(
+        {"one",
+         "One",
+         {shortcut_button("A", {{{}, "KeyA"}}), shortcut_button("B", {{{}, "KeyB"}}),
+          shortcut_button("C", {{{}, "KeyC"}})}});
+    model.profiles.push_back({"two", "Two", {shortcut_button("Z", {{{}, "KeyZ"}})}});
+    model.profiles.push_back(
+        {"full", "Full", std::vector<ShortcutButton>(64, shortcut_button("F", {{{}, "KeyF"}}))});
+    model.free_profile = "one";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    require(control(app.view(), "shortcuts-row-0").selected, "the editor opens on One");
+    const auto row = [&](int i) {
+        return middle(control(app.view(), "shortcuts-row-" + std::to_string(i)).bounds);
+    };
+    double now = 1300;
+    // Lifts the strip's button `index` and carries it to (x, y), still held.
+    const auto carry_to = [&](std::size_t index, double x, double y, unsigned pointer = 0) {
+        const auto start =
+            middle(control(app.view(), "shortcuts-button-" + std::to_string(index)).bounds);
+        app.move(pointer, start.x, start.y);
+        app.down(pointer, start.x, start.y, now += .1);
+        for (int step = 1; step <= 8; ++step) {
+            app.move(pointer, start.x + (x - start.x) * step / 8, start.y + (y - start.y) * step / 8);
+        }
+    };
+    const auto lit = [&] { return app.view().shortcut_editor->drop_row.has_value(); };
+    const auto popover = [&] {
+        return has(app.view(), "shortcuts-carry-move") && has(app.view(), "shortcuts-carry-copy");
+    };
+    const auto labels = [&](int profile) {
+        tap_control(app, "shortcuts-row-" + std::to_string(profile));
+        return strip_labels(app.view());
+    };
+    // Over Two the row lights; over Full, and over its own One, it doesn't.
+    carry_to(0, row(1).x, row(1).y);
+    require(lit(), "another profile's row lights up under a carried button");
+    app.move(0, row(2).x, row(2).y);
+    require(!lit(), "a full profile does not light up");
+    app.move(0, row(0).x, row(0).y);
+    require(!lit(), "nor its own profile");
+    // Let go on its own row: nothing happens.
+    app.up(0, row(0).x, row(0).y);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"},
+            "dropped on its own profile's row, the button stays");
+    // Let go on Full: no drop, nothing deleted.
+    carry_to(0, row(2).x, row(2).y);
+    app.up(0, row(2).x, row(2).y);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"},
+            "a full profile takes no drop");
+    // Let go on Two: the popover, the button waiting at the row's end.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    require(popover() && lit() && control(app.view(), "shortcuts-row-0").selected &&
+                strip_labels(app.view()) == std::vector<std::string>{"B", "C"},
+            "dropped on Two: Move and Copy beside it, One still selected");
+    // A press anywhere else puts it back.
+    tap_at(app, row(0).x, row(0).y + 300);
+    require(!popover() && strip_labels(app.view()) == std::vector<std::string>{"A", "B", "C"} &&
+                control(app.view(), "shortcuts-row-0").selected,
+            "a press elsewhere closes the popover, the button back in its place");
+    // Move: at Two's end, gone from One; One stays selected.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    tap_control(app, "shortcuts-carry-move");
+    require(!popover() && control(app.view(), "shortcuts-row-0").selected &&
+                strip_labels(app.view()) == std::vector<std::string>{"B", "C"},
+            "Move takes it from One, which stays selected");
+    // Copy, with the other laser pressing Copy.
+    carry_to(0, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    {
+        const auto copy = middle(control(app.view(), "shortcuts-carry-copy").bounds);
+        app.move(1, copy.x, copy.y);
+        app.down(1, copy.x, copy.y, now += .1);
+        app.up(1, copy.x, copy.y);
+    }
+    require(strip_labels(app.view()) == std::vector<std::string>{"B", "C"}, "Copy leaves it in One");
+    require(labels(1) == std::vector<std::string>{"Z", "A", "B"}, "Move and Copy put it at Two's end");
+    // The other laser's press elsewhere closes a popover too.
+    tap_control(app, "shortcuts-row-0");
+    carry_to(1, row(1).x, row(1).y);
+    app.up(0, row(1).x, row(1).y);
+    require(popover(), "dropped again");
+    app.move(1, row(0).x, row(0).y + 300);
+    app.down(1, row(0).x, row(0).y + 300, now += .1);
+    app.up(1, row(0).x, row(0).y + 300);
+    require(!popover() && labels(1).size() == 3,
+            "another laser's press elsewhere closes it, nothing carried");
+}
+void shortcut_editor_settings() {
+    for (const bool narrow : {false, true}) {
+        TemporaryDirectory directory;
+        Settings settings;
+        settings.shortcuts = true;
+        settings.hide_numpad = narrow;
+        save_settings(directory.path, settings);
+        write_shortcuts(directory.path, editor_model());
+        Options options;
+        options.config_dir = directory.path;
+        options.mode = Mode::Render;
+        CaptureSink sink;
+        App app(options, sink);
+        require(app.view().shortcut_bar && app.view().shortcut_bar->buttons.empty(),
+                "the free bar, empty");
+        const auto keyboard_case = panel_case_bounds(app.view());
+        tap_rect(app, app.view().shortcut_bar->picker);
+        require(app.view().shortcut_bar->menu->manage_enabled, "Manage is enabled");
+        tap_rect(app, app.view().shortcut_bar->menu->manage);
+        auto view = app.view();
+        require(panel_case_bounds(view) == keyboard_case,
+                "R329: the editor's case is the keyboard's, its edge and handle in place");
+        require(view.shortcut_editor && !view.shortcut_bar && has(view, "shortcuts-back") &&
+                    has(view, "shortcuts-save") && !has(view, "settings"),
+                "Manage opens the editor, its own screen, in place of the toolbar and bar");
+        require(view.shortcut_editor->wide == !narrow &&
+                    panel_case_bounds(view).width == keyboard_case.width &&
+                    std::abs(keyboard_case.width - (narrow ? 1326 : panel_width)) < 1,
+                "the editor keeps the keyboard's width, full or without the numpad");
+        require(control(view, "shortcuts-row-1").selected && view.shortcut_editor->strip.width > 0 &&
+                    strip_labels(view).empty() && !view.shortcut_editor->empty_hint.empty(),
+                "it opens on the bar showing: Two, without buttons");
+        require(!app.renderer.hit_key(view, 300, 300), "no key takes a press under the editor");
+        require(control(view, "shortcuts-row-0").bounds.width == (narrow ? 236 : 286),
+                "the bars column is 286 wide, 236 without the numpad");
+        tap_control(app, "shortcuts-row-0");
+        view = app.view();
+        require(strip_labels(view) == std::vector<std::string>{"A", "B", "C"} &&
+                    control(view, "shortcuts-button-0").selected &&
+                    control(view, "shortcuts-label").label == "A" &&
+                    control(view, "shortcuts-label").bounds.width == (narrow ? 250 : 300),
+                "a row selects its bar; its first button is selected");
+        require(view.shortcut_editor->ties.size() == 1 && view.shortcut_editor->ties[0].text == "Kate",
+                "Used for shows the bar's apps");
+        require(control(view, "shortcuts-kind-0").selected &&
+                    control(view, "shortcuts-kind-1").enabled &&
+                    control(view, "shortcuts-kind-2").enabled,
+                "Shortcut is the action; Macro and Run can be chosen");
+        require(view.shortcut_editor->chords.size() == 1 &&
+                    view.shortcut_editor->chords[0].text == "Ctrl + A",
+                "the recorded combinations as chips");
+        // A row dragged down the list moves its bar; another hand meanwhile changes nothing.
+        {
+            const auto row = control(app.view(), "shortcuts-row-0").bounds;
+            const auto start = middle(row);
+            app.move(0, start.x, start.y);
+            app.down(0, start.x, start.y, 960);
+            app.move(0, start.x, start.y + 20);
+            app.move(0, start.x, start.y + 56);
+            const auto save = middle(control(app.view(), "shortcuts-save").bounds);
+            app.move(1, save.x, save.y);
+            app.down(1, save.x, save.y, 960.1);
+            app.up(1, save.x, save.y);
+            require(app.view().shortcut_editor.has_value(), "the other hand's press waits for the drag");
+            app.up(0, start.x, start.y + 56);
+            app.tick(960.2);
+        }
+        require(row_names(app.view()) == std::vector<std::string>{"Two", "One"} &&
+                    control(app.view(), "shortcuts-row-1").selected,
+                "a row dragged down moves its bar, selected");
+        drag(app, control(app.view(), "shortcuts-row-1").bounds, 0, -56);
+        require(row_names(app.view()) == std::vector<std::string>{"One", "Two"}, "and back up");
+        // Buttons: dragged sideways along the strip, off it to delete.
+        const double pitch = control(app.view(), "shortcuts-button-1").bounds.x -
+                             control(app.view(), "shortcuts-button-0").bounds.x;
+        drag(app, control(app.view(), "shortcuts-button-0").bounds, 2 * pitch, 0);
+        require(strip_labels(app.view()) == std::vector<std::string>{"B", "C", "A"},
+                "a button dragged sideways moves along the strip");
+        drag(app, control(app.view(), "shortcuts-button-0").bounds, 20, 220);
+        require(strip_labels(app.view()) == std::vector<std::string>{"C", "A"},
+                "dropped off the strip, it goes");
+        tap_control(app, "shortcuts-add");
+        view = app.view();
+        require(strip_labels(view) == std::vector<std::string>{"C", "A", ""} &&
+                    control(view, "shortcuts-button-2").selected &&
+                    control(view, "shortcuts-label").label.empty() &&
+                    view.shortcut_editor->chords.empty(),
+                "+ adds a button with an empty label and action, selected");
+        // The Label popup: the mini keyboard under the strip, the editor
+        // dimmed behind it, the label growing on its button as it is typed.
+        tap_control(app, "shortcuts-label");
+        view = app.view();
+        require(view.shortcut_editor && view.shortcut_editor->popup &&
+                    view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Label &&
+                    !view.shortcut_field && !view.shortcut_bar,
+                "Label opens the popup over the editor; the real keyboard stays away");
+        popup_fits(view, narrow);
+        require(!control(view, "shortcuts-popup-key-NumLock").enabled &&
+                    control(view, "shortcuts-popup-key-CapsLock").enabled,
+                "R330: for text Num Lock stays disabled and Caps Lock is a switch");
+        require(view.modal_prefix() == "shortcuts-popup-" && has(view, "shortcuts-popup-done") &&
+                    has(view, "shortcuts-popup-cancel") && !has(view, "shortcuts-popup-fkeys"),
+                "row 1: Cancel and Done; the popup is modal");
+        // ← under the dimmed editor takes no press.
+        tap_control(app, "shortcuts-back");
+        require(app.view().shortcut_editor && app.view().shortcut_editor->popup && !app.view().confirm,
+                "← under the popup does nothing");
+        tap_mini(app, "ShiftLeft");
+        require(app.view().shortcut_editor->popup->marks.modifiers.contains(KEY_LEFTSHIFT),
+                "a modifier latches on a tap and shows lit");
+        tap_mini(app, "KeyH");
+        tap_mini(app, "KeyI");
+        require(popup_text(app) == "Hi" && app.view().shortcut_editor->popup->marks.modifiers.empty(),
+                "a latched Shift capitalizes one key, then lets go");
+        require(control(app.view(), "shortcuts-button-2").label == "Hi",
+                "the selected button shows the label as it is typed");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Digit1");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        require(popup_text(app) == "Hi\n!", "Shift+Enter starts a second line, once; Shift+1 is !");
+        tap_mini(app, "CapsLock");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "CapsLock");
+        tap_mini(app, "KeyX");
+        require(popup_text(app) == "Hi\n!Xx", "Caps Lock toggles capitals");
+        tap_mini(app, "ArrowLeft");
+        tap_mini(app, "ArrowLeft");
+        tap_mini(app, "Backspace");
+        tap_mini(app, "Minus");
+        tap_mini(app, "ArrowUp");
+        tap_mini(app, "End");
+        tap_mini(app, "Space");
+        require(popup_text(app) == "Hi \n-Xx" && sink.events.empty(),
+                "the caret moves with the arrows and Home and End; nothing reaches the app");
+        // A held Backspace repeats.
+        {
+            const auto key = middle(control(app.view(), "shortcuts-popup-key-Backspace").bounds);
+            app.move(0, key.x, key.y);
+            require(app.down(0, key.x, key.y, 970), "a mini key's press feels like a key's");
+            for (double now = 970; now < 970.7; now += .02) {
+                app.tick(now);
+            }
+            require(app.up(0, key.x, key.y), "and its release too");
+            require(popup_text(app).size() < 5, "a held Backspace repeats");
+        }
+        tap_mini(app, "Escape");
+        require(!app.view().shortcut_editor->popup &&
+                    control(app.view(), "shortcuts-label").label.empty(),
+                "Esc cancels: the label stays as it was");
+        tap_control(app, "shortcuts-label");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(control(app.view(), "shortcuts-label").label.empty(), "Cancel cancels");
+        tap_control(app, "shortcuts-label");
+        tap_mini(app, "KeyH");
+        tap_mini(app, "KeyI");
+        tap_mini(app, "Enter");
+        require(control(app.view(), "shortcuts-label").label == "hi", "Enter saves the label");
+        tap_control(app, "shortcuts-label");
+        tap_mini(app, "Backspace");
+        tap_mini(app, "KeyZ");
+        tap_control(app, "shortcuts-popup-done");
+        require(control(app.view(), "shortcuts-label").label == "hz", "Done saves, and Backspace edits");
+        // Recording in the popup.
+        tap_control(app, "shortcuts-record");
+        view = app.view();
+        require(view.shortcut_editor->popup &&
+                    view.shortcut_editor->popup->kind == ShortcutPopupView::Kind::Recording &&
+                    has(view, "shortcuts-popup-remove-last") && !has(view, "shortcuts-popup-pending"),
+                "Record: Remove last, Cancel and Done");
+        // R313: F13–F24 aren't offered. Cancel and Done stand at row 1's
+        // right; Remove last is an icon button at the right end of the
+        // combinations' well, below Done.
+        {
+            const auto done = control(view, "shortcuts-popup-done").bounds,
+                       cancel = control(view, "shortcuts-popup-cancel").bounds;
+            const auto remove = control(view, "shortcuts-popup-remove-last");
+            const auto& well = view.shortcut_editor->popup->well;
+            require(std::none_of(
+                        view.controls.begin(), view.controls.end(),
+                        [](const Control& c) { return c.id.starts_with("shortcuts-popup-fkey"); }) &&
+                        cancel.x + cancel.width + 8 == done.x && done.width == 120 &&
+                        cancel.width == 104,
+                    "no F13–F24 button or menu while recording");
+            require(remove.icon == Icon::DeleteLeft && remove.label.empty() && !remove.enabled &&
+                        remove.bounds.x + remove.bounds.width + 4 == well.x + well.width &&
+                        remove.bounds.y > well.y &&
+                        remove.bounds.y + remove.bounds.height < well.y + well.height,
+                    "Remove last is an icon at the well's right end, disabled with nothing recorded");
+        }
+        popup_fits(view, narrow);
+        // R330: the locks are the keyboard's own switches, never recorded.
+        require(!control(view, "shortcuts-popup-key-NumLock").enabled &&
+                    !control(view, "shortcuts-popup-key-CapsLock").enabled &&
+                    view.shortcut_editor->popup->disabled.contains("NumLock") &&
+                    view.shortcut_editor->popup->disabled.contains("CapsLock"),
+                "Num Lock and Caps Lock are disabled while recording");
+        tap_mini(app, "NumLock");
+        tap_mini(app, "CapsLock");
+        require(popup_chips(app.view()).empty(), "a press on Num or Caps records nothing");
+        tap_mini(app, "ControlLeft");
+        tap_mini(app, "ShiftLeft");
+        require(has(app.view(), "shortcuts-popup-pending") &&
+                    control(app.view(), "shortcuts-popup-pending").label == "Ctrl + Shift + …",
+                "latched modifiers show as a pending chip");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "KeyK");
+        tap_mini(app, "Numpad1");
+        tap_mini(app, "AltLeft");
+        tap_control(app, "shortcuts-popup-pending");
+        tap_mini(app, "F5");
+        view = app.view();
+        require(popup_chips(view) == std::vector<std::string>{"Ctrl + K", "Num 1", "Alt", "F5"},
+                "a second tap lets a latch go; keys, numpad keys and modifiers alone, four at most");
+        {
+            const auto remove = control(view, "shortcuts-popup-remove-last").bounds;
+            const auto& chips = view.shortcut_editor->popup->chords;
+            require(remove.x > 0 && control(view, "shortcuts-popup-remove-last").enabled &&
+                        std::all_of(chips.begin(), chips.end(),
+                                    [&](const ShortcutChip& chip) {
+                                        return chip.bounds.x + chip.bounds.width < remove.x;
+                                    }),
+                    "the combinations stop short of Remove last");
+        }
+        tap_mini(app, "KeyA");
+        require(popup_chips(app.view()).size() == 4 && sink.events.empty(),
+                "a fifth is not recorded, and nothing is sent");
+        tap_control(app, "shortcuts-popup-remove-last");
+        tap_mini(app, "MetaLeft");
+        tap_control(app, "shortcuts-popup-done");
+        view = app.view();
+        require(!view.shortcut_editor->popup && view.shortcut_editor->chords.size() == 4 &&
+                    view.shortcut_editor->chords[3].text == "Super",
+                "Done records the pending modifiers alone and keeps what was recorded");
+        tap_control(app, "shortcuts-record");
+        tap_mini(app, "KeyQ");
+        tap_control(app, "shortcuts-popup-cancel");
+        require(app.view().shortcut_editor->chords.size() == 4, "Cancel keeps the shortcut as it was");
+        tap_control(app, "shortcuts-record");
+        tap_mini(app, "KeyW");
+        tap_control(app, "shortcuts-popup-cancel");
+        tap_control(app, "shortcuts-record");
+        tap_mini(app, "KeyQ");
+        require(popup_chips(app.view()) == std::vector<std::string>{"Q"},
+                "a recording starts from nothing");
+        app.set_interaction_active(false);
+        app.set_interaction_active(true);
+        require(app.view().shortcut_editor && !app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->chords.size() == 4,
+                "hiding the keyboard ends a recording as Cancel");
+        tap_control(app, "shortcuts-clear");
+        require(app.view().shortcut_editor->chords.empty(), "clear empties the shortcut");
+        // The bar's name.
+        tap_control(app, "shortcuts-rename");
+        require(app.view().shortcut_editor->popup &&
+                    app.view().shortcut_editor->popup->kind == ShortcutPopupView::Kind::Name &&
+                    popup_text(app) == "One",
+                "rename opens the popup with its name");
+        tap_mini(app, "KeyX");
+        tap_mini(app, "ShiftLeft");
+        tap_mini(app, "Enter");
+        require(row_names(app.view())[0] == "Onex", "Enter saves the name; Shift+Enter too, one line");
+        tap_control(app, "shortcuts-new-profile");
+        require(app.view().shortcut_editor->popup && popup_text(app) == "Profile 3",
+                "New profile names itself");
+        tap_mini(app, "Escape");
+        require(row_names(app.view()).size() == 3 && row_names(app.view())[2] == "Profile 3" &&
+                    control(app.view(), "shortcuts-row-2").selected,
+                "the new bar stays with its name when the popup is canceled");
+        tap_control(app, "shortcuts-delete");
+        require(row_names(app.view()).size() == 2 && !app.view().confirm,
+                "an empty bar is deleted at once");
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-tie-0");
+        require(app.view().shortcut_editor->ties.empty(), "a tie's ✕ removes it");
+        tap_control(app, "shortcuts-delete");
+        require(app.view().confirm.has_value(), "a bar with buttons asks first");
+        tap_control(app, "confirm-cancel");
+        require(row_names(app.view()).size() == 2, "Cancel keeps it");
+        // ← with changes asks: Discard leaves the file as it was.
+        tap_control(app, "shortcuts-back");
+        require(app.view().confirm.has_value() && app.view().shortcut_editor, "← with changes asks");
+        tap_control(app, "confirm-cancel");
+        require(!app.view().shortcut_editor && saved_shortcuts(app) == editor_model(),
+                "Discard leaves without saving");
+        // ✓ saves.
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-add");
+        tap_control(app, "shortcuts-save");
+        const auto stored = saved_shortcuts(app);
+        require(!app.view().shortcut_editor && stored.profiles[0].buttons.size() == 4 &&
+                    stored.profiles[0].buttons[3].label.empty() &&
+                    stored.profiles[0].buttons[3].action.chords.empty(),
+                "✓ saves the editor's copy");
+        // ← without changes leaves at once; with changes, Save saves.
+        open_editor(app);
+        tap_control(app, "shortcuts-back");
+        require(!app.view().shortcut_editor, "← without changes leaves at once");
+        open_editor(app);
+        tap_control(app, "shortcuts-row-0");
+        tap_control(app, "shortcuts-delete");
+        require(app.view().confirm.has_value(), "deleting a bar with buttons asks");
+        tap_control(app, "confirm-accept");
+        tap_control(app, "shortcuts-back");
+        tap_control(app, "confirm-accept");
+        require(saved_shortcuts(app).profiles.size() == 1, "Save from the question saves");
+    }
+    // The limits: the control that would exceed one is disabled.
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel full;
+    for (int i = 0; i < 32; ++i) {
+        full.profiles.push_back({"b" + std::to_string(i), "Bar", {}});
+    }
+    full.profiles[0].buttons.assign(64, shortcut_button("abcdefghijklmnopqrstuvwx", {{{}, "KeyA"}}));
+    full.free_profile = "b0";
+    write_shortcuts(directory.path, full);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    auto view = app.view();
+    require(!control(view, "shortcuts-new-profile").enabled, "32 profiles: New profile is disabled");
+    require(view.shortcut_editor->profiles_thumb.has_value(), "a long list of bars scrolls");
+    tap_control(app, "shortcuts-label");
+    tap_mini(app, "KeyY");
+    tap_mini(app, "Enter");
+    require(control(app.view(), "shortcuts-label").label == "abcdefghijklmnopqrstuvwx",
+            "a label at 24 characters takes no more");
+    // The strip scrolls to its end, where + is disabled at 64 buttons.
+    const auto well = app.view().shortcut_editor->strip_well;
+    app.move(0, well.x + well.width / 2, well.y + well.height / 2);
+    for (int i = 0; i < 80; ++i) {
+        app.scroll(0, 1, 0);
+    }
+    for (double now = 990; now < 992; now += .05) {
+        app.tick(now);
+    }
+    require(has(app.view(), "shortcuts-add") && !control(app.view(), "shortcuts-add").enabled,
+            "64 buttons: + is disabled");
+}
 int main() {
     // Theme pictures the tests draw go to a folder of their own, never to the
     // user's cache (R290).
@@ -3829,6 +7177,39 @@ int main() {
         fractional_dropdown_scroll();
         drag_dropdown();
         scroll_cards();
+        shortcut_bar_settings();
+        shortcut_buttons();
+        shortcut_press_bar_change();
+        shortcut_invalid_note();
+        shortcut_editor_settings();
+        shortcut_popup_flick();
+        long_combinations();
+        shortcut_macro_view();
+        macro_buttons();
+        first_bar_shows();
+        shortcut_apps();
+        shortcut_stream_apps();
+        shortcut_long_program_tie();
+        shortcut_pick_history();
+        shortcut_name_record();
+        shortcut_fkeys_from_file();
+        shortcut_stream_focus_held();
+        shortcut_remote_play_tie();
+        shortcut_window_class_name();
+        shortcut_kept_name_refresh();
+        stick_scrolls_bar();
+        run_buttons();
+        run_editor();
+        run_script_past_list();
+        dashboard_unknown_keeps_focus();
+        macro_first_row_scrolls();
+        carry_closes_on_scroll();
+        bar_presses_and_holds();
+        bar_button_one_size();
+        pending_drag_two_lasers();
+        carry_buttons();
+        lifted_step_moves_whole();
+        unsynced_save();
         std::cout << "Settings, global numpad and pin persistence, favorites, popup cancellation and "
                      "card scrolling passed.\n";
     } catch (const std::exception& error) {

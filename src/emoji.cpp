@@ -202,7 +202,7 @@ void remember_emoji(EmojiPreferences& preferences, const std::string& base) {
 }
 
 EmojiLayout emoji_layout(const Layout& main, double visible_width, double height) {
-    // Designed on the bundled 416-unit-high layouts: the tab row on the
+    // Designed on the bundled 400-unit-high layouts: the tab row on the
     // function-key row, the grid over the four middle rows, and the space bar
     // on the bottom row. Taller or shorter layouts scale vertically. A picker
     // taller than its keyboard takes the room a reading line had above the
@@ -211,7 +211,9 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     if (height <= 0) {
         height = main.height;
     }
-    const double k = height / 416, extra = height - main.height;
+    // Rows at 0, 66, 134, 202, 270 and 338, 62 tall and 6 apart; the
+    // function row 44 tall with 22 under it.
+    const double k = height / 400, extra = height - main.height;
     const double right = std::clamp(visible_width, 0.0, main.width);
     EmojiLayout result;
     result.layout.id = main.id + "-emoji";
@@ -272,7 +274,7 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     const double left = side > 0 ? side + (compact ? compact_gap : 41) : 0;
     const double grid_right = std::max(left + 120, right - 174 - 20);
     result.tabs = {left, 0, grid_right - left, 44 * k};
-    result.grid = {left, 66 * k, grid_right - left, (344 - 66) * k};
+    result.grid = {left, 66 * k, grid_right - left, (332 - 66) * k};
     auto add = [&](const std::string& action, Rect bounds, const std::string& label,
                    Icon icon = Icon::None) {
         Key key;
@@ -299,20 +301,20 @@ EmojiLayout emoji_layout(const Layout& main, double visible_width, double height
     });
     const double grid_width = grid_right - left;
     if (space != main.keys.end() && space->bounds.x >= left &&
-        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y + extra >= 344 * k) {
+        space->bounds.x + space->bounds.width <= grid_right && space->bounds.y + extra >= 332 * k) {
         auto bounds = space->bounds;
         bounds.y += extra; // In place, as the side keys are.
         add("Space", bounds, "");
     } else {
         const double width = std::min(371.5, grid_width);
-        add("Space", {left + (grid_width - width) / 2, 354 * k, width, 62 * k}, "");
+        add("Space", {left + (grid_width - width) / 2, 338 * k, width, 62 * k}, "");
     }
     add("Backspace", {right - 114, 66 * k, 114, 62 * k}, "", Icon::Backspace);
-    add("Enter", {right - 114, 138 * k, 114, 134 * k}, "Enter");
-    add("ArrowUp", {right - 114, 282 * k, 54, 62 * k}, "↑");
-    add("ArrowLeft", {right - 174, 354 * k, 54, 62 * k}, "←");
-    add("ArrowDown", {right - 114, 354 * k, 54, 62 * k}, "↓");
-    add("ArrowRight", {right - 54, 354 * k, 54, 62 * k}, "→");
+    add("Enter", {right - 114, 134 * k, 114, 130 * k}, "Enter");
+    add("ArrowUp", {right - 114, 270 * k, 54, 62 * k}, "↑");
+    add("ArrowLeft", {right - 174, 338 * k, 54, 62 * k}, "←");
+    add("ArrowDown", {right - 114, 338 * k, 54, 62 * k}, "↓");
+    add("ArrowRight", {right - 54, 338 * k, 54, 62 * k}, "→");
     return result;
 }
 

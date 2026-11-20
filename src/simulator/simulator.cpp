@@ -1,6 +1,7 @@
 #include "simulator.hpp"
 #include "framekeyboard/mozc.hpp"
 #include <algorithm>
+#include <cmath>
 #include <pango/pangocairo.h>
 #include <stdexcept>
 #include <utility>
@@ -27,6 +28,33 @@ constexpr const char* placeholder = "Type here with the keyboard below. The text
 constexpr const char* hints = "Left button: point and press   ·   Right click: hold a second pointer, "
                               "again to let go   ·   Touch: one pointer per finger";
 
+// The App button's list (docs/simulator.md): made-up IDs and plain names.
+struct SimulatedApp {
+    const char* name;
+    std::uint32_t window;
+    std::optional<AppIdentity> app;
+    bool dashboard; // Steam's dashboard has the keys
+};
+const SimulatedApp simulated_apps[] = {
+    {"Notes", 2, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Notes"}, false},
+    {"Terminal", 3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, false},
+    {"Game", 4, AppIdentity{AppIdentity::Kind::Steam, "4000010"}, false},
+    {"Moonlight", 5, AppIdentity{AppIdentity::Kind::Program, "moonlight"}, false},
+    // As a stream from a PC shows on the headset: a Steam game by its app
+    // ID, and the PC's desktop as the one stream app.
+    {"Game streamed from a PC", 7, AppIdentity{AppIdentity::Kind::Steam, "4000020"}, false},
+    {"PC desktop stream", 8, AppIdentity{AppIdentity::Kind::Stream, "pc"}, false},
+    {"Steam", 6, std::nullopt, true},
+};
+// The names the simulator gives its apps, in place of a lookup in files.
+std::string simulated_name(const AppIdentity& app) {
+    for (const auto& entry : simulated_apps) {
+        if (entry.app == app) {
+            return entry.name;
+        }
+    }
+    return {};
+}
 void set(cairo_t* cr, Rgb color, double alpha = 1) {
     cairo_set_source_rgba(cr, color.r, color.g, color.b, alpha);
 }
@@ -76,6 +104,11 @@ void button(cairo_t* cr, Rect r, const char* text, bool on) {
     auto layout = text_layout(cr, text, bar_font, {});
     int w = 0, h = 0;
     pango_layout_get_pixel_size(layout.get(), &w, &h);
+    // A label too long for its button, such as a long app name, is set smaller.
+    if (const double room = r.width - 16; w > room) {
+        layout = text_layout(cr, text, std::floor(bar_font * room / w), {});
+        pango_layout_get_pixel_size(layout.get(), &w, &h);
+    }
     set(cr, ink);
     cairo_move_to(cr, r.x + (r.width - w) / 2, r.y + (r.height - h) / 2);
     pango_cairo_show_layout(cr, layout.get());
@@ -88,11 +121,33 @@ Rect Simulator::slow_button() {
 Rect Simulator::clear_button() {
     return {panel_width - 16 - 150, bar_y, 150, bar_height};
 }
+Rect Simulator::app_button() {
+    const auto slow = slow_button();
+    return {slow.x - 12 - 190, bar_y, 190, bar_height};
+}
+std::string Simulator::app_label() const {
+    return std::string("App: ") + simulated_apps[app_entry_].name;
+}
+void Simulator::next_app() {
+    app_entry_ = (app_entry_ + 1) % std::size(simulated_apps);
+    const auto& entry = simulated_apps[app_entry_];
+    std::string program;
+    if (entry.app && entry.app->kind == AppIdentity::Kind::Program) {
+        program = entry.app->id;
+    }
+    sink_.set_focus({entry.window, entry.app, program});
+    // As on the headset: Steam's dashboard has the keys, so nothing types
+    // and the picker's assign buttons are disabled.
+    app_->set_dashboard_focus(entry.dashboard);
+    redraw_ = true;
+}
 
 Simulator::Simulator(const Setup& setup)
     : profiles_(load_profiles(setup.data_dir, setup.config_dir)),
       canvas_(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height), cairo_surface_destroy) {
     sink_.set_slow(setup.slow);
+    // It starts on Notes, a Desktop app.
+    sink_.set_focus({simulated_apps[0].window, simulated_apps[0].app, {}});
     // App types only in a VR launch with an input backend and typing enabled
     // (App::refresh_typing); the field's sink stands in for that backend.
     // Nothing else of a VR launch runs here: the VR loop, instance lock,
@@ -122,6 +177,8 @@ Simulator::Simulator(const Setup& setup)
     options.clipboard = &sink_;
     options.japanese_converter = setup.japanese_converter;
     options.wait_for_japanese = setup.wait_for_japanese;
+    // The App button's names; nothing of the computer's own is read.
+    options.app_names = simulated_name;
     app_ = std::make_unique<App>(options, sink_);
     // The window is the keyboard's place: nothing moves or resizes it. The ×
     // shows, so the toolbar lays out as on the headset, but closes nothing
@@ -162,21 +219,20 @@ std::string Simulator::locale() const {
     return found == profiles_.languages.end() ? std::string{} : found->second.locale;
 }
 bool Simulator::on_keyboard(double x, double y) const {
-    const double py = y - popup_margin;
-    if (panel_case_bounds(app_->geometry()).contains(x, py)) {
-        return true;
-    }
-    const auto popup = app_->input_view().popup;
-    return popup && popup->contains(x, py);
+    // The areas SteamVR's mask has (pointer_bounds): the case, its menus and
+    // the shortcut bar, or under Background Disabled only the key groups, so
+    // a click between them goes to the field behind (R380).
+    return takes_pointer(app_->input_view(), x, y - popup_margin);
 }
 void Simulator::leave(unsigned pointer) {
     // A repeating key, such as Backspace, stays held until its button lets go.
     if (app_->holds_repeat(pointer)) {
         return;
     }
-    // Off the keys with the button up, swipe suggestions and the next word's
-    // space stay until the next press elsewhere (press_outside).
-    if (!app_->pointer_pressed(pointer) && app_->holds_swipe_state()) {
+    // Off the keys with the button up, swipe suggestions, the next word's
+    // space, ↶ and the follow-up offers stay until the next press elsewhere
+    // (press_outside).
+    if (!app_->pointer_pressed(pointer) && app_->holds_typing_state()) {
         app_->move(pointer, -1e4, -1e4);
         return;
     }
@@ -189,6 +245,8 @@ void Simulator::press_outside(unsigned pointer, double x, double y) {
     if (slow_button().contains(x, y)) {
         sink_.set_slow(!sink_.slow());
         redraw_ = true;
+    } else if (app_button().contains(x, y)) {
+        next_app();
     } else if (clear_button().contains(x, y)) {
         // A new start: the keyboard's reading and its output go too.
         app_->cancel();
@@ -362,6 +420,7 @@ void Simulator::compose() {
     set(cr, faint);
     cairo_move_to(cr, 24, bar_y + (bar_height - hint_height) / 2);
     pango_cairo_show_layout(cr, hint.get());
+    button(cr, app_button(), app_label().c_str(), false);
     button(cr, slow_button(), sink_.slow() ? "Slow field: on" : "Slow field: off", sink_.slow());
     button(cr, clear_button(), "Clear field", false);
 

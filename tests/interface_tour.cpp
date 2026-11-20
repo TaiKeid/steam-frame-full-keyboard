@@ -6,18 +6,27 @@
 // default. Other languages need a debug build: the Debug card picks them.
 #include "framekeyboard/app.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <unistd.h>
 
 using namespace framekeyboard;
 namespace {
+// Sends nothing. The app with the keys is one of the simulator's made-up
+// apps, for the picker's header and the profiles assigned to it.
 struct Sink : KeySink {
     void send(int, int) override {}
+    FocusedApp focus{1, {}, {}};
+    std::uint32_t focused_window() const override { return focus.window; }
+    FocusedApp focused_app() const override { return focus; }
 };
 double now = 100;
 fs::path output;
+// The scripts the Run list shows: made-up names, never the computer's own.
+std::vector<std::string> tour_scripts;
 std::ofstream fits_report;
 
 void settle(App& app, int frames = 40) {
@@ -43,6 +52,10 @@ void click(App& app, const std::string& id) {
     app.down(0, x, y, 1);
     app.up(0, x, y);
     settle(app, 10);
+}
+std::string read_file(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), {}};
 }
 // The last card, where the Debug card is, in view.
 void to_last_card(App& app) {
@@ -169,6 +182,341 @@ int main(int argc, char** argv) {
             usleep(10000);
         }
         shot(app, "emoji");
+        // The shortcut bar with the Debug card's sample bars, its picker's
+        // menu, and the bar with its last buttons scrolled into view.
+        {
+            Options bar_options = options;
+            // Under a home of its own, so the scripts folder reads as a user's.
+            const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+            setenv("HOME", config.c_str(), 1);
+            bar_options.config_dir = fs::path(config) / ".config" / "framekeyboard";
+            fs::create_directories(bar_options.config_dir);
+            bar_options.script_list = [](const fs::path&) { return tour_scripts; };
+            Settings settings;
+            settings.shortcuts = true;
+            save_settings(bar_options.config_dir, settings);
+            App bars(bar_options, sink);
+            choose_language(bars, language);
+            bars.show_settings();
+            to_last_card(bars);
+            if (has(bars.view(), "debug-sample-shortcuts")) {
+                click(bars, "debug-sample-shortcuts");
+                bars.back();
+                shot(bars, "shortcut-bar");
+                const auto picker = bars.view().shortcut_bar->picker;
+                const double x = picker.x + picker.width / 2, y = picker.y + picker.height / 2;
+                bars.move(0, x, y);
+                shot(bars, "shortcut-bar-picker-tooltip");
+                bars.down(0, x, y, 1);
+                bars.up(0, x, y);
+                shot(bars, "shortcut-bar-menu");
+                const auto row = bars.view().shortcut_bar->menu->rows[1].bounds;
+                bars.move(0, row.x + 30, row.y + row.height / 2);
+                bars.down(0, row.x + 30, row.y + row.height / 2, 1);
+                bars.up(0, row.x + 30, row.y + row.height / 2);
+                const auto plate = bars.view().shortcut_bar->plate;
+                bars.move(0, plate.x + plate.width / 2, plate.y + plate.height / 2);
+                bars.scroll(0, 3, 0);
+                shot(bars, "shortcut-bar-scrolled");
+                // The editor at both widths, with its popup for a label and for recording.
+                // The picker's button: opens its menu, or closes it.
+                const auto open_menu = [](App& app) {
+                    const auto picker = app.view().shortcut_bar->picker;
+                    const double px = picker.x + picker.width / 2, py = picker.y + picker.height / 2;
+                    app.move(0, px, py);
+                    app.down(0, px, py, 1);
+                    app.up(0, px, py);
+                    settle(app, 10);
+                };
+                const auto open_editor = [&](App& app) {
+                    open_menu(app);
+                    const auto edit = app.view().shortcut_bar->menu->manage;
+                    const double ex = edit.x + edit.width / 2, ey = edit.y + edit.height / 2;
+                    app.move(0, ex, ey);
+                    app.down(0, ex, ey, 1);
+                    app.up(0, ex, ey);
+                    settle(app, 10);
+                };
+                // A toolbar button's tooltip stands where it does without
+                // the bar, over the long bar; a message keeps its place
+                // above the bar; and a bar of one button (R358).
+                {
+                    // Folders of their own with Swipe typing on, its button
+                    // the one in the owner's picture; the first has the
+                    // sample bars.
+                    Settings swipe_settings = settings;
+                    swipe_settings.swipe_typing = true;
+                    Options tips_options = bar_options;
+                    tips_options.config_dir = fs::path(config) / ".config" / "framekeyboard-tips";
+                    fs::create_directories(tips_options.config_dir);
+                    save_settings(tips_options.config_dir, swipe_settings);
+                    fs::copy_file(bar_options.config_dir / "shortcuts.json",
+                                  tips_options.config_dir / "shortcuts.json",
+                                  fs::copy_options::overwrite_existing);
+                    App tips(tips_options, sink);
+                    choose_language(tips, language);
+                    settle(tips);
+                    open_menu(tips);
+                    const auto many = tips.view().shortcut_bar->menu->rows[1].bounds;
+                    tips.move(0, many.x + 30, many.y + many.height / 2);
+                    tips.down(0, many.x + 30, many.y + many.height / 2, 1);
+                    tips.up(0, many.x + 30, many.y + many.height / 2);
+                    tips.move(0, 800, 700);
+                    // Swipe typing's button, or Key sounds' where a language has no swipe.
+                    const auto toolbar_button = [](const PanelView& view) {
+                        return control(view,
+                                       has(view, "swipe-toggle") ? "swipe-toggle" : "sounds-toggle")
+                            .bounds;
+                    };
+                    const auto swipe = toolbar_button(tips.view());
+                    tips.move(1, swipe.x + swipe.width / 2, swipe.y + swipe.height / 2);
+                    shot(tips, "shortcut-bar-toolbar-tooltip");
+                    tips.report_status(ui("status.shortcuts-steam-fields"));
+                    shot(tips, "shortcut-bar-toolbar-tooltip-status");
+                    const auto short_dir = fs::path(config) / ".config" / "framekeyboard-short";
+                    fs::create_directories(short_dir);
+                    save_settings(short_dir, swipe_settings);
+                    ShortcutModel one;
+                    ShortcutButton undo;
+                    undo.label = "Undo";
+                    undo.action.chords = {{{"ControlLeft"}, "KeyZ"}};
+                    one.profiles.push_back({"short", "Short", {undo}});
+                    one.free_profile = "short";
+                    std::ofstream(short_dir / "shortcuts.json") << serialize_shortcuts(one);
+                    Options short_options = bar_options;
+                    short_options.config_dir = short_dir;
+                    App short_bar(short_options, sink);
+                    choose_language(short_bar, language);
+                    settle(short_bar);
+                    const auto tip = toolbar_button(short_bar.view());
+                    short_bar.move(1, tip.x + tip.width / 2, tip.y + tip.height / 2);
+                    shot(short_bar, "shortcut-bar-short-toolbar-tooltip");
+                    // A button holding F13 and F24 from its file: recording no
+                    // longer offers them, but the editor still shows them (R313).
+                    const auto fkeys_dir = fs::path(config) / ".config" / "framekeyboard-fkeys";
+                    fs::create_directories(fkeys_dir);
+                    save_settings(fkeys_dir, settings);
+                    ShortcutModel fkeys;
+                    ShortcutButton launch;
+                    launch.label = "Launch";
+                    launch.action.chords = {{{}, "F13"}, {{"ControlLeft"}, "F24"}};
+                    fkeys.profiles.push_back({"fkeys", "F keys", {launch}});
+                    fkeys.free_profile = "fkeys";
+                    std::ofstream(fkeys_dir / "shortcuts.json") << serialize_shortcuts(fkeys);
+                    Options fkeys_options = bar_options;
+                    fkeys_options.config_dir = fkeys_dir;
+                    App fkeys_bar(fkeys_options, sink);
+                    choose_language(fkeys_bar, language);
+                    settle(fkeys_bar);
+                    open_editor(fkeys_bar);
+                    click(fkeys_bar, "shortcuts-button-0");
+                    shot(fkeys_bar, "shortcut-editor-f13");
+                }
+                // A label part typed, Shift latched; Ctrl + K recorded, Ctrl latched.
+                const auto popups = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-label");
+                    click(app, "shortcuts-popup-key-Backspace");
+                    click(app, "shortcuts-popup-key-ShiftLeft");
+                    shot(app, "shortcut-editor-label" + suffix);
+                    click(app, "shortcuts-popup-cancel");
+                    click(app, "shortcuts-record");
+                    click(app, "shortcuts-popup-key-ControlLeft");
+                    click(app, "shortcuts-popup-key-KeyK");
+                    click(app, "shortcuts-popup-key-ControlLeft");
+                    shot(app, "shortcut-editor-record" + suffix);
+                    click(app, "shortcuts-popup-cancel");
+                };
+                // The Macro view: the sample editing bar's macro.
+                const auto macro_view = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-row-0");
+                    click(app, "shortcuts-button-6");
+                    shot(app, "shortcut-editor-macro" + suffix);
+                };
+                // Run: a script chosen from the list, one gone, the empty
+                // list, a command and its popup; saved with the missing
+                // script, the bar's status when it can't start.
+                const auto wait_for = [&](App& app, const std::function<bool()>& done) {
+                    for (int i = 0; i < 300 && !done(); ++i) {
+                        usleep(5000);
+                        settle(app, 1);
+                    }
+                };
+                const auto run_view = [&](App& app, const std::string& suffix) {
+                    click(app, "shortcuts-row-0");
+                    click(app, "shortcuts-button-0");
+                    click(app, "shortcuts-kind-2");
+                    tour_scripts = {"backup-notes.sh", "brightness-down.sh", "brightness-up.sh",
+                                    "screenshot.sh",   "toggle-wifi.sh",     "volume-check.sh"};
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 6; });
+                    click(app, "shortcuts-script-3");
+                    shot(app, "shortcut-editor-run" + suffix);
+                    tour_scripts.erase(tour_scripts.begin() + 3);
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] {
+                        const auto& rows = app.view().shortcut_editor->scripts;
+                        return rows.size() == 6 && rows[3].missing;
+                    });
+                    shot(app, "shortcut-editor-run-missing" + suffix);
+                    tour_scripts.clear();
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 1; });
+                    click(app, "shortcuts-script-0"); // the missing one, cleared
+                    shot(app, "shortcut-editor-run-empty" + suffix);
+                    click(app, "shortcuts-run-1");
+                    click(app, "shortcuts-command");
+                    for (const char* key :
+                         {"KeyN", "KeyO", "KeyT", "KeyE", "KeyS", "Space", "KeyH", "KeyI"}) {
+                        click(app, std::string("shortcuts-popup-key-") + key);
+                    }
+                    shot(app, "shortcut-editor-run-command-popup" + suffix);
+                    click(app, "shortcuts-popup-done");
+                    shot(app, "shortcut-editor-run-command" + suffix);
+                    // Saved with the gone script: its press can't start it.
+                    click(app, "shortcuts-run-0");
+                    tour_scripts = {"screenshot.sh"};
+                    click(app, "shortcuts-refresh");
+                    wait_for(app, [&] { return app.view().shortcut_editor->scripts.size() == 1; });
+                    click(app, "shortcuts-script-0");
+                    click(app, "shortcuts-save");
+                    const auto button = app.view().shortcut_bar->buttons[0].bounds;
+                    const double bx = button.x + button.width / 2, by = button.y + button.height / 2;
+                    app.move(0, bx, by);
+                    app.down(0, bx, by, 1);
+                    app.up(0, bx, by);
+                    app.move(0, bx, by + 400);
+                    wait_for(app, [&] { return !app.view().status.empty(); });
+                    shot(app, "shortcut-bar-run-failed" + suffix);
+                };
+                open_editor(bars);
+                shot(bars, "shortcut-editor");
+                popups(bars, "");
+                macro_view(bars, "");
+                // The questions: leaving with a change, and deleting a profile
+                // that has buttons.
+                click(bars, "shortcuts-new-profile");
+                click(bars, "shortcuts-popup-done"); // its name, as offered
+                click(bars, "shortcuts-back");
+                shot(bars, "shortcut-editor-leave-question");
+                click(bars, "confirm-cancel"); // Discard: leaves unsaved
+                open_editor(bars);
+                click(bars, "shortcuts-row-0");
+                click(bars, "shortcuts-delete");
+                shot(bars, "shortcut-editor-delete-question");
+                click(bars, "confirm-cancel");
+                click(bars, "shortcuts-back");
+                // The Desktop app the terminal profile is assigned to: its
+                // profile shows, its assign button lit in the menu; Used for
+                // in the editor.
+                const auto assigned_app = [&](App& app, const std::string& suffix) {
+                    sink.focus = {
+                        3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, {}};
+                    settle(app);
+                    open_menu(app);
+                    shot(app, "shortcut-bar-menu-app" + suffix);
+                    open_menu(app);
+                    sink.focus = {1, {}, {}};
+                    settle(app);
+                };
+                assigned_app(bars, "");
+                sink.focus = {3, AppIdentity{AppIdentity::Kind::Desktop, "org.example.Terminal"}, {}};
+                settle(bars);
+                open_editor(bars);
+                shot(bars, "shortcut-editor-used-for");
+                click(bars, "shortcuts-back");
+                sink.focus = {1, {}, {}};
+                bars.flush_settings();
+                // A copy of the profiles for the narrow keyboard, before Run changes the first button.
+                const auto saved_profiles = read_file(shortcuts_path(bar_options.config_dir));
+                open_editor(bars);
+                run_view(bars, "");
+                bars.flush_settings();
+                std::ofstream(shortcuts_path(bar_options.config_dir)) << saved_profiles;
+                Settings narrow = settings;
+                narrow.hide_numpad = true;
+                save_settings(bar_options.config_dir, narrow);
+                App small(bar_options, sink);
+                choose_language(small, language);
+                settle(small);
+                // The bar and its menu without the numpad.
+                shot(small, "shortcut-bar-no-numpad");
+                open_menu(small);
+                shot(small, "shortcut-bar-menu-no-numpad");
+                open_menu(small);
+                assigned_app(small, "-no-numpad");
+                open_editor(small);
+                shot(small, "shortcut-editor-no-numpad");
+                popups(small, "-no-numpad");
+                macro_view(small, "-no-numpad");
+                run_view(small, "-no-numpad");
+            } else {
+                bars.back();
+            }
+            setenv("HOME", old_home.c_str(), 1);
+        }
+        // Run buttons' >_ mark: on the bar among others, a long two-line and a
+        // long one-line label, an empty one drawn disabled; the editor's
+        // strip; a light theme. Nothing is pressed.
+        for (const char* theme : {"graphite", "porcelain"}) {
+            Options run_options = options;
+            run_options.config_dir = fs::path(config) / (std::string("run-mark-") + theme);
+            fs::create_directories(run_options.config_dir);
+            Settings settings;
+            settings.shortcuts = true;
+            settings.active.theme = theme;
+            save_settings(run_options.config_dir, settings);
+            const auto run = [](std::string label, std::string command) {
+                ShortcutButton button;
+                button.label = std::move(label);
+                button.action.kind = ShortcutAction::Kind::Run;
+                button.action.command = std::move(command);
+                return button;
+            };
+            ShortcutButton undo;
+            undo.label = "Undo";
+            undo.action.chords = {{{"ControlLeft"}, "KeyZ"}};
+            ShortcutModel model;
+            model.profiles.push_back(
+                {"run",
+                 "Run marks",
+                 {undo, run("Backup", "true"), run("Screenshot to\nclipboard!!", "true"),
+                  run("Restart the audio server", "true"), run("Not set", "")}});
+            model.free_profile = "run";
+            std::ofstream(shortcuts_path(run_options.config_dir)) << serialize_shortcuts(model);
+            App runs(run_options, sink);
+            choose_language(runs, language);
+            settle(runs);
+            const std::string suffix = std::string(theme) == "graphite" ? "" : std::string("-") + theme;
+            shot(runs, "shortcut-bar-run-mark" + suffix);
+            const auto picker = runs.view().shortcut_bar->picker;
+            for (const auto& target : {picker, Rect{}}) {
+                const auto r = target.width > 0 ? target : runs.view().shortcut_bar->menu->manage;
+                const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+                runs.move(0, x, y);
+                runs.down(0, x, y, 1);
+                runs.up(0, x, y);
+                settle(runs, 10);
+            }
+            shot(runs, "shortcut-editor-run-mark" + suffix);
+        }
+        // The empty two-slot bar the toolbar button opens with no profiles, at
+        // both widths: its tab too.
+        for (const bool numpad : {true, false}) {
+            Options empty_options = options;
+            empty_options.config_dir = fs::path(config) / (numpad ? "empty-bar" : "empty-bar-narrow");
+            fs::create_directories(empty_options.config_dir);
+            Settings settings;
+            settings.shortcuts = true;
+            settings.hide_numpad = !numpad;
+            save_settings(empty_options.config_dir, settings);
+            App empty(empty_options, sink);
+            choose_language(empty, language);
+            settle(empty);
+            if (!empty.view().shortcut_bar) {
+                click(empty, "bar-toggle");
+            }
+            shot(empty, numpad ? "shortcut-bar-empty" : "shortcut-bar-empty-no-numpad");
+        }
         // The editor opens only in dictation's render mode, as for its image export.
         options.mode = Mode::RenderDictation;
         App dictation(options, sink);

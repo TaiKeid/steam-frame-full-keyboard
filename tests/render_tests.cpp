@@ -1,3 +1,5 @@
+#include "framekeyboard/app.hpp"
+#include "framekeyboard/config.hpp"
 #include "framekeyboard/panel.hpp"
 
 #include <algorithm>
@@ -5,9 +7,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <unistd.h>
 #include <vector>
 
 using namespace framekeyboard;
@@ -708,6 +713,13 @@ int alpha_at(const PanelRenderer& renderer, int x, int y) {
         (y + popup_margin) * cairo_image_surface_get_stride(surface));
     return static_cast<int>(row[x] >> 24);
 }
+std::uint32_t pixel_at(const PanelRenderer& renderer, int x, int y) {
+    auto* surface = renderer.surface();
+    const auto* row = reinterpret_cast<const std::uint32_t*>(
+        cairo_image_surface_get_data(surface) +
+        (y + popup_margin) * cairo_image_surface_get_stride(surface));
+    return row[x];
+}
 // With a transparent background every repaint must clear its damage to
 // nothing before drawing, or the case's old pixels or a plate's previous
 // alpha would build up where only the dashboard should show.
@@ -1163,7 +1175,7 @@ void theme_cards() {
         // with or without its cards, labels and rows the picture is the same
         // (R293).
         auto covered = view;
-        covered.cards = {{"General", {18, 78, 760, 476}}, {"Typing", {800, 78, 760, 476}}};
+        covered.cards = {{"General", {18, 62, 760, 476}}, {"Typing", {800, 62, 760, 476}}};
         FieldLabel label;
         label.text = "Theme";
         label.bounds = {48, 140, 300, 52};
@@ -1377,8 +1389,906 @@ void no_stray_lines() {
                                  " bright pixels in the flick ← key's lower left");
     }
 }
+// The shortcut bar (docs/shortcut-bar-design.md): a button's hover, press
+// and light, a scroll and the menu's rows repaint only their own areas, each
+// frame the same as a full repaint, in a dark and a light theme, over an
+// opaque and a see-through case. The tooltip and the status card stand above
+// the bar.
+void shortcut_bar(const char* theme_id, double opacity) {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at(theme_id);
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.case_opacity = opacity;
+    view.controls = {{"settings", "Settings", {18, 12, 60, 42}, false, Icon::Settings}};
+    const std::vector<std::string> labels{"Undo",
+                                          "Redo",
+                                          "Save\nall",
+                                          "Find",
+                                          "A label far too long",
+                                          "Two\nlines here",
+                                          "Copy",
+                                          "Paste",
+                                          "Cut",
+                                          "Build",
+                                          "Run",
+                                          "Term",
+                                          "Zen\nmode",
+                                          "Close",
+                                          "Split",
+                                          "Last",
+                                          "Past the end",
+                                          "→"};
+    const auto g = shortcut_bar_geometry(view, labels.size());
+    struct State {
+        double scroll{};
+        int hovered{-1}, pressed{-1}, running{-1}, disabled{-1};
+        bool picker_hovered{}, menu{};
+        int row_hovered{-1};
+        bool picker_pressed{};
+    };
+    const auto bar = [&](const State& state) {
+        ShortcutBarView result;
+        result.plate = g.plate;
+        result.strip = g.strip;
+        result.scale = g.button_width / 69.5;
+        for (std::size_t i = 0; i < labels.size(); ++i) {
+            const Rect r{g.strip.x + static_cast<double>(i) * g.pitch - state.scroll, g.button_top,
+                         g.button_width, g.button_height};
+            if (r.x + r.width <= g.strip.x || r.x >= g.strip.x + g.strip.width) {
+                continue;
+            }
+            const int at = static_cast<int>(i);
+            // Buttons 2 to 4 start programs: their >_ mark, hovered (2),
+            // pressed (3) and disabled (3), repaints as their faces do.
+            result.buttons.push_back({labels[i], r, at == state.hovered, at == state.pressed,
+                                      at != state.disabled, at == state.running, i >= 2 && i <= 4});
+        }
+        result.more_before = state.scroll > .5;
+        result.more_after = state.scroll < g.scroll_limit - .5;
+        result.picker = g.picker;
+        result.picker_hovered = state.picker_hovered;
+        result.picker_pressed = state.picker_pressed;
+        if (state.menu) {
+            const auto m = shortcut_menu_geometry(g, 8);
+            ShortcutBarView::Menu menu;
+            menu.bounds = m.bounds;
+            menu.header = m.header;
+            menu.list = m.list;
+            menu.manage = m.manage;
+            menu.title = "Profiles";
+            menu.manage_label = "Manage";
+            for (std::size_t i = 0; i < m.visible; ++i) {
+                const auto row = m.row(i, 0);
+                const int at = static_cast<int>(i);
+                menu.rows.push_back({"Bar " + std::to_string(i), row, m.assign(row), i == 0,
+                                     at == state.row_hovered, false, false, false, false});
+            }
+            menu.thumb = Rect{m.bounds.x + m.bounds.width - 6, m.list.y, 3, 60};
+            result.menu = menu;
+        }
+        return result;
+    };
+    const auto within = [](const std::vector<Rect>& damage, const Rect& area) {
+        return !damage.empty() && std::all_of(damage.begin(), damage.end(), [&](const Rect& r) {
+            return r.x >= area.x - 2 && r.x + r.width <= area.x + area.width + 2 &&
+                   r.y >= area.y + popup_margin - 2 &&
+                   r.y + r.height <= area.y + area.height + popup_margin + 2;
+        });
+    };
+    const std::string name = std::string(theme_id) + (opacity < 1 ? " see-through" : "");
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(view, phase("keyboard alone").c_str());
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the bar appears").c_str());
+    if (opacity == 1 && alpha_at(compare.incremental, static_cast<int>(g.plate.x + 6),
+                                 static_cast<int>(g.plate.y + g.plate.height / 2)) != 255) {
+        throw std::runtime_error(phase("the plate is the case's color, opaque"));
+    }
+    // The plate and the picker's tab on its right: a state repaints only within them.
+    const Rect both{g.plate.x, g.plate.y, g.picker.x + g.picker.width - g.plate.x, g.plate.height};
+    State pressed_tab;
+    pressed_tab.picker_pressed = true;
+    for (const auto& state :
+         {State{0, 2}, State{0, 3}, State{0, 3, 3}, State{0, -1, -1, 3}, State{0, -1, -1, -1, 4},
+          State{0, -1, -1, -1, -1, true}, pressed_tab, State{}}) {
+        view.shortcut_bar = bar(state);
+        compare.frame(view, phase("a button's or the tab's state").c_str());
+        if (!within(compare.incremental.damage(), both)) {
+            throw std::runtime_error(phase("a button's or the tab's state repaints only the bar"));
+        }
+    }
+    // R383: hovered, pressed or with its menu open, the tab is square where it
+    // joins a drawn plate; with none (Invisible, Disabled) it stands alone,
+    // its light rounded at all four corners. Visible keeps its joined shape.
+    {
+        State hovered_tab;
+        hovered_tab.picker_hovered = true;
+        State open_tab;
+        open_tab.menu = true;
+        for (const auto& state : {hovered_tab, pressed_tab, open_tab}) {
+            view.shortcut_bar = bar(state);
+            compare.frame(view, phase("the tab lit").c_str());
+            const int corner = alpha_at(compare.incremental, static_cast<int>(g.picker.x),
+                                        static_cast<int>(g.picker.y));
+            const int middle =
+                alpha_at(compare.incremental, static_cast<int>(g.picker.x + g.picker.width / 2),
+                         static_cast<int>(g.picker.y + g.picker.height / 2));
+            if (middle == 0 || (opacity == 0 && corner != 0) || (opacity == 1 && corner != 255)) {
+                throw std::runtime_error(phase(opacity == 0
+                                                   ? "a lone tab's light is rounded at the plate's side"
+                                                   : "a tab joined to its plate is square there"));
+            }
+        }
+        view.shortcut_bar = bar({});
+        compare.frame(view, phase("the tab dark again").c_str());
+    }
+    // The tab grows out of the plate: lit in place, and nothing where the
+    // picker's own plate and the gap before it were.
+    view.shortcut_bar = bar(pressed_tab);
+    compare.frame(view, phase("the tab pressed").c_str());
+    const auto alpha = [&](double x, double y) {
+        return alpha_at(compare.incremental, static_cast<int>(x), static_cast<int>(y));
+    };
+    if (opacity == 1 &&
+        (alpha(g.picker.x + g.picker.width / 2, g.picker.y + 4) != 255 ||
+         alpha(g.plate.x + g.plate.width - 1, g.picker.y + g.picker.height / 2) != 255)) {
+        throw std::runtime_error(phase("the tab and its joint with the plate are opaque"));
+    }
+    for (const auto& [x, y] :
+         {std::pair{g.picker.x + g.picker.width + 10, g.plate.y + g.plate.height / 2},
+          std::pair{g.picker.x + 20, g.plate.y + 6},
+          std::pair{g.picker.x + 20, g.plate.y + g.plate.height - 6},
+          std::pair{g.picker.x + g.picker.width + 40, g.plate.y + 10}}) {
+        if (alpha(x, y) != 0) {
+            throw std::runtime_error(phase("nothing drawn around the tab where the old plate was"));
+        }
+    }
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the tab let go").c_str());
+    for (const double scroll : {g.pitch * .4, g.pitch, g.scroll_limit}) {
+        view.shortcut_bar = bar({scroll});
+        compare.frame(view, phase("scrolling").c_str());
+        if (!within(compare.incremental.damage(), g.plate)) {
+            throw std::runtime_error(phase("a scroll repaints only the strip"));
+        }
+    }
+    view.shortcut_bar = bar({0, -1, -1, -1, -1, false, true});
+    compare.frame(view, phase("the menu opens").c_str());
+    // The menu lies over keys: its rows repaint with everything.
+    for (const int row : {2, 3, -1}) {
+        view.shortcut_bar = bar({0, -1, -1, -1, -1, false, true, row});
+        compare.frame(view, phase("a row's hover").c_str());
+    }
+    // A button's hover under the open menu still repaints only the bar.
+    view.shortcut_bar = bar({0, 1, -1, -1, -1, false, true, -1});
+    compare.frame(view, phase("a button's hover with the menu open").c_str());
+    if (!within(compare.incremental.damage(), g.plate)) {
+        throw std::runtime_error(phase("a button's hover with the menu open repaints only the bar"));
+    }
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the menu closes").c_str());
+    // R372: a long run's stroke around its button's border repaints only the bar, as a full repaint
+    // draws it, and moves on as the run does.
+    {
+        auto running = bar({});
+        running.buttons[1].running = true;
+        view.shortcut_bar = running;
+        compare.frame(view, phase("a running button").c_str());
+        const auto before = compare.incremental.rgba();
+        for (const int px : {40, 41, 200}) {
+            running.buttons[1].progress_px = px;
+            view.shortcut_bar = running;
+            compare.frame(view, phase("a long run's progress").c_str());
+            if (!within(compare.incremental.damage(), g.plate)) {
+                throw std::runtime_error(phase("a long run's progress repaints only the bar"));
+            }
+        }
+        if (compare.incremental.rgba() == before) {
+            throw std::runtime_error(phase("a long run's progress is drawn"));
+        }
+        view.shortcut_bar = bar({});
+        compare.frame(view, phase("the run ends").c_str());
+    }
+    // The picker's tooltip and a message stand above the bar.
+    view.bar_tooltip = "Choose a profile";
+    view.bar_tooltip_at = g.picker;
+    compare.frame(view, phase("the tooltip").c_str());
+    const auto above = [&](double x) {
+        return alpha_at(compare.incremental, static_cast<int>(x), static_cast<int>(g.plate.y - 33)) >
+               200;
+    };
+    if (!above(g.picker.x + g.picker.width / 2)) {
+        throw std::runtime_error(phase("the tooltip stands above the bar"));
+    }
+    view.status = "A message that comes while the bar shows";
+    compare.frame(view, phase("a message with the tooltip").c_str());
+    view.bar_tooltip.clear();
+    compare.frame(view, phase("the message alone").c_str());
+    if (!above(panel_case_bounds(view).x + panel_case_bounds(view).width / 2)) {
+        throw std::runtime_error(phase("the status card stands above the bar"));
+    }
+    view.status.clear();
+    compare.frame(view, phase("the message goes").c_str());
+    // R358: a toolbar button's tooltip stands where it stands without the
+    // bar, right above the case, drawn over the bar and taking no pointer;
+    // the status card keeps its place above the bar, and both show.
+    const auto body = panel_case_bounds(view);
+    const double middle_x = std::round(body.x + body.width / 2);
+    const auto toolbar = view.controls;
+    view.controls.push_back(
+        {"swipe", "Swipe typing", {middle_x - 30, 12, 60, 42}, false, Icon::Settings});
+    view.controls.push_back(
+        {"sounds", "Key sounds", {middle_x + 50, 12, 60, 42}, false, Icon::Settings});
+    compare.frame(view, phase("two toolbar buttons under the bar").c_str());
+    // The middle of the tooltip's card, which lies over the bar's strip.
+    const double tip_y = body.y - 4 - 10 - 23;
+    // A few points of the tooltip, against the same panel drawn without the
+    // bar and its message.
+    const auto as_without_bar = [&](double x) {
+        auto alone = view;
+        alone.shortcut_bar.reset();
+        alone.status.clear();
+        PanelRenderer reference;
+        reference.paint(alone, compare.now, true);
+        for (const auto& [dx, dy] :
+             {std::pair{0.0, 0.0}, std::pair{-14.0, -12.0}, std::pair{16.0, 9.0}}) {
+            const int px = static_cast<int>(x + dx), py = static_cast<int>(tip_y + dy);
+            if (pixel_at(reference, px, py) != pixel_at(compare.incremental, px, py)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    view.hover_tooltip = "swipe";
+    compare.frame(view, phase("a toolbar tooltip over the bar").c_str());
+    if (!as_without_bar(middle_x)) {
+        throw std::runtime_error(
+            phase("a toolbar tooltip stands over the bar where it stands without it"));
+    }
+    if (alpha_at(compare.incremental, static_cast<int>(middle_x), static_cast<int>(g.plate.y - 33)) !=
+        0) {
+        throw std::runtime_error(phase("nothing of a toolbar tooltip stands above the bar"));
+    }
+    // A bar button under it is still the pointer's, and its hover and press
+    // repaint under the tooltip as a full repaint does.
+    if (!takes_pointer(view, middle_x, tip_y)) {
+        throw std::runtime_error(phase("the bar under a tooltip takes the pointer"));
+    }
+    const int under = static_cast<int>(std::floor((middle_x - g.strip.x) / g.pitch));
+    for (const auto& state : {State{0, under}, State{0, under, under}, State{0, under}}) {
+        view.shortcut_bar = bar(state);
+        compare.frame(view, phase("a bar button under the tooltip").c_str());
+        if (!as_without_bar(middle_x)) {
+            throw std::runtime_error(phase("the tooltip stays over a bar button's hover and press"));
+        }
+    }
+    view.hover_tooltip = "sounds";
+    compare.frame(view, phase("the tooltip moves to the next toolbar button").c_str());
+    view.status = "A message that comes while the bar shows";
+    compare.frame(view, phase("a message with a toolbar tooltip").c_str());
+    if (!as_without_bar(middle_x + 80) || !above(middle_x)) {
+        throw std::runtime_error(phase("a toolbar tooltip and the message above the bar both show"));
+    }
+    view.status.clear();
+    compare.frame(view, phase("the message goes, the tooltip stays").c_str());
+    view.shortcut_bar = bar({});
+    compare.frame(view, phase("the button let go under the tooltip").c_str());
+    view.hover_tooltip.clear();
+    compare.frame(view, phase("the toolbar tooltip leaves").c_str());
+    view.controls = toolbar;
+    view.shortcut_bar.reset();
+    compare.frame(view, phase("the bar goes").c_str());
+    if (alpha_at(compare.incremental, static_cast<int>(g.plate.x + 6),
+                 static_cast<int>(g.plate.y + g.plate.height / 2)) != 0) {
+        throw std::runtime_error(phase("nothing is left where the bar was"));
+    }
+}
+// The shortcut editor's screen, a lifted button and the keyboard's field
+// strip and Label field paint the same incrementally as in full.
+void shortcut_editor(const char* theme_id, bool wide) {
+    const auto profiles = load_profiles({}, {});
+    const auto& layout = profiles.layouts.at("en-us-full");
+    const auto& theme = profiles.themes.at(theme_id);
+    const auto& language = profiles.languages.at("en-us");
+    NullSink sink;
+    KeyboardState keyboard(sink);
+    LanguageMap keymap(language);
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.language = &language;
+    view.keymap = &keymap;
+    view.keyboard = &keyboard;
+    view.hide_numpad = !wide;
+    const double width = wide ? panel_width : 1326, x0 = (panel_width - width) / 2;
+    ShortcutEditorView e;
+    e.width = width;
+    e.wide = wide;
+    e.title = "Edit shortcuts";
+    e.notice = "shortcuts.json can't be read (profile 2: the ID is used by another profile).";
+    e.profiles_caption = "Profiles";
+    e.column = {x0 + 18, 70, wide ? 286.0 : 236.0, 500};
+    e.profiles_list = {x0 + 18, 104, e.column.width, 156};
+    e.divider = e.column.x + e.column.width + 16;
+    e.used = {e.column.x + 12, 420, e.column.width - 12, 150};
+    e.used_caption = "Used for";
+    e.used_hint = "Shows when one of these apps is in front.";
+    e.ties = {{"Kate", {e.used.x, 454, 110, 40}}};
+    const double left = e.divider + 16, right = x0 + width - 18;
+    e.strip_well = {left, 70, right - left, 102};
+    e.strip = {left + 14, 70, right - left - 28, 102};
+    e.scale = 1.054;
+    e.strip_hint = "Drag to reorder, drop outside to delete";
+    e.label_caption = "Label";
+    e.action_caption = "Action";
+    e.keys_caption = "Keys";
+    e.chords = {{"Ctrl + K", {left + 100, 280, 120, 52}}, {"S", {left + 248, 280, 50, 52}}};
+    e.explanation = {"Sends Ctrl + K, then S, once per press.",
+                     "Record takes the keys on the keyboard."};
+    e.explanation_bounds = {left, 372, right - left, 60};
+    std::vector<Control> controls{{"shortcuts-back", "", {x0 + 18, 12, 60, 42}, false, Icon::Back},
+                                  {"shortcuts-save", "", {x0 + 88, 12, 60, 42}, false, Icon::Apply}};
+    for (int i = 0; i < 3; ++i) {
+        Control row{"shortcuts-row-" + std::to_string(i),
+                    "Bar " + std::to_string(i),
+                    {e.column.x, 106 + 52.0 * i, e.column.width, 48},
+                    i == 1};
+        row.clip = e.profiles_list;
+        controls.push_back(row);
+    }
+    controls.push_back(
+        {"shortcuts-rename", "", {e.column.x + e.column.width - 92, 156, 44, 52}, false, Icon::Pencil});
+    controls.push_back(
+        {"shortcuts-delete", "", {e.column.x + e.column.width - 48, 156, 44, 52}, false, Icon::Clear});
+    controls.push_back({"shortcuts-new-profile", "New profile", {e.column.x, 260, e.column.width, 52}});
+    controls.push_back({"shortcuts-tie-0", "", {e.used.x + 72, 454, 34, 40}});
+    for (int i = 0; i < 4; ++i) {
+        Control button{"shortcuts-button-" + std::to_string(i),
+                       i == 1 ? "Save\nall" : "Undo",
+                       {e.strip.x + 79.6 * i, 84, 73.3, 65.4},
+                       i == 0};
+        button.clip = e.strip;
+        controls.push_back(button);
+    }
+    Control plus{"shortcuts-add", "", {e.strip.x + 79.6 * 4, 84, 73.3, 65.4}};
+    plus.clip = e.strip;
+    controls.push_back(plus);
+    Control label{"shortcuts-label", "Save\nall", {left + 100, 196, wide ? 300.0 : 250.0, 56}};
+    label.style = ControlStyle::TextField;
+    controls.push_back(label);
+    for (int i = 0; i < 3; ++i) {
+        Control segment{"shortcuts-kind-" + std::to_string(i),
+                        i == 0   ? "Shortcut"
+                        : i == 1 ? "Macro"
+                                 : "Run",
+                        {label.bounds.x + label.bounds.width + 160 + 110.0 * i, 196, 110, 56},
+                        i == 0};
+        segment.style = ControlStyle::Segment;
+        segment.segments = 3;
+        segment.action.index = i;
+        segment.enabled = i == 0;
+        controls.push_back(segment);
+    }
+    controls.push_back({"shortcuts-record", "Record", {left + 322, 280, 160, 52}});
+    controls.push_back({"shortcuts-clear", "", {left + 494, 280, 60, 52}, false, Icon::Clear});
+    view.controls = controls;
+    view.shortcut_editor = e;
+    const std::string name = std::string(theme_id) + (wide ? "" : " no numpad");
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(view, phase("the editor").c_str());
+    view.hovered_controls = {"shortcuts-button-2"};
+    compare.frame(view, phase("a hovered button").c_str());
+    view.hovered_controls = {"shortcuts-row-2"};
+    compare.frame(view, phase("a hovered row").c_str());
+    for (const double dx : {0.0, 40.0, 120.0}) {
+        view.shortcut_editor->lifted_button =
+            ShortcutChip{"Undo", {e.strip.x + 20 + dx, 100, 73.3, 65.4}};
+        compare.frame(view, phase("a lifted button").c_str());
+    }
+    view.shortcut_editor->lifted_button = ShortcutChip{"Undo", {e.strip.x + 60, 260, 73.3, 65.4}};
+    view.shortcut_editor->lifted_removing = true;
+    compare.frame(view, phase("a button off the strip").c_str());
+    view.shortcut_editor->lifted_button.reset();
+    view.shortcut_editor->lifted_row = ShortcutChip{"Bar 0", {e.column.x, 140, e.column.width, 48}};
+    compare.frame(view, phase("a lifted row").c_str());
+    // The keyboard with the strip of renaming in place and its field on the bar.
+    view.shortcut_editor.reset();
+    view.hovered_controls.clear();
+    const auto body = panel_case_bounds(view);
+    ShortcutFieldView field;
+    field.strip = {body.x + 18, 12, body.width - 36, 42};
+    field.title = "Label";
+    field.hint = "Type the label; nothing reaches the app";
+    field.hint_bounds = {body.x + 186, 12, 500, 42};
+    view.shortcut_field = field;
+    view.controls = {{"field-done", "Done", {body.x + body.width - 168, 12, 150, 42}, true},
+                     {"field-cancel", "Cancel", {body.x + body.width - 308, 12, 130, 42}}};
+    const auto bar_geometry = shortcut_bar_geometry(view, 3);
+    ShortcutBarView bar;
+    bar.plate = bar_geometry.plate;
+    bar.strip = bar_geometry.strip;
+    bar.scale = bar_geometry.button_width / 69.5;
+    for (int i = 0; i < 3; ++i) {
+        bar.buttons.push_back({"Undo",
+                               {bar_geometry.strip.x + i * bar_geometry.pitch, bar_geometry.button_top,
+                                bar_geometry.button_width, bar_geometry.button_height}});
+    }
+    bar.picker = bar_geometry.picker;
+    bar.field = 1;
+    bar.field_text = "Save\nal";
+    bar.field_cursor = 8;
+    view.shortcut_bar = bar;
+    view.bar_tooltip = "Enter saves · Esc cancels · Shift+Enter starts a second line";
+    view.bar_tooltip_at = bar.buttons[1].bounds;
+    compare.frame(view, phase("the Label field").c_str());
+    view.shortcut_bar->field_text = "Save\nall";
+    view.shortcut_bar->field_cursor = 9;
+    compare.frame(view, phase("a letter typed").c_str());
+}
+// R328: what the App puts outside the shortcut editor is drawn. The bar's
+// toolbar button, with the bar shown and hidden, and the note that
+// shortcuts.json can't be read; no control outside the editor carries its
+// prefix, which the drawing pass leaves to the editor.
+struct ConfigFolder {
+    std::filesystem::path path;
+    ConfigFolder() {
+        std::string name = "/tmp/framekeyboard-render-tests-XXXXXX";
+        if (!mkdtemp(name.data())) {
+            throw std::runtime_error("temporary directory");
+        }
+        path = name;
+    }
+    ~ConfigFolder() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
+// Whether a rectangle of the painted panel is one flat color: nothing drawn.
+bool flat(const PanelRenderer& renderer, Rect r) {
+    auto* surface = renderer.surface();
+    const int stride = cairo_image_surface_get_stride(surface);
+    const auto* data = cairo_image_surface_get_data(surface);
+    const auto at = [&](int x, int y) {
+        return reinterpret_cast<const std::uint32_t*>(data + (y + popup_margin) * stride)[x];
+    };
+    const int x0 = static_cast<int>(std::ceil(r.x)) + 2, y0 = static_cast<int>(std::ceil(r.y)) + 2;
+    const int x1 = static_cast<int>(r.x + r.width) - 2, y1 = static_cast<int>(r.y + r.height) - 2;
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            if (at(x, y) != at(x0, y0)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+// Whether two renderers painted a rectangle alike.
+bool same_pixels(const PanelRenderer& a, const PanelRenderer& b, Rect r) {
+    auto* sa = a.surface();
+    auto* sb = b.surface();
+    const int stride = cairo_image_surface_get_stride(sa);
+    for (int y = static_cast<int>(r.y); y < static_cast<int>(r.y + r.height); ++y) {
+        const auto* ra = reinterpret_cast<const std::uint32_t*>(cairo_image_surface_get_data(sa) +
+                                                                (y + popup_margin) * stride);
+        const auto* rb = reinterpret_cast<const std::uint32_t*>(cairo_image_surface_get_data(sb) +
+                                                                (y + popup_margin) * stride);
+        for (int x = static_cast<int>(r.x); x < static_cast<int>(r.x + r.width); ++x) {
+            if (ra[x] != rb[x]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+void outside_editor(const PanelView& view, const std::string& what) {
+    if (view.shortcut_editor) {
+        return;
+    }
+    for (const auto& control : view.controls) {
+        if (control.id.starts_with(shortcut_editor_prefix)) {
+            throw std::runtime_error(what + ": " + control.id + " carries the shortcut editor's prefix");
+        }
+    }
+}
+const Control& control_named(const PanelView& view, const std::string& id) {
+    for (const auto& control : view.controls) {
+        if (control.id == id) {
+            return control;
+        }
+    }
+    throw std::runtime_error("missing control " + id);
+}
+void app_controls_drawn() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutButton copy;
+    copy.label = "Copy";
+    copy.action.chords = {{{"ControlLeft"}, "KeyC"}};
+    model.profiles.push_back({"b", "Bar", {copy}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    const auto drawn = [&](const std::string& what) {
+        const auto view = app.view();
+        outside_editor(view, what);
+        PanelRenderer renderer;
+        renderer.paint(view, 1);
+        if (flat(renderer, control_named(view, "bar-toggle").bounds)) {
+            throw std::runtime_error(what + ": the shortcut bar's toolbar button is not drawn");
+        }
+    };
+    if (!app.view().shortcut_bar) {
+        throw std::runtime_error("the bar shows");
+    }
+    drawn("bar shown");
+    const auto toggle = control_named(app.view(), "bar-toggle").bounds;
+    const double x = toggle.x + toggle.width / 2, y = toggle.y + toggle.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, 1);
+    app.up(0, x, y);
+    app.move(0, 5, 600);
+    if (app.view().shortcut_bar) {
+        throw std::runtime_error("the toolbar button hides the bar");
+    }
+    drawn("bar hidden");
+    // Settings with an unreadable file: its note under the switch, below
+    // the General card's fold until the card scrolls.
+    std::ofstream(shortcuts_path(folder.path)) << R"({"schema_version":1,"profiles":[{}]})";
+    App invalid(options, sink);
+    invalid.show_settings();
+    for (int step = 0; step < 40; ++step) {
+        const auto view = invalid.view();
+        outside_editor(view, "Settings");
+        const auto card = std::find_if(view.cards.begin(), view.cards.end(),
+                                       [](const auto& c) { return c.title == "General"; });
+        if (card == view.cards.end()) {
+            throw std::runtime_error("the General card is in view");
+        }
+        const auto note =
+            std::find_if(view.field_labels.begin(), view.field_labels.end(), [](const auto& l) {
+                return l.text.starts_with("Your shortcuts file can't be read");
+            });
+        if (note != view.field_labels.end() && note->bounds.y >= note->clip.y &&
+            note->bounds.y + 22 <= note->clip.y + note->clip.height) {
+            PanelRenderer renderer;
+            renderer.paint(view, 1);
+            if (flat(renderer, {note->bounds.x, note->bounds.y, 200, 22})) {
+                throw std::runtime_error("the note that shortcuts.json can't be read is not drawn");
+            }
+            return;
+        }
+        invalid.move(0, std::max(card->bounds.x, 0.0) + 40, 300);
+        invalid.scroll(0, 0, 1);
+        for (int i = 0; i < 10; ++i) {
+            invalid.tick(10 + step + i * .05);
+        }
+    }
+    throw std::runtime_error("the note that shortcuts.json can't be read never came into view");
+}
+// The editor's popup as the App builds it (design, Typing and recording):
+// each change repaints as a full repaint draws it, and the mini keyboard's
+// keys are drawn, not only listed.
+void shortcut_popup(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutButton save;
+    save.label = "Save";
+    save.action.chords = {{{"ControlLeft"}, "KeyS"}};
+    model.profiles.push_back({"b", "Editor", {save}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+        app.move(0, 5, 590);
+    };
+    const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    tap_control("shortcuts-label");
+    const std::string name = narrow ? "the popup without the numpad" : "the popup";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("Label").c_str());
+    for (const char* key : {"KeyQ", "Space", "Enter", "F12", "Numpad1", "ArrowUp", "MetaRight"}) {
+        const auto r = control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds;
+        if (flat(compare.full, r)) {
+            throw std::runtime_error(phase("the mini key ") + key + " is not drawn");
+        }
+    }
+    const auto q = control_named(app.view(), "shortcuts-popup-key-KeyQ").bounds;
+    const double qx = q.x + q.width / 2, qy = q.y + q.height / 2;
+    app.move(0, qx, qy);
+    compare.frame(app.view(), phase("a key under the laser").c_str());
+    app.down(0, qx, qy, now += .1);
+    compare.frame(app.view(), phase("a key held down").c_str());
+    app.up(0, qx, qy);
+    compare.frame(app.view(), phase("a letter typed").c_str());
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    compare.frame(app.view(), phase("Shift latched").c_str());
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    tap_control("shortcuts-popup-key-Enter");
+    compare.frame(app.view(), phase("saved").c_str());
+    tap_control("shortcuts-record");
+    compare.frame(app.view(), phase("Recording").c_str());
+    // R330: Num Lock and Caps Lock drawn disabled while recording, not lit.
+    {
+        auto view = app.view();
+        PanelRenderer enabled;
+        view.shortcut_editor->popup->disabled.clear();
+        enabled.paint(view, now, true);
+        for (const char* key : {"NumLock", "CapsLock"}) {
+            const auto r = control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds;
+            if (!app.view().shortcut_editor->popup->disabled.contains(key) ||
+                same_pixels(compare.full, enabled, r)) {
+                throw std::runtime_error(phase("") + key + " is not drawn disabled while recording");
+            }
+        }
+    }
+    tap_control("shortcuts-popup-key-ControlLeft");
+    compare.frame(app.view(), phase("a pending modifier").c_str());
+    tap_control("shortcuts-popup-key-KeyK");
+    tap_control("shortcuts-popup-key-ShiftLeft");
+    compare.frame(app.view(), phase("a combination recorded").c_str());
+    tap_control("shortcuts-popup-cancel");
+    compare.frame(app.view(), phase("canceled").c_str());
+}
+// R331: four combinations of four keys each at the no-numpad width draw
+// nothing outside the case, in the editor or in its popup.
+void long_combinations_drawn() {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = true;
+    save_settings(folder.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutModel model;
+    ShortcutButton button;
+    button.label = "Long";
+    button.action.chords = {{all, "KeyZ"}, {all, "KeyX"}, {all, "KeyC"}, {all, "KeyV"}};
+    model.profiles.push_back({"b", "Bar", {button}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, 1);
+        app.up(0, x, y);
+        app.move(0, 800, 590);
+    };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    const auto outside = [&](const char* what) {
+        PanelRenderer renderer;
+        const auto view = app.view();
+        renderer.paint(view, 1, true);
+        const auto body = panel_case_bounds(view);
+        for (int y = 0; y < static_cast<int>(body.height); ++y) {
+            for (const int x :
+                 {static_cast<int>(body.x) - 3, static_cast<int>(body.x + body.width) + 2}) {
+                if (alpha_at(renderer, x, y) != 0) {
+                    throw std::runtime_error(std::string(what) + ": drawn outside the case at " +
+                                             std::to_string(x) + "," + std::to_string(y));
+                }
+            }
+        }
+    };
+    outside("the editor with long combinations");
+    tap(control_named(app.view(), "shortcuts-record").bounds);
+    for (const char* key : {"KeyZ", "KeyX", "KeyC", "KeyV"}) {
+        for (const char* modifier : {"ControlLeft", "ShiftLeft", "AltLeft"}) {
+            tap(control_named(app.view(), std::string("shortcuts-popup-key-") + modifier).bounds);
+        }
+        tap(control_named(app.view(), std::string("shortcuts-popup-key-") + key).bounds);
+    }
+    outside("the popup recording long combinations");
+}
+// The Macro view as the App builds it: its repaints match a full repaint,
+// and 32 steps with one of 32 combinations draw nothing outside the case.
+void macro_view(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    const std::vector<std::string> all{"ControlLeft", "ShiftLeft", "AltLeft"};
+    ShortcutButton button;
+    button.label = "Macro";
+    button.action.kind = ShortcutAction::Kind::Macro;
+    MacroStep keys;
+    keys.kind = MacroStep::Kind::Keys;
+    for (int i = 0; i < 32; ++i) {
+        keys.keys.push_back({all, "Key" + std::string(1, static_cast<char>('A' + i % 26))});
+    }
+    button.action.steps.push_back(keys);
+    for (int i = 1; i < 32; ++i) {
+        MacroStep wait;
+        wait.kind = MacroStep::Kind::Wait;
+        wait.wait_ms = 100 * i;
+        button.action.steps.push_back(wait);
+    }
+    button.action.repeat = {MacroRepeat::Mode::Times, 3};
+    ShortcutModel model;
+    model.profiles.push_back({"b", "Bar", {button}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+        app.move(0, 5, 590);
+    };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    const std::string name = narrow ? "the macro view without the numpad" : "the macro view";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("32 steps").c_str());
+    const auto inside = [&](const char* what) {
+        const auto view = app.view();
+        const auto body = panel_case_bounds(view);
+        for (int y = 0; y < static_cast<int>(body.height); ++y) {
+            for (const int x :
+                 {static_cast<int>(body.x) - 3, static_cast<int>(body.x + body.width) + 2}) {
+                // A full-width case has no texture beside it.
+                if (x >= 0 && x < panel_width && alpha_at(compare.full, x, y) != 0) {
+                    throw std::runtime_error(phase(what) + ": drawn outside the case");
+                }
+            }
+        }
+    };
+    inside("32 steps");
+    const auto row = control_named(app.view(), "shortcuts-step-1").bounds;
+    app.move(0, row.x + 200, row.y + row.height / 2);
+    compare.frame(app.view(), phase("a step under the laser").c_str());
+    const auto plus = control_named(app.view(), "shortcuts-step-plus-1").bounds;
+    app.move(0, plus.x + plus.width / 2, plus.y + plus.height / 2);
+    compare.frame(app.view(), phase("+ under the laser").c_str());
+    tap(plus);
+    compare.frame(app.view(), phase("a wait changed").c_str());
+    const auto well = app.view().shortcut_editor->steps_well;
+    app.move(0, well.x + 300, well.y + 100);
+    app.scroll(0, 0, 3);
+    for (int i = 0; i < 20; ++i) {
+        app.tick(now += .05);
+        compare.frame(app.view(), phase("the list scrolling").c_str());
+    }
+    // A step carried by a drag.
+    const auto carried = control_named(app.view(), "shortcuts-step-4").bounds;
+    const double x = carried.x + 200, y = carried.y + carried.height / 2;
+    app.move(0, x, y);
+    app.down(0, x, y, now += .1);
+    app.move(0, x, y + 20);
+    app.move(0, x, y + 40);
+    compare.frame(app.view(), phase("a step lifted").c_str());
+    app.up(0, x, y + 40);
+    compare.frame(app.view(), phase("a step put down").c_str());
+    tap(control_named(app.view(), "shortcuts-repeat-2").bounds);
+    compare.frame(app.view(), phase("While held").c_str());
+    inside("While held");
+}
+// Carrying a button to another profile: the lit row while carried, and
+// the popover after the drop, each against a full repaint.
+void carry_view(bool narrow) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.hide_numpad = narrow;
+    save_settings(folder.path, settings);
+    ShortcutButton button;
+    button.label = "Save";
+    button.action.chords = {{{"ControlLeft"}, "KeyS"}};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Editor", {button, button}});
+    model.profiles.push_back({"b", "Browser", {}});
+    model.free_profile = "a";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+    };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    const std::string name = narrow ? "carrying without the numpad" : "carrying";
+    const auto phase = [&](const char* what) { return name + ": " + what; };
+    Comparison compare;
+    compare.frame(app.view(), phase("the editor").c_str());
+    // Every control the editor draws by name is drawn: New profile too.
+    for (const char* id :
+         {"shortcuts-new-profile", "shortcuts-row-0", "shortcuts-button-0", "shortcuts-add"}) {
+        if (flat(compare.full, control_named(app.view(), id).bounds)) {
+            throw std::runtime_error(phase("") + id + " is not drawn");
+        }
+    }
+    const auto from = control_named(app.view(), "shortcuts-button-0").bounds;
+    const auto to = control_named(app.view(), "shortcuts-row-1").bounds;
+    const double x0 = from.x + from.width / 2, y0 = from.y + from.height / 2;
+    const double x1 = to.x + to.width / 2, y1 = to.y + to.height / 2;
+    app.move(0, x0, y0);
+    app.down(0, x0, y0, now += .1);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, x0 + (x1 - x0) * step / 8, y0 + (y1 - y0) * step / 8);
+        compare.frame(app.view(), phase("carried").c_str());
+    }
+    if (!app.view().shortcut_editor->drop_row) {
+        throw std::runtime_error(phase("the row under the button is not lit"));
+    }
+    app.up(0, x1, y1);
+    compare.frame(app.view(), phase("the popover").c_str());
+    const auto move = control_named(app.view(), "shortcuts-carry-move").bounds;
+    app.move(0, move.x + move.width / 2, move.y + move.height / 2);
+    compare.frame(app.view(), phase("Move under the laser").c_str());
+    tap(control_named(app.view(), "shortcuts-carry-copy").bounds);
+    compare.frame(app.view(), phase("copied").c_str());
+}
 int main() {
     try {
+        app_controls_drawn();
+        shortcut_popup(false);
+        shortcut_popup(true);
+        long_combinations_drawn();
+        macro_view(false);
+        macro_view(true);
+        carry_view(false);
+        carry_view(true);
+        shortcut_editor("graphite", true);
+        shortcut_editor("porcelain", false);
+        shortcut_bar("graphite", 1);
+        shortcut_bar("porcelain", 1);
+        shortcut_bar("graphite", .5);
+        shortcut_bar("porcelain", 0);
+        shortcut_bar("graphite", 0); // Invisible and Disabled draw alike
         no_stray_lines();
         candidate_menu_resize();
         candidate_scrolling();

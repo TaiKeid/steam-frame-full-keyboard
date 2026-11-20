@@ -73,7 +73,7 @@ add_custom_command(OUTPUT "${PROFILE_HEADER}"
             "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/stream_support.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/app_themes.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/curve_bars.cpp src/theme_previews.cpp src/emoji.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/stream_support.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/app_themes.cpp src/app_shortcuts.cpp src/app_shortcut_editor.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/curve_bars.cpp src/theme_previews.cpp src/emoji.cpp src/shortcuts.cpp src/shortcut_runner.cpp src/shortcut_launch.cpp src/shortcut_editor.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/app_names.cpp src/stream_app.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
@@ -340,6 +340,8 @@ if(FRAMEKEYBOARD_VR)
     target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
     if(FRAMEKEYBOARD_FOCUS_TRACE)
         target_compile_definitions(framekeyboard PRIVATE FRAMEKEYBOARD_FOCUS_TRACE)
+        # src/desktop_terminal.cpp's line per KWin report.
+        target_compile_definitions(keyboard_core PRIVATE FRAMEKEYBOARD_FOCUS_TRACE)
     endif()
     # Development binaries find these beside themselves; packages use share/framekeyboard.
     # Do not embed an absolute source-tree path in the executable for this fallback.
@@ -485,6 +487,16 @@ if(BUILD_TESTING)
         add_test(NAME locales-tool COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_locales_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py")
+        # Every README's links and in-page anchors lead somewhere.
+        add_test(NAME readme-links COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_readme_links.py" "${CMAKE_CURRENT_SOURCE_DIR}")
+        # Rows as far apart as keys in a row, no overlaps, all within size.
+        add_test(NAME layout-geometry COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/layout_geometry_tests.py" "${CMAKE_CURRENT_SOURCE_DIR}/layouts")
+        # The swipe word list builder's capital fold, and the bundled Spanish list.
+        add_test(NAME swipe-lexicons COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/swipe_lexicon_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_swipe_lexicon.py")
     endif()
     add_executable(word-suggestions-tests tests/word_suggestions_tests.cpp)
     target_link_libraries(word-suggestions-tests PRIVATE keyboard_core)
@@ -668,10 +680,28 @@ if(BUILD_TESTING)
     target_link_libraries(terminal-keys-tests PRIVATE keyboard_core)
     target_compile_options(terminal-keys-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME terminal-keys COMMAND terminal-keys-tests)
+    add_executable(laser-areas-tests tests/laser_areas_tests.cpp)
+    target_link_libraries(laser-areas-tests PRIVATE keyboard_core)
+    target_include_directories(laser-areas-tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_compile_options(laser-areas-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME laser-areas COMMAND laser-areas-tests)
     add_executable(emoji-tests tests/emoji_tests.cpp)
     target_link_libraries(emoji-tests PRIVATE keyboard_core)
     target_compile_options(emoji-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME emoji COMMAND emoji-tests)
+    add_executable(shortcuts-tests tests/shortcuts_tests.cpp)
+    target_link_libraries(shortcuts-tests PRIVATE keyboard_core)
+    target_compile_options(shortcuts-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME shortcuts COMMAND shortcuts-tests)
+    add_executable(shortcut-runner-tests tests/shortcut_runner_tests.cpp)
+    target_link_libraries(shortcut-runner-tests PRIVATE keyboard_core)
+    target_compile_options(shortcut-runner-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME shortcut-runner COMMAND shortcut-runner-tests)
+    # Run's launcher, in a temporary home and folder only; never the user's.
+    add_executable(shortcut-launch-tests tests/shortcut_launch_tests.cpp)
+    target_link_libraries(shortcut-launch-tests PRIVATE keyboard_core)
+    target_compile_options(shortcut-launch-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME shortcut-launch COMMAND shortcut-launch-tests)
     if(NOT CMAKE_CROSSCOMPILING)
         if(FRAMEKEYBOARD_VR)
             add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
@@ -737,6 +767,10 @@ if(BUILD_TESTING)
     target_link_libraries(japanese-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)
     target_link_libraries(ei-target-probe PRIVATE keyboard_core PkgConfig::X11)
+    # Opt-in only: sends the shortcut bar's keys through the production route,
+    # only while its own disposable receiver has focus (checked every frame).
+    add_executable(shortcut-target-probe tests/shortcut_target_probe.cpp)
+    target_link_libraries(shortcut-target-probe PRIVATE keyboard_core PkgConfig::X11)
     # Opt-in only: drives commits and replacements for a disposable receiver
     # that the caller has focused and verifies before every command.
     add_executable(text-replace-probe tests/text_replace_probe.cpp)

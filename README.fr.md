@@ -22,7 +22,7 @@ Pour installer depuis un terminal, voir [Installation manuelle](#installation-ma
 
 - Disposition complète avec F1–F12, touches de navigation, touches fléchées, un pavé numérique que vous pouvez masquer et des touches Shift, Ctrl et Alt qui se verrouillent quand on les maintient.
 - Des touches dédiées Couper, Copier et Coller qui envoient Ctrl+X, Ctrl+C et Ctrl+V, ou les touches propres à un terminal, comme Ctrl+Shift+C et Ctrl+Shift+V.
-- La dictée : parlez au lieu de taper, avec une reconnaissance dans le casque ou par votre propre serveur vocal Whisper. Corrigez le texte dans un éditeur et envoyez-le, ou laissez **Taper en parlant** (Type as I speak) taper chaque phrase directement dans l'appli. Voir [la dictée](#dictation).
+- La dictée : parlez au lieu de taper, avec une reconnaissance dans le casque ou par votre propre serveur vocal Whisper. Corrigez le texte dans un éditeur et envoyez-le, ou laissez **Taper en parlant** (Type as I speak) taper chaque phrase directement dans l'appli. Voir [la dictée](#dictée).
 - La saisie gestuelle, désactivée après une installation manuelle et au choix dans l'installateur, pour l'anglais, l'allemand, le français, l'espagnol, l'italien, le portugais, le polonais, le néerlandais, le suédois, l'ukrainien, le russe, le pinyin chinois et [25 autres langues](docs/configuration.md#swipe-typing), du tchèque à l'arabe et à l'hébreu. La saisie gestuelle repose sur la technologie « FUTO Swipe ».
 - Les suggestions de saisie, activées par défaut, dans les langues qui ont la saisie gestuelle : jusqu'à cinq complétions du mot que vous tapez, les mots que vous utilisez le plus en premier.
 - La conversion japonaise avec Mozc, avec des candidats pendant la frappe, et un clavier japonais à 12 touches avec effleurement, comme sur un téléphone.
@@ -31,6 +31,7 @@ Pour installer depuis un terminal, voir [Installation manuelle](#installation-ma
 - **Rester ouvert sur les applis** (Stay open over apps) : le clavier reste en place quand le tableau de bord se ferme, pour taper dans des fenêtres qui flottent dans l'espace ; pointez une fenêtre flottante pour cliquer dessus avec le laser de SteamVR.
 - **Mode focus** (Focus mode) : avec le remplacement natif, le clavier reste affiché quand un champ de texte se ferme, prêt pour le champ ou l'appli suivants, et vous avertit quand il taperait dans une fenêtre que vous ne voyez pas.
 - **Prise en charge du streaming** (Streaming support) : tape dans les jeux et applis que Steam diffuse depuis votre PC, avec les raccourcis et chaque touche, et depuis un PC Windows du texte dans n'importe quelle langue. Voir [jeux en streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Barre de raccourcis** (Shortcut bar) : vos propres boutons au-dessus du clavier, regroupés en profils. Un bouton envoie un raccourci, exécute une macro de touches et d'attentes, ou lance un script ou une commande sur le casque, et un profil peut s'afficher de lui-même quand son application est au premier plan. Voir [la barre de raccourcis](docs/shortcut-bar.md).
 - La frappe au laser de la manette, avec des clics haptiques et un retour au survol, et des sons de touches facultatifs avec six effets.
 - Déplacez-le avec la poignée sous le clavier ou en le saisissant, redimensionnez-le depuis l'un des coins inférieurs, incurvez-le autour de vous, épinglez-le, et laissez la mise à l'horizontale automatique le redresser après un déplacement.
 - Il suit le tableau de bord, mémorise sa position et se recentre en le relançant.
@@ -127,7 +128,7 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 | Changer la taille | Désépingler, viser avec le laser de l'une ou l'autre manette juste à l'extérieur d'un coin inférieur du clavier, puis maintenir la gâchette sur la poignée de coin qui apparaît et faire glisser. Le clavier grandit ou rétrécit autour de son centre |
 | L'incurver autour de vous | Activer **Clavier incurvé** (Curved keyboard) dans la carte de paramètres **Général** et appliquer. Désépingler, viser avec le laser de l'une ou l'autre manette juste à l'extérieur du bord gauche ou droit du clavier, puis maintenir la gâchette ou la poignée sur la barre qui apparaît et la tirer vers le haut, vers soi, ou tourner la main pour faire monter le laser ; la repousser aplatit le clavier. La courbure est conservée après un redémarrage |
 | Masquer le pavé numérique | Dans les paramètres, cocher Général → **Masquer le pavé numérique** puis **Appliquer et enregistrer** |
-| Voir derrière le clavier | Dans les paramètres, régler Général → **Arrière-plan** sur **Semi-transparent** ou **Invisible** puis **Appliquer et enregistrer** |
+| Voir derrière le clavier | Dans les paramètres, régler Général → **Arrière-plan** sur **Semi-transparent** ou **Invisible** puis **Appliquer et enregistrer**. **Désactivé** (Disabled) ne montre pas non plus le boîtier et laisse en plus passer le laser entre les groupes de touches, pour cliquer sur ce qui est derrière |
 | Changer de disposition, de langue ou de thème | Ouvrir l'icône d'engrenage, choisir les profils, puis **Appliquer et enregistrer** (Apply and save) |
 | Recentrer | Utiliser l'icône **Recentrer**, ou relancer Full Keyboard |
 | Fermer | Utiliser × pour masquer le panneau en mode remplacement ; sinon, cela quitte l'appli |
@@ -136,6 +137,16 @@ Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacem
 **Si le clavier a dérivé hors de portée, relancez l'appli.** S'il tourne déjà, un nouveau lancement recentre le clavier existant sous le tableau de bord actuel au lieu d'en ouvrir un second. Sa taille est conservée. Si le tableau de bord est fermé, le recentrage attend qu'il s'ouvre.
 
 Fermer et rouvrir restaure la dernière position, la rotation, la taille et l'état de Num Lock. Déplacer ou incliner le tableau de bord emporte le clavier avec lui. **Mise à l'horizontale auto** (Auto leveling), activée par défaut dans Général, redresse un clavier légèrement de travers après que vous l'avez déplacé.
+
+## Barre de raccourcis
+
+Activez **Barre de raccourcis** (Shortcut bar) dans Paramètres → **Général** (General) et appliquez. Une barre de vos propres boutons s'affiche alors au-dessus du clavier ; appuyez sur un bouton pour l'utiliser. Le bouton de la barre de raccourcis dans la barre d'outils la masque et l'affiche à nouveau.
+
+- L'onglet au bout droit de la barre ouvre le menu **Profils** (Profiles) : choisissez un profil pour l'afficher. **Gérer** (Manage) ouvre l'éditeur, où vous créez les profils et leurs boutons.
+- Un bouton est un **Raccourci** (Shortcut), jusqu'à quatre combinaisons de touches envoyées dans l'ordre, comme Ctrl+K puis S ; une **Macro**, des étapes de touches et d'attentes répétées **Une fois**, **Plusieurs** fois ou tant qu'il est **Maintenu** ; ou **Exécuter** (Run), qui lance un script de votre dossier de scripts ou une commande sur le casque.
+- Le bouton à côté d'un profil dans le menu l'attribue à l'application au premier plan. La barre affiche ensuite ce profil chaque fois que cette application est au premier plan, y compris les jeux et applications diffusés depuis votre PC ; l'éditeur les liste sous **Utilisé pour** (Used for).
+
+[La barre de raccourcis](docs/shortcut-bar.md) décrit l'éditeur, ce qui arrête une macro, les scripts et le streaming.
 
 ## Langues et personnalisation
 

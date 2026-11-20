@@ -272,7 +272,7 @@ void layout_tests() {
     require(bounds_in(mode.layout, "Dictation-cut") == bounds_in(main, "ControlLeft") &&
                 bounds_in(mode.layout, "Dictation-copy") == bounds_in(main, "MetaLeft") &&
                 bounds_in(mode.layout, "Dictation-paste") == bounds_in(main, "AltLeft") &&
-                bounds_in(mode.layout, "Dictation-undo") == Rect{0, 186, 79, 110},
+                bounds_in(mode.layout, "Dictation-undo") == Rect{0, 182, 79, 106},
             "Cut, Copy and Paste take the left modifiers' slots; Undo sits above the mic key, as tall");
     const auto& zero = *std::find_if(mode.layout.keys.begin(), mode.layout.keys.end(),
                                      [](const Key& key) { return key.id == "Numpad0"; });
@@ -3647,7 +3647,8 @@ void compact_toolbar_tests() {
         }
         const auto view = app.view();
         const auto editor = view.dictation->bounds;
-        require(editor.y >= 64, "the editor keeps a gap under the first toolbar row");
+        require(editor.y > 64 - 1e-6, // the nudge's sum, to a hair
+                "the editor keeps a gap under the first toolbar row");
         double cycle = -1, others = 0;
         for (const auto& control : view.controls) {
             if (control.id == "language-cycle") {
@@ -4421,10 +4422,80 @@ void selection_tests() {
 }
 } // namespace
 
+// R373: the mode's keys that the normal layout also shows stand on exactly
+// its pixels (draw_key rounds each key's corner to a whole pixel), in every
+// shipped layout and the band's languages, numpad shown and hidden, bar on
+// and off.
+void shared_key_pixel_tests() {
+    const auto profiles = load_profiles({}, {});
+    std::vector<std::pair<std::string, std::string>> cases;
+    for (const auto& [id, layout] : profiles.layouts) {
+        cases.emplace_back(id, profiles.languages.contains(layout.language) ? layout.language : "en-us");
+    }
+    cases.emplace_back("en-us-full", "ko-kr");
+    cases.emplace_back("en-us-full", "zh-cn-pinyin");
+    using Pixels = std::map<std::string, std::array<double, 4>>;
+    auto pixels = [](const PanelView& view) {
+        Pixels result;
+        for (const auto& key : view.layout->keys) {
+            if (!hidden_key(view, key)) {
+                const auto r = panel_rect(view, key.bounds);
+                result[key.id] = {std::round(r.x), std::round(r.y), r.width, r.height};
+            }
+        }
+        return result;
+    };
+    for (const auto& [layout, language] : cases) {
+        for (const bool hide : {false, true}) {
+            for (const bool bar : {false, true}) {
+                TemporaryDirectory directory;
+                Options options;
+                options.config_dir = directory.path;
+                options.models_dir = directory.path / "models";
+                options.mode = Mode::Vr;
+                options.input = InputBackend::Ei;
+                options.start_enabled = true;
+                use_fake_helper(options, directory.path, "silent");
+                std::ofstream(directory.path / "config.json")
+                    << R"({"schema_version":1,"active":{"layout":")" << layout << R"(","language":")"
+                    << language << R"(","theme":"graphite"},"hide_numpad":)" << (hide ? "true" : "false")
+                    << R"(,"shortcuts":)" << (bar ? "true" : "false")
+                    << R"(,"dictation":"server","dictation_server":"127.0.0.1"})";
+                Sink sink;
+                App app(options, sink);
+                const std::string name = layout + " with " + language + (hide ? ", numpad hidden" : "") +
+                                         (bar ? ", bar on" : "");
+                const auto normal = pixels(app.view());
+                open_editor(app);
+                if (!app.dictation_open()) {
+                    throw std::runtime_error("dictation mode opens: " + name);
+                }
+                const auto mode = pixels(app.view());
+                std::size_t shared = 0;
+                for (const auto& [id, r] : mode) {
+                    const auto before = normal.find(id);
+                    if (before == normal.end()) {
+                        continue;
+                    }
+                    ++shared;
+                    if (before->second != r) {
+                        throw std::runtime_error("the mode's " + id +
+                                                 " stands on the normal layout's pixels: " + name);
+                    }
+                }
+                if (shared < 20) {
+                    throw std::runtime_error("the mode shares the normal layout's keys: " + name);
+                }
+            }
+        }
+    }
+}
+
 int main() {
     try {
         settings_tests();
         layout_tests();
+        shared_key_pixel_tests();
         mode_tests();
         key_flick_tests();
         held_kana_mic_tests();

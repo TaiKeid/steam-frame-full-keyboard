@@ -22,7 +22,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 
 - Distribución de tamaño completo con F1–F12, teclas de navegación, flechas, un teclado numérico que puedes ocultar y teclas Shift, Ctrl y Alt que se bloquean al mantenerlas pulsadas.
 - Teclas dedicadas de Cortar, Copiar y Pegar que envían Ctrl+X, Ctrl+C y Ctrl+V, o las teclas propias de un terminal, como Ctrl+Shift+C y Ctrl+Shift+V.
-- Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictation).
+- Dictado: habla en lugar de escribir, con reconocimiento en el visor o en tu propio servidor de voz Whisper. Corrige el texto en un editor y envíalo, o deja que **Escribir mientras hablo** (Type as I speak) escriba cada frase directamente en la app. Consulta [dictado](#dictado).
 - Escritura deslizante, desactivada tras una instalación manual y a tu elección en el instalador, para inglés, alemán, francés, español, italiano, portugués, polaco, neerlandés, sueco, ucraniano, ruso, chino pinyin y [25 idiomas más](docs/configuration.md#swipe-typing), del checo al árabe y el hebreo. La escritura deslizante funciona con la tecnología "FUTO Swipe".
 - Sugerencias de escritura, activadas por defecto, en los idiomas que tienen escritura deslizante: hasta cinco formas de completar la palabra que escribes, con las que más usas primero.
 - Conversión de japonés con Mozc, con candidatos mientras escribes, y un teclado flick japonés de 12 teclas como el de los móviles.
@@ -31,6 +31,7 @@ Para instalar desde una terminal, consulta [Instalación manual](#instalación-m
 - **Mantener abierto sobre apps** (Stay open over apps): el teclado se queda en su sitio cuando se cierra el panel, para escribir en ventanas que flotan en el mundo; apunta a una ventana flotante para hacer clic en ella con el láser de SteamVR.
 - **Modo de foco** (Focus mode): con el reemplazo nativo, el teclado sigue visible cuando se cierra un campo de texto, listo para el siguiente campo o app, y avisa cuando escribiría en una ventana que no puedes ver.
 - **Compatibilidad con streaming** (Streaming support): escribe en juegos y apps que Steam retransmite desde tu PC, con atajos y cualquier tecla, y desde un PC con Windows, texto en cualquier idioma. Consulta [juegos en streaming](docs/streamed-games.md#through-steams-own-streaming-streaming-support).
+- **Barra de atajos** (Shortcut bar): tus propios botones sobre el teclado, agrupados en perfiles. Un botón envía un atajo, ejecuta una macro de teclas y esperas, o inicia un script o un comando en el visor, y un perfil puede aparecer solo cuando su aplicación está en primer plano. Consulta [la barra de atajos](docs/shortcut-bar.md).
 - Escritura con el láser del mando, con clics hápticos y respuesta al pasar por encima, además de sonidos de tecla opcionales con seis efectos.
 - Muévelo con el asa de debajo del teclado o agarrándolo, cambia su tamaño desde cualquiera de las esquinas inferiores, cúrvalo a tu alrededor, ánclalo en su sitio y deja que la nivelación automática lo enderece después de moverlo.
 - Seguimiento del panel, posición guardada y recuperación volviendo a abrirlo para recentrarlo.
@@ -127,7 +128,7 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 | Cambiar el tamaño | Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera de una esquina inferior del teclado, mantén el gatillo sobre el tirador de esquina que aparece y arrastra. El teclado crece o se encoge alrededor de su centro |
 | Curvarlo a tu alrededor | Activa **Teclado curvo** en la tarjeta de ajustes **General** y aplica. Desánclalo, apunta el láser de cualquiera de los mandos justo por fuera del borde izquierdo o derecho del teclado, mantén el gatillo o el agarre (grip) sobre la barra que aparece y tira de ella hacia arriba, hacia ti, o gira la mano para que el láser suba; empújala de vuelta para aplanarlo. La curva se conserva al reiniciar |
 | Ocultar el teclado numérico | En Ajustes, marca General → Ocultar teclado numérico y pulsa Aplicar y guardar |
-| Ver detrás del teclado | En Ajustes, pon General → Fondo en Semitransparente o Invisible y pulsa Aplicar y guardar |
+| Ver detrás del teclado | En Ajustes, pon General → Fondo en Semitransparente o Invisible y pulsa Aplicar y guardar. **Desactivado** (Disabled) tampoco muestra la carcasa y además deja pasar el láser entre los grupos de teclas, para hacer clic en lo que hay detrás |
 | Cambiar distribución, idioma o tema | Abre el icono del engranaje, elige los perfiles y pulsa **Aplicar y guardar** |
 | Recentrar | Usa el icono de recentrar o vuelve a abrir Full Keyboard |
 | Cerrar | Usa × para ocultar el panel en el modo de reemplazo; si no, cierra la app |
@@ -136,6 +137,16 @@ Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo n
 **Si el teclado se ha alejado fuera de tu alcance, vuelve a abrir la app.** Cuando ya se está ejecutando, abrirla de nuevo recentra el teclado existente bajo el panel actual en lugar de abrir otro. Su tamaño se conserva. Si el panel está cerrado, el recentrado espera a que se abra.
 
 Al cerrarlo y volver a abrirlo se restauran la última posición, la rotación, el tamaño y el estado de Bloq Num. Mover o inclinar el panel arrastra el teclado consigo. **Nivelación automática** (Auto leveling), activada por defecto en General, endereza un teclado ligeramente torcido después de moverlo.
+
+## Barra de atajos
+
+Activa **Barra de atajos** (Shortcut bar) en Ajustes → **General** y aplica. Sobre el teclado aparece una barra con tus propios botones; pulsa un botón para usarlo. El botón de la barra de atajos en la barra de herramientas la oculta y la vuelve a mostrar.
+
+- La pestaña del extremo derecho de la barra abre el menú **Perfiles** (Profiles): elige un perfil para mostrarlo. **Gestionar** (Manage) abre el editor, donde creas los perfiles y sus botones.
+- Un botón es un **Atajo** (Shortcut), hasta cuatro combinaciones de teclas enviadas en orden, como Ctrl+K y luego S; una **Macro**, pasos de teclas y esperas repetidos **Una vez**, **Varias** veces o **Mantenido**; o **Ejecutar** (Run), que inicia un script de tu carpeta de scripts o un comando en el visor.
+- El botón junto a un perfil en el menú lo asigna a la aplicación en primer plano. Desde entonces la barra muestra ese perfil cada vez que esa aplicación está en primer plano, incluidos los juegos y aplicaciones transmitidos desde tu PC; el editor las lista en **Se usa para** (Used for).
+
+[La barra de atajos](docs/shortcut-bar.md) explica el editor, qué detiene una macro, los scripts y el streaming.
 
 ## Idiomas y personalización
 

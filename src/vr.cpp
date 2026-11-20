@@ -40,6 +40,8 @@
 #include <time.h>
 
 namespace framekeyboard {
+static_assert(max_laser_areas == vr::k_unMaxOverlayIntersectionMaskPrimitivesCount,
+              "laser_areas fits SteamVR's intersection mask");
 namespace {
 // Seconds the system has spent suspended since boot.
 double suspended_seconds() {
@@ -1255,28 +1257,32 @@ class SceneCursors {
     }
     std::array<Dot, 2> dots_{};
 };
-// SteamVR's own laser outside the dashboard, only while a passthrough ray
-// points at a floating window, so a trigger pull there is a real click on
-// Gamescope's overlay and focuses that window. Our own ray cannot click
-// another app's overlay. SteamVR turns its system-wide laser mode on while any visible
-// overlay with mouse input has MakeOverlaysInteractiveIfVisible, as Steam's
-// keyboard over games does; this overlay carries that flag, a transparent
-// speck far below the floor, so the laser never lands on our keyboard.
+// SteamVR's own laser outside the dashboard: while a passthrough ray points
+// at a floating window, so a trigger pull there is a real click on
+// Gamescope's overlay and focuses that window (our own ray cannot click
+// another app's overlay), and for the whole of typing into a stream (R370),
+// so a trigger pull on a key never reaches the PC as a gamepad's click.
+// SteamVR turns its system-wide laser mode on while any visible overlay with
+// mouse input has MakeOverlaysInteractiveIfVisible, as Steam's keyboard over
+// games does; this overlay carries that flag, a transparent speck far below
+// the floor, so the laser never lands on it. StreamLaser::window_laser
+// decides when it shows.
 class WindowLaser {
   public:
-    // Kept on briefly after the ray leaves, so the laser does not flicker at
-    // a window's edge or vanish just before a pull.
-    void update(bool pointing, double now) {
-        if (pointing) {
+    // Whether a ray points at a floating window: kept true briefly after the
+    // ray leaves, so the laser does not flicker at a window's edge or vanish
+    // just before a pull.
+    bool pointing(bool at_window, double now) {
+        if (at_window) {
             until_ = now + .3;
         }
-        set(pointing || now < until_);
+        return at_window || now < until_;
     }
+    void forget_pointing() { until_ = 0; }
+    void show(bool shown) { set(shown); }
     bool on() const { return on_; }
-    void off() {
-        until_ = 0;
-        set(false);
-    }
+    // False once the overlay could not be made: nothing can hold the laser.
+    bool available() const { return !failed_; }
 
   private:
     void set(bool on) {
@@ -2073,7 +2079,16 @@ class VrPanel {
     }
     // The panel areas of the last mask, for the passthrough pointer.
     const std::vector<Rect>& mask_areas() const { return mask_areas_; }
-    void mask(const PanelView& view) {
+    // A grip move or a handle drag holds the keyboard as a press does: the
+    // whole case takes the laser until it ends (R380). Masks again at once.
+    bool held() const { return held_; }
+    void set_held(bool held, const PanelView& view) {
+        held_ = held;
+        mask(view);
+    }
+    void mask(const PanelView& shown) {
+        auto view = shown;
+        view.pointer_held = view.pointer_held || held_;
         mask_areas_.clear();
         // The enlarged texture has transparent popup margins. Restrict laser
         // intersection to the case, movement handle, open menu and flick preview so unused pixels cannot
@@ -2090,17 +2105,27 @@ class VrPanel {
             mask_areas_.push_back(bounds);
             ++count;
         };
-        if (view.popup) {
-            rectangle(*view.popup);
-        }
-        // A flick may leave the case over its preview; keep tracking the laser there.
-        if (const auto preview = flick_preview_bounds(view)) {
-            rectangle(*preview);
-        }
-        if (const auto handle = panel_move_handle_bounds(view)) {
+        const auto handle = panel_move_handle_bounds(view);
+        if (handle) {
             rectangle(*handle);
         }
-        rectangle(panel_case_bounds(view));
+        // The case, an open menu, the flick preview a flick may leave the
+        // case over, and the shortcut bar's plates and menu above the case;
+        // under Background Disabled only the key groups and what takes input
+        // (pointer_bounds).
+        const auto areas = laser_areas(view, handle ? 1 : 0);
+        if (areas.fallback && !reported_fallback_) {
+            std::cout << (areas.fallback == 1
+                              ? "Laser areas: too many for the mask; using each group's bounds.\n"
+                              : "Laser areas: too many for the mask; using the whole case.\n")
+                      << std::flush;
+            reported_fallback_ = true;
+        }
+        for (const auto& area : areas.areas) {
+            if (count < primitives.size()) {
+                rectangle(area);
+            }
+        }
         check(vr_overlay()->SetOverlayIntersectionMask(handle_, primitives.data(),
                                                        static_cast<std::uint32_t>(count)),
               "Set keyboard intersection mask");
@@ -2149,6 +2174,8 @@ class VrPanel {
     std::optional<bool> scroll_;
     NativePointerInputPolicy native_input_;
     std::vector<Rect> mask_areas_;
+    bool held_{};
+    bool reported_fallback_{}; // said once per run
     float curvature_{}; // As SteamVR has it; overlays start flat.
     bool curvature_refused_{};
 };
@@ -2161,6 +2188,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     CornerResizers resizers;
     CurveBarController bars;
     bool native_input_failed = false;
+    // The panel's SteamVR mouse input as last applied (R370's log lines).
+    bool native_mouse = false;
     auto set_native_input = [&](bool enabled, bool force = false) {
         const bool panel_ready = panel.set_native_input(enabled, force);
         const bool corners_ready = resizers.set_native_input(enabled, force);
@@ -2172,6 +2201,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         } else {
             native_input_failed = false;
         }
+        native_mouse = enabled && panel_ready;
     };
     std::atomic<double> replacement_progress{monotonic_seconds()};
     std::atomic<bool> replacement_watched{false}, replacement_stalled{false}, replacement_worn{true};
@@ -2298,6 +2328,13 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
     PassthroughRequests passthrough_requests;
     HiddenFocusCue hidden_focus;
     WindowLaser window_laser;
+    // A passthrough ray at a floating window, with its linger (WindowLaser).
+    bool window_pointing = false;
+    // SteamVR's laser mode held for the stream sink, as last logged (R370).
+    bool laser_held = false;
+    // Whether the sink's line about the panel's input has been logged for the
+    // input's state (native_mouse).
+    std::optional<bool> sink_input_logged;
     // Gamescope's keyboard focus while the panel shows in the dashboard.
     std::unique_ptr<KeyboardFocusProbe> focus_probe;
     DashboardFocus dashboard_focus;
@@ -2512,11 +2549,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         return false;
     };
     // A SteamVR laser that left our overlay, off the keyboard. Its hover ends, but swipe
-    // suggestions and the next word's space stay (App::cancel_pointer) until
-    // its trigger moves, the other hand takes the laser or the panel hides:
-    // a pull off the keys may click the window behind. Only while there is
-    // swipe state: the watch reads the trigger every frame. Back on a key,
-    // SteamVR's events take over.
+    // suggestions, the next word's space, ↶ and the follow-up offers stay
+    // (App::cancel_pointer) until its trigger moves, the other hand takes the
+    // laser or the panel hides: a pull off the keys may click the window
+    // behind. Only while App holds such state (holds_typing_state): the watch
+    // reads the trigger every frame. Back on a key, SteamVR's events take over.
     struct GapWatch {
         TriggerWatch watch;
         GapTrigger trigger;
@@ -2939,18 +2976,6 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             suspend_headset_input();
         }
     };
-    // The texture areas that take a pointer: the case, an open menu and the
-    // flick preview, which can reach past the case.
-    auto pointer_areas = [&](const PanelView& view) {
-        std::vector<Rect> areas{panel_case_bounds(view)};
-        if (view.popup) {
-            areas.push_back(*view.popup);
-        }
-        if (const auto preview = flick_preview_bounds(view)) {
-            areas.push_back(*preview);
-        }
-        return areas;
-    };
     auto forward = [&](json_object* body, double now) {
         detect_headset_suspend();
         json_object* value = nullptr;
@@ -2986,9 +3011,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             return;
         }
         const auto [x, y] = uv_to_panel(number("u"), number("v"));
-        const auto areas = pointer_areas(app.input_view());
-        const bool inside =
-            std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
+        const bool inside = takes_pointer(app.input_view(), x, y);
         detect_headset_suspend();
         if (headset_input.blocked()) {
             return;
@@ -3697,7 +3720,8 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // app Gamescope falls back to, not the dashboard the user is in.
         const bool dashboard_block =
             in_dashboard && (!focus_known || dashboard_focus.focused()) && !replacement.remote();
-        app.set_dashboard_focus(dashboard_block);
+        // The bar takes only an answer as a change of focus (R343).
+        app.set_dashboard_focus(dashboard_block, !in_dashboard || focus_known || replacement.remote());
         if constexpr (trace_focus) {
             if (dashboard_block != traced_block) {
                 traced_block = dashboard_block;
@@ -3790,12 +3814,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // the PC. While it types into a stream the panel takes the laser too,
         // as Steam's keyboard does; its events stay unused, since the loop
         // below skips them while the keyboard's own pointer has the input.
-        if (const bool sink = scene_input && native.stream && native.active; sink != stream_sink) {
+        if (const bool sink = StreamLaser::sink(scene_input, native.stream, native.active);
+            sink != stream_sink) {
             stream_sink = sink;
-            std::cout << (sink ? "Panel takes SteamVR's laser while typing into a stream.\n"
-                               : "Panel leaves SteamVR's laser.\n")
-                      << std::flush;
             update_native_input(true);
+            if (sink) {
+                // SteamVR's laser mode is held from this frame on (R370).
+                window_laser.show(true);
+            } else {
+                std::cout << "Panel leaves SteamVR's laser.\n" << std::flush;
+            }
+            sink_input_logged.reset();
         }
         // Disable after this frame's dashboard/scene/forwarded mode is known.
         // Only fresh presentation below may re-enable the SDK mouse path.
@@ -3873,7 +3902,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 return;
             }
             if (device < hovered_devices.size()) {
-                hovered_devices[device] = panel_case_bounds(app.geometry()).contains(x, y);
+                // The last mask: pointer_bounds() and the move handle, so a
+                // laser on the shortcut bar or an open menu counts as on the
+                // keyboard for the click watch and grabbing (R319).
+                const auto& areas = panel.mask_areas();
+                hovered_devices[device] = std::any_of(
+                    areas.begin(), areas.end(), [&](const Rect& area) { return area.contains(x, y); });
             }
             if (!drag.active()) {
                 if (app.move(pointer, x, y) && controller) {
@@ -4211,9 +4245,11 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     hovered_devices.fill(false);
                     on_own_controls.fill(0);
                 }
-                // Off the keys with the trigger at rest: only the hover ends.
-                // Without swipe state there is nothing to keep, nor to watch.
-                if (!drag.active() && app.holds_swipe_state() &&
+                // Off the keys with the trigger at rest: only the hover ends,
+                // also over the strips between key groups that Background
+                // Disabled leaves open. Without typing state there is nothing
+                // to keep, nor to watch.
+                if (!drag.active() && app.holds_typing_state() &&
                     !std::any_of(pointer_devices.begin(), pointer_devices.end(), [&](const auto& item) {
                         return item.second == device && app.pointer_pressed(item.first);
                     })) {
@@ -4263,7 +4299,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
             for (auto it = gap_watches.begin(); it != gap_watches.end();) {
                 auto& [watch, trigger] = it->second;
-                if (away || (pointing && *pointing != it->first) || !app.holds_swipe_state() ||
+                if (away || (pointing && *pointing != it->first) || !app.holds_typing_state() ||
                     !trigger.rests(watch.angle())) {
                     if (!away) {
                         lifecycle.pointer_left(it->first, false);
@@ -4364,7 +4400,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                     }
                 }
             }
-            window_laser.update(on_window, now);
+            window_pointing = window_laser.pointing(on_window, now);
             // A trigger pulled outside the panel may click another field or cursor
             // position in the app, even with a hand that never pointed at the
             // keyboard. Treat it as the laser leaving, before any key from this
@@ -4481,12 +4517,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                 scene_inside[other] = false;
                 lifecycle.pointer_left(samples[other].device, drag.active());
             }
-            // The stick scrolls the emoji grid or the dictation editor under its hand's ray: outside the
-            // dashboard SteamVR sends no scroll events. It scrolls at the rate
-            // measured from the dashboard's steps, two columns a step.
+            // The stick scrolls the emoji grid, the dictation editor, the
+            // shortcut bar, its menu or the shortcut editor under its hand's
+            // ray: outside the dashboard SteamVR sends no scroll events. It
+            // scrolls at the rate measured from the dashboard's steps.
             const double stick_seconds = std::clamp(now - std::exchange(stick_scrolled, now), 0.0, .1);
-            for (std::size_t hand = 0;
-                 (app.emoji_open() || app.dictation_open()) && !drag.active() && hand < samples.size();
+            for (std::size_t hand = 0; app.stick_scrolls() && !drag.active() && hand < samples.size();
                  ++hand) {
                 // Read the stick only while its ray is over something that scrolls.
                 const auto stick =
@@ -4511,7 +4547,36 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             }
         }
         if (headset_input.blocked() || !(scene_input && lifecycle.visible()) || done || app.quitting()) {
-            window_laser.off(); // Passthrough only; the dashboard has its own laser.
+            // Pointing at a window counts in passthrough only; the dashboard has
+            // its own laser. A stream sink's hold stays (R370).
+            window_laser.forget_pointing();
+            window_pointing = false;
+        }
+        {
+            const bool ending = done || app.quitting();
+            const bool held = stream_sink && !ending;
+            window_laser.show(!ending &&
+                              StreamLaser::window_laser(stream_sink, window_pointing, scene_input,
+                                                        lifecycle.visible(), headset_input.blocked()));
+            if (held != laser_held) {
+                laser_held = held;
+                std::cout << (!held ? "SteamVR's laser mode no longer held for a stream.\n"
+                              : window_laser.available()
+                                  ? "SteamVR's laser mode held for the stream.\n"
+                                  : "SteamVR's laser mode can't be held for the stream: "
+                                    "no window laser.\n")
+                          << std::flush;
+            }
+            // Whether the panel has SteamVR's laser during the sink, written
+            // once each way, after its input method was applied.
+            if (stream_sink && sink_input_logged != native_mouse) {
+                sink_input_logged = native_mouse;
+                std::cout << (native_mouse
+                                  ? "Panel takes SteamVR's laser while typing into a stream.\n"
+                                  : "Panel doesn't take SteamVR's laser yet: hidden, headset off "
+                                    "or input not applied.\n")
+                          << std::flush;
+            }
         }
         if (done || app.quitting()) {
             break;
@@ -4926,8 +4991,17 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         // A state change that redraws no pixel, like a sub-pixel glide step or
         // an image drawn off-screen, uploads nothing: each upload of the whole
         // texture costs milliseconds.
+        // Background Disabled: the whole case starting or stopping to take the
+        // laser masks again this frame, painted or not (R386).
+        const bool remask = app.take_mask_change();
         if (lifecycle.visible() && repaint && app.paint(now)) {
             panel.submit(app.renderer, app.view());
+        } else if (remask && lifecycle.visible()) {
+            panel.mask(app.view());
+        }
+        // A move keeps the whole case under the laser while it lasts (R380).
+        if (panel.held() != drag.active()) {
+            panel.set_held(drag.active(), app.view());
         }
         bool fallback = app.take_native_fallback();
         if (replacement_stalled.exchange(false)) {
@@ -5029,7 +5103,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             // The areas a forwarded pointer may use, whenever they change.
             if (app.forwarded() && lifecycle.visible()) {
                 auto* rects = json_object_new_array();
-                for (const auto& area : pointer_areas(app.input_view())) {
+                for (const auto& area : pointer_bounds(app.input_view())) {
                     json_object_array_add(rects, rect_uv(area));
                 }
                 const std::string text = json_object_to_json_string_ext(rects, JSON_C_TO_STRING_PLAIN);

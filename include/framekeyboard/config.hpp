@@ -124,8 +124,9 @@ struct Settings {
     bool num_lock{};
     bool hide_numpad{};
     // The case behind the keys (docs/configuration.md, Background):
-    // "visible", "semi-transparent" (half opaque) or "invisible" (clear, still
-    // taking the laser). Keys keep their theme.
+    // "visible", "semi-transparent" (half opaque), "invisible" (clear, still
+    // taking the laser) or "disabled" (clear, and the laser passes between
+    // key groups to what is behind; R380). Keys keep their theme.
     std::string background_surface{"visible"};
     // Hover fade: a key the laser leaves dims over a moment instead of going
     // dark at once; on unless turned off.
@@ -165,6 +166,11 @@ struct Settings {
     bool key_flicks_switch{true};
     // Return to the keyboard after typing an emoji.
     bool emoji_close_on_select{};
+    // Shortcuts and macros (docs/shortcut-bar-design.md): the Settings
+    // switch, off by default, and the toolbar button's own switch for the
+    // bar, on until the user turns the bar off. The bars are in shortcuts.json.
+    bool shortcuts{};
+    bool shortcuts_switch{true};
     // A press between keys reaches the nearest key, across gaps between keys
     // of a block (key_areas.hpp); flick pages keep their gaps.
     bool extended_key_collision{true};

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app_names.hpp"
 #include "cjk.hpp"
 #include "clipboard.hpp"
 #include "delivered_context.hpp"
@@ -21,6 +22,11 @@
 #include "settings_writer.hpp"
 #include "shell_protocol.hpp"
 #include "shell_sink.hpp"
+#include "shortcut_editor.hpp"
+#include "shortcut_launch.hpp"
+#include "shortcut_runner.hpp"
+#include "shortcuts.hpp"
+#include "stream_app.hpp"
 #include "stream_support.hpp"
 #include "swipe.hpp"
 #include "theme_previews.hpp"
@@ -31,6 +37,8 @@
 #include <deque>
 #include <future>
 #include <optional>
+#include <set>
+#include <string>
 #include <utility>
 
 namespace framekeyboard {
@@ -114,6 +122,20 @@ struct Options {
     std::vector<std::string> dictation_arguments;
     // Tests replace the clipboard writer; null writes the session clipboards.
     Clipboard* clipboard{};
+    // Where the shortcut bar's app names come from (app_names.hpp): main
+    // gives the headset's folders, the simulator its own names. Left empty,
+    // as in tests and previews, no file is read and the names are those the
+    // identities give.
+    AppNameSource app_names;
+    // Where the editor's Run list reads the scripts folder: tests and the
+    // tour give their own names; empty makes and lists the real folder.
+    ScriptListSource script_list;
+    // The kept record of app names found (app_names.hpp, R362): main gives
+    // app_name_record_path(); empty, as in tests and previews, keeps none.
+    fs::path app_name_record;
+    // Where a stream's app comes from (stream_app.hpp): main reads Steam's
+    // streaming client; left empty, every stream is the PC's.
+    StreamClientSource stream_clients;
 };
 
 // What a Haptic effect or Haptic volume click plays, by the pending choices.
@@ -148,20 +170,28 @@ class App {
     // and an emoji press, drag or tone popup, so lost tracking still cancels them.
     bool pointer_pressed(unsigned pointer) const {
         return keyboard_.pointer_pressed(pointer) || pressed_controls_.contains(pointer) ||
-               settings_ui_.pressed(pointer) || (swipe_track_ && swipe_track_->pointer == pointer) ||
-               emoji_.pressed(pointer) || candidates_.pressed(pointer) ||
+               (bar_press_ && bar_press_->pointer == pointer) || settings_ui_.pressed(pointer) ||
+               (swipe_track_ && swipe_track_->pointer == pointer) || emoji_.pressed(pointer) ||
+               candidates_.pressed(pointer) ||
                (languages_ && languages_->drag && languages_->drag->pointer == pointer);
     }
     // Swipe typing is on and its word list has loaded; until then letters type on press.
     bool swipe_ready() { return swipe_enabled() && swipe_->ready(); }
-    // A decoding word, suggestions, the next word's space, or what the keys
-    // typed while completions show: what a pointer leaving the keyboard
-    // discards (cancel_pointer), including acknowledged/pending table text.
+    // What a pointer leaving the keyboard discards (cancel_pointer) because
+    // the field's cursor may move: a decoding word, suggestions, the next
+    // word's space, what the keys typed while completions show, acknowledged
+    // or pending table text, and after a Japanese commit ↶, the follow-up
+    // offers and the pair the next commit may learn (a pair only while
+    // nothing was sent since). While any of it exists a laser that points
+    // away with its trigger at rest is watched rather than canceled, so only
+    // a pull, the other hand or hiding ends it: under Background Disabled the
+    // laser crosses the open strip between the candidate band and the keys.
     // This also enables the existing off-key/caret watch for Chinese, without
     // a new timer. Pointing away at rest keeps adjacency until an observed edit.
-    bool holds_swipe_state() const {
+    bool holds_typing_state() const {
         return table_context_.active() || swipe_waiting_ || !swipe_candidates_.empty() || swipe_space_ ||
-               ((!typing_suggestions_.empty() || word_open()) && suggesting());
+               ((!typing_suggestions_.empty() || word_open()) && suggesting()) || reopen_ || follow_up_ ||
+               (last_commit_ && last_commit_->queued == output_.queued());
     }
     // clicked: the pointer pulled its trigger off the keyboard, so it may
     // have moved the field's cursor: the word ends whichever hand typed it.
@@ -173,6 +203,11 @@ class App {
     // Tests: whether the conversion worker's thread was ever started.
     bool japanese_worker_started() const { return japanese_worker_.started(); }
     bool holds_repeat(unsigned pointer) const {
+        // A held While held macro keeps running off the panel, as a key repeats.
+        if (bar_press_ && bar_press_->pointer == pointer && bar_press_->held &&
+            shortcut_runner_.running()) {
+            return true;
+        }
         return keyboard_.repeats(pointer) || (editor_repeat_ && editor_repeat_->pointer == pointer) ||
                (address_repeat_ && address_repeat_->pointer == pointer) ||
                (reading_repeat_ && reading_repeat_->pointer == pointer);
@@ -239,7 +274,9 @@ class App {
     // Steam's dashboard has Gamescope's keys (DashboardFocus) and no Steam
     // field is ours: whatever app Gamescope falls back to is not the one the
     // user is looking at, so nothing is typed until a field or window is chosen.
-    void set_dashboard_focus(bool focused);
+    // `known`: the probe has answered. Before it has, typing waits as for the
+    // dashboard, but the shortcut bar keeps the focus it had (R343).
+    void set_dashboard_focus(bool focused, bool known = true);
     // The panel left the view; listening pauses. A pause in interaction,
     // such as Steam handing over a new field, does not.
     void panel_hidden();
@@ -269,6 +306,11 @@ class App {
     // Fixed diagnostic text for why replacement_ready() is false.
     const char* replacement_block() const;
     bool take_native_fallback();
+    // Background Disabled: true once each time the whole case starts or stops
+    // taking the laser (whole_case_held), so the VR loop sends SteamVR a new
+    // mask that frame even when nothing is repainted, as a press canceled off
+    // its button and let go in a gap draws nothing (R386).
+    bool take_mask_change();
     // X hides instead of exiting: with replacement, or under a shell.
     bool resident_replacement() const {
         return options_.mode == Mode::Vr && (settings_.replace_native_keyboard || hosted());
@@ -357,6 +399,15 @@ class App {
     bool take_recenter();
     bool emoji_open() const { return emoji_open_; }
     bool dictation_open() const { return dictation_open_; }
+    // Something under a hand ray may scroll with the stick: the emoji picker,
+    // dictation, the shortcut bar (its menu included), the shortcut editor,
+    // or a candidate row with more than fits, with or without the bar
+    // (R345). Outside the dashboard SteamVR sends no scroll events, so VR
+    // reads the stick only then (R338); scroll_room() says what is under the ray.
+    bool stick_scrolls() const {
+        return emoji_open_ || dictation_open_ || bar_shown() || shortcut_editor_.has_value() ||
+               (candidates_.shown() && candidates_.scroll_limit() > 0);
+    }
     // For image exports: dictation mode with sample text, whatever the settings.
     void show_dictation();
     // Which ways the stick could scroll what this laser points at: the emoji
@@ -464,7 +515,10 @@ class App {
     // without the shell's text sink.
     bool preview_input() const { return options_.input == InputBackend::None && !sink_on(); }
     // Nothing leaves the keyboard, but the editor still takes text: it is local.
-    bool preview_output() const { return preview_input() && !dictation_open_; }
+    bool preview_output() const { return preview_input() && !dictation_open_ && !field_typing(); }
+    // Text goes to a local editor, not the target: dictation's, or a
+    // shortcut editor field typed on the keyboard.
+    bool local_text() const { return dictation_open_ || field_typing(); }
     // What the context's purpose rules out (docs/integration.md, Hints).
     bool hint_private() const {
         return host_.context && (host_.hints.purpose == "password" || host_.hints.purpose == "pin");
@@ -827,7 +881,10 @@ class App {
     std::optional<Rect> candidate_area(const PanelView& band) const;
     // A composing language's reading and candidates show over the main
     // keyboard (PanelView::ime_band).
-    bool ime_band_shown() const { return (japanese() || cjk_) && !emoji_open_ && !dictation_open_; }
+    // The shortcut editor keeps it out of sight, as Settings does (R333).
+    bool ime_band_shown() const {
+        return (japanese() || cjk_) && !emoji_open_ && !dictation_open_ && !shortcut_editor_;
+    }
     // The views' ime_room: kept while the band isn't shown, outside the emoji
     // picker and dictation mode, whose layouts already take the room.
     bool ime_room_kept() const { return !japanese() && !cjk_ && !emoji_open_ && !dictation_open_; }
@@ -1247,7 +1304,8 @@ class App {
     // A flick kana as the kana page types and shows it.
     std::string flick_kana(const std::string& text) const;
     // The kana phrase committed last, which ↶ can bring back until anything
-    // else is pressed, the laser leaves or the keyboard hides.
+    // else is pressed, a trigger is pulled off the keys or the keyboard hides
+    // (a laser resting off them keeps it: holds_typing_state).
     struct Reopen {
         std::string text, reading;
         // The output's counts right after the commit: any change means
@@ -1258,7 +1316,7 @@ class App {
     // The phrase a Japanese commit typed, while the strip offers what may
     // come next, as a phone does: punctuation (docs/japanese.md,
     // Prediction). A press anywhere but the candidates, a key after the
-    // commit, the laser leaving or the keyboard hiding ends it; a choice
+    // commit, a trigger pulled off the keys or the keyboard hiding ends it; a choice
     // types at once.
     std::optional<std::string> follow_up_;
     // Kept for follow_up_ until the next commit learns a pair.
@@ -1273,7 +1331,7 @@ class App {
     // Phrases committed straight after one another, offered first after the
     // phrase before them (NextWords), and the last commit with the output's
     // count right after it: a commit with nothing sent since follows it. The
-    // laser leaving or the input ending starts a new run.
+    // laser leaving with a pull or the input ending starts a new run.
     NextWords next_words_;
     struct LastCommit {
         std::string text;
@@ -1298,7 +1356,8 @@ class App {
     bool text_transport_ready_{}; // The text connection, whatever the profile.
     bool typing_ready_{};
     struct HoverTarget {
-        enum class Kind { None, Key, Control, Status } kind{Kind::None};
+        // Bar: a part of the shortcut bar or its menu (bar_hit names them).
+        enum class Kind { None, Key, Control, Status, Bar } kind{Kind::None};
         std::string id;
         bool operator==(const HoverTarget&) const = default;
     };
@@ -1319,6 +1378,7 @@ class App {
     std::optional<double> passthrough_message_since_;
     bool field_needed_{};
     bool hidden_focus_{}, dashboard_focus_{};
+    bool dashboard_focus_known_{true}; // set_dashboard_focus's `known`
     double focus_shake_since_{-1};
     double swipe_shake_since_{-1};
     // Typing refused for want of a target (target_missing): the Focus mode
@@ -1348,6 +1408,17 @@ class App {
     std::uint64_t layouts_rebuilt_{};
     // Null without Extended key collision, and on a flick page.
     const std::vector<KeyArea>* key_areas(const PanelView& view) const;
+    // The same areas whatever the setting says, and on flick pages: where
+    // keys take the laser under Background Disabled (R380).
+    const std::vector<KeyArea>& all_key_areas(const PanelView& view) const;
+    // Pointers whose press began on the keyboard and goes on (R380).
+    std::set<unsigned> laser_presses_;
+    void hold_laser(unsigned pointer, bool held);
+    // Under Background Disabled the whole case takes the laser: a press that
+    // began on the keyboard goes on, or the skin tone popup, the bar's
+    // Profiles menu or the candidate list is open.
+    bool whole_case_held() const;
+    bool mask_held_{}; // whole_case_held() when take_mask_change() last looked
     std::string swipe_prepared_; // Layout, language and word list in swipe_.
     struct SwipeTrack {
         unsigned pointer{};
@@ -1757,6 +1828,370 @@ class App {
     void reading_replaces_selection(bool was_open);
     void start_reading_repeat(unsigned pointer, const Key& key, const std::set<int>& modifiers,
                               double now);
+
+    // The shortcut bar (docs/shortcut-bar-design.md), in app_shortcuts.cpp.
+    // App owns the bars, which one shows and the runner; the panel only
+    // draws the view App builds, and only the runner sends a button's keys.
+    ShortcutModel shortcuts_;
+    // An invalid shortcuts.json loaded nothing: Settings says why (never
+    // quoting its content), and the next save keeps it as shortcuts.json.bad.
+    std::string shortcuts_invalid_;
+    ShortcutProfileChoice profile_choice_;
+    bool pending_shortcuts_{};
+    // Letters go through the target's keymap only in Unicode mode, as Cut,
+    // Copy and Paste do (chord_code). Declared after output_, which it uses.
+    QueuedShortcutOutput shortcut_output_{output_, [this] { return unicode_mode(); }};
+    ShortcutRunner shortcut_runner_{shortcut_output_};
+    // The run under way: its profile and button, which stay lit while it runs.
+    struct ShortcutRun {
+        std::string profile;
+        std::size_t button{};
+    };
+    std::optional<ShortcutRun> shortcut_run_;
+    // Its progress in whole pixels of its button's border (R372), -1 for none.
+    int run_progress_px_ = -1;
+    double run_progress_painted_{}; // when run_progress_px_ last changed (R375)
+    // A moving stroke repaints its button at most this often: about 30 times a second.
+    static constexpr double progress_repaint_interval = .033;
+    // The focus last given to profile_choice_: Gamescope's window and its
+    // app's identity. A change of either is a change of focus, which stops
+    // a run too; the identity is kept only while that app has the keys.
+    FocusedApp bar_focus_;
+    std::uint64_t bar_focus_serial_{}; // KeySink::focus_serial, beside it
+    // The app with the keys, as the bar sees it: none while Steam's
+    // dashboard has them (set_dashboard_focus); in a stream from a PC, the
+    // streamed app once this session's answer is in.
+    FocusedApp focused_app() const;
+    // Streams from a PC (R359). A session is the native request a stream
+    // holds (stream_session_target); its app is read off the VR thread when
+    // it begins and dies with it, so a new session never shows the last
+    // one's game. Until its answer is in, the bar keeps what it shows.
+    StreamAppFinder stream_apps_{options_.stream_clients};
+    std::optional<std::uint64_t> stream_session_; // its request
+    std::uint64_t stream_token_{};                // the finder's number for it
+    std::optional<AppIdentity> stream_app_;
+    void track_stream_session();
+    bool stream_app_pending() const { return stream_session_ && !stream_app_; }
+    // The bar's focus is a stream's app (R364). After its session ends, as
+    // when the panel hides and the route goes local, Gamescope reports no
+    // window and no app for the stream: the focus is unknown then, and the
+    // bar keeps that app with its pick or empty bar until a window, the
+    // dashboard or another session's different app takes the keys.
+    bool stream_focus_held_{};
+    // App names (design, Apps): looked up off the VR thread when the menu
+    // opens and on an assign, taken on a tick. `app_name_` is the last one
+    // found for an app; `name_fixes_` are ties saved with the name the
+    // identity gave, updated once when their lookup lands.
+    AppNameLookup app_names_{options_.app_names};
+    struct AppName {
+        AppIdentity app;
+        std::string name; // empty: none found, the fallback stands
+    };
+    std::optional<AppName> app_name_;
+    std::vector<AppName> name_fixes_; // the identity and the name saved with it
+    std::set<std::pair<int, std::string>> looked_up_names_; // apps looked up in this run (R376)
+    // Names found before, for when the files that gave them are gone (R362);
+    // read at start, written through settings_writer_.
+    std::vector<RecordedName> name_record_;
+    void keep_found_name(const AppIdentity& app, const std::string& name);
+    // The focused app's name for the picker: its tie's, one found, else the
+    // identity's own; empty without an identity.
+    std::string focused_app_name() const;
+    void look_up_focused_name();
+    // R361: a program's identity once held its arguments where they run on
+    // in one string. The focused program's old tie, whose ID is its name and
+    // a space, is moved to its name alone and saved, as an assign is.
+    void adopt_long_program_tie();
+    // R362: a desktop stream once showed as Steam's Remote Play Client app; its tie moves to the PC's
+    // stream identity when that has the keys, or goes if the stream identity has one already.
+    void adopt_remote_play_tie();
+    void take_app_names();
+    // Why the focused app can't be assigned, as a tooltip; empty when it can.
+    std::string assign_unavailable() const;
+    // A press on an assign button: ties the focused app to that profile, or
+    // unties it, saved at once.
+    void assign_profile(std::size_t row);
+    // Each bar's sideways scroll, kept while the keyboard runs, by bar ID;
+    // stick steps set the target and tick() eases to it.
+    struct BarScroll {
+        double shown{}, target{}, remainder{};
+    };
+    std::map<std::string, BarScroll> bar_scroll_;
+    BarScroll menu_scroll_;
+    double bar_tick_{-1};
+    // A press on the bar, the picker or the menu, which acts on release over
+    // the same part. One on a button dragged past 12 px scrolls the bar
+    // instead; one that stopped the button's own run does nothing more.
+    struct BarPress {
+        unsigned pointer{};
+        std::string target; // as bar_hit names it
+        double x{}, scroll{}, at{};
+        bool dragging{}, stopped{};
+        // The profile a button press began on: it never acts on another (R321).
+        std::string profile;
+        bool held{}; // runs a While held macro, from its press to its release
+    };
+    std::optional<BarPress> bar_press_;
+    bool bar_menu_{};
+    // Shortcuts and macros is on, and no shell runs the keyboard.
+    bool shortcuts_enabled() const { return settings_.shortcuts && !hosted(); }
+    // The bar or the empty bar shows: not in Settings or dictation mode.
+    bool bar_shown() const;
+    // The bar showing, or null for the empty bar and for none.
+    const ShortcutProfile* shown_profile() const;
+    // At startup, and again for Reload config: a reload that finds the file
+    // invalid keeps the bars already loaded and reports it.
+    void load_shortcuts(bool reloading = false);
+    void configure_bar();
+    // Saves the model on the preference worker.
+    void save_shortcuts();
+    // A finished save's result: a failure's status, or, for one that worked,
+    // the end of the note that shortcuts.json can't be read.
+    void take_shortcuts_result();
+    void apply_bar_changes(const ShortcutProfileChoice::Changes& changes);
+    void append_shortcut_bar(PanelView& view) const;
+    // What of the bar `view` shows lies at (x, y): button-N, picker, plate,
+    // and over an open menu row-N, assign-N, edit or menu.
+    std::optional<std::string> bar_hit(const PanelView& view, double x, double y) const;
+    ShortcutBarGeometry bar_geometry(std::size_t buttons) const;
+    Rect bar_button_bounds(const ShortcutBarGeometry& bar, std::size_t count, std::size_t index,
+                           double scroll) const;
+    bool shortcut_button_enabled(const ShortcutButton& button) const;
+    // A press on the bar; true for a button's, which feels like a key's.
+    bool bar_down(unsigned pointer, const std::string& target, double x, double now);
+    // A pressed button dragged sideways scrolls the bar; true while it does.
+    bool bar_move(unsigned pointer, double x);
+    bool bar_up(unsigned pointer);
+    void bar_action(const std::string& target);
+    // Whether the bar or its open menu moved; none when the pointer isn't
+    // over them, so what lies under it may scroll.
+    std::optional<bool> bar_scroll(unsigned pointer, double dx, double dy);
+    std::optional<ScrollRoom> bar_scroll_room(double x, double y) const;
+    void tick_shortcut_bar(double now);
+    void press_shortcut_button(std::size_t index, double now);
+    void stop_shortcut_run();
+    // Run buttons (design, Run): a press starts one program off the VR
+    // thread; more presses on that button wait until its start is
+    // reported, taken on a tick. A failed start shows a status naming the
+    // button; only the kind of failure is logged, as a number.
+    ShortcutLauncher launcher_;
+    struct PendingStart {
+        std::uint64_t id{};
+        std::string profile;
+        std::size_t button{};
+        std::string label; // for the status; never logged
+    };
+    std::vector<PendingStart> pending_starts_;
+    std::uint64_t next_start_{};
+    void start_run_button(const std::string& profile, std::size_t index, const ShortcutButton& button);
+    void take_started();
+    // The Debug card's sample bars, while there are none.
+    void add_sample_shortcuts();
+
+    // The shortcut editor (docs/shortcut-bar-design.md, Settings and the
+    // editor), in app_shortcut_editor.cpp: a screen of its own over the
+    // case, working on its own copy until ✓, with a popup over it for
+    // typing labels and bar names and recording keys on a mini keyboard.
+    std::optional<ShortcutEditor> shortcut_editor_;
+    enum class EditorQuestion { None, Leave, DeleteProfile };
+    EditorQuestion editor_question_{EditorQuestion::None};
+    BarScroll editor_rows_scroll_, editor_strip_scroll_;
+    double editor_tick_{-1};
+    // A press on a bar row or a strip button, which a drag past the dead zone
+    // lifts: a row moves up or down the list, a button along the strip, or
+    // off it to be deleted. Its release then clicks nothing.
+    struct ShortcutDrag {
+        unsigned pointer{};
+        bool row{};
+        std::size_t index{}; // where it is now: it moves as it passes others
+        double x{}, y{};     // the press
+        double px{}, py{};   // the laser now
+        bool lifted{}, outside{};
+        bool step{}; // a macro step's row, moved up or down its list
+        // A button over the profiles' rows: the row it is over, and whether
+        // that profile takes it (another one, not full); it lights up.
+        std::optional<std::size_t> over_row;
+        bool takes{};
+        // A script's row: the drag scrolls the list, from `scroll` at the press.
+        bool scripts{};
+        double scroll{};
+        // A bar's button, moved along the strip: no other kind's (R352).
+        bool button() const { return !row && !step && !scripts; }
+    };
+    // A button dropped on another profile's row: Move or Copy, in a popover
+    // beside that row, until either or a press anywhere else.
+    struct Carry {
+        std::size_t button{}, profile{};
+    };
+    std::optional<Carry> carry_;
+    std::optional<ShortcutDrag> shortcut_drag_;
+    // The editor's screen shows: open, with no field over it, outside Settings.
+    bool editor_screen() const { return shortcut_editor_ && !field_ && !settings_open_; }
+    // Full width, or the keyboard's width without its numpad on a narrower case.
+    double editor_width(const PanelView& keyboard) const;
+    void open_shortcut_editor();
+    void close_shortcut_editor(bool save);
+    void append_editor_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_shortcut_editor(PanelView& view) const;
+    void editor_action(const ControlAction& action);
+    // Starts a drag candidate for a press on a row or strip button.
+    void editor_press(unsigned pointer, const std::string& id, double x, double y);
+    // True while a lifted drag takes the laser.
+    bool editor_drag_move(unsigned pointer, double x, double y);
+    bool editor_drag_up(unsigned pointer);
+    // The selected button is a macro: the Macro view shows, not the Shortcut view.
+    bool editing_macro() const;
+    // The selected button is a shortcut: the Shortcut view shows.
+    bool editing_keys() const;
+    bool editor_scroll(unsigned pointer, double dx, double dy);
+    std::optional<ScrollRoom> editor_scroll_room(double x, double y) const;
+    void tick_shortcut_editor(double now);
+    // The Macro view (design, Settings and the editor): its steps' list
+    // scrolls; a held − or + of a wait or of Repeat's count steps on.
+    BarScroll editor_steps_scroll_;
+    struct ValueRepeat {
+        unsigned pointer{};
+        std::string id; // the control held
+        ControlAction action;
+        double next{};
+    };
+    std::optional<ValueRepeat> value_repeat_;
+    void append_macro_controls(std::vector<Control>& result, const Rect& well,
+                               const ShortcutButton& button) const;
+    // What a press on the macro does, as the line beside Repeat says it.
+    std::string macro_sends(const ShortcutAction& action) const;
+    std::string wait_text(int ms) const;
+    double editor_steps_limit() const;
+    // The Run view (design, Settings and the editor): Script's list of the
+    // scripts folder, read off the VR thread when the view shows it and on
+    // Refresh, none until the first read lands; or Command's field.
+    ScriptLister script_lister_{options_.script_list};
+    std::optional<std::vector<std::string>> scripts_;
+    // Scripts the editor's buttons chose that are in the folder past the
+    // list's end, as the last read found (R354).
+    std::vector<std::string> scripts_beyond_;
+    bool scripts_reading_{};
+    // Reads the folder again, with every script the editor's buttons chose.
+    void read_scripts();
+    BarScroll editor_scripts_scroll_;
+    struct ScriptRow {
+        std::string name;
+        bool missing{}; // the chosen script, gone from the folder
+    };
+    // The list as it shows: the folder's scripts, and a chosen one that is
+    // gone, in their order.
+    std::vector<ScriptRow> script_rows() const;
+    double editor_scripts_limit() const;
+    // The selected button is Run with Script chosen: the list shows.
+    bool editing_scripts() const;
+    void append_run_controls(std::vector<Control>& result, const ShortcutButton& button) const;
+    // The scripts folder as the user knows it: ~ for the home folder.
+    std::string scripts_folder_text() const;
+
+    // The editor's popup (design, Typing and recording): a fixed US mini
+    // keyboard whose keys are the editor's own controls, acting on press.
+    // Nothing it does goes through the key state, the output queue, a
+    // TextOutput or a typing language, so nothing reaches the app.
+    struct EditorPopup {
+        ShortcutPopupView::Kind kind{ShortcutPopupView::Kind::Label};
+        std::string text;                  // Label, Name: never logged
+        std::size_t cursor{};              // a byte offset into text
+        std::vector<ShortcutChord> chords; // Recording, from nothing
+        // Modifier keys latched by a tap, in the order tapped; a second tap
+        // lets one go, a key takes them all.
+        std::vector<std::string> latched;
+        bool caps{}; // Caps Lock, for text
+        // Recording a macro's Keys step, `step` or a new one added on Done,
+        // rather than the shortcut.
+        std::optional<std::size_t> step;
+        bool new_step{};
+    };
+    std::optional<EditorPopup> popup_;
+    // A held Backspace, Delete or arrow repeats, as on the keyboard.
+    struct PopupRepeat {
+        unsigned pointer{};
+        std::string key; // the mini key's ID
+        double next{};
+    };
+    std::optional<PopupRepeat> popup_repeat_;
+    // Recorded combinations scroll in a strip of fixed width, in the editor
+    // and in the popup, with the stick or a drag (R331); the popup's follows
+    // the newest chip.
+    BarScroll editor_chips_scroll_, popup_chips_scroll_;
+    struct ChipsDrag {
+        unsigned pointer{};
+        bool popup{};
+        double x{}, scroll{}; // where the press began
+    };
+    std::optional<ChipsDrag> chips_drag_;
+    bool chips_press(unsigned pointer, double x, double y);
+    bool chips_drag_move(unsigned pointer, double x);
+    // How far each strip can scroll: its chips' width past its own.
+    double editor_chips_limit() const;
+    double popup_chips_limit() const;
+    // The popup's strip to its newest chip.
+    void follow_popup_chips();
+    // Made from en-us-full as the popup opens, whatever layout and language
+    // are in use; the keymap gives its keys their US characters and legends.
+    Layout mini_layout_;
+    std::unique_ptr<LanguageMap> mini_keymap_;
+    void open_popup(ShortcutPopupView::Kind kind, std::optional<std::size_t> step = std::nullopt,
+                    bool new_step = false);
+    // How many combinations the recording takes: 4 for a shortcut, 32 for a step.
+    std::size_t popup_limit() const;
+    // Ends the popup, keeping what it holds when `save`, as Enter or Done.
+    void end_popup(bool save);
+    // A mini key pressed: it acts at once; Backspace, Delete and the arrows
+    // repeat while held.
+    void popup_key(const std::string& id, unsigned pointer, double now);
+    void popup_text_key(const Key& key);
+    // Records the latched modifiers with `key`, or alone when it is empty,
+    // as one combination; the latch ends.
+    void popup_record(const std::string& key);
+    void popup_action(const std::string& value);
+    void append_popup_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_popup_view(ShortcutEditorView& view, const Rect& body) const;
+    void tick_popup(double now);
+
+    // Renaming in place (design, Renaming in place): a label typed on the
+    // real keyboard as a field on the bar. Kept for that phase; nothing opens
+    // it yet. The editor's screen waits behind it.
+    struct ShortcutField {
+        std::string text;     // never logged
+        std::size_t cursor{}; // a byte offset into text
+    };
+    std::optional<ShortcutField> field_;
+    // Typed text, composed, swiped or flicked, goes into the field: whole,
+    // or not at all where the label would grow past its limit.
+    class FieldOutput : public TextOutput {
+      public:
+        explicit FieldOutput(App& app) : app_(app) {}
+        bool text_press(unsigned, const std::string& text, double) override {
+            return app_.field_insert(text);
+        }
+        bool commit_text(const std::string& text) override { return app_.field_insert(text); }
+        bool replaces_text() override { return true; }
+        bool replace_text(std::size_t delete_before, const std::string& text) override {
+            return app_.field_replace(delete_before, text);
+        }
+        bool taps_then_text(int, std::size_t, const std::string&) override { return false; }
+
+      private:
+        App& app_;
+    };
+    FieldOutput field_output_{*this};
+    bool field_typing() const { return field_.has_value(); }
+    // The selected button's label, typed on the keyboard.
+    void open_field();
+    // Ends the field, keeping what it holds when `save`, as Enter or Done.
+    void end_field(bool save);
+    bool field_insert(const std::string& text);
+    bool field_replace(std::size_t delete_before, const std::string& text);
+    bool field_down(unsigned pointer, const Key& key, double x, double y, double now, bool gap);
+    void field_action(const ControlAction& action);
+    void append_field_controls(std::vector<Control>& result, const Rect& body) const;
+    void append_field_view(PanelView& view) const;
+    void append_field_bar(PanelView& view) const;
 };
 
 double monotonic_seconds();

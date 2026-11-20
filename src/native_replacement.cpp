@@ -19,6 +19,22 @@
 extern char** environ;
 namespace framekeyboard {
 namespace {
+// The time each of our key-downs holds the way to a Windows PC in a stream (R369): the library's longer
+// kSameKeyOnTheWayMs for every key-down, as the helper's STREAM_KEY_ON_THE_WAY, so a text's wait never
+// falls short of the library's.
+constexpr double stream_key_on_the_way = .14;
+// The key-downs the stream library types for a text's ASCII: one a character, two with Shift.
+double stream_typed_downs(const std::string& text) {
+    static const std::string shifted = "~!@#$%^&*()_+{}|:\"<>?";
+    double downs = 0;
+    for (const unsigned char c : text) {
+        if ((c >= ' ' && c <= '~') || c == '\n' || c == '\r' || c == '\b' || c == '\t') {
+            downs +=
+                1 + ((c >= 'A' && c <= 'Z') || shifted.find(static_cast<char>(c)) != std::string::npos);
+        }
+    }
+    return downs;
+}
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string encoded(const std::string& text) {
     Json value(json_object_new_string_len(text.data(), static_cast<int>(text.size())), json_object_put);
@@ -572,6 +588,11 @@ NativeReplacement::ButtonPress NativeReplacement::take_button_press() {
     return std::exchange(button_, {});
 }
 bool NativeReplacement::stream_key(std::uint64_t request, int code, int value) {
+    if (value != 0) {
+        // A press or a repeat's fresh press: on the way to the PC a while (R369).
+        stream_keys_through_ =
+            (stream_keys_through_ > now_ ? stream_keys_through_ : now_) + stream_key_on_the_way;
+    }
     return packet("{\"op\":\"stream-key\",\"request\":" + std::to_string(request) +
                   ",\"code\":" + std::to_string(code) + ",\"value\":" + std::to_string(value) + "}");
 }
@@ -758,7 +779,15 @@ bool NativeReplacement::commit_text(const std::string& text) {
     }
     pending_id_ = id;
     pending_since_ = now_;
-    pending_limit_ = state_.stream ? 3.5 + .1 * static_cast<double>(text.size()) : 1.0;
+    // A stream's text also waits for our keys before it, and its own ASCII typed as keys (R369).
+    double keys_wait = 0;
+    if (state_.stream) {
+        const double lead = stream_keys_through_ > now_ ? stream_keys_through_ - now_ : 0;
+        const double taps = stream_key_on_the_way * stream_typed_downs(text);
+        stream_keys_through_ = (stream_keys_through_ > now_ ? stream_keys_through_ : now_) + taps;
+        keys_wait = lead + taps;
+    }
+    pending_limit_ = state_.stream ? 3.5 + .1 * static_cast<double>(text.size()) + keys_wait : 1.0;
     pending_text_ = text;
     return false;
 }

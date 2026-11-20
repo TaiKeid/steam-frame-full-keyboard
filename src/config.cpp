@@ -650,7 +650,8 @@ int device_model_kept_megabytes(const std::string& model) {
     return entry ? entry->kept_megabytes : 0;
 }
 bool valid_background_surface(const std::string& surface) {
-    return surface == "visible" || surface == "semi-transparent" || surface == "invisible";
+    return surface == "visible" || surface == "semi-transparent" || surface == "invisible" ||
+           surface == "disabled";
 }
 bool valid_haptic_sounds(const std::string& sounds) {
     return sounds == "off" || sounds == "press" || sounds == "release" || sounds == "both";
@@ -900,17 +901,14 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         try {
             // A bad value fails on its own, leaving the case visible.
             settings.background_surface = text(document.get(), "background_surface", "visible", true);
-            // Disabled, which also let the laser through the case's gaps, was
-            // removed; Invisible looks the same.
-            if (settings.background_surface == "disabled") {
-                settings.background_surface = "invisible";
-            }
             if (!valid_background_surface(settings.background_surface)) {
                 throw std::runtime_error("bad value");
             }
         } catch (const std::exception&) {
-            field_problems.push_back("config.json: background_surface must be \"visible\", "
-                                     "\"semi-transparent\" or \"invisible\"; the background is visible");
+            field_problems.push_back(
+                "config.json: background_surface must be \"visible\", "
+                "\"semi-transparent\", \"invisible\" or \"disabled\"; the background "
+                "is visible");
             settings.background_surface = "visible";
         }
         try {
@@ -954,6 +952,8 @@ Settings load_settings(const fs::path& user_dir, std::vector<std::string>& error
         });
         optional_boolean("dictation_send_paste", settings.dictation_send_paste);
         optional_boolean("dictation_direct", settings.dictation_direct);
+        optional_boolean("shortcuts", settings.shortcuts);
+        optional_boolean("shortcuts_switch", settings.shortcuts_switch);
         optional_field("dictation_recent_servers", [&] {
             // Only a convenience list: unusable entries are skipped quietly.
             if (auto* recent =
@@ -1110,6 +1110,10 @@ void write_settings(const fs::path& user_dir, const Selection& s, const Settings
                                json_object_new_boolean(settings->key_flicks_switch));
         json_object_object_add(document.get(), "emoji_close_on_select",
                                json_object_new_boolean(settings->emoji_close_on_select));
+        json_object_object_add(document.get(), "shortcuts",
+                               json_object_new_boolean(settings->shortcuts));
+        json_object_object_add(document.get(), "shortcuts_switch",
+                               json_object_new_boolean(settings->shortcuts_switch));
         json_object_object_add(document.get(), "extended_key_collision",
                                json_object_new_boolean(settings->extended_key_collision));
         // Learning is always on now; the old switch goes.

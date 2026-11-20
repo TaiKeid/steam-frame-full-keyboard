@@ -42,6 +42,8 @@ Theme JSON defines renderer properties directly. Support surface and legend colo
 
 Bundled themes: Graphite (the default) and Midnight; the dark Ember, Plum, Crimson, Navy and Mono, each with its own latched accent; Forest (pine green), Lagoon (deep teal with an aqua latch) and Dusk (indigo, its latch running from apricot to magenta); Onyx and Amber, whose legends and icons are champagne gold on black and amber orange on dark brown, with their own `warning`, `error` and `alert` colors so notices stand apart from the legends; Neon (latched and pressed keys outlined by cyan-to-magenta neon tubes), Aurora (the same tubes from green through blue to violet, so its swipe trail is a blue path under a green comet) and Cinematic (dark blue with orange accents, its swipe trail a blue path under an orange comet); the mid-tone Sage (terracotta latch) and Cocoa (chocolate keys, cream latch); the light Porcelain, Blossom, Lilac, Sand (cream keys on a tan case, with a navy latch and swipe comet), Mint, Sky (pale blue with an azure latch and swipe comet) and Peach (apricot latch, a rose swipe comet); and High Contrast, an accessibility theme with white legends and bright white key edges on black, a yellow edge under the laser, solid yellow while a key is pressed, a yellow swipe trail and cyan when latched, all text at 7:1 or more.
 
+Bundled layouts set their rows 6 units apart, as keys in a row are, with the gap under the function row and the gaps between blocks as they were: a full layout is 400 units tall and its case 572 pixels, the same as Settings and the shortcut editor, and the flick layouts are 266 units. Before 0.20 rows were further apart, full layouts 416 units and the flick layouts 278. A layout of your own copied from an earlier version keeps its old rows and still works, but its case is taller than Settings, so the case's foot moves 16 pixels when Settings opens, and the emoji picker's keys can sit up to 3 pixels off. To take the new rows, copy the bundled file again and make your changes to it anew.
+
 Validate dimensions and animation limits. In particular, press travel cannot exceed side depth, and painting must stay aligned with hit regions. A theme may change appearance but cannot change the meaning of a key or the input keymap. Geometry changes belong to layout profiles.
 
 ## Languages and actual input
@@ -70,7 +72,7 @@ The card row scrolls horizontally when more cards are added. Each card has its o
 
 Num Lock is saved immediately as the optional global boolean `num_lock`, defaulting to false. It survives closing, reopening, layout changes and favorite cycling. Restoring it sets local legends and Unicode mapping without sending startup input. In physical uinput and external JIS modes, keypad input first reconciles the target lock through reported LED or XKB modifier state. If synchronization is needed, the panel asks you to press the keypad key again after feedback arrives. Targets without lock feedback cannot receive lock-dependent keypad input safely; ordinary keys remain available.
 
-The General card's Background dropdown sets the case behind the keys: **Visible** (the default) fills it; **Semi-transparent** draws it at 50% opacity (15% in light themes, whose pale case reads far brighter), so the dashboard or app shows through it dimmed; **Invisible** leaves it transparent, so the dashboard or app shows through. Either way the whole case still takes the laser. With any choice but Visible, keycaps, legends, toolbar buttons, the emoji picker, the dictation editor and popups keep their theme, and Settings keeps its opaque case so its cards stay legible. Text drawn on the case itself (dictation mode's status line, the reading line and its hint, the dictation counter) sits on a small plate of the case color fitted to it, so it reads over a bright or a dark background; the flick preview keeps the case-colored gutters around its caps. It is saved as the optional global string `background_surface`, `visible`, `semi-transparent` or `invisible`, defaulting to `visible`. A saved `disabled`, a choice that let the laser through the case's gaps and was removed, loads as `invisible`; another value is reported and treated as `visible`. It applies to every layout and favorite. Apply and save activates it; Back discards the pending change.
+The General card's Background dropdown sets the case behind the keys: **Visible** (the default) fills it; **Semi-transparent** draws it at 50% opacity (15% in light themes, whose pale case reads far brighter), so the dashboard or app shows through it dimmed; **Invisible** leaves it transparent, so the dashboard or app shows through. Either way the whole case still takes the laser. **Disabled** draws as Invisible, and the laser also passes between the keyboard's key groups to what is behind it, such as a window to click. What still takes it: every key as far as [Extended key collision](#extended-key-collision) reaches, whether or not that setting is on, so the narrow gaps inside a block catch the laser and the wider ones between blocks do not (the arrow keys are ↑ and the row under it, not their bounding box); the toolbar's buttons the same way, and the X; the emoji picker's tabs and grid; dictation mode's editor, and its status line while it is too long to show whole and scrolls under the laser; candidates; and, as always, the shortcut bar, an open menu, the flick preview and the move handle. Tooltips and the message card never take it. Settings, the shortcut editor and their questions take the whole case, drawn, whatever Background says, and so does every press, swipe, flick, drag or move that began on the keyboard until it ends, so a swipe past a block's edge stays on the keyboard. The open skin tone popup, the shortcut bar's Profiles menu and the open candidate list take it too, so a click beside them only closes them, as with the case drawn. SteamVR's laser, the passthrough pointer, a shell's forwarded pointer and the simulator all use these areas. They are merged into at most 32 rectangles, SteamVR's limit, with the move handle; a layout that needs more uses each block's bounding rectangle, and if that is still too many, the whole case, and says so once in the log. With any choice but Visible, keycaps, legends, toolbar buttons, the emoji picker, the dictation editor and popups keep their theme, and Settings keeps its opaque case so its cards stay legible. Text drawn on the case itself (dictation mode's status line, the reading line and its hint, the dictation counter) sits on a small plate of the case color fitted to it, so it reads over a bright or a dark background; the flick preview keeps the case-colored gutters around its caps. It is saved as the optional global string `background_surface`, `visible`, `semi-transparent`, `invisible` or `disabled`, defaulting to `visible`; another value is reported and treated as `visible`. A `disabled` saved before 0.15.0, which 0.15.0 to 0.19.x read as `invisible`, is Disabled again. It applies to every layout and favorite. Apply and save activates it; Back discards the pending change.
 
 Under Background, **Hover fade** (on by default) lets a key the laser leaves dim over about a fifth of a second, a short trail behind the laser, instead of going dark at once. A key still lights the moment the laser reaches it, and haptics and sounds are unchanged. Off, keys go dark at once, as they always do on a theme with key edges such as High Contrast. It is saved as the optional global boolean `hover_fade`. With it, General has six rows, so Auto leveling sits below the card's fold until the card scrolls. Apply and save activates it; Back discards it.
 
@@ -221,6 +223,76 @@ Tapping a language adds it to the end of Additional. Dragging one sideways lifts
 The pairs are saved as the optional `favorites` array in `config.json`. Legacy repeats and entries matching the main language show once or not at all, and are dropped by the next Apply.
 
 Like every Settings change, these edits are saved by Apply and discarded by Back. The back arrow only returns to Settings. If the popup changed anything, leaving Settings asks whether to save or discard; Save does what Apply does. Dropdown changes alone don't ask.
+
+## Shortcut bar
+
+General → Shortcut bar is saved as the optional boolean `shortcuts`, defaulting to false. The toolbar's shortcut bar button is saved at once as `shortcuts_switch`, defaulting to true; while it is false the bar stays hidden. See [the shortcut bar](shortcut-bar.md) for using it.
+
+Profiles, buttons and app assignments are in `shortcuts.json` beside `config.json`, readable by you alone. The keyboard writes it whole into a new file, synced to disk, which then replaces the old one; the editor's ✓ writes it, and so do an assignment in the menu and a profile picked there. You may edit it by hand; Reload config reads it again, and `framekeyboard --check` reports whether it is valid beside the layouts, languages and themes.
+
+```json
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "id": "p1",
+      "name": "Editor",
+      "buttons": [
+        {
+          "label": "Save\nall",
+          "action": {"kind": "keys", "chords": [{"modifiers": ["ControlLeft"], "key": "KeyK"}, {"key": "KeyS"}]}
+        },
+        {
+          "label": "Build",
+          "action": {
+            "kind": "macro",
+            "steps": [
+              {"keys": [{"modifiers": ["ControlLeft", "ShiftLeft"], "key": "KeyB"}]},
+              {"wait_ms": 500},
+              {"keys": [{"key": "KeyL"}, {"key": "KeyS"}, {"key": "Enter"}]}
+            ],
+            "repeat": {"mode": "times", "count": 3}
+          }
+        },
+        {"label": "Term", "action": {"kind": "run", "script": "open-terminal.sh"}},
+        {"label": "Shot", "action": {"kind": "run", "command": "spectacle -b -n"}}
+      ]
+    }
+  ],
+  "apps": [{"kind": "desktop", "id": "org.kde.kate", "name": "Kate", "profile": "p1"}],
+  "free_profile": "p1",
+  "earlier_picks": []
+}
+```
+
+- An action's `kind` is `keys` (a shortcut: `chords`), `macro` (`steps` and `repeat`) or `run` (`script` or `command`). A chord is a `key` with optional `modifiers`, or `modifiers` alone. Key and modifier names are the layouts' physical key names, such as `KeyK`, `Enter`, `F5`, `Numpad7`, `ControlLeft` and `MetaLeft`; `F13` to `F24` are accepted here, though the recorder doesn't offer them.
+- A macro step is `{"keys": [chords]}` or `{"wait_ms": N}`. `repeat` has `mode` `once`, `times` with a `count`, or `while_held`.
+- An action may be empty: a shortcut without chords, a macro without steps, or a Run button with neither a script nor a command. The editor saves an unfinished button that way, and a press on it does nothing.
+- `apps` ties an app to a profile. `kind` is `steam` (a nonzero 32-bit Steam app ID, as text), `program` (a program's file name, without a folder), `desktop` (a SteamOS Desktop app ID) or `stream` (ID `pc`, every stream from your PC that isn't a Steam game); `name` is what the editor and tooltips show. An app has at most one tie.
+- `free_profile` is the profile picked last in the menu for apps without one, and `earlier_picks` those picked before it, newest first. A pick must name an existing profile, once.
+- Labels, names and commands are UTF-8 without control characters; a label may hold one line break.
+
+| Limit | Value |
+| --- | --- |
+| Profiles | 32 |
+| Buttons in a profile | 64 |
+| Label | Two lines, 24 characters in all |
+| Profile name | 32 characters |
+| Chords in a shortcut | 4 |
+| Steps in a macro | 32 |
+| Chords in a macro's keys step | 32 |
+| Wait | 100 to 10,000 ms |
+| Repeat count | 2 to 99 |
+| Command | 512 bytes, one line |
+| Script name | 64 bytes, a plain file name |
+| App ties | 128 |
+| File | 512 KB |
+
+A file that breaks any of these rules, has an unknown name, kind or field value, or an unknown `schema_version`, loads nothing. Settings says so under the Shortcut bar switch, naming where the fault is (profile 2, button 5) without quoting your text, and the keyboard never overwrites it: the next save moves it to `shortcuts.json.bad` first. When Reload config finds the file invalid, the profiles already loaded stay. A valid file that changed behind the keyboard's back, edited by hand while it ran, is kept as `shortcuts.json.old` when the keyboard next saves. Updates and the installer leave the file alone.
+
+Scripts for Run buttons go in `scripts/` in the same folder, `~/.config/framekeyboard/scripts/`. The editor lists its regular files, up to 64, without folders, links or hidden files.
+
+Names found for Steam games and Desktop apps are kept in `~/.cache/framekeyboard/app-names.json` (under `$XDG_CACHE_HOME` when set), at most 256, the oldest dropped first, so a game streamed from your PC keeps its name. A damaged file reads as empty. It holds only IDs and names and can be deleted at any time.
 
 ## Updates
 

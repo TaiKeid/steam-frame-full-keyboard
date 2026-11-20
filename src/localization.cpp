@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -458,6 +459,9 @@ void Localization::apply(Locale& locale, json_object* root, bool with_strings) {
         if (auto* value = member(number, "group", json_type_string)) {
             locale.group = string_of(value, "group", 8);
         }
+        if (auto* value = member(number, "decimal", json_type_string)) {
+            locale.decimal = string_of(value, "decimal", 8);
+        }
         if (auto* value = member(number, "group_min", json_type_int)) {
             const auto digits = json_object_get_int(value);
             if (digits < 1 || digits > 19) {
@@ -707,6 +711,23 @@ std::string Localization::number(const Locale& locale, long long value) {
 std::string Localization::number(long long value) const {
     static const Locale none;
     return number(chain_.empty() ? none : chain_.front(), value);
+}
+std::string Localization::decimal(double value, int fraction) const {
+    static const Locale none;
+    const auto& locale = chain_.empty() ? none : chain_.front();
+    fraction = std::clamp(fraction, 0, 9);
+    long long scale = 1;
+    for (int i = 0; i < fraction; ++i) {
+        scale *= 10;
+    }
+    const auto scaled = std::llround(std::abs(value) * static_cast<double>(scale));
+    auto text = number(locale, scaled / scale);
+    if (fraction > 0) {
+        auto digits = std::to_string(scaled % scale);
+        digits.insert(0, static_cast<std::size_t>(fraction) - digits.size(), '0');
+        text += locale.decimal + digits;
+    }
+    return (value < 0 && scaled != 0 ? "-" : "") + text;
 }
 std::string Localization::fonts() const {
     for (const auto& locale : chain_) {

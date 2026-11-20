@@ -658,6 +658,43 @@ void modifier_lock_tests(const fk::Layout& layout) {
                                     {KEY_LEFTALT, 0}},
             "a held Alt stays down over Tabs through the output queue");
 }
+// A shortcut button sends only its own modifiers (docs/shortcut-bar-design.md).
+void shortcut_clearing_tests(const fk::Layout& layout) {
+    Capture target;
+    fk::OutputController output(target);
+    output.set_enabled(true);
+    fk::KeyboardState hands(output);
+    const auto held = [&](int code) {
+        int count = 0;
+        for (const auto& [event, value] : target.events) {
+            count += event != code ? 0 : value == 1 ? 1 : value == 0 ? -1 : 0;
+        }
+        return count;
+    };
+    hands.down(0, key(layout, "ControlLeft"), 10);
+    hands.up(0);
+    require(hands.modifiers().contains(KEY_LEFTCTRL), "a tapped Ctrl latches");
+    require(hands.clear_for_shortcut() && hands.modifiers().empty() && target.events.empty(),
+            "a shortcut clears a latched Ctrl, sending nothing");
+    // A locked Alt kept down after Tab used it comes up, and stays locked.
+    hands.down(0, key(layout, "AltLeft"), 20);
+    hands.tick(20.6);
+    hands.up(0);
+    hands.down(1, key(layout, "Tab"), 21);
+    output.tick(21);
+    hands.up(1);
+    output.tick(21.1);
+    require(hands.locked(KEY_LEFTALT) && held(KEY_LEFTALT) == 1, "a locked Alt stays down after Tab");
+    require(hands.clear_for_shortcut() && hands.locked(KEY_LEFTALT) && held(KEY_LEFTALT) == 0,
+            "a shortcut lets a locked Alt up and keeps the lock");
+    // Another hand holding a key: the shortcut waits.
+    hands.down(1, key(layout, "KeyA"), 22);
+    output.tick(22);
+    require(!hands.clear_for_shortcut(), "not while another key is held down");
+    hands.up(1);
+    output.tick(22.1);
+    hands.cancel_all();
+}
 void profile_tests(const fk::Profiles& defaults) {
     TemporaryDirectory directory;
     write(
@@ -683,6 +720,34 @@ void profile_tests(const fk::Profiles& defaults) {
     std::ifstream file(directory.path / "config.json");
     const std::string content((std::istreambuf_iterator<char>(file)), {});
     require(content.find("custom") != std::string::npos, "preserve unrelated settings");
+    {
+        // Shortcuts and macros: off by default, its toolbar switch on.
+        TemporaryDirectory shortcuts;
+        std::vector<std::string> problems;
+        auto loaded_settings = fk::load_settings(shortcuts.path, problems);
+        require(!loaded_settings.shortcuts && loaded_settings.shortcuts_switch,
+                "Shortcuts and macros off, its toolbar switch on, by default");
+        loaded_settings.shortcuts = true;
+        loaded_settings.shortcuts_switch = false;
+        fk::save_settings(shortcuts.path, loaded_settings);
+        const auto again = fk::load_settings(shortcuts.path, problems);
+        require(again.shortcuts && !again.shortcuts_switch && problems.empty(),
+                "both shortcut switches are saved and read back");
+        write(shortcuts.path / "config.json",
+              R"({"schema_version":1,"active":{"layout":"en-us-full","language":"en-us",)"
+              R"("theme":"graphite"},)"
+              R"("shortcuts":"yes","shortcuts_switch":false,"pinned":true})");
+        std::vector<std::string> field_problems;
+        const auto bad = fk::load_settings(shortcuts.path, problems, &field_problems);
+        require(!bad.shortcuts && !bad.shortcuts_switch && bad.pinned && problems.empty() &&
+                    field_problems.size() == 1,
+                "a bad shortcuts value falls back on its own");
+    }
+    for (int n = 13; n <= 24; ++n) {
+        const auto name = "F" + std::to_string(n);
+        require(fk::key_code(name) == KEY_F13 + n - 13 && fk::key_name(KEY_F13 + n - 13) == name,
+                "F13 to F24 are keys by name");
+    }
     write(directory.path / "config.json", "{broken");
     rejects([&] { fk::save_selection(directory.path, {}); }, "do not overwrite malformed settings");
     rejects([] { fk::parse_layout(R"({"schema_version":2})"); }, "reject future schema");
@@ -768,11 +833,11 @@ void key_area_tests(const fk::Profiles& defaults) {
     auto at = [&](double x, double y) { return area_key(us, areas, x, y); };
     // Keys of a block split the gaps between them in the middle.
     require(at(266.5, 170) == "KeyQ" && at(269.5, 170) == "KeyW", "Q and W share their gap");
-    require(at(250, 202) == "KeyQ" && at(250, 208) == "KeyA", "rows share the gap between them");
-    require(at(267, 203) == "KeyQ" && at(269, 207) == "KeyA", "and the corners where gaps cross");
+    require(at(250, 197) == "KeyQ" && at(250, 201) == "KeyA", "rows share the gap between them");
+    require(at(267, 198) == "KeyQ" && at(269, 200) == "KeyA", "and the corners where gaps cross");
     require(at(221, 240) == "CapsLock" && at(224, 240) == "KeyA", "Caps Lock and A share theirs");
-    require(at(130, 275) == "CapsLock" && at(130, 279) == "ShiftLeft", "so do Caps Lock and Shift");
-    require(at(298, 20) == "F1" && at(1438, 131) == "NumpadSubtract",
+    require(at(130, 266) == "CapsLock" && at(130, 268) == "ShiftLeft", "so do Caps Lock and Shift");
+    require(at(298, 20) == "F1" && at(1438, 130) == "NumpadSubtract",
             "within the function keys and numpad");
     // Wider gaps separate blocks and stay empty, and blocks don't grow outward.
     require(at(260, 55).empty(), "nothing between the number row and the function keys");
@@ -785,8 +850,18 @@ void key_area_tests(const fk::Profiles& defaults) {
     for (std::size_t k = 0; k < us.keys.size(); ++k) {
         absent[k] = us.keys[k].id == "Dictation";
     }
-    require(at(40, 299) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 299).empty(),
+    require(at(40, 290) == "Paste" && area_key(us, fk::key_areas(us, absent), 40, 290).empty(),
             "Paste reaches toward the mic key only while it shows");
+    // R344: on the flick English page the gap under the emoji key is the
+    // usual one and is shared, so a press there is never lost.
+    {
+        const auto& flick = defaults.layouts.at("ja-flick-qwerty");
+        const auto flick_areas = fk::key_areas(flick);
+        for (const double y : {49.0, 51.0, 53.0}) {
+            require(!area_key(flick, flick_areas, 20, y).empty(),
+                    "the flick English page has no dead strip under its emoji key");
+        }
+    }
     // ISO and JIS Enter: the pocket beside it is split with ].
     for (const char* id : {"en-gb-full", "ja-jis-full"}) {
         const auto& layout = defaults.layouts.at(id);
@@ -794,7 +869,7 @@ void key_area_tests(const fk::Profiles& defaults) {
         require(area_key(layout, pocket, 935, 170) == "BracketRight" &&
                     area_key(layout, pocket, 945, 170) == "Enter" &&
                     area_key(layout, pocket, 945, 135) == "Enter" &&
-                    area_key(layout, pocket, 935, 204) == "BracketRight",
+                    area_key(layout, pocket, 935, 198) == "BracketRight",
                 "the pocket beside a tall Enter is split between ] and Enter");
         require(std::count_if(
                     pocket.begin(), pocket.end(),
@@ -919,6 +994,7 @@ int main() {
         }
         state_tests(defaults.layouts.at("en-us-full"));
         modifier_lock_tests(defaults.layouts.at("en-us-full"));
+        shortcut_clearing_tests(defaults.layouts.at("en-us-full"));
         profile_tests(defaults);
         key_area_tests(defaults);
         app_key_area_tests();

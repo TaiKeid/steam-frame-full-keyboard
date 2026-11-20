@@ -3,6 +3,7 @@
 #include "simulator/simulator.hpp"
 #include <algorithm>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <sys/wait.h>
@@ -335,13 +336,26 @@ void japanese_reopen(bool slow) {
     press(simulator, "Flick-a");
     press(simulator, "Enter");
 
-    // The pointer leaving the keyboard is the laser leaving the panel: the
-    // chance to reopen ends, and a flick that leaves types nothing.
+    // The pointer leaving the keyboard with its button up is a laser resting
+    // off the keys: the chance to reopen stays (R384). A press off the
+    // keyboard may move the field's cursor, so it ends the chance, and a
+    // flick that leaves types nothing.
     const auto [x, y] = key_point(simulator, "Flick-ka");
     simulator.pointer_move(Simulator::mouse, x, y);
     simulator.pointer_move(Simulator::mouse, x, 60);
     press(simulator, "Flick-undo");
-    require(simulator.field().text() == "あ", "no reopen after the pointer left");
+    wait(simulator, .2);
+    require(simulator.field().text().empty() && simulator.app().view().preedit == "あ",
+            "↶ still reopens after the pointer left the keyboard with its button up");
+    press(simulator, "Enter");
+    require(simulator.field().text() == "あ", "and Enter commits it again");
+    simulator.pointer_move(Simulator::mouse, x, 60);
+    simulator.pointer_down(Simulator::mouse, x, 60, clock_now);
+    simulator.pointer_up(Simulator::mouse, x, 60);
+    press(simulator, "Flick-undo");
+    wait(simulator, .2);
+    require(simulator.field().text() == "あ" && simulator.app().view().preedit.empty(),
+            "no reopen after a press off the keyboard");
     simulator.pointer_move(Simulator::mouse, x, y);
     simulator.pointer_down(Simulator::mouse, x, y, clock_now);
     simulator.pointer_move(Simulator::mouse, x, 60);
@@ -468,6 +482,202 @@ void bad_selection() {
 }
 } // namespace
 
+// The shortcut bar shows above the case in the simulator's window, over the
+// field's foot, and takes clicks: its button's key reaches the field.
+void shortcut_bar() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    ShortcutButton home;
+    home.label = "Home";
+    home.action.chords = {{{}, "Home"}};
+    model.profiles.push_back({"b", "Bar", {home}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    const auto view = simulator.app().view();
+    require(view.shortcut_bar && view.shortcut_bar->buttons.size() == 1,
+            "the bar shows in the simulator");
+    press(simulator, "KeyH");
+    press(simulator, "KeyI");
+    const auto& button = view.shortcut_bar->buttons[0].bounds;
+    const double x = button.x + button.width / 2, y = button.y + button.height / 2 + popup_margin;
+    require(y > 0 && y < popup_margin, "the bar is above the case");
+    simulator.pointer_move(Simulator::mouse, x, y);
+    simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+    wait(simulator, .03);
+    simulator.pointer_up(Simulator::mouse, x, y);
+    wait(simulator);
+    press(simulator, "KeyX");
+    require(simulator.field().text() == "xhi", "a click on the bar's button sends its key to the field");
+    simulator.shutdown();
+}
+// The shortcut editor opens in the simulator from the picker and takes its
+// clicks; a bar's name is typed on the keyboard, reaching nothing else.
+void click_rect(Simulator& simulator, const Rect& r) {
+    const double x = r.x + r.width / 2, y = r.y + r.height / 2 + popup_margin;
+    simulator.pointer_move(Simulator::mouse, x, y);
+    simulator.pointer_down(Simulator::mouse, x, y, clock_now);
+    wait(simulator, .03);
+    simulator.pointer_up(Simulator::mouse, x, y);
+    wait(simulator);
+}
+Rect control_bounds(Simulator& simulator, const std::string& id) {
+    for (const auto& control : simulator.app().view().controls) {
+        if (control.id == id) {
+            return control.bounds;
+        }
+    }
+    throw std::runtime_error("no control " + id);
+}
+void shortcut_editor() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"b", "Bar", {}});
+    model.free_profile = "b";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    click_rect(simulator, simulator.app().view().shortcut_bar->menu->manage);
+    require(simulator.app().view().shortcut_editor.has_value(), "the editor opens in the simulator");
+    click_rect(simulator, control_bounds(simulator, "shortcuts-new-profile"));
+    require(simulator.app().view().shortcut_editor->popup.has_value() &&
+                !simulator.app().view().shortcut_field,
+            "New bar opens its name in the editor's popup");
+    click_rect(simulator, control_bounds(simulator, "shortcuts-popup-key-KeyQ"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-popup-done"));
+    const auto view = simulator.app().view();
+    bool named = false;
+    for (const auto& control : view.controls) {
+        named |= control.id.starts_with("shortcuts-row-") && control.label == "Profile 2q";
+    }
+    require(named && simulator.field().text().empty() && !view.shortcut_editor->popup,
+            "the popup takes clicks: its name is typed into the editor, not the field");
+    // The Macro view opens and takes clicks.
+    click_rect(simulator, control_bounds(simulator, "shortcuts-add"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-kind-1"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-add-wait"));
+    click_rect(simulator, control_bounds(simulator, "shortcuts-step-plus-0"));
+    const auto macro = simulator.app().view();
+    require(control_bounds(simulator, "shortcuts-kind-1").width > 0 &&
+                macro.shortcut_editor->steps.size() == 1 &&
+                macro.shortcut_editor->steps[0].time == "0.6 s",
+            "the Macro view takes clicks: a wait added and changed");
+    simulator.shutdown();
+}
+// The App button goes round its apps; a profile assigned to one follows it.
+void app_button() {
+    Profile profile;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    ShortcutModel model;
+    ShortcutButton home;
+    home.label = "Home";
+    home.action.chords = {{{}, "Home"}};
+    ShortcutButton end = home;
+    end.label = "End";
+    end.action.chords = {{{}, "End"}};
+    model.profiles.push_back({"f", "Free", {home}});
+    model.profiles.push_back({"g", "Game keys", {end}});
+    model.free_profile = "f";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    const auto label = [&] { return simulator.app().view().shortcut_bar->buttons[0].label; };
+    const auto click_app = [&] {
+        const auto r = Simulator::app_button();
+        simulator.pointer_down(Simulator::mouse, r.x + 5, r.y + 5, clock_now);
+        simulator.pointer_up(Simulator::mouse, r.x + 5, r.y + 5);
+        wait(simulator);
+    };
+    require(simulator.app_label() == "App: Notes" && simulator.sink().focused_app().app &&
+                simulator.sink().focused_app().app->kind == AppIdentity::Kind::Desktop,
+            "it starts on Notes, a Desktop app");
+    click_app();
+    click_app();
+    require(simulator.app_label() == "App: Game" && label() == "Home", "on to Game, without a profile");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    // The name comes from the lookup's thread, on a tick; an assign button's
+    // tooltip names the app.
+    const auto tip = [&] {
+        const auto r = simulator.app().view().shortcut_bar->menu->rows[1].assign;
+        simulator.pointer_move(Simulator::mouse, r.x + r.width / 2, r.y + r.height / 2 + popup_margin);
+        return simulator.app().view().bar_tooltip;
+    };
+    for (int i = 0; i < 500 && tip() != "Show Game keys whenever Game is in front"; ++i) {
+        usleep(2000);
+        wait(simulator, .01);
+    }
+    require(tip() == "Show Game keys whenever Game is in front",
+            "the tooltip names it with the simulator's own name");
+    click_rect(simulator, simulator.app().view().shortcut_bar->menu->rows[1].assign);
+    require(label() == "End", "Game keys, assigned, shows at once");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    click_app();
+    require(simulator.app_label() == "App: Moonlight" && label() == "Home",
+            "another app: the free profile");
+    click_app();
+    require(simulator.app_label() == "App: Game streamed from a PC" && label() == "Home",
+            "a game streamed from a PC is an app of its own");
+    click_app();
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    require(simulator.app_label() == "App: PC desktop stream" &&
+                simulator.app().view().shortcut_bar->menu->rows[0].assign_enabled &&
+                tip() == "Show Game keys whenever your PC's desktop stream is in front",
+            "the PC's desktop stream can be assigned, named in the tooltip's own words");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    click_app();
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    const auto menu = *simulator.app().view().shortcut_bar->menu;
+    require(simulator.app_label() == "App: Steam" && !menu.rows[0].assign_enabled,
+            "Steam's dashboard: the assign buttons disabled");
+    click_rect(simulator, simulator.app().view().shortcut_bar->picker);
+    click_app();
+    click_app();
+    click_app();
+    require(simulator.app_label() == "App: Game" && label() == "End",
+            "round again to Game: its profile");
+    simulator.shutdown();
+}
+// A Run button starts its program on the computer the simulator runs on:
+// here a command writing a marker in the test's own folder.
+void run_button() {
+    Profile profile;
+    const std::string old_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    setenv("HOME", profile.path.c_str(), 1);
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(profile.path, settings);
+    const auto marker = profile.path / "run-marker";
+    ShortcutButton run;
+    run.label = "Mark";
+    run.action.kind = ShortcutAction::Kind::Run;
+    run.action.command = "echo started > '" + marker.string() + "'";
+    ShortcutModel model;
+    model.profiles.push_back({"r", "Run", {run}});
+    model.free_profile = "r";
+    std::ofstream(shortcuts_path(profile.path)) << serialize_shortcuts(model);
+    Simulator simulator(setup(profile, "en-us-full", "en-us", false));
+    wait(simulator);
+    require(simulator.app().view().shortcut_bar->buttons[0].enabled, "a Run button is enabled");
+    click_rect(simulator, simulator.app().view().shortcut_bar->buttons[0].bounds);
+    for (int i = 0; i < 300 && !fs::exists(marker); ++i) {
+        usleep(5000);
+        wait(simulator, .01);
+    }
+    require(fs::exists(marker) && simulator.field().text().empty(),
+            "a click starts its command on this computer; nothing is typed");
+    simulator.shutdown();
+    setenv("HOME", old_home.c_str(), 1);
+}
 int main() {
     try {
         injected_converter();
@@ -480,6 +690,10 @@ int main() {
         english();
         typing_suggestions();
         bad_selection();
+        shortcut_bar();
+        shortcut_editor();
+        app_button();
+        run_button();
         std::cout << "simulator tests passed\n";
         return 0;
     } catch (const std::exception& error) {

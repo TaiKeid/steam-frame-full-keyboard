@@ -17,7 +17,7 @@ constexpr int panel_width = 1600;
 constexpr int panel_height = 600;
 // Settings' case: as tall as a full-size layout's (reading_case_room()), its
 // cards' scrollbar as far above its foot as the cards are from its sides.
-constexpr int settings_height = 588;
+constexpr int settings_height = 572;
 // Transparent space above/below the case lets dropdowns escape its border.
 // Logical UI and placement coordinates still describe the 1600 x 600 case.
 constexpr int popup_margin = 200;
@@ -123,7 +123,18 @@ enum class ControlKind {
     // The Debug card, only in debug builds (FRAMEKEYBOARD_DEBUG_MODE).
     DebugMarkAnthy,
     DebugKeyCollision,
-    DebugInterfaceLanguage
+    DebugInterfaceLanguage,
+    // The shortcut bar (docs/shortcut-bar-design.md): the toolbar's switch
+    // for the bar, Settings' Shortcuts and macros switch, and the Debug
+    // card's sample bars.
+    ShortcutsToggle,
+    Shortcuts,
+    DebugSampleShortcuts,
+    // The shortcut editor's controls (shortcuts-…; value says which), its
+    // popup's included, and the keyboard's strip while a label is renamed
+    // in place: its buttons at the right, where they end before them.
+    ShortcutEditor,
+    FieldAction
 };
 struct ControlAction {
     ControlKind kind{ControlKind::None};
@@ -197,13 +208,13 @@ constexpr Rect confirm_popup_bounds{530, 170, 540, 240};
 constexpr Rect streaming_popup_bounds{390, 60, 820, 460};
 // The Additional languages popup covers Settings. One well holds three
 // columns, as the emoji picker's sections share one.
-constexpr Rect languages_popup_bounds{14, 8, 1572, 572};
-constexpr Rect languages_well_bounds{30, 72, 1540, 492};
-constexpr Rect languages_layouts_bounds{38, 116, 270, 440};
-constexpr Rect languages_list_bounds{338, 116, 760, 440};
+constexpr Rect languages_popup_bounds{14, 8, 1572, 556};
+constexpr Rect languages_well_bounds{30, 72, 1540, 476};
+constexpr Rect languages_layouts_bounds{38, 116, 270, 424};
+constexpr Rect languages_list_bounds{338, 116, 760, 424};
 constexpr double languages_list_gap = 8;
 constexpr Rect languages_main_bounds{1130, 116, 424, 56};
-constexpr Rect additional_list_bounds{1130, 226, 424, 330};
+constexpr Rect additional_list_bounds{1130, 226, 424, 314};
 constexpr double languages_row_height = 56, additional_row_height = 62;
 // The theme picker covers Settings as Additional languages does. Its well
 // holds a grid of cards, four across: a preview of the keyboard in that
@@ -242,6 +253,227 @@ struct LabelFit {
 cairo_surface_t* render_theme_preview(const Theme& theme, const Layout& layout, const Language& language,
                                       const LanguageMap& keymap, int width, int height);
 void record_label_fits(std::vector<LabelFit>* into);
+struct PanelView;
+// The length of a bar button's border in pixels, which a long run's stroke measures (R372).
+inline double bar_border_pixels(const Rect& bounds) {
+    return 2 * (bounds.width + bounds.height);
+}
+// The shortcut bar above the case (docs/shortcut-bar-design.md), in panel
+// coordinates, as App built it: the renderer only draws it, and nothing it
+// draws acts. Its parts take the laser through shortcut_bar_bounds().
+struct ShortcutBarView {
+    // A button, drawn as a key in Ctrl's tone at the layout's scale.
+    struct Button {
+        bool operator==(const Button&) const = default;
+        std::string label; // up to two lines; the user's own, never logged
+        Rect bounds;       // where it is after scrolling; `strip` clips it
+        bool hovered{}, pressed{}, enabled{true};
+        bool running{}; // its run is under way: lit, as a latched key
+        // A long run's progress (R372): how many pixels of the border's length (bar_border_pixels)
+        // its stroke has reached, clockwise from the top center; -1 for none. Whole pixels, so the
+        // bar repaints only when the stroke's end moves by one.
+        int progress_px{-1};
+        bool run{};     // a Run button: the >_ mark in its top right corner
+    };
+    bool operator==(const ShortcutBarView&) const = default;
+    Rect plate, strip; // the bar's plate, and where its buttons show
+    double scale{1};   // the layout's, which sizes the buttons as keys
+    // Two empty slots: a bar without buttons, or the empty bar.
+    bool slots{};
+    std::vector<Button> buttons; // only those at least partly in the strip
+    // Clipped sides fade out under a chevron.
+    bool more_before{}, more_after{};
+    // The picker: a tab on the plate's right side, part of its shape; the
+    // whole tab is the button, lit while its menu is open.
+    Rect picker;
+    bool picker_hovered{}, picker_pressed{};
+    // The picker's menu, dropped over the case from under the bar.
+    struct Menu {
+        struct Row {
+            bool operator==(const Row&) const = default;
+            std::string name; // the profile's, never logged
+            Rect bounds, assign;
+            bool shown{}, hovered{}, pressed{};
+            bool assign_hovered{}, assign_enabled{}, assigned{};
+        };
+        bool operator==(const Menu&) const = default;
+        Rect bounds, header, list; // `list` clips the rows
+        std::string title;         // "Profiles", at the header's left
+        std::vector<Row> rows;     // only those in view
+        std::optional<Rect> thumb; // while more rows than six
+        // Manage, at the header's right, which opens the editor on the
+        // profile showing.
+        Rect manage;
+        std::string manage_label;
+        bool manage_enabled{}, manage_hovered{}, manage_pressed{};
+    };
+    std::optional<Menu> menu;
+    // A button whose label is being typed (the shortcut editor's Label
+    // field): its index in `buttons`, drawn as a field with this text, the
+    // caret at a byte offset of it.
+    std::optional<std::size_t> field;
+    std::string field_text; // never logged
+    std::size_t field_cursor{};
+};
+// A chip of text: a recorded key combination, an assigned app.
+struct ShortcutChip {
+    bool operator==(const ShortcutChip&) const = default;
+    std::string text;
+    Rect bounds;
+};
+// Every control of the shortcut editor's screen carries this prefix, and
+// no other control may: while the editor shows, the normal drawing pass
+// leaves them to draw_shortcut_editor (R328).
+inline constexpr std::string_view shortcut_editor_prefix = "shortcuts-";
+// The modifiers and locks a key's face shows (KeyboardState's own, unless a
+// view gives its own, as the shortcut editor's mini keyboard does).
+struct KeyMarks {
+    bool operator==(const KeyMarks&) const = default;
+    std::set<int> modifiers, locked;
+    bool caps{}, num{};
+};
+// The shortcut editor's mini keyboard (design, Typing and recording): the
+// keys of the full US layout `us` that press a key, without its side column,
+// the gaps between its blocks closed to 12 layout units, 4 under the
+// function row and none between the other rows. In its own units from
+// (0, 0). Rows touch, so each key's face leaves its side (`depth`) and a
+// unit under it.
+Layout mini_keyboard_layout(const Layout& us, double depth);
+// The editor's popup for typing a label or a bar name, or recording keys,
+// under the strip. Its buttons and its keys are controls named
+// shortcuts-popup-… (the keys shortcuts-popup-key-<key id>); this holds the
+// rest. Panel coordinates, but `layout`, whose keys are drawn at `keys`
+// scaled by `scale`.
+struct ShortcutPopupView {
+    bool operator==(const ShortcutPopupView&) const = default;
+    enum class Kind { Label, Name, Recording, Command };
+    Kind kind{Kind::Label};
+    Rect panel, well;        // the popup, and row 2's recessed strip
+    std::string title, hint; // row 1; the hint after the title, when it fits
+    Rect title_bounds, hint_bounds;
+    std::string text; // Label, Name: never logged
+    std::size_t cursor{};
+    std::vector<ShortcutChip> chords;     // Recording, scrolled; the newest followed
+    bool chords_before{}, chords_after{}; // more beyond a side: it fades (R331)
+    // Recording: a quiet note in the strip, what to press while it is
+    // empty, or after the chips why no more go.
+    std::string full;
+    Rect full_bounds;
+    const Layout* layout{}; // the mini keyboard
+    const Language* language{};
+    const LanguageMap* keymap{}; // US legends, whatever language types
+    Rect keys;                   // where its (0, 0) and its size land
+    double scale{1};
+    KeyMarks marks;                 // the popup's own latches and Caps Lock
+    std::set<std::string> pressed;  // key IDs held down
+    std::set<std::string> disabled; // key IDs that do nothing here: the locks
+};
+// A macro step's row in the editor's Macro view: a Keys step's chips (as
+// many as fit, then an ellipsis), or a Wait step's time between its − and
+// +, which are controls with its ✕ and the row itself.
+struct ShortcutStepView {
+    bool operator==(const ShortcutStepView&) const = default;
+    Rect bounds;
+    bool wait{};
+    std::vector<ShortcutChip> chips;
+    bool more{};
+    Rect more_bounds;
+    std::string time;
+    Rect time_bounds;
+    // Where its − + (a wait's) and ✕ are: controls on a row in its place,
+    // drawn with the row while a drag carries it (R337).
+    Rect minus_bounds, plus_bounds, remove_bounds;
+};
+// The shortcut editor's screen, over the case in place of the keys. Its
+// pressable parts are controls named shortcuts-…, which it draws; this holds
+// the rest. Panel coordinates.
+struct ShortcutEditorView {
+    bool operator==(const ShortcutEditorView&) const = default;
+    double width{}; // the case's: the keyboard's, or without its numpad
+    bool wide{};    // full width: the strip shows its hint
+    std::string title;
+    std::string notice; // shortcuts.json can't be read: why, and what saving does
+    std::string profiles_caption, used_caption, used_hint, strip_hint, empty_hint;
+    Rect column, profiles_list, strip_well, strip;
+    Rect used;        // Used for: its caption at the top, its hint at the foot
+    double divider{}; // x of the line right of the column
+    double scale{1};  // the strip's buttons are keys at the layout's scale
+    bool more_before{}, more_after{};
+    std::optional<Rect> profiles_thumb;
+    std::vector<ShortcutChip> ties; // Used for; their ✕ are controls
+    // A row or button a drag carries, where the laser holds it; a button
+    // carried off the strip would be deleted.
+    std::optional<ShortcutChip> lifted_row, lifted_button;
+    bool lifted_run{}; // the lifted or carried button is a Run button: its mark
+    bool lifted_removing{};
+    // A profile's row a carried button would go to, lit; and, once dropped
+    // there, the popover with Move and Copy (controls shortcuts-carry-…).
+    std::optional<Rect> drop_row, carry_panel;
+    std::string label_caption, action_caption, keys_caption;
+    // The combinations, scrolled, in a strip of fixed width between the
+    // Keys caption and Record; a side with more beyond it fades (R331).
+    std::vector<ShortcutChip> chords;
+    Rect chords_strip;
+    bool chords_before{}, chords_after{};
+    std::vector<std::string> explanation;
+    Rect explanation_bounds;
+    // The Macro view: its steps in a well that scrolls, a lifted one where
+    // the laser holds it, and Repeat's count for Times.
+    std::string steps_caption, repeat_caption, wait_caption;
+    Rect steps_well;
+    std::vector<ShortcutStepView> steps;
+    std::optional<Rect> steps_thumb;
+    std::optional<ShortcutStepView> lifted_step;
+    std::string count;
+    Rect count_bounds;
+    // The Run view in the Macro view's places: Script's list of the scripts
+    // folder in a well that scrolls (its rows are controls
+    // shortcuts-script-N), or Command's field; Script | Command under it.
+    std::string run_caption, start_caption; // over the list or field; beside the switch
+    Rect scripts_well;
+    struct ScriptRow {
+        bool operator==(const ScriptRow&) const = default;
+        std::string name; // the user's file name, never logged
+        Rect bounds;
+        bool chosen{}, missing{};
+    };
+    std::vector<ScriptRow> scripts;
+    std::optional<Rect> scripts_thumb;
+    std::string scripts_note, missing_mark; // the empty list's note; "missing"
+    // Typing or recording; under it the editor is dimmed but the strip.
+    std::optional<ShortcutPopupView> popup;
+};
+// The keyboard's toolbar row while a label is renamed in place on the bar
+// (design, Renaming in place): nothing typed there reaches the app. Its
+// buttons are controls (field-…); the bar above shows the field
+// (ShortcutBarView).
+struct ShortcutFieldView {
+    bool operator==(const ShortcutFieldView&) const = default;
+    Rect strip;
+    std::string title, hint;
+    Rect hint_bounds; // where the hint fits; empty: left out
+};
+// Where the bar's parts go for `buttons` buttons on the case `view` shows.
+// Sizes follow the layout's scale (design, The bar on the keyboard).
+struct ShortcutBarGeometry {
+    Rect plate, strip, picker; // the picker: the tab on the plate's right side
+    double button_width{}, button_height{}, pitch{};
+    double button_top{};   // a button's face at rest, its side below it
+    std::size_t slots{};   // as many as show at once
+    double scroll_limit{}; // how far the buttons can scroll
+};
+ShortcutBarGeometry shortcut_bar_geometry(const PanelView& view, std::size_t buttons);
+// The picker's menu for `rows` bars: six rows show, more scroll.
+struct ShortcutMenuGeometry {
+    Rect bounds, header, list, manage; // Manage: in the header, at its right
+    double row_height{};
+    std::size_t visible{};
+    double scroll_limit{};
+    Rect row(std::size_t index, double scroll) const;
+    Rect assign(const Rect& row) const;
+};
+inline constexpr std::size_t shortcut_menu_rows = 6;
+ShortcutMenuGeometry shortcut_menu_geometry(const ShortcutBarGeometry& bar, std::size_t rows);
 struct PanelView {
     const Layout* layout{};
     const Theme* theme{};
@@ -253,6 +485,9 @@ struct PanelView {
     std::string composition_hint;
     const LanguageMap* keymap{};
     const KeyboardState* keyboard{};
+    // In place of `keyboard`'s modifiers and locks, for keys no key state
+    // stands behind (key_marks()).
+    std::optional<KeyMarks> key_marks;
     std::vector<Control> controls;
     std::vector<CardView> cards;
     std::vector<FieldLabel> field_labels;
@@ -269,6 +504,15 @@ struct PanelView {
     // Background (Settings): how opaque the case is behind the keys, 1 when
     // filled; below 1 it is drawn see-through, and still takes the laser.
     double case_opacity{1};
+    // Background Disabled (R380): no case drawn, and the laser passes between
+    // key groups to what is behind (laser_areas). laser_key_areas are where
+    // the keys take it, as Extended key collision has them whether or not
+    // it is on; pointer_held, a press that began on the keyboard and goes
+    // on, or an open skin tone popup, Profiles menu or candidate list, gives
+    // the whole case back until it ends (App::whole_case_held).
+    bool click_through{};
+    const std::vector<KeyArea>* laser_key_areas{};
+    bool pointer_held{};
     // Hover fade (Settings): a key the laser leaves dims over a moment, a
     // short trail behind the laser, instead of going dark at once.
     bool hover_fade{true};
@@ -328,6 +572,17 @@ struct PanelView {
     // The toolbar icon button a laser is on: its label shows in the same
     // place, above the case, while focus_tooltip is empty. Empty: none.
     std::string hover_tooltip;
+    // A tooltip for a part of the shortcut bar the laser is on, such as the
+    // picker, pointing at `bar_tooltip_at`, while neither above shows.
+    std::string bar_tooltip;
+    Rect bar_tooltip_at;
+    // The shortcut bar above the case, while it shows; tooltips and the
+    // status card then sit above it.
+    std::optional<ShortcutBarView> shortcut_bar;
+    // The shortcut editor's screen, in place of the keys; or the keyboard's
+    // strip while one of its fields is typed or keys are recorded.
+    std::optional<ShortcutEditorView> shortcut_editor;
+    std::optional<ShortcutFieldView> shortcut_field;
     // Typing was refused for want of a target: from this time the Focus mode
     // button's icon shakes, like an error, instead of a status message.
     double focus_shake_since{-1};
@@ -450,11 +705,12 @@ struct PanelView {
     // The prefix of the open modal's controls; nothing else responds. A
     // question asked from the languages popup sits over it.
     std::string modal_prefix() const {
-        return address     ? "address-"
-               : confirm   ? "confirm-"
-               : languages ? "languages-"
-               : themes    ? "themes-"
-                           : "";
+        return address                                     ? "address-"
+               : confirm                                   ? "confirm-"
+               : languages                                 ? "languages-"
+               : themes                                    ? "themes-"
+               : shortcut_editor && shortcut_editor->popup ? "shortcuts-popup-"
+                                                           : "";
     }
 };
 
@@ -490,6 +746,38 @@ std::vector<Rect> theme_cards_damage(const PanelView& before, const PanelView& n
 // changed (R292); empty otherwise.
 std::vector<Rect> theme_hover_damage(const PanelView& before, const PanelView& now);
 Rect panel_rect(const PanelView& view, Rect layout_rect);
+// The rectangles of the shortcut bar the laser may hit: both plates and the
+// open menu. The VR mask and the passthrough pointer add them to the case's.
+std::vector<Rect> shortcut_bar_bounds(const PanelView& view);
+// Everything that takes a pointer: the case, an open menu, the flick
+// preview past the case, and the shortcut bar's plates and open menu. The
+// VR mask, the passthrough pointer and the laser's hover, which the click
+// watch and grabbing read, all use these, so a pull on any of them counts
+// as one on the keyboard (R319). The move handle is the mask's own.
+// Where the laser hits the keyboard, in panel coordinates: the case and the
+// open menu, flick preview and shortcut bar; under Background Disabled
+// (R380) only the key groups, controls, emoji grid, dictation editor and
+// candidates, merged into at most max_laser_areas less `reserved`
+// rectangles (SteamVR's intersection mask). Too many: each group's bounding
+// rectangle (fallback 1), else the whole case (fallback 2).
+struct LaserAreas {
+    std::vector<Rect> areas;
+    int fallback{};
+};
+// OpenVR's k_unMaxOverlayIntersectionMaskPrimitivesCount (vr.cpp checks it).
+constexpr std::size_t max_laser_areas = 32;
+LaserAreas laser_areas(const PanelView& view, std::size_t reserved = 0);
+// laser_areas() with room kept for the move handle; the one set every hit
+// test uses: SteamVR's mask, the passthrough pointer, a shell's forwarded
+// pointer and the simulator.
+std::vector<Rect> pointer_bounds(const PanelView& view);
+bool takes_pointer(const PanelView& view, double x, double y);
+// What the bar repaints when only its buttons' or the picker's states
+// changed (hover, press, enabled, running) or its buttons scrolled; empty
+// when the bar did not change, or when anything else in it did, the open
+// menu included (it lies over keys), which a full repaint covers. Bar
+// buttons never force a full repaint by their hover alone.
+std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now);
 // Logical case bounds also define the VR interaction area. Hidden numpad space
 // stays transparent in the fixed-size texture, preserving the dashboard anchor.
 Rect panel_case_bounds(const PanelView& view);
@@ -504,8 +792,9 @@ constexpr double second_row_top = 62;
 // How much sooner a layout's case ends (PanelView::reading_room). A full
 // layout's keys keep the size they have under the normal toolbar, so its
 // case loses only the height they leave spare under the reading line's
-// taller one; the flick layout, as short as a phone's, loses the whole
-// second row.
+// taller one; the flick layout, as short as a phone's, is as wide as a full
+// layout's case without its numpad and as tall as its keys need at that
+// width.
 double reading_case_room(const Layout& layout, const Theme& theme, bool flick);
 // This is the complete hit region, including transparent padding around the line.
 std::optional<Rect> panel_move_handle_bounds(const PanelView& view);
@@ -524,17 +813,26 @@ ImeBand ime_band(const PanelView& view);
 // line, in the candidate row's columns, five lines at most. The flick band:
 // under its candidate row, across the band, down to the foot of the keys.
 Rect candidate_list_area(const PanelView& view);
-// The layout height at which a view without the Japanese band would give
-// its keys the scale `view` gives them with it (or with its room kept); the
-// layout's own height for a view without either. The emoji picker opens at
-// it, in the same case.
-double unbanded_layout_height(const PanelView& view);
+// How much taller, in layout units, a layout may grow under the normal
+// toolbar so that its keys keep the pixels `view` gives them under the
+// band's taller toolbar (or its room kept), at the same scale; 0 for a view
+// without either. Dictation mode and the emoji picker grow by it and no
+// more: filling the case to its padding would also take in the case's
+// sub-pixel slack and move the keys off the normal layout's whole pixels.
+double band_toolbar_room(const PanelView& view);
 // A candidate's label width, as the band draws it.
 double candidate_text_width(const std::string& text, const std::string& family);
+// A label's text width at `size`, as interface labels draw it; for laying
+// out chips that fit their text (R331).
+double interface_text_width(const std::string& text, double size, const std::string& family);
 // Panel area of the flick preview, which may extend past the case.
 std::optional<Rect> flick_preview_bounds(const PanelView& view);
 // Where dictation mode's status line sits in the toolbar row.
 Rect dictation_status_bounds(const PanelView& view);
+// Dictation mode shows a status too long for two lines of its room: it sits
+// on one line and scrolls under the laser, so it takes the laser even under
+// Background Disabled (laser_areas).
+bool dictation_status_scrolls(const PanelView& view);
 // Background Semi-transparent: the case's opacity, half on a dark theme;
 // a light theme's pale case reads far brighter, so it keeps only 15%.
 double semi_transparent_case_opacity(const Theme& theme);
@@ -621,6 +919,15 @@ class PanelRenderer {
     // Each key's lock ring as last drawn: how long it had run, at a 30 fps
     // step, or negative while none shows.
     std::map<std::string, double> lock_rings_;
+    // Rows are 6 units apart, so a key's repaint area reaches a little into
+    // the keys of the next row, and a pass's clip edge can cut a key there.
+    // A key drawn by itself (moving, lit, fading, with a ring or a lock's
+    // border) rasterizes slightly differently under such an edge, so it is
+    // drawn once into an image at whole pixels, which every pass copies
+    // exactly, as the flick preview is. Keys at rest copy their body from
+    // the shared image already.
+    // `marks`: key_marks(view), computed once per paint.
+    bool drawn_by_itself(const PanelView& view, const Key& key, const KeyMarks& marks) const;
     Animation move_handle_;
     // The hovered dropdown choice, since when, and the whole-pixel offset its
     // name was last painted at, for scrolling a long name.
@@ -628,8 +935,6 @@ class PanelRenderer {
     double marquee_since_{}, marquee_shown_{-1};
     // A status too long for its gap scrolls under the laser. Once the laser
     // leaves, the pass under way ends here and the text returns to its start.
-    std::string status_measured_, status_font_;
-    double status_width_{};
     bool status_scrolling_{};
     std::optional<double> status_scroll_end_;
     cairo_surface_t* surface_{};

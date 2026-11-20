@@ -4,7 +4,7 @@
   "name": "Japanese flick, English page",
   "language": "en-us",
   "width": 1020.0,
-  "height": 278,
+  "height": 266,
   "companion": true,
   "keys": [
     {
@@ -14,7 +14,7 @@
       "x": 0,
       "y": 0,
       "width": 54.4,
-      "height": 44,
+      "height": 48.4,
       "action": {
         "kind": "emoji",
         "value": "picker"
@@ -26,9 +26,9 @@
       "label": "Cut",
       "secondary_label": "",
       "x": 0,
-      "y": 57.6,
+      "y": 54.4,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "cut"
@@ -40,9 +40,9 @@
       "label": "Copy",
       "secondary_label": "",
       "x": 0,
-      "y": 115.2,
+      "y": 108.8,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "copy"
@@ -54,9 +54,9 @@
       "label": "Paste",
       "secondary_label": "",
       "x": 0,
-      "y": 172.8,
+      "y": 163.2,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "shortcut",
         "value": "paste"
@@ -68,9 +68,9 @@
       "label": "Dictation",
       "secondary_label": "",
       "x": 0,
-      "y": 230.4,
+      "y": 217.6,
       "width": 79,
-      "height": 47.6,
+      "height": 48.4,
       "action": {
         "kind": "dictation",
         "value": "mic"
@@ -239,7 +239,7 @@
       "label": "Tab",
       "secondary_label": "",
       "x": 120.0,
-      "y": 72,
+      "y": 68,
       "width": 102.3,
       "height": 62,
       "action": {
@@ -252,7 +252,7 @@
       "label": "A",
       "secondary_label": "",
       "x": 228.78,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -265,7 +265,7 @@
       "label": "S",
       "secondary_label": "",
       "x": 301.3,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -278,7 +278,7 @@
       "label": "D",
       "secondary_label": "",
       "x": 373.81,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -291,7 +291,7 @@
       "label": "F",
       "secondary_label": "",
       "x": 446.33,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -304,7 +304,7 @@
       "label": "G",
       "secondary_label": "",
       "x": 518.85,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -317,7 +317,7 @@
       "label": "H",
       "secondary_label": "",
       "x": 591.37,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -330,7 +330,7 @@
       "label": "J",
       "secondary_label": "",
       "x": 663.88,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -343,7 +343,7 @@
       "label": "K",
       "secondary_label": "",
       "x": 736.4,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -356,7 +356,7 @@
       "label": "L",
       "secondary_label": "",
       "x": 808.92,
-      "y": 72,
+      "y": 68,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -369,7 +369,7 @@
       "label": "Enter ↵",
       "secondary_label": "",
       "x": 881.43,
-      "y": 72,
+      "y": 68,
       "width": 138.57,
       "height": 62,
       "action": {
@@ -383,7 +383,7 @@
       "label": "Shift",
       "secondary_label": "",
       "x": 120.0,
-      "y": 144,
+      "y": 136,
       "width": 102.3,
       "height": 62,
       "action": {
@@ -396,7 +396,7 @@
       "label": "Z",
       "secondary_label": "",
       "x": 228.78,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -409,7 +409,7 @@
       "label": "X",
       "secondary_label": "",
       "x": 301.3,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -422,7 +422,7 @@
       "label": "C",
       "secondary_label": "",
       "x": 373.81,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -435,7 +435,7 @@
       "label": "V",
       "secondary_label": "",
       "x": 446.33,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -448,7 +448,7 @@
       "label": "B",
       "secondary_label": "",
       "x": 518.85,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -461,7 +461,7 @@
       "label": "N",
       "secondary_label": "",
       "x": 591.37,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -474,7 +474,7 @@
       "label": "M",
       "secondary_label": "",
       "x": 663.88,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -487,7 +487,7 @@
       "label": ",",
       "secondary_label": "<",
       "x": 736.4,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -500,7 +500,7 @@
       "label": ".",
       "secondary_label": ">",
       "x": 808.92,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -513,7 +513,7 @@
       "label": "↑",
       "secondary_label": "",
       "x": 881.43,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -526,7 +526,7 @@
       "label": "/",
       "secondary_label": "?",
       "x": 953.96,
-      "y": 144,
+      "y": 136,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -539,7 +539,7 @@
       "label": "あA1",
       "secondary_label": "",
       "x": 120.0,
-      "y": 216,
+      "y": 204,
       "width": 138.57,
       "height": 62,
       "action": {
@@ -552,7 +552,7 @@
       "label": "",
       "secondary_label": "",
       "x": 265.03,
-      "y": 216,
+      "y": 204,
       "width": 537.4,
       "height": 62,
       "action": {
@@ -565,7 +565,7 @@
       "label": "←",
       "secondary_label": "",
       "x": 808.92,
-      "y": 216,
+      "y": 204,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -578,7 +578,7 @@
       "label": "↓",
       "secondary_label": "",
       "x": 881.43,
-      "y": 216,
+      "y": 204,
       "width": 66.04,
       "height": 62,
       "action": {
@@ -591,7 +591,7 @@
       "label": "→",
       "secondary_label": "",
       "x": 953.96,
-      "y": 216,
+      "y": 204,
       "width": 66.04,
       "height": 62,
       "action": {

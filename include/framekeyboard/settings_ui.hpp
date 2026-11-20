@@ -41,7 +41,7 @@ struct SettingsCard {
 // cards and rows without adding fake preferences to production configuration.
 class SettingsUi {
   public:
-    static constexpr Rect viewport{18, 78, 1564, 476};
+    static constexpr Rect viewport{18, 62, 1564, 476};
     void set_cards(std::vector<SettingsCard> cards);
     void append(PanelView& view) const;
     void reset();
