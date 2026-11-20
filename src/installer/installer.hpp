@@ -13,11 +13,21 @@
 #include "framekeyboard/config.hpp"
 #include "framekeyboard/layout.hpp"
 #include "framekeyboard/localization.hpp"
+#include <array>
 #include <cairo.h>
 #include <memory>
 #include <pango/pango.h>
 
 namespace framekeyboard::installer {
+
+// Where the embedded keyboard picture's case ends and its keys lie, in the
+// picture's own pixels: from the layout the picture shows (picture_geometry).
+struct PictureGeometry {
+    double case_bottom{}, keys_left{}, key_pitch{};
+    std::array<double, 5> row_middle{}; // the digits' row down to Space's
+    double numpad_left{}, tenkeyless_width{};
+};
+PictureGeometry picture_geometry(const Layout& layout, const Theme& theme);
 
 class Installer {
   public:
@@ -192,6 +202,7 @@ class Installer {
     Backend& backend_;
     Theme theme_;
     Layout layout_;
+    PictureGeometry picture_;
     const Localization& localization_;
     std::string font_;
     using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;

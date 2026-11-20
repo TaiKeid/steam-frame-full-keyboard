@@ -3,6 +3,7 @@
 // downloaded or started, and no settings file is written.
 #include "../src/installer/installer.hpp"
 #include "framekeyboard/config.hpp"
+#include <algorithm>
 #include <cairo.h>
 #include <cstdint>
 #include <iostream>
@@ -11,6 +12,10 @@
 #include <string>
 #include <vector>
 
+namespace framekeyboard::installer {
+extern const unsigned char keyboard_png[];
+extern const std::size_t keyboard_png_size;
+} // namespace framekeyboard::installer
 namespace fk = framekeyboard;
 namespace in = framekeyboard::installer;
 using A = in::Installer::Action;
@@ -48,7 +53,8 @@ struct RecordingBackend : in::Backend {
         finished = choices;
         state.task = in::Task::Finish;
         state.state = fail_streaming && choices.streaming ? in::State::Failed : in::State::Done;
-        state.error = state.state == in::State::Failed ? fk::ui("installer.error.streaming") : fk::UiText{};
+        state.error =
+            state.state == in::State::Failed ? fk::ui("installer.error.streaming") : fk::UiText{};
     }
     in::Status status() override { return state; }
 };
@@ -259,6 +265,54 @@ void finish_list_fits(const fk::Profiles& profiles) {
                 std::string(posix) + ": and with Restart SteamOS ticked");
     }
 }
+// The picture's geometry, derived from the layout it shows, matches the
+// embedded picture: its case ends where the derived case does, and a key the
+// demos aim at is drawn where the derived rows and pitch put it.
+void picture_geometry(const fk::Profiles& profiles) {
+    struct Reader {
+        const unsigned char* data;
+        std::size_t size, at;
+    } reader{in::keyboard_png, in::keyboard_png_size, 0};
+    auto* picture = cairo_image_surface_create_from_png_stream(
+        [](void* closure, unsigned char* out, unsigned int length) {
+            auto& r = *static_cast<Reader*>(closure);
+            if (r.size - r.at < length) {
+                return CAIRO_STATUS_READ_ERROR;
+            }
+            std::copy_n(r.data + r.at, length, out);
+            r.at += length;
+            return CAIRO_STATUS_SUCCESS;
+        },
+        &reader);
+    require(cairo_surface_status(picture) == CAIRO_STATUS_SUCCESS, "the embedded picture decodes");
+    const auto* data = cairo_image_surface_get_data(picture);
+    const int stride = cairo_image_surface_get_stride(picture);
+    const int height = cairo_image_surface_get_height(picture);
+    const auto alpha = [&](int x, int y) {
+        return reinterpret_cast<const std::uint32_t*>(data + y * stride)[x] >> 24;
+    };
+    // The case's last opaque row, at its left, where no key or line lies.
+    int last = 0;
+    while (last + 1 < height && alpha(100, last + 1) > 128) {
+        ++last;
+    }
+    const auto g =
+        in::picture_geometry(profiles.layouts.at("en-us-full"), profiles.themes.at("graphite"));
+    require(std::abs(g.case_bottom - (last + 1)) <= 1, "the case ends where the derived geometry says");
+    // Each derived row's middle, in the column of Backquote and Tab, is a key
+    // face, lighter than the case's gap between the first two rows.
+    const auto light = [&](double x, double y) {
+        const auto p = reinterpret_cast<const std::uint32_t*>(data + static_cast<int>(y) *
+                                                                         stride)[static_cast<int>(x)];
+        return ((p >> 16) & 255) + ((p >> 8) & 255) + (p & 255);
+    };
+    const double x = g.keys_left + .2 * g.key_pitch;
+    const double gap = light(x, (g.row_middle[0] + g.row_middle[1]) / 2 + 3);
+    for (const double y : g.row_middle) {
+        require(light(x, y) > gap + 30, "a key lies where the derived rows put it");
+    }
+    cairo_surface_destroy(picture);
+}
 // What Finish saves: the bar's answer either way when its page was offered,
 // as every other page's; without the page the setting stays as loaded (R423).
 void saved_settings() {
@@ -292,6 +346,7 @@ int main() {
         localization.load({}, {});
         localization.choose(fk::SystemLanguage{"", "en_US.UTF-8"});
         saved_settings();
+        picture_geometry(profiles);
         shortcuts_page(profiles, localization);
         finish_without(profiles, localization);
         finish_list_fits(profiles);

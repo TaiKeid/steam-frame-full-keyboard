@@ -16,25 +16,20 @@ namespace {
 
 constexpr double pi = 3.141592653589793;
 // The keyboard picture on Home: the case, 1600 x panel_height, at 56% and
-// centered. In the picture the case ends 588 pixels down, where its
-// reflection starts here. Setup slides it up.
-constexpr double picture_scale = .56, case_bottom = 588;
+// centered; its reflection starts where the case ends (PictureGeometry).
+// Setup slides it up.
+constexpr double picture_scale = .56;
 constexpr Rect picture{(Installer::width - panel_width * picture_scale) / 2, 48,
                        panel_width * picture_scale, panel_height * picture_scale};
 constexpr double slide_distance = 300, slide_seconds = .7;
 // How far a pressed button moves down: the keys' own travel.
 constexpr double press_travel = 3;
 // The same picture in the wizard: whole, as wide as a page's stage allows,
-// and at half size for a closer look at its right end. Its numpad starts
-// 1306 pixels across; without it the case ends 20 further.
-constexpr double mini_scale = .2625, half_scale = .5, numpad_left = 1306, tenkeyless_width = 1326;
+// and at half size for a closer look at its right end.
+constexpr double mini_scale = .2625, half_scale = .5;
 // The shortcut bar's picture: large enough for its buttons' labels to read,
 // with the top of the keyboard below it.
 constexpr double bar_scale = .9;
-// Where keys lie in the picture: the main block's left edge and key pitch,
-// and the middle of each row from the digits down.
-constexpr double keys_left = 146, key_pitch = 63.6;
-constexpr std::array<double, 5> row_middle{232, 307, 381, 456, 531};
 // Home: Install and its version list's chevron, one control, centered.
 constexpr Rect install_main{430, 554, 340, 76}, install_more{770, 554, 80, 76};
 // Setup's card: each page's picture on a stage to the left, its text to the
@@ -162,6 +157,45 @@ cairo_surface_t* scaled(cairo_surface_t* source, double scale) {
 
 } // namespace
 
+// The picture is the README image, the keyboard as the panel draws it with
+// the full layout in its theme (docs/building.md), so where its case ends and
+// where its keys lie come from the panel's own geometry for that layout, not
+// from numbers measured off one picture.
+PictureGeometry picture_geometry(const Layout& layout, const Theme& theme) {
+    PanelView view;
+    view.layout = &layout;
+    view.theme = &theme;
+    view.reading_room = reading_case_room(layout, theme, false); // as App gives every layout
+    PictureGeometry g;
+    const auto body = panel_case_bounds(view);
+    g.case_bottom = body.y + body.height;
+    const auto at = [&](const char* id) {
+        for (const auto& key : layout.keys) {
+            if (key.id == id) {
+                return panel_rect(view, key.bounds);
+            }
+        }
+        return Rect{};
+    };
+    g.keys_left = at("Backquote").x;
+    g.key_pitch = at("Digit2").x - at("Digit1").x;
+    std::size_t row = 0;
+    for (const char* id : {"Backquote", "Tab", "CapsLock", "ShiftLeft", "ControlLeft"}) {
+        const auto r = at(id);
+        g.row_middle[row++] = r.y + r.height / 2;
+    }
+    // The numpad starts where the keys before it end; without it the case
+    // ends one padding further.
+    for (const auto& key : layout.keys) {
+        if (key.action != "NumLock" && !key.action.starts_with("Numpad")) {
+            const auto r = panel_rect(view, key.bounds);
+            g.numpad_left = std::max(g.numpad_left, r.x + r.width);
+        }
+    }
+    g.tenkeyless_width = g.numpad_left + theme.padding;
+    return g;
+}
+
 Installer::Installer(Backend& backend, Theme theme, Layout layout, const Localization& localization)
     : backend_(backend), theme_(std::move(theme)), layout_(std::move(layout)),
       localization_(localization), font_(localization.fonts()),
@@ -170,6 +204,7 @@ Installer::Installer(Backend& backend, Theme theme, Layout layout, const Localiz
       half_(nullptr, cairo_surface_destroy), bar_picture_(nullptr, cairo_surface_destroy),
       backdrop_(nullptr, cairo_surface_destroy), grounded_(nullptr, cairo_surface_destroy),
       card_(nullptr, cairo_surface_destroy), plate_(nullptr, cairo_surface_destroy) {
+    picture_ = picture_geometry(layout_, theme_);
     PngReader reader{keyboard_png, keyboard_png_size};
     Surface image(cairo_image_surface_create_from_png_stream(read_png, &reader), cairo_surface_destroy);
     if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
@@ -921,7 +956,7 @@ void Installer::paint_keyboard(double slide) {
         return;
     }
     const double y = std::round(picture.y - slide_distance * slide);
-    const double floor = y + case_bottom * picture_scale;
+    const double floor = y + picture_.case_bottom * picture_scale;
     // At rest it is one picture with its shadow and reflection.
     constexpr Rect resting{picture.x - 20, picture.y - 4, picture.width + 40, picture.height + 70};
     if (slide <= 0 && (!grounded_ || cairo_get_target(cr_) != grounded_.get())) {
@@ -945,7 +980,7 @@ void Installer::paint_keyboard(double slide) {
         constexpr double depth = 56;
         auto* mirrored = cairo_pattern_create_for_surface(hero_.get());
         cairo_matrix_t flip;
-        cairo_matrix_init(&flip, 1, 0, 0, -1, -picture.x, floor + case_bottom * picture_scale);
+        cairo_matrix_init(&flip, 1, 0, 0, -1, -picture.x, floor + picture_.case_bottom * picture_scale);
         cairo_pattern_set_matrix(mirrored, &flip);
         cairo_save(cr_);
         cairo_rectangle(cr_, picture.x, floor + 2, picture.width, depth);
@@ -977,8 +1012,9 @@ void Installer::small_picture(cairo_surface_t* small, double s, double x, double
     if (!small) {
         return;
     }
-    const double h = case_bottom * s;
-    const Rect body{x, y, (tenkeyless_width + (panel_width - tenkeyless_width) * numpad) * s, h};
+    const double h = picture_.case_bottom * s;
+    const Rect body{
+        x, y, (picture_.tenkeyless_width + (panel_width - picture_.tenkeyless_width) * numpad) * s, h};
     const double radius = theme_.surface_radius * s;
     for (int i = 1; i <= 3; ++i) {
         paint::rounded(cr_, {body.x - i, body.y + i * 2, body.width + 2 * i, body.height}, radius + i);
@@ -993,10 +1029,10 @@ void Installer::small_picture(cairo_surface_t* small, double s, double x, double
     paint::source(cr_, theme_.surface);
     cairo_paint(cr_);
     cairo_set_source_surface(cr_, small, x, y);
-    cairo_rectangle(cr_, x, y, numpad_left * s, h);
+    cairo_rectangle(cr_, x, y, picture_.numpad_left * s, h);
     cairo_fill(cr_);
     if (numpad > 0) {
-        cairo_rectangle(cr_, x + numpad_left * s, y, body.width - numpad_left * s, h);
+        cairo_rectangle(cr_, x + picture_.numpad_left * s, y, body.width - picture_.numpad_left * s, h);
         cairo_clip(cr_);
         cairo_paint_with_alpha(cr_, numpad * numpad);
     }
@@ -1750,7 +1786,8 @@ void Installer::paint_replace_demo(const Rect& s, double t) {
 
     // The keyboard: up when the field is chosen, down when it's done.
     const double rise = c < 4.4 ? ease_out(phase(c, .5, .6)) : 1 - ease_in_out(phase(c, 4.4, .6));
-    const double rest = s.y + s.height - 30 - case_bottom * mini_scale, hidden = s.y + s.height + 16;
+    const double rest = s.y + s.height - 30 - picture_.case_bottom * mini_scale,
+                 hidden = s.y + s.height + 16;
     const double kx = s.x + (s.width - panel_width * mini_scale) / 2;
     const double ky = hidden + (rest - hidden) * rise;
     small_picture(mini_.get(), mini_scale, kx, ky, 1);
@@ -1759,8 +1796,10 @@ void Installer::paint_replace_demo(const Rect& s, double t) {
         {{6.25, 2}, {3.5, 1}, {9.25, 2}, {9.25, 2}, {9.5, 1}, {7, 4}, {1.25, 2}, {5.5, 1}}};
     const auto at = [&](std::size_t i) {
         const auto& [column, row] = keys[std::min(i, keys.size() - 1)];
-        return std::pair{kx + (keys_left + column * key_pitch + key_pitch / 2) * mini_scale,
-                         ky + row_middle[static_cast<std::size_t>(row)] * mini_scale};
+        return std::pair{
+            kx +
+                (picture_.keys_left + column * picture_.key_pitch + picture_.key_pitch / 2) * mini_scale,
+            ky + picture_.row_middle[static_cast<std::size_t>(row)] * mini_scale};
     };
     const double hop = std::max(0.0, (c - typing) / step);
     const auto from = at(static_cast<std::size_t>(hop)), to = at(static_cast<std::size_t>(hop) + 1);
@@ -2055,9 +2094,9 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
     const double numpad = choice_shown(4);
     // The case's right edge keeps its margin with the numpad and comes half
     // the numpad's width inward without it; the rest runs off to the left.
-    const double narrowed = (panel_width - tenkeyless_width) * (1 - numpad) * scale;
+    const double narrowed = (panel_width - picture_.tenkeyless_width) * (1 - numpad) * scale;
     const double x = s.x + s.width - margin - panel_width * scale + narrowed / 2;
-    const double y = s.y + (s.height - case_bottom * scale) / 2;
+    const double y = s.y + (s.height - picture_.case_bottom * scale) / 2;
     cairo_push_group(cr_);
     small_picture(half_.get(), scale, x, y, numpad);
     cairo_pop_group_to_source(cr_);
@@ -2075,7 +2114,7 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
     const auto at = [&](std::size_t i) {
         i = std::min(i, digits - 1);
         return std::pair{x + (1362 + 63.0 * static_cast<double>(i % 3)) * scale,
-                         y + row_middle[1 + i / 3] * scale};
+                         y + picture_.row_middle[1 + i / 3] * scale};
     };
     const double hop = std::max(0.0, (c - typing) / step);
     const auto from = at(static_cast<std::size_t>(hop)), to = at(static_cast<std::size_t>(hop) + 1);
@@ -2095,9 +2134,10 @@ void Installer::paint_curve_demo(const Rect& s, double t) {
     // The real proportions, in the picture's pixels at mini_scale: the
     // handle is 8 by 200 texture pixels, its middle 42 outside the case.
     constexpr double fit = .86, most = .12, eye = 1.5, drop = .3;
-    const double width = panel_width * mini_scale * fit, height = case_bottom * mini_scale * fit;
+    const double width = panel_width * mini_scale * fit,
+                 height = picture_.case_bottom * mini_scale * fit;
     const double cx = s.x + s.width / 2, cy = s.y + s.height / 2 - 6;
-    const double kx = cx - panel_width * mini_scale / 2, ky = cy - case_bottom * mini_scale / 2;
+    const double kx = cx - panel_width * mini_scale / 2, ky = cy - picture_.case_bottom * mini_scale / 2;
 
     constexpr double cycle = 6.4, arrive = .8, grab = 1.0, bent = 2.2, let_go = 2.6, regrab = 3.4,
                      flat = 4.6, release = 4.8, leave = 5.4;
@@ -2307,7 +2347,8 @@ void Installer::paint_stream_demo(const Rect& s, double t) {
     // The keyboard: up while the line is typed, down when it is sent.
     const double rise =
         c < done + hold ? ease_out(phase(c, .3, .6)) : 1 - ease_in_out(phase(c, done + hold, .6));
-    const double rest = s.y + s.height - 30 - case_bottom * mini_scale, hidden = s.y + s.height + 16;
+    const double rest = s.y + s.height - 30 - picture_.case_bottom * mini_scale,
+                 hidden = s.y + s.height + 16;
     const double kx = s.x + (s.width - panel_width * mini_scale) / 2;
     const double ky = hidden + (rest - hidden) * rise;
     small_picture(mini_.get(), mini_scale, kx, ky, 1);
@@ -2316,8 +2357,10 @@ void Installer::paint_stream_demo(const Rect& s, double t) {
         {{4.5, 2}, {7.5, 1}, {1.5, 3}, {6, 2}, {9, 1}, {3, 1}, {5.5, 3}}};
     const auto at = [&](std::size_t i) {
         const auto& [column, row] = keys[i % keys.size()];
-        return std::pair{kx + (keys_left + column * key_pitch + key_pitch / 2) * mini_scale,
-                         ky + row_middle[static_cast<std::size_t>(row)] * mini_scale};
+        return std::pair{
+            kx +
+                (picture_.keys_left + column * picture_.key_pitch + picture_.key_pitch / 2) * mini_scale,
+            ky + picture_.row_middle[static_cast<std::size_t>(row)] * mini_scale};
     };
     const double hop = std::clamp(progress, 0.0, count - 1);
     const auto from = at(static_cast<std::size_t>(hop)), to = at(static_cast<std::size_t>(hop) + 1);

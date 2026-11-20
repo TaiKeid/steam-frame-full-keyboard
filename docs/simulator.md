@@ -271,3 +271,15 @@ To check many Japanese phrases, use [`--japanese-candidates`](#japanese-candidat
 The simulator lives in `src/simulator/`; its AppImage's launcher, desktop entry and icon in `scripts/simulator-appimage/`. `field.cpp` is the text field and the sink that takes the keyboard's output; `simulator.cpp` draws the window's contents and routes pointers to `App`, using only Cairo and Pango; `platform_linux.cpp` finds its folders and points Anthy at a dictionary; `main.cpp` is the SDL window. A Windows port needs its own `platform` file and a `keyboard_core` that builds there.
 
 The `simulator` CTest checks the field's editing keys, caret and clipboard, the slow field's confirmations, and the keyboard typing through the simulator: flick, Enter, ↶ in normal and slow fields, English with a held Shift, Copy and Paste, and leaving the keyboard, and the shortcut bar: its editor, profiles following the App button, and a Run button, which starts a real command that writes a marker in the test's own temporary folder. `build/host/simulator-tour DIR` renders the window in a few typed states to PNG files for review, with real candidates when Anthy is set up as above.
+
+The picture at the top of this page is the tour's `05b-converting-after-text.png`, scaled to 75% and cut below the window's buttons:
+
+```sh
+A=/path/to/unpacked/anthy
+tour=$(mktemp -d)
+LD_LIBRARY_PATH=$A/usr/lib FRAMEKEYBOARD_ANTHY_DICTIONARY=$A/usr/share/anthy/anthy.dic \
+    ./build/host/simulator-tour "$tour"
+magick "$tour/05b-converting-after-text.png" -resize 75% -crop 1200x668+0+0 +repage -strip \
+    docs/images/simulator.png
+rm -r "$tour"
+```
