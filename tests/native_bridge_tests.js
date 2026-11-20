@@ -157,9 +157,17 @@ function fixture(open = false, production = false, external = false, sharedApi =
                 pendingCloses.push(() => reaction.manager.SetVRKeyboardOpenForThisInstance(false));
             else reaction.manager.SetVRKeyboardOpenForThisInstance(open);
         }
-        if (notify) { observer?.(status.bIsOpen, status.bMinimal ? 13 : 0, initialText, 0,
-            status.bDispatchEventsToSteamVR, status.sOverlayKey); tick?.(); }
+        if (notify) {
+            const args = [status.bIsOpen, status.bMinimal ? 13 : 0, initialText, 0,
+                status.bDispatchEventsToSteamVR, status.sOverlayKey];
+            // Per subscriber, Steam's handler takes every notification first
+            // and ours follow later, each with the values it was sent with.
+            if (queueing) queued.push(args);
+            else { observer?.(...args); tick?.(); }
+        }
     }
+    let queueing = false;
+    const queued = [];
     const keyboard = {
         Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
         Hide() { calls.push("native-hide"); if (!deferHide) update({bIsOpen: false}); },
@@ -271,6 +279,10 @@ function fixture(open = false, production = false, external = false, sharedApi =
         status(values, notify = true) { update(values, notify); checkOwnership(); },
         // Steam's status notification with the given values, in Steam's order;
         // `count` drops trailing arguments, or adds some, as another interface might.
+        // Delivery per subscriber: notifications wait for deliver(), Steam's
+        // own handler and reactions having run for all of them.
+        perSubscriber(on) { queueing = on; },
+        deliver() { while (queued.length) { observer?.(...queued.shift()); tick?.(); } checkOwnership(); },
         notify(open, flags, dispatch, key, count = 6) {
             const args = [open, flags, initialText, 0, dispatch, key, ...Array(Math.max(0, count - 6)).fill(0)];
             observer?.(...args.slice(0, count)); tick?.(); checkOwnership();
@@ -516,6 +528,37 @@ for (const [name, flags, dispatch, key, count] of [
     assert(!f.bridge.diagnostics().nativeOpen && f.alive(), "a bare close is a close");
     f.bridge.dispose();
 }
+// Per subscriber, Steam's handler can take a later notification before ours
+// gets an earlier one. On the notification path the mirror then goes through
+// the same states, only later: a session is acquired and typed into as when
+// notifications interleave.
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.perSubscriber(true);
+    f.newTarget(); f.step();
+    f.status({bIsOpen: true});
+    assert(!f.step().eligible, "nothing is known before our notification arrives");
+    f.deliver();
+    const s = f.step();
+    assert(s.eligible && !f.nativeOpen() && f.manager.logicalOpen, "the session begins and closes Steam's keyboard");
+    assert(f.step(s.request).active && f.bridge.send(s.request, "a"), "and it types, as when they interleave");
+    f.bridge.dispose();
+}
+// On the old interface the store has moved on by then, so the earlier
+// notification differs from it: recorded, and nothing else changes.
+{
+    const f = fixture(false, true);
+    f.perSubscriber(true);
+    f.step();
+    f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    f.status({bIsOpen: false});
+    f.deliver();
+    const s = f.step();
+    assert(statusCodes(s).includes("status-differs-open") && !f.nativeOpen() && f.alive() && !s.eligible,
+        "a notification overtaken by the store is a difference, not a change");
+    f.bridge.dispose();
+}
+
 // Steam's external and stream targets need exactly typed values: a key that
 // only turns into a Gamescope window's name, or flags given as a string, stay
 // native on either path.
@@ -1800,13 +1843,17 @@ function notReadyFor(f, ms) {
 // become a focused regression. No real endpoint or user text is involved.
 let deadlineChecks = 0, laterDeadlineChecks = 0;
 // The 128 original walks keep the older interface's store path; 48 more use
-// the newer interface without it. Both must satisfy the same safety properties.
-for (const statusOnly of [false, true])
-for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
+// the newer interface without it. Both must satisfy the same safety properties,
+// also when Steam delivers notifications per subscriber: its own handler takes
+// all those an action causes before ours gets the first (32 walks each).
+for (const [statusOnly, perSubscriber, walks] of [[false, false, 128], [true, false, 48], [true, true, 32],
+    [false, true, 32]])
+for (let seed = 1; seed <= walks; ++seed) {
     let random = seed, previousRequest = 0;
     const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
     const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0, false, false, 0, null, statusOnly),
         trace = [];
+    f.perSubscriber(perSubscriber);
     const opened = key => f.status({bIsOpen: true, sOverlayKey: key,
         bMinimal: true, bDispatchEventsToSteamVR: false});
     // Keep the deadline in the test, independently of the bridge's timer. A new
@@ -1820,6 +1867,7 @@ for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
     const advanceAndCheck = (ms, later) => {
         const due = pending && f.now() + ms >= pending.until;
         f.advance(ms);
+        f.deliver();
         if (due) {
             const s = f.bridge.diagnostics();
             assert(!s.expectedClose || s.closingNative,
@@ -1835,8 +1883,10 @@ for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
         f.step(); f.api.ShowWindow(); f.deferHide(next(2) === 0);
         opened([MAIN, "gamescope.gamescope-0.window.62", "unknown.overlay",
             "valve.steam.gamepadui.barpopup"][next(4)]);
+        f.deliver();
         const candidate = f.bridge.diagnostics().externalCandidate;
         if (candidate && next(2)) f.bridge.prepareExternal(candidate.request, candidate.key);
+        f.deliver();
         observeRequest();
         advanceAndCheck(401, false);
         const expiredRequest = f.bridge.diagnostics();
@@ -1869,6 +1919,7 @@ for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
                 f.newTarget(); f.manager.SetVirtualKeyboardShownInternal(true); break;
             case 16: advanceAndCheck([16, 50, 100, 401, 901][next(5)], true); break;
             }
+            f.deliver();
             const s = f.bridge.diagnostics();
             assert(s.request >= previousRequest, "request identities never go backwards");
             f.checkOwnership();
@@ -1904,4 +1955,4 @@ for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
     } finally { f.bridge.dispose(); }
 }
 assert(laterDeadlineChecks > 0, "random walks must exercise deadlines after their initial request");
-console.log(`Native bridge: lifecycle regressions, 176 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
+console.log(`Native bridge: lifecycle regressions, 240 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
