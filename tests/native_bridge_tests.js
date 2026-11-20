@@ -783,8 +783,8 @@ for (const [delivery, order] of [["interleaved", "status-order-steam-first"],
     f.bridge.dispose();
 }
 
-// Our callback can also get a notification before Steam's handler does; the
-// owner's Frame logs this order on the older interface. Both paths keep the
+// Our callback can also get a notification before Steam's handler does; a
+// Frame on the older interface logs this order. Both paths keep the
 // named behaviors: a session is acquired and typed into, the close our Hide
 // causes keeps Steam's field, a Show is held back for a session and left alone
 // for a request that stays native, the keyboard button toggles the panel off,

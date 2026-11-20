@@ -235,7 +235,7 @@ void spanish_article() {
     const auto pronoun = list.find("él");
     require(pronoun && pronoun->spelling == "él", "the accented pronoun stays");
     const auto name = list.find("cruz");
-    require(name && name->spelling == "Cruz", "a name above its lowercase stays capitalised");
+    require(name && name->spelling == "Cruz", "a name above its lowercase stays capitalized");
 }
 
 void english_case() {

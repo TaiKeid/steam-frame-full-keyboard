@@ -35,9 +35,9 @@ expect(fold({'Cruz': 145, 'cruz': 130}, 20) == {'cruz': 145},
 # Sentence-initial capitals below their lowercase word fold at any threshold.
 expect(fold({'La': 208, 'la': 216}, 0) == {'la': 216},
        'a capital below its lowercase form folds')
-# Names far above their lowercase form stay capitalised.
+# Names far above their lowercase form stay capitalized.
 expect(fold({'Warszawa': 129, 'warszawa': 75}, 20) == {'Warszawa': 129, 'warszawa': 75},
-       'a name far above its lowercase form stays capitalised')
+       'a name far above its lowercase form stays capitalized')
 # A capital with no lowercase entry has nothing to fold into.
 expect(fold({'María': 100}, 20) == {'María': 100},
        'a word without a lowercase form stays as it is')

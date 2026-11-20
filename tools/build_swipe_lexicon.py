@@ -140,9 +140,9 @@ def fold_initial_capitals(entries, steps=DEFAULT_CAPITAL_FOLD_STEPS):
 
     Sentence-initial capitals can outrank the lowercase word (Polish Po 199,
     po 183), and the runtime offers one case variant per word, so a swipe
-    mid-sentence would type "Po". A capitalised form more than `steps` above
-    its lowercase is a name and stays capitalised. Not for German, whose nouns
-    are capitalised (Zeit 187, zeit 86).
+    mid-sentence would type "Po". A capitalized form more than `steps` above
+    its lowercase is a name and stays capitalized. Not for German, whose nouns
+    are capitalized (Zeit 187, zeit 86).
     """
     folded = dict(entries)
     for word, frequency in entries.items():
