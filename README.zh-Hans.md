@@ -94,7 +94,7 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 
 键盘每隔几小时检查一次新的稳定版本，有新版本时会在设置按钮上显示一个圆点。要更新，请打开“设置”，按下顶部中央的 **下载并安装更新**（Download and install update），或按同一位置的 **检查更新**（Check for updates）立即检查。键盘会验证压缩包、安装并重启，同时保留您的设置。旧的正式版本会一直保留，直到新版本确认正常启动后才会删除。启动失败时会自动回滚。参见 [更新](docs/updates.md)。
 
-要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、串流支持用于 Steam 启动的设置、启动器、菜单条目以及保存在缓存文件夹中的主题图片，并保留您的设置，除非您加上 `--purge`。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。安装程序中的 **卸载** 也会执行同样的操作，并询问是否保留您的设置。
+要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、串流支持用于 Steam 启动的设置、启动器、菜单条目以及保存在缓存文件夹中的主题图片，并保留您的设置、快捷键栏的方案以及 `~/.config/framekeyboard/scripts/` 中的脚本，除非您加上 `--purge`，它会将这些全部删除。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。安装程序中的 **卸载** 也会执行同样的操作，并询问是否保留这些内容。
 
 手动更新时，请先退出 Full Keyboard。如果已开启原生键盘替换，请使用“设置”→ **退出 Full Keyboard**（Quit Full Keyboard）。下载新的发布资源并重复安装步骤。`install.sh` 支持重新安装同一版本或安装较旧的版本，但在 Full Keyboard 运行时会拒绝安装。安装程序也可以更新、降级或重新安装，并保留您的设置，还会先关闭正在运行的 Full Keyboard。手动回滚即重新安装较旧的发布包；参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。
 
@@ -144,7 +144,7 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 
 - 栏右端的标签会打开 **方案**（Profiles）菜单：选择一个方案即可显示它。**管理**（Manage）会打开编辑器，可在其中创建方案和按钮。
 - 按钮分三种：**快捷键**（Shortcut）依次发送最多四个按键组合，例如 Ctrl+K 然后 S；**宏**（Macro）由按键和等待组成，可 **一次**、**多次** 或 **按住时** 重复；**运行**（Run）启动脚本文件夹中的脚本，或在头显上运行一条命令。
-- 菜单中方案旁边的按钮会把该方案指定给位于前台的应用。之后每当该应用位于前台，栏中就显示这个方案，从您的 PC 串流的游戏和应用也包括在内；编辑器在 **用于**（Used for）下列出这些应用。
+- 菜单中方案旁边的按钮会把该方案指定给位于前台的应用。之后每当该应用位于前台，栏中就显示这个方案，Steam 通过串流支持从您的 PC 串流的游戏也包括在内；您 PC 的桌面以及从它串流的其他一切都算作一个应用，即 **电脑桌面串流**（PC desktop stream）。编辑器在 **用于**（Used for）下列出这些应用。
 
 [快捷键栏](docs/shortcut-bar.md) 介绍了编辑器、宏何时停止、脚本和串流。
 
@@ -166,7 +166,6 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 
 使用新的配置 `id` 可添加一个选项，使用相同的 `id` 则会覆盖自带的配置。[配置参考](docs/configuration.md) 介绍了各字段、收藏、验证和保存的位置。
 
-<a id="dictation"></a>
 ## 语音输入
 
 在“设置”→ **语音输入**（Dictation）中选择一种模式，然后 **应用并保存**：
@@ -180,7 +179,7 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 隐私：
 
 - 本机识别时，音频绝不会离开 Frame。使用自建服务器时，音频只会发送到您填写的服务器，且仅在您进行语音输入或按下“测试”时发送。普通的 `host:port` 地址不加密，因此请将服务器保留在您自己的网络中；对于非本地地址，“设置”会发出警告。
-- 音频和文本只保存在内存中。您说的话和输入的内容都不会被记录或保存，只有日语[学习](docs/japanese.md#learning)保留的短语、[中文学习](docs/languages.md#chinese-engines)保留的转换和[输入建议](docs/configuration.md#typing-suggestions)统计的词语除外，而且这些从不来自标明为密码、PIN 或终端的输入框，也不来自键盘识别出的终端。
+- 音频和文本只保存在内存中。您说的话和输入的内容都不会被记录或保存，只有日语[学习](docs/japanese.md#learning)保留的短语、[中文学习](docs/languages.md#chinese-engines)保留的转换、[输入建议](docs/configuration.md#typing-suggestions)统计的词语，以及您在快捷键栏编辑器中输入、保存在 `shortcuts.json` 中的标签、名称和命令除外，而且这些从不来自标明为密码、PIN 或终端的输入框，也不来自键盘识别出的终端。
 - 摘下头显时，或头显从睡眠中唤醒时，录音会立即停止；静音 60 秒后也会停止。
 - 麦克风会听到附近所有人的声音。游戏运行时，也可能录入游戏声音，录音期间会显示相应提示。
 

@@ -94,7 +94,7 @@ Todo se instala dentro de tu directorio personal. `install.sh` conserva los ajus
 
 El teclado busca una nueva versión estable cada pocas horas y pone un punto en el botón de Ajustes cuando la hay. Para actualizar, abre Ajustes y pulsa **Descargar e instalar actualización** arriba en el centro, o **Buscar actualizaciones** en el mismo sitio para comprobarlo ahora. El teclado verifica el archivo, lo instala y se reinicia, conservando tus ajustes. La versión de producción anterior se mantiene hasta que la nueva confirma que ha arrancado bien, y entonces se elimina. Si el arranque falla, se revierte automáticamente. Consulta [actualizaciones](docs/updates.md).
 
-Para desinstalarlo, ejecuta `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Detiene el teclado y sus procesos auxiliares, elimina la app, su servicio de inicio, el ajuste de la Compatibilidad con streaming para el inicio de Steam, el lanzador, la entrada del menú y las imágenes de los temas que guarda en tu carpeta de caché, y conserva tus ajustes salvo que añadas `--purge`. Se vuelve a usar el teclado de Steam. Consulta [reversión y desinstalación](docs/runtime.md#update-rollback-and-removal). El botón **Desinstalar** del instalador hace lo mismo y pregunta si quieres conservar tus ajustes.
+Para desinstalarlo, ejecuta `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Detiene el teclado y sus procesos auxiliares, elimina la app, su servicio de inicio, el ajuste de la Compatibilidad con streaming para el inicio de Steam, el lanzador, la entrada del menú y las imágenes de los temas que guarda en tu carpeta de caché, y conserva tus ajustes, los perfiles de tu barra de atajos y los scripts de `~/.config/framekeyboard/scripts/` salvo que añadas `--purge`, que los borra todos. Se vuelve a usar el teclado de Steam. Consulta [reversión y desinstalación](docs/runtime.md#update-rollback-and-removal). El botón **Desinstalar** del instalador hace lo mismo y pregunta si quieres conservarlos.
 
 Para una actualización manual, cierra primero Full Keyboard. Con el reemplazo nativo activado, usa Ajustes → Salir de Full Keyboard. Descarga los archivos de la nueva versión y repite los pasos de instalación. `install.sh` permite reinstalar la misma versión o instalar una anterior, y se niega a hacerlo mientras Full Keyboard se está ejecutando. El instalador también actualiza, baja de versión o reinstala, conservando tus ajustes, y antes cierra Full Keyboard si está en marcha. Revertir a mano significa reinstalar un paquete de una versión anterior; consulta [reversión y desinstalación](docs/runtime.md#update-rollback-and-removal).
 
@@ -144,7 +144,7 @@ Activa **Barra de atajos** (Shortcut bar) en Ajustes → **General** y aplica, o
 
 - La pestaña del extremo derecho de la barra abre el menú **Perfiles** (Profiles): elige un perfil para mostrarlo. **Gestionar** (Manage) abre el editor, donde creas los perfiles y sus botones.
 - Un botón es un **Atajo** (Shortcut), hasta cuatro combinaciones de teclas enviadas en orden, como Ctrl+K y luego S; una **Macro**, pasos de teclas y esperas repetidos **Una vez**, **Varias** veces o **Mantenido**; o **Ejecutar** (Run), que inicia un script de tu carpeta de scripts o un comando en el visor.
-- El botón junto a un perfil en el menú lo asigna a la aplicación en primer plano. Desde entonces la barra muestra ese perfil cada vez que esa aplicación está en primer plano, incluidos los juegos y aplicaciones transmitidos desde tu PC; el editor las lista en **Se usa para** (Used for).
+- El botón junto a un perfil en el menú lo asigna a la aplicación en primer plano. Desde entonces la barra muestra ese perfil cada vez que esa aplicación está en primer plano, incluidos los juegos que Steam retransmite desde tu PC con la Compatibilidad con streaming; el escritorio de tu PC y todo lo demás que se retransmite desde él cuentan como una sola aplicación, **Escritorio del PC en streaming** (PC desktop stream). El editor las lista en **Se usa para** (Used for).
 
 [La barra de atajos](docs/shortcut-bar.md) explica el editor, qué detiene una macro, los scripts y el streaming.
 
@@ -166,7 +166,6 @@ Copia un perfil JSON incluido desde `~/.local/share/framekeyboard/current/share/
 
 Usa un `id` de perfil nuevo para añadir una opción, o el mismo `id` para sustituir uno incluido. La [referencia de configuración](docs/configuration.md) cubre los campos, los favoritos, la validación y la posición guardada.
 
-<a id="dictation"></a>
 ## Dictado
 
 Elige un modo en Ajustes → **Dictado** (Dictation) y pulsa **Aplicar y guardar**:
@@ -180,7 +179,7 @@ El dictado funciona en todos los idiomas incluidos excepto japonés JIS. Un pequ
 Privacidad:
 
 - En el dispositivo, el audio nunca sale del Frame. En modo autoalojado, solo va al servidor que hayas introducido, y solo mientras dictas o pulsas Probar. Una dirección `host:port` simple no está cifrada, así que mantén el servidor en tu propia red; Ajustes avisa de las direcciones que no son locales.
-- El audio y el texto solo se quedan en memoria. Nada de lo que dices o escribes se registra ni se guarda, salvo las frases en japonés que conserva el [aprendizaje](docs/japanese.md#learning), las conversiones que conserva el [aprendizaje del chino](docs/languages.md#chinese-engines) y las palabras que cuentan las [sugerencias de escritura](docs/configuration.md#typing-suggestions), y nunca de campos marcados como contraseña, PIN o terminal ni de terminales que el teclado reconoce.
+- El audio y el texto solo se quedan en memoria. Nada de lo que dices o escribes se registra ni se guarda, salvo las frases en japonés que conserva el [aprendizaje](docs/japanese.md#learning), las conversiones que conserva el [aprendizaje del chino](docs/languages.md#chinese-engines) las palabras que cuentan las [sugerencias de escritura](docs/configuration.md#typing-suggestions) y las etiquetas, nombres y comandos que escribes en el editor de la barra de atajos, que se guardan en `shortcuts.json`, y nunca de campos marcados como contraseña, PIN o terminal ni de terminales que el teclado reconoce.
 - La escucha se detiene en cuanto te quitas el visor o este despierta del modo de suspensión, y tras 60 s de silencio.
 - El micrófono oye a todos los que están cerca. Mientras se ejecuta un juego, también puede captar su sonido, y un mensaje lo indica mientras escucha.
 

@@ -94,7 +94,7 @@ Everything installs under your home directory. `install.sh` preserves settings a
 
 The keyboard checks for a new stable release every few hours and puts a dot on the Settings button when there is one. To update, open Settings and press **Download and install update** at the top center, or **Check for updates** there to check right now. The keyboard verifies the archive, installs it and restarts, preserving your settings. The old production release stays until the new one confirms a healthy start, then is removed. A failed start rolls back automatically. See [updates](docs/updates.md).
 
-To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, Streaming support's setting for Steam's start, launcher, menu entry and the theme pictures in your cache folder, and keeps your settings unless you add `--purge`. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal). The installer's **Uninstall** does the same and asks whether to keep your settings.
+To uninstall, run `bash ~/.local/share/framekeyboard/current/uninstall.sh`. It stops the keyboard and its helpers, removes the app, its startup service, Streaming support's setting for Steam's start, launcher, menu entry and the theme pictures in your cache folder, and keeps your settings, your shortcut bar's profiles and the scripts in `~/.config/framekeyboard/scripts/` unless you add `--purge`, which deletes them all. Steam's keyboard is used again. See [rollback and removal](docs/runtime.md#update-rollback-and-removal). The installer's **Uninstall** does the same and asks whether to keep them.
 
 For a manual update, quit Full Keyboard first. With native replacement enabled, use Settings → Quit Full Keyboard. Download the new release assets and repeat the installation steps. `install.sh` supports reinstalling the same version or installing an older one, and refuses while Full Keyboard is running. The installer updates, downgrades or reinstalls too, keeping your settings, and closes a running Full Keyboard first. Manual rollback means reinstalling an older release package; see [rollback and removal](docs/runtime.md#update-rollback-and-removal).
 
@@ -144,7 +144,7 @@ Turn on **Shortcut bar** in Settings → **General** and apply, or answer Yes in
 
 - The tab at the bar's right end opens the **Profiles** menu: choose a profile to show it. **Manage** opens the editor, where you make profiles and their buttons.
 - A button is a **Shortcut**, up to four key combinations sent in order, such as Ctrl+K then S; a **Macro**, steps of keys and waits repeated **Once**, a number of **Times** or **While held**; or **Run**, which starts a script from your scripts folder or a command on the headset.
-- The button beside a profile in the menu assigns it to the app in front. The bar then shows that profile whenever the app is in front again, games and applications streamed from your PC included; the editor lists them under **Used for**.
+- The button beside a profile in the menu assigns it to the app in front. The bar then shows that profile whenever the app is in front again, games Steam streams from your PC with Streaming support included; your PC's desktop and anything else streamed from it count as one app, **PC desktop stream**. The editor lists them under **Used for**.
 
 [The shortcut bar](docs/shortcut-bar.md) covers the editor, what stops a macro, scripts and streams.
 
@@ -179,7 +179,7 @@ Dictation works in every bundled language except Japanese JIS. A small icon on t
 Privacy:
 
 - On device, audio never leaves the Frame. Self-hosted, it goes only to the server you entered, and only while you dictate or press Test. A plain `host:port` address is unencrypted, so keep the server on your own network; Settings warns about addresses that are not local.
-- Audio and text stay in memory only. Nothing you say or type is logged or saved, apart from the Japanese phrases [learning](docs/japanese.md#learning) keeps, the conversions [Chinese learning](docs/languages.md#chinese-engines) keeps and the words [typing suggestions](docs/configuration.md#typing-suggestions) count, never from fields marked as password, PIN or terminal, nor from terminals the keyboard recognizes.
+- Audio and text stay in memory only. Nothing you say or type is logged or saved, apart from the Japanese phrases [learning](docs/japanese.md#learning) keeps, the conversions [Chinese learning](docs/languages.md#chinese-engines) keeps the words [typing suggestions](docs/configuration.md#typing-suggestions) count and the labels, names and commands you type into the shortcut editor, which are kept in `shortcuts.json`, never from fields marked as password, PIN or terminal, nor from terminals the keyboard recognizes.
 - Listening stops as soon as you take the headset off or it wakes from sleep, and after 60 s of silence.
 - The microphone hears everyone nearby. While a game runs, game sound may be picked up too, and a message says so while listening.
 

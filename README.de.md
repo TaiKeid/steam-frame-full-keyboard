@@ -94,7 +94,7 @@ Alles wird unter Ihrem Home-Verzeichnis installiert. `install.sh` behält Einste
 
 Die Tastatur sucht alle paar Stunden nach einer neuen stabilen Version und setzt einen Punkt auf den Einstellungsknopf, wenn es eine gibt. Zum Aktualisieren öffnen Sie die Einstellungen und drücken oben in der Mitte **Update herunterladen und installieren** (Download and install update) oder dort **Nach Updates suchen** (Check for updates), um sofort zu suchen. Die Tastatur prüft das Archiv, installiert es und startet neu, wobei Ihre Einstellungen erhalten bleiben. Die alte Produktionsversion bleibt, bis die neue einen fehlerfreien Start bestätigt, und wird dann entfernt. Ein fehlgeschlagener Start wird automatisch zurückgesetzt. Siehe [Updates](docs/updates.md).
 
-Zum Deinstallieren führen Sie `bash ~/.local/share/framekeyboard/current/uninstall.sh` aus. Es beendet die Tastatur und ihre Hilfsprogramme, entfernt die App, ihren Startdienst, die Einstellung der Streaming-Unterstützung für Steams Start, den Starter, den Menüeintrag und die im Cache-Ordner gespeicherten Theme-Bilder und behält Ihre Einstellungen, sofern Sie nicht `--purge` hinzufügen. Danach wird wieder Steams Tastatur verwendet. Siehe [Zurücksetzen und Entfernen](docs/runtime.md#update-rollback-and-removal). **Deinstallieren** im Installer tut dasselbe und fragt, ob Ihre Einstellungen erhalten bleiben sollen.
+Zum Deinstallieren führen Sie `bash ~/.local/share/framekeyboard/current/uninstall.sh` aus. Es beendet die Tastatur und ihre Hilfsprogramme, entfernt die App, ihren Startdienst, die Einstellung der Streaming-Unterstützung für Steams Start, den Starter, den Menüeintrag und die im Cache-Ordner gespeicherten Theme-Bilder und behält Ihre Einstellungen, die Profile Ihrer Tastenkürzel-Leiste und die Skripte in `~/.config/framekeyboard/scripts/`, sofern Sie nicht `--purge` hinzufügen, das sie alle löscht. Danach wird wieder Steams Tastatur verwendet. Siehe [Zurücksetzen und Entfernen](docs/runtime.md#update-rollback-and-removal). **Deinstallieren** im Installer tut dasselbe und fragt, ob sie erhalten bleiben sollen.
 
 Beenden Sie Full Keyboard vor einem manuellen Update. Bei aktiviertem nativen Ersatz nutzen Sie Einstellungen → **Full Keyboard beenden** (Quit Full Keyboard). Laden Sie die neuen Release-Assets herunter und wiederholen Sie die Installationsschritte. `install.sh` erlaubt, dieselbe Version neu zu installieren oder eine ältere zu installieren, und verweigert die Arbeit, solange Full Keyboard läuft. Der Installer aktualisiert, stuft zurück oder installiert neu, behält dabei Ihre Einstellungen und beendet ein laufendes Full Keyboard vorher selbst. Ein manuelles Zurücksetzen bedeutet, ein älteres Release-Paket neu zu installieren; siehe [Zurücksetzen und Entfernen](docs/runtime.md#update-rollback-and-removal).
 
@@ -144,7 +144,7 @@ Schalten Sie **Tastenkürzel-Leiste** (Shortcut bar) in den Einstellungen unter 
 
 - Der Reiter am rechten Ende der Leiste öffnet das Menü **Profile** (Profiles): Wählen Sie ein Profil, um es anzuzeigen. **Verwalten** (Manage) öffnet den Editor, in dem Sie Profile und ihre Schaltflächen anlegen.
 - Eine Schaltfläche ist ein **Kürzel** (Shortcut), bis zu vier Tastenkombinationen, die nacheinander gesendet werden, etwa Ctrl+K, dann S; ein **Makro** (Macro), Schritte aus Tasten und Wartezeiten, **Einmal**, **Mehrmals** oder **Gedrückt** wiederholt; oder **Ausführen** (Run), das ein Skript aus Ihrem Skriptordner oder einen Befehl auf dem Headset startet.
-- Die Schaltfläche neben einem Profil im Menü weist es der App im Vordergrund zu. Danach zeigt die Leiste dieses Profil, sooft diese App im Vordergrund ist, auch Spiele und Anwendungen, die von Ihrem PC gestreamt werden; der Editor listet sie unter **Verwendet für** (Used for).
+- Die Schaltfläche neben einem Profil im Menü weist es der App im Vordergrund zu. Danach zeigt die Leiste dieses Profil, sooft diese App im Vordergrund ist, auch Spiele, die Steam mit Streaming-Unterstützung von Ihrem PC streamt; der Desktop Ihres PCs und alles andere, was von ihm gestreamt wird, gelten als eine App, **PC-Desktop-Stream** (PC desktop stream). Der Editor listet sie unter **Verwendet für** (Used for).
 
 [Die Tastenkürzel-Leiste](docs/shortcut-bar.md) beschreibt den Editor, was ein Makro stoppt, Skripte und Streams.
 
@@ -166,7 +166,6 @@ Kopieren Sie ein mitgeliefertes JSON-Profil aus `~/.local/share/framekeyboard/cu
 
 Nutzen Sie eine neue Profil-`id`, um eine Auswahl hinzuzufügen, oder dieselbe `id`, um ein mitgeliefertes Profil zu ersetzen. Die [Konfigurationsreferenz](docs/configuration.md) beschreibt Felder, Favoriten, Prüfung und gespeicherte Platzierung.
 
-<a id="dictation"></a>
 ## Diktieren
 
 Wählen Sie unter Einstellungen → **Diktieren** einen Modus, dann **Übernehmen und speichern**:
@@ -180,7 +179,7 @@ Diktieren funktioniert in jeder mitgelieferten Sprache außer Japanisch JIS. Ein
 Datenschutz:
 
 - Auf dem Gerät verlässt der Ton nie die Frame. Selbst gehostet geht er nur an den Server, den Sie eingegeben haben, und nur, während Sie diktieren oder Testen drücken. Eine einfache `host:port`-Adresse ist unverschlüsselt, also halten Sie den Server in Ihrem eigenen Netzwerk; die Einstellungen warnen vor Adressen, die nicht lokal sind.
-- Ton und Text bleiben nur im Arbeitsspeicher. Nichts, was Sie sagen oder tippen, wird protokolliert oder gespeichert, abgesehen von den japanischen Sätzen, die das [Lernen](docs/japanese.md#learning) behält, den Umwandlungen, die das [chinesische Lernen](docs/languages.md#chinese-engines) behält, und den Wörtern, die die [Wortvorschläge](docs/configuration.md#typing-suggestions) zählen, und nie aus Feldern, die als Passwort-, PIN- oder Terminalfeld gekennzeichnet sind, oder aus Terminals, die die Tastatur erkennt.
+- Ton und Text bleiben nur im Arbeitsspeicher. Nichts, was Sie sagen oder tippen, wird protokolliert oder gespeichert, abgesehen von den japanischen Sätzen, die das [Lernen](docs/japanese.md#learning) behält, den Umwandlungen, die das [chinesische Lernen](docs/languages.md#chinese-engines) behält, den Wörtern, die die [Wortvorschläge](docs/configuration.md#typing-suggestions) zählen, und den Beschriftungen, Namen und Befehlen, die Sie im Editor der Tastenkürzel-Leiste eingeben und die in `shortcuts.json` gespeichert werden, und nie aus Feldern, die als Passwort-, PIN- oder Terminalfeld gekennzeichnet sind, oder aus Terminals, die die Tastatur erkennt.
 - Das Zuhören endet, sobald Sie das Headset absetzen oder es aus dem Ruhezustand erwacht, und nach 60 s Stille.
 - Das Mikrofon hört alle in der Nähe. Während ein Spiel läuft, kann auch der Spielton aufgenommen werden, und eine Meldung weist beim Zuhören darauf hin.
 

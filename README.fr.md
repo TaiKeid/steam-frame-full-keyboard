@@ -94,7 +94,7 @@ Tout s'installe dans votre dossier personnel. `install.sh` conserve les paramèt
 
 Le clavier vérifie toutes les quelques heures s'il existe une nouvelle version stable et met un point sur le bouton Paramètres quand il y en a une. Pour mettre à jour, ouvrez les paramètres et appuyez sur **Télécharger et installer la mise à jour** (Download and install update) en haut au centre, ou sur **Rechercher des mises à jour** (Check for updates) au même endroit pour vérifier tout de suite. Le clavier vérifie l'archive, l'installe et redémarre en conservant vos paramètres. L'ancienne version de production reste jusqu'à ce que la nouvelle confirme un démarrage sain, puis elle est supprimée. Un démarrage raté revient automatiquement en arrière. Voir [mises à jour](docs/updates.md).
 
-Pour désinstaller, lancez `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Cela arrête le clavier et ses programmes d'aide, supprime l'appli, son service de démarrage, le réglage de la Prise en charge du streaming pour le démarrage de Steam, son lanceur, son entrée de menu et les images des thèmes qu'il garde dans votre dossier de cache, et garde vos paramètres, sauf si vous ajoutez `--purge`. Le clavier de Steam est de nouveau utilisé. Voir [retour arrière et désinstallation](docs/runtime.md#update-rollback-and-removal). **Désinstaller** dans l'installateur fait de même et demande s'il faut conserver vos paramètres.
+Pour désinstaller, lancez `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Cela arrête le clavier et ses programmes d'aide, supprime l'appli, son service de démarrage, le réglage de la Prise en charge du streaming pour le démarrage de Steam, son lanceur, son entrée de menu et les images des thèmes qu'il garde dans votre dossier de cache, et garde vos paramètres, les profils de votre barre de raccourcis et les scripts de `~/.config/framekeyboard/scripts/`, sauf si vous ajoutez `--purge`, qui les supprime tous. Le clavier de Steam est de nouveau utilisé. Voir [retour arrière et désinstallation](docs/runtime.md#update-rollback-and-removal). **Désinstaller** dans l'installateur fait de même et demande s'il faut les conserver.
 
 Pour une mise à jour manuelle, quittez d'abord Full Keyboard. Avec le remplacement natif activé, utilisez Paramètres → **Quitter Full Keyboard** (Quit Full Keyboard). Téléchargez les fichiers de la nouvelle version et répétez les étapes d'installation. `install.sh` permet de réinstaller la même version ou d'en installer une plus ancienne, et refuse tant que Full Keyboard tourne. L'installateur met aussi à jour, rétrograde ou réinstalle en gardant vos paramètres, et ferme d'abord Full Keyboard s'il tourne. Revenir manuellement en arrière veut dire réinstaller un paquet de version plus ancien ; voir [retour arrière et désinstallation](docs/runtime.md#update-rollback-and-removal).
 
@@ -144,7 +144,7 @@ Activez **Barre de raccourcis** (Shortcut bar) dans Paramètres → **Général*
 
 - L'onglet au bout droit de la barre ouvre le menu **Profils** (Profiles) : choisissez un profil pour l'afficher. **Gérer** (Manage) ouvre l'éditeur, où vous créez les profils et leurs boutons.
 - Un bouton est un **Raccourci** (Shortcut), jusqu'à quatre combinaisons de touches envoyées dans l'ordre, comme Ctrl+K puis S ; une **Macro**, des étapes de touches et d'attentes répétées **Une fois**, **Plusieurs** fois ou tant qu'il est **Maintenu** ; ou **Exécuter** (Run), qui lance un script de votre dossier de scripts ou une commande sur le casque.
-- Le bouton à côté d'un profil dans le menu l'attribue à l'application au premier plan. La barre affiche ensuite ce profil chaque fois que cette application est au premier plan, y compris les jeux et applications diffusés depuis votre PC ; l'éditeur les liste sous **Utilisé pour** (Used for).
+- Le bouton à côté d'un profil dans le menu l'attribue à l'application au premier plan. La barre affiche ensuite ce profil chaque fois que cette application est au premier plan, y compris les jeux que Steam diffuse depuis votre PC avec la Prise en charge du streaming ; le bureau de votre PC et tout ce qui en est diffusé d'autre comptent comme une seule application, **Bureau du PC en streaming** (PC desktop stream). L'éditeur les liste sous **Utilisé pour** (Used for).
 
 [La barre de raccourcis](docs/shortcut-bar.md) décrit l'éditeur, ce qui arrête une macro, les scripts et le streaming.
 
@@ -166,7 +166,6 @@ Copiez un profil JSON fourni depuis `~/.local/share/framekeyboard/current/share/
 
 Utilisez un nouvel `id` de profil pour ajouter un choix, ou le même `id` pour remplacer un profil fourni. La [référence de configuration](docs/configuration.md) décrit les champs, les favoris, la validation et le placement enregistré.
 
-<a id="dictation"></a>
 ## Dictée
 
 Choisissez un mode dans Paramètres → **Dictée**, puis **Appliquer et enregistrer** :
@@ -180,7 +179,7 @@ La dictée fonctionne dans toutes les langues fournies sauf le japonais JIS. Une
 Confidentialité :
 
 - Sur l'appareil, le son ne quitte jamais la Frame. En auto-hébergé, il ne va qu'au serveur que vous avez saisi, et seulement pendant que vous dictez ou appuyez sur Tester. Une simple adresse `host:port` n'est pas chiffrée, gardez donc le serveur sur votre propre réseau ; les paramètres avertissent pour les adresses qui ne sont pas locales.
-- Le son et le texte restent uniquement en mémoire. Rien de ce que vous dites ou tapez n'est journalisé ni enregistré, à part les phrases japonaises que l'[apprentissage](docs/japanese.md#learning) conserve, les conversions que l'[apprentissage du chinois](docs/languages.md#chinese-engines) conserve et les mots que les [suggestions de saisie](docs/configuration.md#typing-suggestions) comptent, et jamais depuis des champs signalés comme mot de passe, code PIN ou terminal, ni depuis les terminaux que le clavier reconnaît.
+- Le son et le texte restent uniquement en mémoire. Rien de ce que vous dites ou tapez n'est journalisé ni enregistré, à part les phrases japonaises que l'[apprentissage](docs/japanese.md#learning) conserve, les conversions que l'[apprentissage du chinois](docs/languages.md#chinese-engines) conserve les mots que les [suggestions de saisie](docs/configuration.md#typing-suggestions) comptent et les libellés, noms et commandes que vous tapez dans l'éditeur de la barre de raccourcis, enregistrés dans `shortcuts.json`, et jamais depuis des champs signalés comme mot de passe, code PIN ou terminal, ni depuis les terminaux que le clavier reconnaît.
 - L'écoute s'arrête dès que vous retirez le casque ou qu'il sort de veille, et après 60 s de silence.
 - Le micro entend tout le monde autour. Pendant qu'un jeu tourne, le son du jeu peut aussi être capté, et un message le signale pendant l'écoute.
 

@@ -94,7 +94,7 @@ Tudo é instalado dentro do seu diretório pessoal. O `install.sh` preserva as c
 
 O teclado procura uma nova versão estável a cada poucas horas e coloca um ponto no botão de Configurações quando há uma. Para atualizar, abra as Configurações e pressione **Baixar e instalar atualização** no topo, ao centro, ou **Verificar atualizações** no mesmo lugar para verificar agora. O teclado verifica o arquivo, instala e reinicia, preservando suas configurações. A versão de produção anterior permanece até a nova confirmar que iniciou corretamente e então é removida. Uma falha ao iniciar é revertida automaticamente. Veja [atualizações](docs/updates.md).
 
-Para desinstalar, execute `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Ele encerra o teclado e seus processos auxiliares, remove o app, seu serviço de inicialização, a configuração do Suporte a streaming para o início do Steam, o inicializador, a entrada do menu e as imagens dos temas que guarda na sua pasta de cache, e mantém suas configurações, a menos que você adicione `--purge`. O teclado do Steam volta a ser usado. Veja [reversão e remoção](docs/runtime.md#update-rollback-and-removal). O botão **Desinstalar** do instalador faz o mesmo e pergunta se você quer manter suas configurações.
+Para desinstalar, execute `bash ~/.local/share/framekeyboard/current/uninstall.sh`. Ele encerra o teclado e seus processos auxiliares, remove o app, seu serviço de inicialização, a configuração do Suporte a streaming para o início do Steam, o inicializador, a entrada do menu e as imagens dos temas que guarda na sua pasta de cache, e mantém suas configurações, os perfis da sua barra de atalhos e os scripts em `~/.config/framekeyboard/scripts/`, a menos que você adicione `--purge`, que apaga tudo isso. O teclado do Steam volta a ser usado. Veja [reversão e remoção](docs/runtime.md#update-rollback-and-removal). O botão **Desinstalar** do instalador faz o mesmo e pergunta se você quer mantê-los.
 
 Para uma atualização manual, feche primeiro o Full Keyboard. Com a substituição nativa ativada, use Configurações → Sair do Full Keyboard. Baixe os arquivos da nova versão e repita os passos de instalação. O `install.sh` permite reinstalar a mesma versão ou instalar uma mais antiga, e se recusa a continuar enquanto o Full Keyboard está em execução. O instalador também atualiza, volta de versão ou reinstala, mantendo suas configurações, e antes fecha o Full Keyboard se estiver em execução. Reverter manualmente significa reinstalar o pacote de uma versão mais antiga; veja [reversão e remoção](docs/runtime.md#update-rollback-and-removal).
 
@@ -144,7 +144,7 @@ Ative **Barra de atalhos** (Shortcut bar) em Configurações → **Geral** e apl
 
 - A aba na ponta direita da barra abre o menu **Perfis** (Profiles): escolha um perfil para mostrá-lo. **Gerenciar** (Manage) abre o editor, onde você cria perfis e seus botões.
 - Um botão é um **Atalho** (Shortcut), até quatro combinações de teclas enviadas em ordem, como Ctrl+K e depois S; uma **Macro**, etapas de teclas e esperas repetidas **Uma vez**, **Várias** vezes ou enquanto **Segurado**; ou **Executar** (Run), que inicia um script da sua pasta de scripts ou um comando no headset.
-- O botão ao lado de um perfil no menu o atribui ao aplicativo em primeiro plano. A partir daí a barra mostra esse perfil sempre que esse aplicativo estiver em primeiro plano, incluindo jogos e aplicativos transmitidos do seu PC; o editor os lista em **Usado para** (Used for).
+- O botão ao lado de um perfil no menu o atribui ao aplicativo em primeiro plano. A partir daí a barra mostra esse perfil sempre que esse aplicativo estiver em primeiro plano, incluindo jogos que o Steam transmite do seu PC com o Suporte a streaming; a área de trabalho do seu PC e tudo mais transmitido dele contam como um único aplicativo, **Área de trabalho do PC (stream)** (PC desktop stream). O editor os lista em **Usado para** (Used for).
 
 [A barra de atalhos](docs/shortcut-bar.md) explica o editor, o que interrompe uma macro, os scripts e o streaming.
 
@@ -166,7 +166,6 @@ Copie um perfil JSON incluído de `~/.local/share/framekeyboard/current/share/fr
 
 Use um `id` de perfil novo para adicionar uma opção, ou o mesmo `id` para substituir um incluído. A [referência de configuração](docs/configuration.md) cobre os campos, os favoritos, a validação e a posição salva.
 
-<a id="dictation"></a>
 ## Ditado
 
 Escolha um modo em Configurações → **Ditado** (Dictation) e depois **Aplicar e salvar**:
@@ -180,7 +179,7 @@ O ditado funciona em todos os idiomas incluídos, exceto japonês JIS. Um pequen
 Privacidade:
 
 - No dispositivo, o áudio nunca sai do Frame. No servidor próprio, ele vai só para o servidor que você informou, e só enquanto você dita ou pressiona Testar. Um endereço `host:port` simples não é criptografado, então mantenha o servidor na sua própria rede; as Configurações avisam sobre endereços que não são locais.
-- Áudio e texto ficam só na memória. Nada do que você fala ou digita é registrado ou salvo, exceto as frases em japonês que o [aprendizado](docs/japanese.md#learning) guarda, as conversões que o [aprendizado do chinês](docs/languages.md#chinese-engines) guarda e as palavras que as [sugestões de digitação](docs/configuration.md#typing-suggestions) contam, e nunca de campos marcados como senha, PIN ou terminal nem de terminais que o teclado reconhece.
+- Áudio e texto ficam só na memória. Nada do que você fala ou digita é registrado ou salvo, exceto as frases em japonês que o [aprendizado](docs/japanese.md#learning) guarda, as conversões que o [aprendizado do chinês](docs/languages.md#chinese-engines) guarda as palavras que as [sugestões de digitação](docs/configuration.md#typing-suggestions) contam e os rótulos, nomes e comandos que você digita no editor da barra de atalhos, salvos em `shortcuts.json`, e nunca de campos marcados como senha, PIN ou terminal nem de terminais que o teclado reconhece.
 - A escuta para assim que você tira o headset ou quando ele acorda do modo de suspensão, e após 60 s de silêncio.
 - O microfone ouve todos que estão por perto. Enquanto um jogo está rodando, o som dele também pode ser captado, e uma mensagem avisa isso durante a escuta.
 

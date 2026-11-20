@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Remove Full Keyboard from this user account on the Frame: the app, its
 # helpers, its launcher and menu entry, the Start with SteamOS service and
-# Streaming support's setting for Steam's start. Settings and custom profiles
-# stay unless --purge is given. Steam files are never changed by Full
-# Keyboard, so there is nothing to restore there.
+# Streaming support's setting for Steam's start. Settings, custom profiles, the
+# shortcut bar's profiles and Run scripts stay unless --purge is given. Steam
+# files are never changed by Full Keyboard, so there is nothing to restore there.
 set -euo pipefail
 usage() {
     echo 'Usage: bash uninstall.sh [--purge] [--yes]' >&2
-    echo '  --purge  also delete settings, keyboard placement and custom profiles' >&2
+    echo '  --purge  also delete settings, keyboard placement, custom profiles, the shortcut' >&2
+    echo '           bar'"'"'s profiles and its Run scripts' >&2
     echo '  --yes    do not ask for confirmation' >&2
 }
 purge=false
@@ -119,7 +120,7 @@ $ours_desktop && echo "  $desktop"
 $ours_unit && echo "  $unit (Start with SteamOS) and its links"
 $ours_stream && echo "  $stream_drop_in (Streaming support)"
 if $purge; then
-    [[ -e $settings ]] && echo "  $settings (settings, placement and custom profiles)"
+    [[ -e $settings ]] && echo "  $settings (settings, placement, custom profiles, the shortcut bar's profiles and Run scripts)"
 else
     [[ -e $settings ]] && echo "Settings stay in $settings; add --purge to delete them too."
 fi
