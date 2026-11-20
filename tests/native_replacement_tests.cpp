@@ -814,7 +814,8 @@ void status_codes_are_logged_without_a_request() {
     int id = 0;
     for (const std::string code :
          {"status-store", "status-notification", "status-shape-dispatch-undefined",
-          "status-differs-key-closed", "status-arguments-0"}) {
+          "status-differs-key-closed", "status-arguments-0", "status-order-bridge-first",
+          "status-order-steam-first"}) {
         const auto before = output.str();
         ++id;
         state(300 + 2 * id,

@@ -2,7 +2,7 @@
 // Native presentation is closed; input stays bound to the owning Steam window.
 (function installNativeBridge(root, testStore, externalSupported, adoptOpenMs, forceNotification) {
     "use strict";
-    const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
+    const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100, STATUS_CHECK_MS = 50;
     const now = () => root.performance.now();
     // The store that holds Steam's shared VR keyboard state is module-private.
     // Both Steam interface builds are supported, picked here on every install.
@@ -148,6 +148,11 @@
     const events = [];
     // Each status diagnostic is recorded once per install.
     const noted = new Set();
+    // On the old interface, the latest notification waits to be compared with
+    // the store until Steam's handler has had its turn, which may come before
+    // or after our callback. notifiedOpen is the open flag last notified, so a
+    // change of it tells which of the two ran first.
+    let statusCheck = null, notifiedOpen = native.open;
     function note(code) {
         if (noted.has(code)) return;
         noted.add(code);
@@ -594,6 +599,27 @@
             else restoreWindow();
         } finally { inspecting = false; }
     }
+    // Compares the latest notification with the store, on the timer and at
+    // least STATUS_CHECK_MS after it arrived, when Steam's handler has run in
+    // either order. A difference counts only if it is still there a tick later
+    // with no newer notification; one that has gone says which order this
+    // Steam uses, if the store already matched when the notification arrived.
+    function checkStatus(time) {
+        if (!statusCheck || time - statusCheck.at < STATUS_CHECK_MS) return;
+        let s;
+        try { s = nativeStatus(); } catch (_) { statusCheck = null; return; }
+        const {status} = statusCheck;
+        const differs = Object.keys(EXPECTED).filter(field => EXPECTED[field](status[field]) &&
+            s[field] !== status[field]);
+        if (!differs.length) {
+            if (statusCheck.order) note(`status-order-${statusCheck.order}`);
+            statusCheck = null;
+        } else if (!statusCheck.again) statusCheck.again = true;
+        else {
+            for (const field of differs) note(`status-differs-${field}${status.open === false ? "-closed" : ""}`);
+            statusCheck = null;
+        }
+    }
     function idle() {
         return !logical && !native.open && !handoff && !preparedExternal && !externalRestore &&
             !restoringOwner && !restoringUntil && !expectedClose && !closingNative && !interceptedShow;
@@ -750,9 +776,11 @@
             if (!open && logical?.owner.manager === this) {
                 // Consume exactly the close reaction caused by this request's
                 // Hide. Keep acquisition pending if status arrives first.
-                // Without the shared store (the newer interface) the status
-                // notification arrives after this reaction, so the pending
-                // close is still ours when the mirror shows the keyboard open.
+                // Steam's reaction follows its store, so on the older interface
+                // the store already says closed here. Our notification callback
+                // can run before or after Steam's handler; both orders occur.
+                // So on the notification path the mirror may still show the
+                // keyboard open, or already closed: the close is ours either way.
                 if (closingNative && expectedClose?.owner === owner &&
                     expectedClose.request === request &&
                     (!fromStore || !nativeStatus().open)) {
@@ -836,9 +864,10 @@
                 const status = {open: args[0], flags: args[1], dispatch: args[4], key: args[5]};
                 // Diagnostics, without values: an argument count other than six,
                 // a value of an unexpected type, by field and type name, and, where
-                // the old interface's store exists, a field that differs from the
-                // store Steam's own handler has just updated, marked when the
-                // notification was a close.
+                // the old interface's store exists, a field that still differs from
+                // the store once Steam's handler has had its turn (checkStatus),
+                // marked when the notification was a close, and which of the two
+                // ran first. Steam's handler may run before or after this callback.
                 if (args.length !== 6) note(`status-arguments-${args.length < 6 ? args.length : "more"}`);
                 for (const field in EXPECTED)
                     if (!EXPECTED[field](status[field])) note(`status-shape-${field}-${typeName(status[field])}`);
@@ -846,11 +875,14 @@
                 else {
                     let s = null;
                     try { s = nativeStatus(); } catch (_) { /* A changed store is inspect()'s to handle. */ }
-                    for (const field in EXPECTED) if (s && EXPECTED[field](status[field]) && s[field] !== status[field])
-                        note(`status-differs-${field}${status.open === false ? "-closed" : ""}`);
+                    const changed = typeof status.open === "boolean" && status.open !== notifiedOpen;
+                    statusCheck = {status, at: now(), again: false,
+                        order: changed && s ? s.open === status.open ? "steam-first" : "bridge-first" : null};
+                    if (typeof status.open === "boolean") notifiedOpen = status.open;
                 }
-                // A Show that Steam made for this notification ran before it, so
-                // it was judged on the previous status and may be held back.
+                // A Show that Steam made for this notification may have run before
+                // it, where Steam's handler runs first; it was then judged on the
+                // previous status and may be held back.
                 // A changed interface ends replacement and gives that Show back,
                 // leaving Steam's keyboard as Steam has it.
                 const replay = mirroredStatus === CHANGED && !fromStore && interceptedShow && !disposed;
@@ -864,6 +896,7 @@
         timer = root.setInterval(() => {
             try {
                 const time = now();
+                checkStatus(time);
                 // Keep the independent 50 ms watchdog. Only an idle full scan
                 // can be coalesced with a recent helper/event inspection. Lease
                 // expiry must still remove suppression at the ordinary deadline.

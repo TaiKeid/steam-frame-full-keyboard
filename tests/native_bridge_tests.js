@@ -8,6 +8,7 @@ const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "rele
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
     "button-summon", "update-native-close", "status-store", "status-notification",
+    "status-order-bridge-first", "status-order-steam-first",
     // Status diagnostics: a field of an unexpected type, by type name; a field
     // that differs from the old interface's store, marked on a close; and an
     // argument count other than six.
@@ -468,22 +469,27 @@ for (const [name, f, code] of [
 
 // Status diagnostics name what they saw, never a value: the argument count if
 // it is not six, a field of an unexpected type with that type's name, and on
-// the old interface a field that differs from the store Steam's handler has
-// just updated, marked when the notification was a close. Each is recorded
-// once per install, and none changes what the bridge does.
+// the old interface a field that still differs from the store once Steam's
+// handler has had its turn, marked when the notification was a close. Each is
+// recorded once per install, and none changes what the bridge does.
 const statusCodes = s => Array.from(s.events, e => e.code).filter(c => c.startsWith("status-") &&
-    c !== "status-store" && c !== "status-notification");
+    c !== "status-store" && c !== "status-notification" && !c.startsWith("status-order-"));
+const orderCodes = s => Array.from(s.events, e => e.code).filter(c => c.startsWith("status-order-"));
 {
     const f = fixture(false, true);
     const request = owned(f);
     f.bridge.send(request, "a");
     f.status({bIsOpen: false});
     f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    f.advance(60); f.advance(60);
     assert.deepEqual(statusCodes(f.bridge.diagnostics()), [], "a notification that matches the store records nothing");
-    f.notify(false, 13, false, "some.other.overlay");
-    f.notify(false, 13, false, MAIN);
-    f.notify(true, 0, undefined, MAIN, 5);
-    f.notify(true, 0, undefined, MAIN, 5);
+    // Differences that last: the store keeps its state while each notification
+    // says otherwise, checked twice, a tick apart.
+    const lasting = (...args) => { f.notify(...args); f.advance(60); f.advance(60); };
+    lasting(false, 13, false, "some.other.overlay");
+    lasting(false, 13, false, MAIN);
+    lasting(true, 0, undefined, MAIN, 5);
+    lasting(true, 0, undefined, MAIN, 5);
     const s = f.step();
     assert.deepEqual(statusCodes(s), ["status-differs-open-closed", "status-differs-key-closed",
         "status-arguments-5", "status-shape-dispatch-undefined", "status-shape-key-undefined",
@@ -522,8 +528,8 @@ for (const [name, flags, dispatch, key, count] of [
     const f = fixture(false, false, false, false, false, false, 0, null, true);
     f.newTarget();
     f.step();
-    // Steam opens its keyboard: its own handler and reaction run, then its
-    // window shows, judged on the previous status, then our callback.
+    // Steam opens its keyboard, its handler first here: its store and reaction,
+    // then its window shows, judged on the previous status, then our callback.
     f.status({bIsOpen: true}, false);
     f.api.ShowWindow();
     assert(!f.calls.includes("window-show"), `${name}: the window waits for the status`);
@@ -570,8 +576,9 @@ for (const [name, flags, dispatch, key, count] of [
     assert(f.step(s.request).active && f.bridge.send(s.request, "a"), "and it types, as when they interleave");
     f.bridge.dispose();
 }
-// On the old interface the store has moved on by then, so the earlier
-// notification differs from it: recorded, and nothing else changes.
+// On the old interface the store has moved on by then. The earlier
+// notification is compared only once a later one has arrived, so it is no
+// difference, and the later one shows the store already had it.
 {
     const f = fixture(false, true);
     f.perSubscriber(true);
@@ -579,9 +586,40 @@ for (const [name, flags, dispatch, key, count] of [
     f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
     f.status({bIsOpen: false});
     f.deliver();
+    f.advance(60); f.advance(60);
     const s = f.step();
-    assert(statusCodes(s).includes("status-differs-open") && !f.nativeOpen() && f.alive() && !s.eligible,
-        "a notification overtaken by the store is a difference, not a change");
+    assert(!statusCodes(s).length && !f.nativeOpen() && f.alive() && !s.eligible,
+        "an overtaken notification is no difference");
+    f.bridge.dispose();
+}
+// Which order this Steam uses is recorded once, from a change of the open flag:
+// the store already had it when the notification arrived, or it got it later.
+// Neither order is a difference.
+for (const [delivery, order] of [["interleaved", "status-order-steam-first"],
+    ["bridge-first", "status-order-bridge-first"]]) {
+    const f = fixture(false, true);
+    f.bridgeFirst(delivery === "bridge-first");
+    for (let i = 0; i < 3; ++i) {
+        f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"}); f.advance(60); f.advance(60);
+        f.status({bIsOpen: false, sOverlayKey: MAIN}); f.advance(60); f.advance(60);
+    }
+    const request = owned(f);
+    f.bridge.send(request, "a");
+    f.advance(60); f.advance(60);
+    const s = f.step();
+    assert.deepEqual(orderCodes(s), [order], `${delivery}: the order is recorded once`);
+    assert.deepEqual(statusCodes(s), [], `${delivery}: the order is no difference`);
+    f.bridge.dispose();
+}
+// A difference that is gone a tick later is no difference either.
+{
+    const f = fixture(false, true);
+    f.step();
+    f.notify(true, 13, false, "some.other.overlay");
+    f.advance(60);
+    f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"}, false);
+    f.advance(60);
+    assert.deepEqual(statusCodes(f.step()), [], "a store that catches up within a tick records nothing");
     f.bridge.dispose();
 }
 

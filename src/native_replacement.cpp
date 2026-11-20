@@ -70,6 +70,7 @@ const char* session_code(const char* code) {
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
               "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
               "button-summon", "update-native-close", "status-store", "status-notification",
+              "status-order-bridge-first", "status-order-steam-first",
               // Status diagnostics: a field's unexpected type, a field differing
               // from the store (on a close), an argument count other than six.
               "status-shape-open-undefined", "status-shape-open-null", "status-shape-open-number",
