@@ -2000,6 +2000,9 @@ class App {
     enum class EditorQuestion { None, Leave, DeleteProfile };
     EditorQuestion editor_question_{EditorQuestion::None};
     BarScroll editor_rows_scroll_, editor_strip_scroll_;
+    // Used for's chips, scrolled up and down past two rows (R401).
+    BarScroll editor_used_scroll_;
+    double editor_used_limit() const;
     double editor_tick_{-1};
     // A press on a bar row or a strip button, which a drag past the dead zone
     // lifts: a row moves up or down the list, a button along the strip, or
@@ -2019,8 +2022,10 @@ class App {
         // A script's row: the drag scrolls the list, from `scroll` at the press.
         bool scripts{};
         double scroll{};
+        // From the Used for chips: the drag scrolls them, from `scroll` (R401).
+        bool used{};
         // A bar's button, moved along the strip: no other kind's (R352).
-        bool button() const { return !row && !step && !scripts; }
+        bool button() const { return !row && !step && !scripts && !used; }
     };
     // A button dropped on another profile's row: Move or Copy, in a popover
     // beside that row, until either or a press anywhere else.

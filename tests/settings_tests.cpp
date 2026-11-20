@@ -5,7 +5,9 @@
 #include "framekeyboard/theme_previews.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cairo.h>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -6863,6 +6865,137 @@ void unsynced_save() {
     require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
+// R401: the Used for chips stay inside their area, two rows in view: more
+// scroll with the stick or a drag, with the profile list's thin thumb; the
+// hint shows only where they leave it room. No ✕ lies outside the area, so
+// none is under the move handle.
+void used_for_chips_scroll() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"g", "Games", {shortcut_button("G", {{{"ControlLeft"}, "KeyG"}})}});
+    for (int i = 0; i < 5; ++i) {
+        const std::array<const char*, 5> names{"Example Browser Two", "Example Notes Editor",
+                                               "Example Mail Client", "Example Music Player",
+                                               "Example Game Launcher"};
+        model.apps.push_back(
+            {{AppIdentity::Kind::Desktop, "org.example.App" + std::to_string(i)}, names[i], "g"});
+    }
+    model.free_profile = "g";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    double now = 5600;
+    const auto settle = [&] {
+        for (int i = 0; i < 60; ++i) {
+            app.tick(now += .02);
+        }
+    };
+    settle();
+    // Pressed on this test's own clock, which the editor's easing follows.
+    const auto tap = [&](const std::string& id) {
+        const auto at = middle(control(app.view(), id).bounds);
+        app.move(0, at.x, at.y);
+        app.down(0, at.x, at.y, now += .1);
+        app.up(0, at.x, at.y);
+        app.tick(now += .02);
+    };
+    auto view = app.view();
+    const auto& e = *view.shortcut_editor;
+    const auto area = e.used_chips;
+    require(e.ties.size() == 2 && e.ties[0].bounds.y == area.y && e.ties[1].bounds.y == area.y + 48 &&
+                e.ties[1].bounds.y + e.ties[1].bounds.height <= area.y + area.height,
+            "two rows of chips in view, one name each");
+    require(e.used_thumb && e.used_hint.empty(), "a thumb shows there is more; no room for the hint");
+    const auto ties_shown = [&](const PanelView& v) {
+        std::vector<std::string> ids;
+        for (const auto& c : v.controls) {
+            if (c.id.starts_with("shortcuts-tie-")) {
+                require(c.clip && *c.clip == area && area.contains(c.bounds.x, c.bounds.y) &&
+                            c.bounds.y + c.bounds.height <= area.y + area.height,
+                        "every ✕ lies in the chips' area, clipped to it");
+                ids.push_back(c.id);
+            }
+        }
+        return ids;
+    };
+    require(ties_shown(view) == std::vector<std::string>{"shortcuts-tie-0", "shortcuts-tie-1"},
+            "only the chips in view have their ✕");
+    // Where the fourth chip's ✕ was, under the move handle: no tie there.
+    const double fourth = area.y + 3 * 48 + 20;
+    app.move(0, area.x + area.width - 21, fourth);
+    require(view.controls.back().id == "move-handle" &&
+                !view.controls.back().bounds.contains(area.x, area.y + area.height),
+            "the move handle lies below the chips' area");
+    // The band under the chips is the plain case: nothing drawn there.
+    app.paint(now);
+    if (const char* pictures = std::getenv("FRAMEKEYBOARD_TEST_PICTURES")) {
+        app.renderer.write_png(std::filesystem::path(pictures) / "editor-used-for-five.png");
+    }
+    {
+        auto* surface = app.renderer.surface();
+        cairo_surface_flush(surface);
+        const auto pixel = [&](int x, int y) {
+            return reinterpret_cast<const std::uint32_t*>(
+                cairo_image_surface_get_data(surface) +
+                (y + popup_margin) * cairo_image_surface_get_stride(surface))[x];
+        };
+        const int top = static_cast<int>(area.y + area.height) + 2;
+        const int bottom = static_cast<int>(e.used.y + e.used.height) - 2;
+        const auto plain = pixel(static_cast<int>(area.x) + 2, top);
+        bool clean = true;
+        for (int y = top; y < bottom; ++y) {
+            for (int x = static_cast<int>(area.x); x < static_cast<int>(area.x + area.width); ++x) {
+                clean &= pixel(x, y) == plain;
+            }
+        }
+        require(clean, "no chip is drawn below the chips' area");
+    }
+    // The stick over the chips scrolls them a row a step, to the last.
+    const auto inside = middle(area);
+    app.move(0, inside.x, inside.y);
+    for (int i = 0; i < 4; ++i) {
+        app.scroll(0, 0, 1);
+    }
+    settle();
+    view = app.view();
+    require(ties_shown(view) == std::vector<std::string>{"shortcuts-tie-3", "shortcuts-tie-4"},
+            "scrolled to the end, the fourth and fifth chips and their ✕ show");
+    tap("shortcuts-tie-3");
+    settle();
+    view = app.view();
+    require(view.shortcut_editor->ties.size() == 2 &&
+                ties_shown(view) == std::vector<std::string>{"shortcuts-tie-2", "shortcuts-tie-3"},
+            "the fourth chip's ✕ removes its tie; the list stays at its end");
+    // A drag on the chips scrolls them back.
+    const auto chip = middle(view.shortcut_editor->ties[0].bounds);
+    app.move(0, chip.x - 40, chip.y);
+    app.down(0, chip.x - 40, chip.y, now += .1);
+    for (int step = 1; step <= 8; ++step) {
+        app.move(0, chip.x - 40, chip.y + step * 20);
+    }
+    app.up(0, chip.x - 40, chip.y + 160);
+    settle();
+    view = app.view();
+    require(ties_shown(view) == std::vector<std::string>{"shortcuts-tie-0", "shortcuts-tie-1"} &&
+                view.shortcut_editor->ties.size() == 2,
+            "a drag down the chips scrolls them back to the first, removing nothing");
+    // One row of chips leaves the hint its room.
+    for (int i = 0; i < 3; ++i) {
+        tap("shortcuts-tie-0");
+        settle();
+    }
+    view = app.view();
+    require(view.shortcut_editor->ties.size() == 1 && !view.shortcut_editor->used_thumb &&
+                view.shortcut_editor->used_hint == "Shows when one of these apps is in front.",
+            "one row: no thumb, and the hint");
+}
 // R403: with replacement on, closing the panel (the keyboard button, the
 // dashboard closing) and summoning it again resumes the editor with its
 // unsaved change. An open popup ends as Cancel, as at any hide.
@@ -7589,6 +7722,7 @@ int main() {
         shortcut_save_too_large();
         editor_resources_after_close();
         editor_survives_close_and_summon();
+        used_for_chips_scroll();
         run_script_past_list();
         dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();

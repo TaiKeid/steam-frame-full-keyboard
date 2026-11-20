@@ -4399,16 +4399,21 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
         interface_label(cr, e.used_caption, {e.used.x, e.used.y, e.used.width, 30}, 17,
                         view.interface_font, quiet, false, PANGO_ALIGN_LEFT);
     }
-    for (const auto& chip : e.ties) {
-        rounded(cr, chip.bounds, chip.bounds.height / 2);
-        source(cr, t.bottom);
-        cairo_fill(cr);
-        interface_label(cr, chip.text,
-                        {chip.bounds.x + 14, chip.bounds.y, chip.bounds.width - 46, chip.bounds.height},
-                        19, view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
-    }
-    for (const auto& c : view.controls) {
-        if (c.id.starts_with("shortcuts-tie-")) {
+    // The chips and their ✕ stay inside their area, which scrolls (R401).
+    clipped(e.used_chips, [&] {
+        for (const auto& chip : e.ties) {
+            rounded(cr, chip.bounds, chip.bounds.height / 2);
+            source(cr, t.bottom);
+            cairo_fill(cr);
+            interface_label(
+                cr, chip.text,
+                {chip.bounds.x + 14, chip.bounds.y, chip.bounds.width - 46, chip.bounds.height}, 19,
+                view.interface_font, t.legend, false, PANGO_ALIGN_LEFT);
+        }
+        for (const auto& c : view.controls) {
+            if (!c.id.starts_with("shortcuts-tie-")) {
+                continue;
+            }
             if (hovered(c)) {
                 cairo_new_path(cr);
                 cairo_arc(cr, c.bounds.x + c.bounds.width / 2, c.bounds.y + c.bounds.height / 2,
@@ -4417,7 +4422,15 @@ void draw_shortcut_editor(cairo_t* cr, const PanelView& view) {
                 cairo_fill(cr);
             }
             draw_icon(cr, Icon::Close, c.bounds, t.legend, 14);
-        } else if (c.id == "shortcuts-new-profile") {
+        }
+    });
+    if (e.used_thumb) {
+        rounded(cr, *e.used_thumb, 3);
+        source(cr, light_theme(t) ? mix(t.surface, t.legend, .22) : t.hover);
+        cairo_fill(cr);
+    }
+    for (const auto& c : view.controls) {
+        if (c.id == "shortcuts-new-profile") {
             if (hovered(c)) {
                 rounded(cr, c.bounds, t.radius);
                 source(cr, t.hover);

@@ -27,6 +27,8 @@ bool popup_disabled(const Key& key, PopupKind kind) {
 // A drag past this many pixels lifts a row or a button.
 constexpr double dead_zone = 12;
 constexpr double row_height = 52;
+// Used for's chip rows, 40 tall, and the room its hint takes at the area's foot (R401).
+constexpr double used_row = 48, used_hint_height = 52;
 // The full and the no-numpad editor (design: 286 or 236, 300 or 250).
 constexpr double narrow_width = 1326;
 // A chip: its text, measured at the size it is drawn, and 12 px on each
@@ -69,6 +71,8 @@ struct EditorLayout {
     bool wide{};
     double column_width{};
     Rect column, profiles_list, new_profile, used;
+    // Used for's chips, two rows in view under its caption; more scroll (R401).
+    Rect used_chips;
     double list_top{}, divider{}, right{}, left{};
     std::size_t visible_rows{};
     Rect strip_well, strip, label, explanation;
@@ -96,6 +100,7 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     l.column = {x, 70, l.column_width, body.height - 70 - 16};
     l.list_top = l.column.y + 34;
     l.used = {x + 12, l.column.y + l.column.height - 150, l.column_width - 12, 150};
+    l.used_chips = {l.used.x, l.used.y + 34, l.used.width, used_row + 40};
     const double room = l.used.y - 12 - row_height - l.list_top;
     l.visible_rows = static_cast<std::size_t>(std::max(1.0, std::floor(room / row_height)));
     const double shown = static_cast<double>(std::min(bars, l.visible_rows));
@@ -135,6 +140,31 @@ EditorLayout editor_layout(const Rect& body, const ShortcutBarGeometry& bar, dou
     const double line_x = l.run_switch.x + l.run_switch.width + 24;
     l.run_line = {line_x, l.sends.y, l.right - line_x, 26};
     return l;
+}
+// A Used for chip: its tie's index in the model, its text and where it is.
+struct UsedChip {
+    std::size_t tie{};
+    std::string text;
+    Rect bounds;
+};
+std::vector<UsedChip> used_chips(const EditorLayout& l, const ShortcutEditor& editor,
+                                 const std::string& stream_name, const std::string& fonts) {
+    // Flowed in rows from the area's top, unscrolled; a chip as wide as its
+    // name, at most the area's width.
+    std::vector<UsedChip> chips;
+    const auto& model = editor.model();
+    double x = l.used_chips.x, y = l.used_chips.y;
+    for (const auto index : editor.ties()) {
+        auto name = tie_chip(model.apps[index], stream_name);
+        const double width = std::min(l.used_chips.width, chip_width(name, 19, fonts) + 32);
+        if (x + width > l.used_chips.x + l.used_chips.width && x > l.used_chips.x) {
+            x = l.used_chips.x;
+            y += used_row;
+        }
+        chips.push_back({index, std::move(name), {x, y, width, 40}});
+        x += width + 8;
+    }
+    return chips;
 }
 // A profile's row in the editor's column, scrolled.
 Rect profile_row(const EditorLayout& l, std::size_t index, double scroll) {
@@ -272,7 +302,7 @@ void App::open_shortcut_editor() {
     candidate_list_ = false;
     sync_candidates();
     editor_question_ = EditorQuestion::None;
-    editor_rows_scroll_ = editor_strip_scroll_ = editor_scripts_scroll_ = {};
+    editor_rows_scroll_ = editor_strip_scroll_ = editor_scripts_scroll_ = editor_used_scroll_ = {};
     scripts_.reset(); // read again when the list shows
     scripts_beyond_.clear();
     shortcut_drag_.reset();
@@ -381,20 +411,23 @@ void App::append_editor_controls(std::vector<Control>& result, const Rect& body)
     Control new_profile{{}, tr("shortcuts.editor.new-profile"), l.new_profile};
     new_profile.enabled = shortcut_editor_->can_add_profile();
     add("shortcuts-new-profile", "new-profile", new_profile);
-    // Used for: each tie's ✕.
-    double x = l.used.x, y = l.used.y + 34;
-    for (const auto index : shortcut_editor_->ties()) {
-        const double width =
-            std::min(l.used.width, chip_width(tie_chip(model.apps[index], tr("shortcuts.app.stream")),
-                                              19, localization_.fonts()) +
-                                       32);
-        if (x + width > l.used.x + l.used.width && x > l.used.x) {
-            x = l.used.x;
-            y += 48;
+    // Used for: its chips' area, where a drag scrolls them, then each tie's ✕, clipped to it (R401).
+    if (const auto chips =
+            used_chips(l, *shortcut_editor_, tr("shortcuts.app.stream"), localization_.fonts());
+        !chips.empty()) {
+        Control area{{}, {}, l.used_chips};
+        area.clip = l.used_chips;
+        add("shortcuts-used", "used", area);
+        for (const auto& chip : chips) {
+            const Rect r{chip.bounds.x, chip.bounds.y - editor_used_scroll_.shown, chip.bounds.width,
+                         chip.bounds.height};
+            if (r.y + r.height <= l.used_chips.y || r.y >= l.used_chips.y + l.used_chips.height) {
+                continue;
+            }
+            Control remove{{}, {}, {r.x + r.width - 38, r.y, 34, 40}};
+            remove.clip = l.used_chips;
+            add("shortcuts-tie-" + std::to_string(chip.tie), "tie", remove, static_cast<int>(chip.tie));
         }
-        add("shortcuts-tie-" + std::to_string(index), "tie", {{}, {}, {x + width - 38, y, 34, 40}},
-            static_cast<int>(index));
-        x += width + 8;
     }
     // The strip: the selected profile's buttons, then +.
     if (const auto* selected = shortcut_editor_->selected_profile()) {
@@ -511,6 +544,20 @@ std::vector<App::ScriptRow> App::script_rows() const {
 bool App::editing_scripts() const {
     const auto* button = shortcut_editor_ ? shortcut_editor_->selected_button() : nullptr;
     return button && button->action.kind == ShortcutAction::Kind::Run && !button->action.command_chosen;
+}
+double App::editor_used_limit() const {
+    if (!shortcut_editor_ || !shortcut_editor_->selected_profile()) {
+        return 0;
+    }
+    const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
+                                 shortcut_editor_->model().profiles.size());
+    const auto chips =
+        used_chips(l, *shortcut_editor_, tr("shortcuts.app.stream"), localization_.fonts());
+    if (chips.empty()) {
+        return 0;
+    }
+    const auto& last = chips.back().bounds;
+    return std::max(0.0, last.y + last.height - (l.used_chips.y + l.used_chips.height));
 }
 double App::editor_scripts_limit() const {
     if (!editing_scripts()) {
@@ -770,20 +817,32 @@ void App::append_shortcut_editor(PanelView& v) const {
     }
     if (shortcut_editor_->selected_profile()) {
         e.used = l.used;
+        e.used_chips = l.used_chips;
         e.used_caption = tr("shortcuts.editor.used");
-        double x = l.used.x, y = l.used.y + 34;
-        for (const auto index : shortcut_editor_->ties()) {
-            const auto name = tie_chip(model.apps[index], tr("shortcuts.app.stream"));
-            const double width =
-                std::min(l.used.width, chip_width(name, 19, localization_.fonts()) + 32);
-            if (x + width > l.used.x + l.used.width && x > l.used.x) {
-                x = l.used.x;
-                y += 48;
+        const auto chips =
+            used_chips(l, *shortcut_editor_, tr("shortcuts.app.stream"), localization_.fonts());
+        for (const auto& chip : chips) {
+            auto r = chip.bounds;
+            r.y -= editor_used_scroll_.shown;
+            if (r.y + r.height > l.used_chips.y && r.y < l.used_chips.y + l.used_chips.height) {
+                e.ties.push_back({chip.text, r});
             }
-            e.ties.push_back({name, {x, y, width, 40}});
-            x += width + 8;
         }
-        e.used_hint = tr(e.ties.empty() ? "shortcuts.editor.used-none" : "shortcuts.editor.used-hint");
+        if (const double limit = editor_used_limit(); limit > 0) {
+            // The profile list's thin thumb, beside the chips.
+            const double length =
+                l.used_chips.height * l.used_chips.height / (l.used_chips.height + limit);
+            e.used_thumb =
+                Rect{l.column.x + l.column.width + 4,
+                     l.used_chips.y + editor_used_scroll_.shown / limit * (l.used_chips.height - length),
+                     3, length};
+        }
+        // The hint only where the chips leave it room: under one row, or none.
+        if (chips.empty() || chips.back().bounds.y + chips.back().bounds.height <=
+                                 l.used.y + l.used.height - used_hint_height) {
+            e.used_hint =
+                tr(chips.empty() ? "shortcuts.editor.used-none" : "shortcuts.editor.used-hint");
+        }
         e.strip_well = l.strip_well;
         e.strip = l.strip;
         const auto count = shortcut_editor_->selected_profile()->buttons.size();
@@ -985,7 +1044,7 @@ void App::editor_action(const ControlAction& command) {
         }
         if (question == EditorQuestion::DeleteProfile && accept) {
             shortcut_editor_->delete_profile();
-            editor_strip_scroll_ = {};
+            editor_strip_scroll_ = editor_used_scroll_ = {};
         }
     } else if (value == "back") {
         if (shortcut_editor_->changed()) {
@@ -999,7 +1058,7 @@ void App::editor_action(const ControlAction& command) {
         return;
     } else if (value == "row") {
         shortcut_editor_->select_profile(index);
-        editor_strip_scroll_ = {};
+        editor_strip_scroll_ = editor_used_scroll_ = {};
         editor_chips_scroll_ = editor_steps_scroll_ = {};
     } else if (value == "rename") {
         open_popup(PopupKind::Name);
@@ -1008,12 +1067,12 @@ void App::editor_action(const ControlAction& command) {
             editor_question_ = EditorQuestion::DeleteProfile; // its buttons would go too
         } else {
             shortcut_editor_->delete_profile();
-            editor_strip_scroll_ = {};
+            editor_strip_scroll_ = editor_used_scroll_ = {};
         }
     } else if (value == "new-profile") {
         const auto number = static_cast<long long>(shortcut_editor_->model().profiles.size() + 1);
         shortcut_editor_->add_profile(tr("shortcuts.editor.profile-name", {{"number", number}}));
-        editor_strip_scroll_ = {};
+        editor_strip_scroll_ = editor_used_scroll_ = {};
         // The new row in view, then its name to type.
         const auto l = editor_layout(panel_case_bounds(geometry()), bar_geometry(0), shown_theme().depth,
                                      shortcut_editor_->model().profiles.size());
@@ -1107,14 +1166,18 @@ void App::editor_press(unsigned pointer, const std::string& id, double x, double
     if (shortcut_drag_ || editor_question_ != EditorQuestion::None || popup_) {
         return;
     }
-    if (id.starts_with("shortcuts-script-")) {
-        // A drag from any row scrolls the list; a press without one chooses.
+    const bool used = id == "shortcuts-used" || id.starts_with("shortcuts-tie-");
+    if (id.starts_with("shortcuts-script-") || used) {
+        // A drag from any row scrolls the list, and one from the Used for
+        // chips scrolls them (R401); a press without one chooses, or a ✕
+        // removes its tie.
         ShortcutDrag drag;
         drag.pointer = pointer;
         drag.x = drag.px = x;
         drag.y = drag.py = y;
-        drag.scripts = true;
-        drag.scroll = editor_scripts_scroll_.shown;
+        drag.scripts = !used;
+        drag.used = used;
+        drag.scroll = used ? editor_used_scroll_.shown : editor_scripts_scroll_.shown;
         shortcut_drag_ = drag;
         return;
     }
@@ -1138,22 +1201,23 @@ bool App::editor_drag_move(unsigned pointer, double x, double y) {
     d.py = y;
     if (!d.lifted) {
         // A row or step lifts going up or down, a button going sideways.
-        if (std::abs(d.row || d.step || d.scripts ? y - d.y : x - d.x) <= dead_zone) {
+        if (std::abs(d.row || d.step || d.scripts || d.used ? y - d.y : x - d.x) <= dead_zone) {
             return false;
         }
         d.lifted = true;
         pressed_controls_.erase(pointer); // its release clicks nothing
         if (d.row) {
             shortcut_editor_->select_profile(d.index);
-            editor_strip_scroll_ = {};
+            editor_strip_scroll_ = editor_used_scroll_ = {};
         } else if (d.button()) {
             shortcut_editor_->select_button(d.index);
         }
     }
-    if (d.scripts) {
+    if (d.scripts || d.used) {
         // The list follows the laser, as the bar does a drag.
-        auto& scroll = editor_scripts_scroll_;
-        scroll.shown = scroll.target = std::clamp(d.scroll - (y - d.y), 0.0, editor_scripts_limit());
+        auto& scroll = d.used ? editor_used_scroll_ : editor_scripts_scroll_;
+        const double limit = d.used ? editor_used_limit() : editor_scripts_limit();
+        scroll.shown = scroll.target = std::clamp(d.scroll - (y - d.y), 0.0, limit);
         scroll.remainder = 0;
         dirty = true;
         return true;
@@ -1261,6 +1325,8 @@ bool App::editor_scroll(unsigned pointer, double dx, double dy) {
         moved = step_scroll(editor_steps_scroll_, delta, step_pitch, editor_steps_limit());
     } else if (editing_scripts() && l.steps_well.contains(x, y)) {
         moved = step_scroll(editor_scripts_scroll_, delta, step_pitch, editor_scripts_limit());
+    } else if (l.used_chips.contains(x, y) && shortcut_editor_->selected_profile()) {
+        moved = step_scroll(editor_used_scroll_, delta, used_row, editor_used_limit());
     } else if (l.profiles_list.contains(x, y)) {
         // The Move/Copy popover hangs off a row: the column scrolling under
         // it closes it, and the button goes back, as a press elsewhere does (R341).
@@ -1309,6 +1375,9 @@ std::optional<ScrollRoom> App::editor_scroll_room(double x, double y) const {
     }
     if (editing_scripts() && l.steps_well.contains(x, y)) {
         return room(editor_scripts_scroll_, editor_scripts_limit());
+    }
+    if (l.used_chips.contains(x, y) && shortcut_editor_->selected_profile()) {
+        return room(editor_used_scroll_, editor_used_limit());
     }
     if (l.profiles_list.contains(x, y)) {
         const double limit =
@@ -1359,6 +1428,7 @@ void App::tick_shortcut_editor(double now) {
           std::pair{&editor_chips_scroll_, editor_chips_limit()},
           std::pair{&editor_steps_scroll_, editor_steps_limit()},
           std::pair{&editor_scripts_scroll_, editor_scripts_limit()},
+          std::pair{&editor_used_scroll_, editor_used_limit()},
           std::pair{&popup_chips_scroll_, popup_chips_limit()}}) {
         scroll->target = std::min(scroll->target, limit);
         dirty |= ease_scroll(scroll->shown, scroll->target, elapsed);
