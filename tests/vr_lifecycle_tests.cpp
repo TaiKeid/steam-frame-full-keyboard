@@ -1643,6 +1643,53 @@ void overlay_watchdog_slows_in_standby() {
             "an unwatched panel keeps the idle watchdog period in either headset state");
 }
 
+// R405: every overlay made is registered, and a stall hides them all
+// through the registry alone; an owner's shown state reads hidden after it,
+// so its next decision shows it again.
+void overlay_registry_hides_every_overlay() {
+    OverlayRegistry registry;
+    require(registry.add(11) && registry.add(12) && registry.add(13) && registry.size() == 3,
+            "made overlays are registered");
+    require(!registry.add(0) && registry.size() == 3, "handle 0 is no overlay");
+    registry.remove(12);
+    require(registry.size() == 2, "a destroyed overlay is unregistered");
+    std::vector<std::uint64_t> hidden;
+    registry.hide_all([&](std::uint64_t handle) { hidden.push_back(handle); });
+    std::sort(hidden.begin(), hidden.end());
+    require(hidden == std::vector<std::uint64_t>{11, 13} && registry.hides() == 1,
+            "a stall hides every registered overlay, and only those");
+    require(registry.add(12) && registry.size() == 3, "a place freed is taken again");
+    OverlayRegistry full;
+    for (std::uint64_t handle = 1; handle <= OverlayRegistry::capacity; ++handle) {
+        require(full.add(handle), "up to its capacity");
+    }
+    require(!full.add(99) && full.size() == OverlayRegistry::capacity, "past it, refused");
+    // Re-sync: shown, hidden behind the owner's back, then shown again.
+    OverlayRegistry made;
+    OverlayShown laser{made}, dot{made};
+    laser = true;
+    require(laser && !dot, "shown as its owner set it");
+    made.hide_all([](std::uint64_t) {});
+    require(!laser && !dot, "after a stall's hide its owner sees it hidden");
+    laser = true;
+    require(laser, "the owner's next show counts again");
+    laser = false;
+    require(!laser, "and a hide too");
+}
+// R405: the stall check runs whenever the window laser holds SteamVR's laser
+// mode, also with replacement off or the panel hidden under a shell.
+void stall_check_arms_for_the_window_laser() {
+    require(stall_watched(true, true, false) && !stall_watched(true, false, false) &&
+                !stall_watched(false, true, false) && !stall_watched(false, false, false),
+            "without the window laser: a keyboard shown under replacement or a shell");
+    require(stall_watched(false, true, true) && stall_watched(true, false, true) &&
+                stall_watched(false, false, true),
+            "the window laser on: always, replacement off or the panel hidden");
+    require(watchdog_enabled(true, false) && watchdog_enabled(false, true) &&
+                !watchdog_enabled(false, false),
+            "the watchdog runs for replacement, a shell or the window laser");
+}
+
 void watchdog_fallback_is_request_scoped() {
     Headset h;
     h.request(60);
@@ -1667,6 +1714,8 @@ void watchdog_fallback_is_request_scoped() {
 int main() {
     try {
         overlay_watchdog_slows_in_standby();
+        overlay_registry_hides_every_overlay();
+        stall_check_arms_for_the_window_laser();
         the_stream_sink_holds_the_laser();
         targets_keep_their_own_keys();
         late_work_cannot_cross_targets();

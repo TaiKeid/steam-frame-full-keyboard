@@ -109,6 +109,20 @@ auto vr_models() {
 auto vr_compositor() {
     return RuntimeInterface<vr::IVRCompositor>(vr::VRCompositor);
 }
+// Every overlay made goes through these two, so the stall watchdog can hide
+// it (R405); constant-initialized, so neither thread waits on its setup.
+constinit OverlayRegistry overlays_made;
+vr::EVROverlayError create_overlay(const char* key, const char* name, vr::VROverlayHandle_t* handle) {
+    const auto error = vr_overlay()->CreateOverlay(key, name, handle);
+    if (error == vr::VROverlayError_None && !overlays_made.add(*handle)) {
+        std::cerr << "Too many overlays for the stall watchdog to hide.\n";
+    }
+    return error;
+}
+void destroy_overlay(vr::VROverlayHandle_t handle) {
+    overlays_made.remove(handle);
+    vr_overlay()->DestroyOverlay(handle);
+}
 // OpenVR's intersection query for a laser in the standing universe.
 vr::VROverlayIntersectionParams_t intersection_params(const Ray& ray) {
     vr::VROverlayIntersectionParams_t params{};
@@ -1172,7 +1186,7 @@ class SceneCursors {
     ~SceneCursors() {
         for (auto& dot : dots_) {
             if (dot.handle) {
-                vr_overlay()->DestroyOverlay(dot.handle);
+                destroy_overlay(dot.handle);
             }
         }
     }
@@ -1220,7 +1234,8 @@ class SceneCursors {
   private:
     struct Dot {
         vr::VROverlayHandle_t handle{};
-        bool visible{}, failed{};
+        OverlayShown visible{overlays_made}; // false again after a stall hid it
+        bool failed{};
         Transform placed{};
     };
     bool create(std::size_t hand) {
@@ -1243,14 +1258,14 @@ class SceneCursors {
         }
         auto overlay = vr_overlay();
         const std::string key = "org.framekeyboard.cursor." + std::to_string(hand);
-        dot.failed = overlay->CreateOverlay(key.c_str(), "Full Keyboard pointer", &dot.handle) !=
+        dot.failed = create_overlay(key.c_str(), "Full Keyboard pointer", &dot.handle) !=
                          vr::VROverlayError_None ||
                      overlay->SetOverlayRaw(dot.handle, pixels.data(), size, size, 4) !=
                          vr::VROverlayError_None ||
                      overlay->SetOverlayWidthInMeters(dot.handle, .012f) != vr::VROverlayError_None ||
                      overlay->SetOverlaySortOrder(dot.handle, 1) != vr::VROverlayError_None;
         if (dot.failed && dot.handle) {
-            overlay->DestroyOverlay(dot.handle);
+            destroy_overlay(dot.handle);
             dot.handle = 0;
         }
         return !dot.failed;
@@ -1302,8 +1317,8 @@ class WindowLaser {
         vr::HmdMatrix34_t pose{};
         pose.m[0][0] = pose.m[1][1] = pose.m[2][2] = 1;
         pose.m[1][3] = -100;
-        failed_ = overlay->CreateOverlay("org.framekeyboard.window-laser", "Full Keyboard window laser",
-                                         &handle_) != vr::VROverlayError_None ||
+        failed_ = create_overlay("org.framekeyboard.window-laser", "Full Keyboard window laser",
+                                 &handle_) != vr::VROverlayError_None ||
                   overlay->SetOverlayRaw(handle_, const_cast<std::uint8_t*>(pixel.data()), 1, 1, 4) !=
                       vr::VROverlayError_None ||
                   overlay->SetOverlayWidthInMeters(handle_, .01f) != vr::VROverlayError_None ||
@@ -1316,14 +1331,16 @@ class WindowLaser {
         if (failed_) {
             std::cerr << "Window laser unavailable.\n";
             if (handle_) {
-                overlay->DestroyOverlay(handle_);
+                destroy_overlay(handle_);
                 handle_ = 0;
             }
         }
         return !failed_;
     }
     vr::VROverlayHandle_t handle_{};
-    bool on_{}, failed_{};
+    // Off again after a stall hid it, so a decision to keep it on shows it (R405).
+    OverlayShown on_{overlays_made};
+    bool failed_{};
     double until_{};
 };
 // Each pointer's laser in the world: a controller's from its tip component
@@ -1502,7 +1519,8 @@ class SideOverlays {
   public:
     struct Slot {
         vr::VROverlayHandle_t handle{};
-        bool visible{}, drain{};
+        OverlayShown visible{overlays_made}; // false again after a stall hid it (R405)
+        bool drain{};
         double shown_alpha{-1};
         Transform placed{};
         ResizerFade fade;
@@ -1518,10 +1536,6 @@ class SideOverlays {
     }
     SideOverlays(const SideOverlays&) = delete;
     SideOverlays& operator=(const SideOverlays&) = delete;
-    std::array<vr::VROverlayHandle_t, 2> handles() const {
-        return {published_[0].load(std::memory_order_acquire),
-                published_[1].load(std::memory_order_acquire)};
-    }
     Slot& operator[](std::size_t side) { return slots_[side]; }
     const Slot& operator[](std::size_t side) const { return slots_[side]; }
     // The side's overlay, sorted in front of the keyboard, shown in the
@@ -1531,8 +1545,7 @@ class SideOverlays {
         auto& slot = slots_[side];
         auto overlay = vr_overlay();
         const std::string key = key_ + std::to_string(side);
-        bool ok =
-            overlay->CreateOverlay(key.c_str(), name_.c_str(), &slot.handle) == vr::VROverlayError_None;
+        bool ok = create_overlay(key.c_str(), name_.c_str(), &slot.handle) == vr::VROverlayError_None;
         if (ok) {
             slot.native_input.reset();
             ok = overlay->SetOverlaySortOrder(slot.handle, 1) == vr::VROverlayError_None &&
@@ -1546,7 +1559,6 @@ class SideOverlays {
             fail(side);
             return false;
         }
-        published_[side].store(slot.handle, std::memory_order_release);
         return true;
     }
     // Gives the side's overlay up, as when its own setup failed.
@@ -1629,9 +1641,8 @@ class SideOverlays {
   private:
     void destroy(std::size_t side) {
         auto& slot = slots_[side];
-        published_[side].store(0, std::memory_order_release);
         if (slot.handle) {
-            vr_overlay()->DestroyOverlay(slot.handle);
+            destroy_overlay(slot.handle);
         }
         slot.handle = 0;
         slot.visible = false;
@@ -1650,7 +1661,6 @@ class SideOverlays {
     std::string key_, name_, label_;
     bool preferred_native_input_{};
     std::array<Slot, 2> slots_{};
-    std::array<std::atomic<vr::VROverlayHandle_t>, 2> published_{};
 };
 // The two corner resizers. Both are created up front.
 class CornerResizers {
@@ -1660,7 +1670,6 @@ class CornerResizers {
             overlays_.create(side);
         }
     }
-    std::array<vr::VROverlayHandle_t, 2> handles() const { return overlays_.handles(); }
     bool poll(std::size_t side, vr::VREvent_t& event) { return overlays_.poll(side, event); }
     bool set_native_input(bool enabled, bool force = false) {
         return overlays_.set_native_input(enabled, force);
@@ -1766,7 +1775,6 @@ class CornerResizers {
 // they cost no overlay or image.
 class CurveBars {
   public:
-    std::array<vr::VROverlayHandle_t, 2> handles() const { return overlays_.handles(); }
     // Creates both bars the first time it is called, with one image for
     // both. Not tried again after SteamVR refused one.
     void ensure() {
@@ -1854,7 +1862,6 @@ class CurveBars {
 // is decided in curve_bars.cpp (scan_curve_bars, curve_bar_look).
 class CurveBarController {
   public:
-    std::array<vr::VROverlayHandle_t, 2> handles() const { return bars_.handles(); }
     bool poll(std::size_t side, vr::VREvent_t& event) { return bars_.poll(side, event); }
     bool set_native_input(bool enabled, bool force = false) {
         return bars_.set_native_input(enabled, force);
@@ -1945,7 +1952,7 @@ class VrPanel {
         if (handle_) {
             vr_overlay()->HideOverlay(handle_);
             vr_overlay()->ClearOverlayTexture(handle_);
-            vr_overlay()->DestroyOverlay(handle_);
+            destroy_overlay(handle_);
             std::this_thread::sleep_for(std::chrono::milliseconds(400));
         }
         // The compositor can retain submitted images. End the VR connection before
@@ -1969,8 +1976,7 @@ class VrPanel {
             throw std::runtime_error("required OpenVR interfaces are unavailable");
         }
         auto overlay = vr_overlay();
-        check(overlay->CreateOverlay("org.framekeyboard.panel", "Full Keyboard", &handle_),
-              "CreateOverlay");
+        check(create_overlay("org.framekeyboard.panel", "Full Keyboard", &handle_), "CreateOverlay");
         check(overlay->SetOverlayWidthInMeters(handle_, static_cast<float>(PanelPlacement{}.width())),
               "SetOverlayWidthInMeters");
         if (!set_native_input(false)) {
@@ -2218,14 +2224,12 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
                                                 replacement_watched.load(), replacement_worn.load())))) {
             replacement.watchdog_tick(monotonic_seconds(), app.slow_work_deadline());
             if (replacement_watched.load() && monotonic_seconds() - replacement_progress.load() > .7) {
-                vr_overlay()->HideOverlay(panel.handle());
-                for (const auto& handles : {resizers.handles(), bars.handles()}) {
-                    for (const auto handle : handles) {
-                        if (handle) {
-                            vr_overlay()->HideOverlay(handle);
-                        }
-                    }
-                }
+                // Every overlay this process made: the panel, its resizers and
+                // curve bars, the pointer dots and the window laser, whose
+                // laser mode would otherwise keep a streamed game from its
+                // controller until the process ends (R405).
+                overlays_made.hide_all(
+                    [](vr::VROverlayHandle_t handle) { vr_overlay()->HideOverlay(handle); });
                 replacement_stalled.store(true);
             }
         }
@@ -3593,7 +3597,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         const bool replace = app.replace_native_keyboard();
         // Wake the watchdog before this frame can start the helper that reads
         // its health. A hosted panel is watched too.
-        watchdog_schedule.set_enabled(replace || hosted);
+        watchdog_schedule.set_enabled(watchdog_enabled(replace || hosted, window_laser.on()));
         const auto instance_request = instance.poll();
         if (instance_request == VrInstance::Request::Quit) {
             // Another launch takes over, as Settings → Quit would end this one.
@@ -5235,7 +5239,9 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
         }
         replacement.frame_completed();
         replacement_worn.store(worn);
-        replacement_watched.store((replace || hosted) && lifecycle.visible());
+        replacement_watched.store(
+            stall_watched(replace || hosted, lifecycle.visible(), window_laser.on()));
+        watchdog_schedule.set_enabled(watchdog_enabled(replace || hosted, window_laser.on()));
         if (shell) {
             shell->frame_completed(completed); // pings are answered only here
         }
