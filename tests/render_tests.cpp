@@ -2065,11 +2065,13 @@ void shortcut_popup(bool narrow) {
     compare.frame(app.view(), phase("canceled").c_str());
 }
 // R404: the shortcut editor repaints only what a hover, a scroll or a carried
-// item changed, and each such paint matches a full one pixel for pixel.
-void shortcut_editor_repaints() {
+// item changed, and each such paint matches a full one pixel for pixel, on
+// each theme main gives it (R415).
+void shortcut_editor_repaints(const char* theme) {
     ConfigFolder folder;
     Settings settings;
     settings.shortcuts = true;
+    settings.active.theme = theme;
     save_settings(folder.path, settings);
     ShortcutModel model;
     ShortcutProfile games{"g", "Games", {}};
@@ -2251,10 +2253,11 @@ void shortcut_editor_repaints() {
 }
 // R404: the Profiles menu repaints the rows a hover changed and its list
 // when it scrolls, not the whole panel, matching a full paint.
-void shortcut_menu_repaints() {
+void shortcut_menu_repaints(const char* theme) {
     ConfigFolder folder;
     Settings settings;
     settings.shortcuts = true;
+    settings.active.theme = theme;
     save_settings(folder.path, settings);
     ShortcutModel model;
     for (int i = 0; i < 10; ++i) {
@@ -2279,7 +2282,8 @@ void shortcut_menu_repaints() {
     compare.frame(app.view(), "the menu opens");
     const auto partial = [&](const std::string& phase) {
         const bool painted = compare.frame(app.view(), phase.c_str());
-        if (painted && compare.incremental.damage().empty()) {
+        // A theme with key edges repaints the menu whole (R418).
+        if (painted && compare.incremental.damage().empty() && !app.view().theme->edge) {
             throw std::runtime_error(phase + ": repainted whole");
         }
     };
@@ -2516,8 +2520,15 @@ int main() {
         app_controls_drawn();
         shortcut_popup(false);
         shortcut_popup(true);
-        shortcut_editor_repaints();
-        shortcut_menu_repaints();
+        // R415: the default, a light, a neon and the High Contrast theme.
+        for (const char* theme : {"graphite", "porcelain", "neon", "contrast"}) {
+            try {
+                shortcut_editor_repaints(theme);
+                shortcut_menu_repaints(theme);
+            } catch (const std::exception& error) {
+                throw std::runtime_error(std::string(theme) + ": " + error.what());
+            }
+        }
         long_combinations_drawn();
         macro_view(false);
         macro_view(true);
