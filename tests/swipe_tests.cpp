@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <linux/input-event-codes.h>
 #include <sstream>
@@ -235,6 +236,27 @@ void spanish_article() {
     require(pronoun && pronoun->spelling == "él", "the accented pronoun stays");
     const auto name = list.find("cruz");
     require(name && name->spelling == "Cruz", "a name above its lowercase stays capitalised");
+}
+
+void english_case() {
+    // Sentence starts put "He" a few steps above "he" in the written lists, and
+    // the blend used to give the subtitle count to the capital: each key keeps
+    // only its commonest spelling, so "he", "no" and "so" came out capitalized
+    // in mid-sentence. The lists fold such capitals before the blend.
+    const auto check = [](const char* language, std::initializer_list<const char*> lowercase) {
+        std::ifstream input(swipe_lexicon_path({}, {}, language));
+        require(input.good(), std::string("the bundled list is beside the tests: ") + language);
+        const auto list = WordList::parse(input);
+        for (const auto* word : lowercase) {
+            const auto found = list.find(word);
+            require(found && found->spelling == word,
+                    std::string(language) + " offers " + word + " in lowercase");
+        }
+        const auto name = list.find("john");
+        require(name && name->spelling == "John", std::string(language) + " keeps John capitalized");
+    };
+    check("en-us", {"he", "no", "so"});
+    check("en-gb", {"how", "our"});
 }
 
 void features() {
@@ -2160,6 +2182,8 @@ int model() {
     const std::vector<Case> cases{{"en-us-full", "en-us", U"computer", "computer"},
                                   {"en-us-full", "en-us", U"keyboard", "keyboard"},
                                   {"en-us-full", "en-us", U"hello", "hello"},
+                                  {"en-us-full", "en-us", U"no", "no"},
+                                  {"en-gb-full", "en-gb", U"how", "how"},
                                   {"international-full", "de-de", U"strasse", "Straße"},
                                   {"international-full", "de-de", U"über", "über"},
                                   {"international-full", "es-es", U"tambien", "también"},
@@ -2226,6 +2250,10 @@ int model() {
             return candidate.word == item.word;
         });
         require(found != words.end() && found - words.begin() < 3, "real model offers " + item.word);
+        if (item.word == "no" || item.word == "how") {
+            // Mid-sentence common words: the capital no longer outranks them.
+            require(found == words.begin(), "real model offers " + item.word + " first, in lowercase");
+        }
         first += found == words.begin();
     }
     // Ideal synthetic paths are not human swipes; held-out human accuracy is in
@@ -2540,6 +2568,7 @@ int main(int argc, char** argv) {
         dvorak_geometry();
         lexicon_paths();
         spanish_article();
+        english_case();
         features();
         disabled_by_default();
         languages_popup_marks();

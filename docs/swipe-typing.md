@@ -86,6 +86,7 @@ Status (2026-11-01): M0 to M3, M6 and the Chinese half of M5 are done and shippe
 - Chinese: a swipe decodes toneless Pinyin and types it into the existing composer, which offers characters. Its accuracy is not measured beyond fixed checks; it needs fluent review.
 - Not measured on real swipes: English UK, Italian, Brazilian Portuguese, Ukrainian, Russian (FUTO reports 83–86% for Russian on its own setup).
 - Spanish "El" (213) outranked "el" (212) in the word list, and the candidate row keeps one case variant, so a swipe mid-sentence typed "El" and never offered "el". The list now folds its sentence-initial capital into "el" with the one-step rule (`--fold-initial-capitals-steps 1`); "él" stays an alternative and names such as "Cruz" stay capitalised.
+- English "He", "No" and "So" (American) and "How" and "Our" (British) outranked their lowercase words, as the subtitle counts raised the sentence-initial capital the written list ranked a little higher, so a swipe mid-sentence typed "He". Both English lists now fold a capital at most 26 steps above its lowercase word before the blend (`--fold-written-capitals 26`); names such as "John" stay capitalized.
 
 ## Added languages (2026-10-27)
 

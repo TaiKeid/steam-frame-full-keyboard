@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""The swipe lexicon builder's sentence-initial fold and the shipped Spanish
-list: what folds at each threshold, that the blend uses the same threshold, and
-that the article, the accented pronoun and names come out as intended."""
+"""The swipe lexicon builder's sentence-initial folds and the shipped Spanish
+and English lists: what folds at each threshold, that the blend uses the same
+threshold, that English folds before the blend so the subtitle count raises
+the lowercase word, and that articles, pronouns and names come out as
+intended."""
 import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -54,6 +57,37 @@ with tempfile.TemporaryDirectory() as folder:
     expect('Hoi' in far and 'hoi' not in far,
            'the blend keeps a capital outside the threshold it is given')
 
+# English folds on the written list, before the blend: the subtitle lists are
+# lowercase, and the blend raises whichever case variant is listed higher.
+expect(tool.fold_written_capitals({'He': 193, 'he': 187, 'John': 147, 'john': 58}, 26)
+       == {'he': 193, 'John': 147, 'john': 58},
+       'a capital a few steps above its lowercase folds; a name far above stays')
+expect(tool.fold_written_capitals({'House': 140, 'house': 152}, 26) == {'House': 140, 'house': 152},
+       'a capital below its lowercase stays listed: the raise already goes to the lowercase')
+expect(tool.fold_written_capitals({'Our': 167, 'our': 141}, 25) == {'Our': 167, 'our': 141},
+       'a capital one step beyond the threshold stays')
+
+
+def build(folder, *options):
+    """Runs the builder on a small written list and subtitle list."""
+    source, subtitles, output = (Path(folder) / name for name in ('written.tsv', 'subtitles.txt', 'out.tsv'))
+    source.write_text('He\t193\nhe\t187\nJohn\t147\njohn\t58\nthe\t222\n', encoding='utf-8')
+    subtitles.write_text('the 1000000\nhe 400000\njohn 2000\n', encoding='utf-8')
+    subprocess.run([sys.executable, '-I', sys.argv[1], str(source), str(output), '--format', 'tsv',
+                    '--blend', str(subtitles), *options], check=True, capture_output=True)
+    return tool.from_tsv(output)
+
+
+with tempfile.TemporaryDirectory() as folder:
+    plain = build(folder)
+    expect(plain.get('He', 0) > 193 and plain['he'] == 187 and 'John' in plain,
+           'by default the subtitle count for he raises He, as the other lists are built')
+    folded = build(folder, '--fold-written-capitals', '26')
+    expect('He' not in folded and folded['he'] == plain['He'],
+           'with the fold, he takes the subtitle raise He used to get')
+    expect(folded['John'] == plain['John'] and folded['john'] == 58,
+           'a name keeps the raise and its lowercase twin stays as it was')
+
 # The shipped Spanish list carries the fold, and keeps the accented pronoun and
 # names. The runtime keeps one spelling per key, the commonest, so "Cruz" wins
 # over "cruz" only while it is still listed.
@@ -69,5 +103,38 @@ expect(words.get('el', 0) > words.get('él', 0),
 expect('él' in words, 'the accented pronoun stays in the list')
 expect(max(('Cruz', 'cruz'), key=lambda word: words.get(word, -1)) == 'Cruz',
        'the name Cruz stays the spelling its key offers')
+
+lexicons = Path(sys.argv[1]).resolve().parent.parent / 'swipe/lexicons'
+
+
+def offered(name):
+    """Each key's spelling as the runtime offers it: the commonest."""
+    best = {}
+    for word, frequency in tool.from_tsv(lexicons / name).items():
+        key = word.casefold()
+        if key not in best or frequency > best[key][1]:
+            best[key] = (word, frequency)
+    return {key: word for key, (word, _) in best.items()}
+
+
+# The shipped English lists offer common words in lowercase mid-sentence,
+# and names capitalized.
+for name, lowercase, names in (
+        ('en-us.tsv', "he no so he's here's new may", 'John York American English August Trump'),
+        ('en-gb.tsv', 'how our new may', 'John York American English August')):
+    spellings = offered(name)
+    for word in lowercase.split():
+        expect(spellings.get(word) == word, f'{name} offers {word} in lowercase, not {spellings.get(word)}')
+    for word in names.split():
+        expect(spellings.get(word.casefold()) == word, f'{name} keeps {word} capitalized')
+
+# tools/build_offensive_words.py lists each word as its word list spells it. A
+# word list rebuilt with a fold needs its offensive list rebuilt too: the fold
+# changes spellings and lets new words in at the end of the list.
+for offensive in sorted(lexicons.glob('*-offensive.tsv')):
+    words = tool.from_tsv(lexicons / offensive.name.replace('-offensive', ''))
+    stale = [line for line in offensive.read_text(encoding='utf-8').splitlines()
+             if line and not line.startswith('#') and line not in words]
+    expect(not stale, f'{offensive.name} spells every word as its word list does: {stale[:5]}')
 
 print('swipe lexicon tool tests passed')

@@ -21,6 +21,10 @@ are spoken.
 word; --fold-initial-capitals-steps sets how many frequency steps above the
 lowercase still count as sentence-initial (default 20).
 
+--fold-written-capitals N folds, before the blend, a capitalized word at most N
+steps above its lowercase word in the written list, so the subtitle count
+raises the lowercase word (English "He" over "he").
+
 --turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
 --script keeps only words in one script, as Bulgarian, Macedonian, Greek,
 Arabic and Hebrew sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
@@ -139,6 +143,26 @@ def fold_initial_capitals(entries, steps=DEFAULT_CAPITAL_FOLD_STEPS):
         lower = lower_initial(word)
         if lower != word and lower in entries and frequency <= entries[lower] + steps:
             folded[lower] = max(folded[lower], frequency)
+            del folded[word]
+    return folded
+
+
+def fold_written_capitals(entries, steps):
+    """Fold "He" into "he" when "He" is listed at most `steps` above it.
+
+    For a list about to be blended. Subtitle lists are lowercase, so the blend
+    raises whichever case variant is listed higher; sentence starts put
+    English "He" (193) a little above "he" (187), and the subtitle count for
+    "he" would then lift "He" further. A capital far above its lowercase word
+    is a name (John 147, john 58) and keeps the raise. A capital below its
+    lowercase word is left listed: the raise already goes to the lowercase
+    word, and the runtime offers only the commonest spelling.
+    """
+    folded = dict(entries)
+    for word, frequency in entries.items():
+        lower = lower_initial(word)
+        if lower != word and lower in entries and entries[lower] <= frequency <= entries[lower] + steps:
+            folded[lower] = frequency
             del folded[word]
     return folded
 
@@ -299,6 +323,12 @@ def main():
         metavar="N",
         help="frequency steps above the lowercase that still count as sentence-initial (default 20)",
     )
+    parser.add_argument(
+        "--fold-written-capitals",
+        type=int,
+        metavar="N",
+        help="before the blend, fold a capitalized word at most N steps above its lowercase word",
+    )
     parser.add_argument("--turkic-case", action="store_true", help="lowercase I to ı and İ to i")
     parser.add_argument("--respell", action="append", default=[], metavar="FROM=TO", help="replace a letter")
     parser.add_argument("--script", choices=sorted(SCRIPTS), help="keep only words in this script")
@@ -310,6 +340,8 @@ def main():
     args = parser.parse_args()
     if args.fold_initial_capitals_steps < 0:
         parser.error("--fold-initial-capitals-steps must be zero or more")
+    if args.fold_written_capitals is not None and (args.fold_written_capitals < 0 or not args.blend):
+        parser.error("--fold-written-capitals needs --blend and zero or more steps")
     global TURKIC_CASE
     TURKIC_CASE = args.turkic_case
 
@@ -323,6 +355,8 @@ def main():
         entries = from_jieba(args.source, args.minimum_count)
     script = "cyrillic" if args.serbian_cyrillic else args.script
     if args.blend:
+        if args.fold_written_capitals is not None:
+            entries = fold_written_capitals(entries, args.fold_written_capitals)
         transliterate = serbian_cyrillic if args.serbian_cyrillic else None
         entries = blend_subtitles(
             entries, args.blend, args.fold_initial_capitals, transliterate,

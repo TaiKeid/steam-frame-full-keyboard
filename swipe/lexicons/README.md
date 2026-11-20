@@ -113,6 +113,24 @@ shipped file was folded with this rule rather than rebuilt: a full rebuild from
 its sources also shifts every blended frequency by one step, and that is left
 for a separate change.
 
+`en-us.tsv` and `en-gb.tsv` fold on the written list instead, before the blend,
+as the subtitle list is lowercase and the blend raises whichever case variant
+is listed higher. A capitalized word at most 26 steps above its lowercase word
+is folded into it, so the subtitle count raises the lowercase word: sentence
+starts put "He" (193) six steps above "he" (187), and British "Our" (167) 26
+steps above "our" (141). Names sit further above ("John" 147, "john" 58) and
+keep the raise. Each list is built in two steps, and its offensive list is
+built again from the result:
+
+```sh
+python3 -I tools/build_swipe_lexicon.py main_en_US__experimental.combined en-us.written.tsv
+python3 -I tools/build_swipe_lexicon.py en-us.written.tsv en-us.tsv --format tsv \
+    --blend en_50k.txt --fold-written-capitals 26 --header …
+```
+
+Without `--fold-written-capitals`, the same two steps rebuild the earlier
+English lists byte for byte.
+
 `pt-br.tsv` is built directly from the Leipzig Corpora Collection corpus
 `por-br_newscrawl_2011_1M`
 (https://downloads.wortschatz-leipzig.de/corpora/por-br_newscrawl_2011_1M.tar.gz),
