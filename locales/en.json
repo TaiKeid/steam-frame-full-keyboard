@@ -537,6 +537,8 @@
         "status.shortcuts-run-failed-unlabeled":
             "A Run button could not start. Check its script or command in the shortcut editor.",
         "status.shortcuts-steam-fields": "Shortcuts may not work in Steam fields.",
+        "status.shortcuts-too-large":
+            "Shortcuts not saved: they would take more than 512 KB. Remove some buttons or steps.",
         "status.startup-not-configured": "SteamOS startup not configured: {error}",
         "status.streaming-restart": "Streaming support starts after SteamOS restarts.",
         "status.swipe-alternatives-removed":

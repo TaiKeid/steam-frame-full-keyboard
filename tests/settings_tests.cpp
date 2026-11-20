@@ -6751,6 +6751,86 @@ void unsynced_save() {
     require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
+// R399: every item within its limits can still make a file larger than the
+// 512 KB the next start reads. ✓ refuses it with a status line, the editor
+// keeping its draft, and the file on disk stays as it was.
+ShortcutButton big_macro(const std::string& label) {
+    ShortcutButton button;
+    button.label = label;
+    button.action.kind = ShortcutAction::Kind::Macro;
+    MacroStep step;
+    step.keys.assign(shortcut_limits::step_chords, ShortcutChord{{"ShiftLeft"}, "KeyA"});
+    button.action.steps.assign(shortcut_limits::steps, step);
+    return button;
+}
+void shortcut_save_too_large() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    for (const auto* id : {"one", "two", "three", "four"}) {
+        model.profiles.push_back({id, id, {}});
+    }
+    model.profiles[0].buttons = {big_macro("M")};
+    model.profiles[1].buttons = {big_macro("M")};
+    model.free_profile = "one";
+    auto four = model;
+    four.profiles[2].buttons = four.profiles[3].buttons = {big_macro("M")};
+    require(serialize_shortcuts(model).size() <= shortcut_limits::file_bytes &&
+                serialize_shortcuts(four).size() > shortcut_limits::file_bytes &&
+                !validate_shortcuts(four),
+            "two big macros fit; four pass every item limit but not the file's");
+    write_shortcuts(directory.path, model);
+    const auto path = directory.path / "shortcuts.json";
+    const auto file = [&] {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    const auto before = file();
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Render;
+    CaptureSink sink;
+    App app(options, sink);
+    open_editor(app);
+    double now = 1300;
+    const auto copy_to = [&](int row) {
+        const auto start = middle(control(app.view(), "shortcuts-button-0").bounds);
+        const auto end = middle(control(app.view(), "shortcuts-row-" + std::to_string(row)).bounds);
+        app.move(0, start.x, start.y);
+        app.down(0, start.x, start.y, now += .1);
+        for (int step = 1; step <= 8; ++step) {
+            app.move(0, start.x + (end.x - start.x) * step / 8, start.y + (end.y - start.y) * step / 8);
+        }
+        app.up(0, end.x, end.y);
+        tap_control(app, "shortcuts-carry-copy");
+    };
+    copy_to(2);
+    copy_to(3);
+    tap_control(app, "shortcuts-save");
+    app.flush_settings();
+    const auto view = app.view();
+    require(view.status == "Shortcuts not saved: they would take more than 512 KB. Remove some "
+                           "buttons or steps." &&
+                has(view, "shortcuts-save"),
+            "✓ refuses the save with its cause; the editor stays open");
+    const auto labels_of = [&](int row) {
+        tap_control(app, "shortcuts-row-" + std::to_string(row));
+        return strip_labels(app.view());
+    };
+    require(labels_of(2) == std::vector<std::string>{"M"} &&
+                labels_of(3) == std::vector<std::string>{"M"},
+            "the draft keeps the copies");
+    require(file() == before, "the file on disk is unchanged");
+    // A model past the size never reaches the file from the store either.
+    ShortcutStore store(path);
+    require(store.load().state == ShortcutsLoad::State::Valid, "the file still loads");
+    const auto refused = store.save(four);
+    require(refused && *refused == "the file would be larger than 512 KB" && file() == before &&
+                !fs::exists(path.string() + ".old") && !fs::exists(path.string() + ".bad"),
+            "the store refuses it, moving nothing aside");
+}
 // Carrying a button to another profile (design, Settings and the editor):
 // the row under it lights up; dropped there, Move or Copy put it at that
 // profile's end, a press elsewhere puts it back; a full profile and its own
@@ -7283,6 +7363,7 @@ int main() {
         stick_scrolls_bar();
         run_buttons();
         run_editor();
+        shortcut_save_too_large();
         run_script_past_list();
         dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();

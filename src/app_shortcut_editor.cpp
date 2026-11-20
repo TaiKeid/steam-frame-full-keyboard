@@ -298,6 +298,13 @@ void App::close_shortcut_editor(bool save) {
             dirty = true;
             return;
         }
+        // Each item's limits allow a model larger than the file the next
+        // start reads: refused, and the editor stays open with its draft (R399).
+        if (serialize_shortcuts(model).size() > shortcut_limits::file_bytes) {
+            status_ = tr("status.shortcuts-too-large");
+            dirty = true;
+            return;
+        }
         // The profile selected in the editor shows, as if chosen in the
         // picker, and a free one becomes the free profile: a first profile shows as soon as
         // it is saved (R332).

@@ -288,6 +288,8 @@ Profiles, buttons and app assignments are in `shortcuts.json` beside `config.jso
 | App ties | 128 |
 | File | 512 KB |
 
+Every other limit allows more than the file's: the editor's ✓ refuses a save that would pass 512 KB, saying so and keeping your changes open, and no save writes such a file.
+
 A file that breaks any of these rules, has an unknown name, kind or field value, or an unknown `schema_version`, loads nothing. Settings says so under the Shortcut bar switch, naming where the fault is (profile 2, button 5) without quoting your text, and the keyboard never overwrites it: the next save moves it to `shortcuts.json.bad` first. When Reload config finds the file invalid, the profiles already loaded stay. A valid file that changed behind the keyboard's back, edited by hand while it ran, is kept as `shortcuts.json.old` when the keyboard next saves. Updates and the installer leave the file alone.
 
 Scripts for Run buttons go in `scripts/` in the same folder, `~/.config/framekeyboard/scripts/`. The editor lists its regular files, up to 64, without folders, links or hidden files.

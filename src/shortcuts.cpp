@@ -792,6 +792,10 @@ std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
         return problem;
     }
     const auto text = serialize_shortcuts(model);
+    // The next load would refuse it: the file on disk stays as it is (R399).
+    if (text.size() > limits::file_bytes) {
+        return "the file would be larger than 512 KB";
+    }
     // What is there now is the user's work: an invalid file, or a valid one
     // edited by hand since this store read or wrote it, is kept beside.
     std::string data;
