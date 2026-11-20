@@ -23,11 +23,12 @@ class Installer {
   public:
     static constexpr int width = 1280, height = 800;
     // Wizard pages at most; the page after the last is Finish. Each asks
-    // about one feature, by its number here; Curved keyboard and Streaming
-    // support are offered only for releases that have them, so a page's
-    // place in the wizard and its feature can differ.
-    static constexpr int pages = 7;
-    static constexpr int numpad_feature = 4, curved_feature = 5, streaming_feature = 6;
+    // about one feature, by its number here; Curved keyboard, the shortcut
+    // bar and Streaming support are offered only for releases that have
+    // them, so a page's place in the wizard and its feature can differ.
+    static constexpr int pages = 8;
+    static constexpr int numpad_feature = 4, curved_feature = 5, shortcuts_feature = 6,
+                         streaming_feature = 7;
     // The pages the release being installed gets.
     int wizard_pages() const;
     // The feature a wizard page, by its place, asks about.
@@ -50,7 +51,9 @@ class Installer {
         FinishWithout, // after Streaming support could not be set up: finish with it off
     };
 
-    Installer(Backend& backend, Theme theme, const Localization& localization);
+    // `layout`: the keyboard's full layout, which places the shortcut bar
+    // in its page's picture as the keyboard places it.
+    Installer(Backend& backend, Theme theme, Layout layout, const Localization& localization);
     // The canvas takes the window's shape, at least width x height: the
     // screens stay width x height in its middle and the backdrop fills the
     // rest, so the window shows no bars. Pointer calls and control() use
@@ -113,6 +116,7 @@ class Installer {
     void paint_pull_demo(const Rect& stage, double t);
     void paint_numpad_demo(const Rect& stage, double t);
     void paint_curve_demo(const Rect& stage, double t);
+    void paint_shortcuts_demo(const Rect& stage, double t);
     void paint_stream_demo(const Rect& stage, double t);
     // The keyboard's picture, scaled beforehand, with its top left at
     // (x, y); the case narrows over the numpad, which fades, as `numpad`
@@ -161,6 +165,8 @@ class Installer {
     bool choice(int feature) const;
     // Whether the release being installed has Curved keyboard, and so its page.
     bool curved_page() const;
+    // Whether the release being installed has the shortcut bar, and so its page.
+    bool shortcuts_page() const;
     // Whether the release being installed has Streaming support, and so its page.
     bool streaming_page() const;
     // Why the Streaming support page cannot be answered Yes; empty when it can.
@@ -179,15 +185,16 @@ class Installer {
 
     Backend& backend_;
     Theme theme_;
+    Layout layout_;
     const Localization& localization_;
     std::string font_;
     using Surface = std::unique_ptr<cairo_surface_t, decltype(&cairo_surface_destroy)>;
     Surface canvas_;
     int canvas_width_{width}, canvas_height_{height};
     double offset_x_{}, offset_y_{}; // where the screens start on the canvas
-    // The keyboard's picture at Home's size and at the wizard pictures' two,
-    // scaled once so no frame scales it again.
-    Surface hero_, mini_, half_;
+    // The keyboard's picture at Home's size and at the wizard pictures'
+    // three, scaled once so no frame scales it again.
+    Surface hero_, mini_, half_, bar_picture_;
     // The backdrop, painted once: every frame starts from it.
     Surface backdrop_;
     // Drawn once and painted from then on: the keyboard on Home with its
@@ -239,6 +246,10 @@ class Installer {
     // The bar eases toward progress(); `done_at_` starts the badge's tick.
     double shown_progress_{}, last_tick_{}, done_at_{};
     Choices choices_;
+    // The shortcut bar's page starts at No, the one page that does: its
+    // picture plays lit until the user turns Yes back to No, as a page
+    // answered No otherwise dims it.
+    bool shortcuts_declined_{};
     bool install_done_{}, finish_pressed_{};
     // Finish's Restart SteamOS box; never ticked for the user.
     bool restart_{};

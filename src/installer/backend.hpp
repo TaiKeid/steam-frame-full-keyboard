@@ -3,6 +3,7 @@
 // uninstall and applying the first-install choices. The window only starts
 // these and polls their status on its own thread; the real backend works on
 // a thread of its own, the simulated one only watches the clock.
+#include "framekeyboard/config.hpp"
 #include "framekeyboard/localization.hpp"
 #include <algorithm>
 #include <memory>
@@ -22,6 +23,8 @@ inline constexpr const char* oldest_release = "0.16.0";
 inline constexpr const char* streaming_release = "0.18.0";
 // The first release with Curved keyboard.
 inline constexpr const char* curved_release = "0.19.0";
+// The first release with the shortcut bar.
+inline constexpr const char* shortcuts_release = "0.20.0";
 
 // Whether a dotted version is at least another.
 inline bool at_least(std::string_view version, std::string_view minimum) {
@@ -47,12 +50,17 @@ struct Release {
     std::string tag, version;
 };
 
-// The wizard's answers, all Yes by default: the installer shows off what
-// the keyboard can do, while features new in an update stay opt-in.
+// The wizard's answers, Yes by default: the installer shows off what the
+// keyboard can do, while features new in an update stay opt-in. The
+// shortcut bar, a niche feature, is the one page that starts at No: it
+// only tells that the bar exists (owner's decision).
 struct Choices {
     bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true},
-        curved{true}, streaming{true};
+        curved{true}, shortcuts{false}, streaming{true};
 };
+// Sets the answers into the keyboard's settings, as Finish saves them.
+// Streaming support is left for Finish, which sets it up after saving.
+void apply_choices(Settings& settings, const Choices& choices);
 
 enum class Task { None, Releases, Install, Uninstall, Finish };
 enum class State { Idle, Running, Done, Failed };

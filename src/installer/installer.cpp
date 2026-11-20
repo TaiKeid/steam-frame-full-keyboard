@@ -28,6 +28,9 @@ constexpr double press_travel = 3;
 // and at half size for a closer look at its right end. Its numpad starts
 // 1306 pixels across; without it the case ends 20 further.
 constexpr double mini_scale = .2625, half_scale = .5, numpad_left = 1306, tenkeyless_width = 1326;
+// The shortcut bar's picture: large enough for its buttons' labels to read,
+// with the top of the keyboard below it.
+constexpr double bar_scale = .9;
 // Where keys lie in the picture: the main block's left edge and key pitch,
 // and the middle of each row from the digits down.
 constexpr double keys_left = 146, key_pitch = 63.6;
@@ -114,6 +117,7 @@ constexpr std::array<std::pair<const char*, const char*>, Installer::pages> page
     {"installer.page.pull", "installer.page.pull.text"},
     {"installer.page.use-numpad", "installer.page.use-numpad.text"},
     {"installer.page.curved", "installer.page.curved.text"},
+    {"installer.page.shortcuts", "installer.page.shortcuts.text"},
     {"installer.page.streaming", "installer.page.streaming.text"},
 }};
 // Finish's summary names each answer as Settings does, not by its question.
@@ -121,7 +125,7 @@ constexpr std::array<const char*, Installer::pages> summary_keys{
     "setting.replace-native-keyboard", "setting.swipe-typing",
     "setting.typing-suggestions",      "setting.key-flicks",
     "installer.summary.numpad",        "setting.curved-keyboard",
-    "setting.streaming-support"};
+    "setting.shortcuts",               "setting.streaming-support"};
 
 // What installing `chosen` does to `installed`: nothing installed, newer,
 // older or the same. Returns the key for the main button and the key for
@@ -158,14 +162,14 @@ cairo_surface_t* scaled(cairo_surface_t* source, double scale) {
 
 } // namespace
 
-Installer::Installer(Backend& backend, Theme theme, const Localization& localization)
-    : backend_(backend), theme_(std::move(theme)), localization_(localization),
-      font_(localization.fonts()),
+Installer::Installer(Backend& backend, Theme theme, Layout layout, const Localization& localization)
+    : backend_(backend), theme_(std::move(theme)), layout_(std::move(layout)),
+      localization_(localization), font_(localization.fonts()),
       canvas_(cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height), cairo_surface_destroy),
       hero_(nullptr, cairo_surface_destroy), mini_(nullptr, cairo_surface_destroy),
-      half_(nullptr, cairo_surface_destroy), backdrop_(nullptr, cairo_surface_destroy),
-      grounded_(nullptr, cairo_surface_destroy), card_(nullptr, cairo_surface_destroy),
-      plate_(nullptr, cairo_surface_destroy) {
+      half_(nullptr, cairo_surface_destroy), bar_picture_(nullptr, cairo_surface_destroy),
+      backdrop_(nullptr, cairo_surface_destroy), grounded_(nullptr, cairo_surface_destroy),
+      card_(nullptr, cairo_surface_destroy), plate_(nullptr, cairo_surface_destroy) {
     PngReader reader{keyboard_png, keyboard_png_size};
     Surface image(cairo_image_surface_create_from_png_stream(read_png, &reader), cairo_surface_destroy);
     if (cairo_surface_status(image.get()) == CAIRO_STATUS_SUCCESS) {
@@ -184,6 +188,7 @@ Installer::Installer(Backend& backend, Theme theme, const Localization& localiza
         hero_.reset(scaled(keyboard.get(), picture_scale));
         mini_.reset(scaled(keyboard.get(), mini_scale));
         half_.reset(scaled(keyboard.get(), half_scale));
+        bar_picture_.reset(scaled(keyboard.get(), bar_scale));
     }
     paint_backdrop();
     backend_.releases();
@@ -199,14 +204,23 @@ bool Installer::busy() const {
     return status_.state == State::Running && status_.task != Task::Releases;
 }
 int Installer::wizard_pages() const {
-    return numpad_feature + 1 + (curved_page() ? 1 : 0) + (streaming_page() ? 1 : 0);
+    return numpad_feature + 1 + (curved_page() ? 1 : 0) + (shortcuts_page() ? 1 : 0) +
+           (streaming_page() ? 1 : 0);
 }
 int Installer::feature(int page) const {
-    // The pages up to the numpad are always there; then each offered one.
+    // The pages up to the numpad are always there; then each offered one, in order.
     if (page <= numpad_feature) {
         return page;
     }
-    return page == numpad_feature + 1 && curved_page() ? curved_feature : streaming_feature;
+    int at = numpad_feature;
+    for (const auto& [offered, number] :
+         {std::pair{curved_page(), curved_feature}, std::pair{shortcuts_page(), shortcuts_feature},
+          std::pair{streaming_page(), streaming_feature}}) {
+        if (offered && ++at == page) {
+            return number;
+        }
+    }
+    return streaming_feature;
 }
 double Installer::choice_shown(int feature) const {
     const double target = choice(feature) ? 1 : 0;
@@ -230,12 +244,17 @@ bool Installer::choice(int feature) const {
         return choices_.numpad;
     case curved_feature:
         return curved_page() && choices_.curved;
+    case shortcuts_feature:
+        return shortcuts_page() && choices_.shortcuts;
     default:
         return streaming_page() && choices_.streaming && streaming_blocked().key.empty();
     }
 }
 bool Installer::curved_page() const {
     return installing_.empty() || at_least(installing_, curved_release);
+}
+bool Installer::shortcuts_page() const {
+    return installing_.empty() || at_least(installing_, shortcuts_release);
 }
 bool Installer::streaming_page() const {
     // An older release cannot take the answer, so it is not asked.
@@ -389,6 +408,8 @@ void Installer::activate(const Hit& hit) {
         }
         if (choice(feature(page_)) != yes) {
             choice_changed_ = now_; // The page's picture follows the choice.
+            // Only a Yes turned back to No dims the shortcut bar's picture.
+            shortcuts_declined_ = shortcuts_declined_ || (feature(page_) == shortcuts_feature && !yes);
         }
         switch (feature(page_)) {
         case 0:
@@ -408,6 +429,9 @@ void Installer::activate(const Hit& hit) {
             break;
         case curved_feature:
             choices_.curved = yes;
+            break;
+        case shortcuts_feature:
+            choices_.shortcuts = yes;
             break;
         case streaming_feature:
             choices_.streaming = yes;
@@ -440,6 +464,7 @@ void Installer::activate(const Hit& hit) {
             // The answer as shown: No where the page could not be answered.
             auto choices = choices_;
             choices.curved = choice(curved_feature);
+            choices.shortcuts = choice(shortcuts_feature);
             choices.streaming = choice(streaming_feature);
             backend_.finish(choices, restart_ && restart_offered());
         } else {
@@ -1355,8 +1380,11 @@ void Installer::paint_wizard_page(int page) {
     const double t = std::max(0.0, now_ - (page == page_ ? page_turned_ : page_from_turned_));
     const int asks = feature(page);
     // A feature answered No plays on, dimmed. The numpad's picture shows
-    // either answer instead.
-    const double lit = asks == numpad_feature ? 1 : .3 + .7 * choice_shown(asks);
+    // either answer instead. The shortcut bar's page starts at No: its
+    // picture plays lit until the user turns a Yes back to No.
+    const double lit = asks == numpad_feature || (asks == shortcuts_feature && !shortcuts_declined_)
+                           ? 1
+                           : .3 + .7 * choice_shown(asks);
     stage_plate(stage);
     cairo_save(cr_);
     paint::rounded(cr_, stage, theme_.radius + 4);
@@ -1382,6 +1410,9 @@ void Installer::paint_wizard_page(int page) {
         break;
     case curved_feature:
         paint_curve_demo(stage, t);
+        break;
+    case shortcuts_feature:
+        paint_shortcuts_demo(stage, t);
         break;
     default:
         paint_stream_demo(stage, t);
@@ -2129,6 +2160,78 @@ void Installer::paint_curve_demo(const Rect& s, double t) {
     const double x = start_x + (handle.x - start_x) * there + (start_x - handle.x) * away;
     const double y = start_y + (bar_y - start_y) * there + (start_y - bar_y) * away;
     laser(s, x, y, std::min(phase(c, 0, .2), 1 - phase(c, leave - .1, .2)));
+}
+
+// The keyboard with a shortcut bar above it, drawn as the keyboard draws its
+// own (paint::shortcut_bar) where the full layout places it: the laser
+// presses a shortcut, then a macro, whose run goes round its button. The
+// labels are a photo editor's functions, as a user would name their own
+// buttons, the same in every language (owner's choice).
+void Installer::paint_shortcuts_demo(const Rect& s, double t) {
+    static constexpr std::array<const char*, 5> labels{"Brush", "Eraser", "Undo", "New\nLayer",
+                                                       "Export\nLayers"};
+    constexpr int shortcut = 3, macro = 4;
+    constexpr double cycle = 6.2, press = .12, shortcut_at = 1.0, macro_at = 2.3, run = 2.4;
+    const double c = std::fmod(t, cycle);
+    PanelView view;
+    view.layout = &layout_;
+    view.theme = &theme_;
+    const auto g = shortcut_bar_geometry(view, labels.size());
+    // Panel coordinates to the stage: across, centred on the bar and its tab;
+    // down, the bar near the top and the keyboard's top rows under it.
+    const double k = bar_scale;
+    const double ox =
+        std::round(s.x + s.width / 2 - (g.plate.x + (g.plate.width + g.picker.width) / 2) * k);
+    const double oy = std::round(s.y + 44 - g.plate.y * k);
+    small_picture(bar_picture_.get(), k, ox, oy, 1);
+
+    ShortcutBarView bar;
+    bar.plate = g.plate;
+    bar.strip = g.strip;
+    bar.picker = g.picker;
+    bar.scale = g.button_width / 69.5; // as App sizes its labels
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        ShortcutBarView::Button button;
+        button.label = labels[i];
+        button.bounds = {g.strip.x + static_cast<double>(i) * g.pitch, g.button_top, g.button_width,
+                         g.button_height};
+        bar.buttons.push_back(std::move(button));
+    }
+    // The laser rests on the shortcut and presses it, its short run lit a
+    // moment; then on the macro, whose long run strokes the button's
+    // border while the laser moves away.
+    const auto in = [&](double from, double to) { return c >= from && c < to; };
+    auto& first = bar.buttons[shortcut];
+    first.hovered = in(shortcut_at - .2, macro_at - .8);
+    first.pressed = in(shortcut_at, shortcut_at + press);
+    first.running = in(shortcut_at + press, shortcut_at + press + .2);
+    auto& second = bar.buttons[macro];
+    second.hovered = in(macro_at - .2, macro_at + .6);
+    second.pressed = in(macro_at, macro_at + press);
+    second.running = in(macro_at + press, macro_at + press + run);
+    if (second.running) {
+        const double border = bar_border_pixels(second.bounds);
+        second.progress_px = static_cast<int>(border * (c - macro_at - press) / run);
+    }
+    cairo_save(cr_);
+    cairo_translate(cr_, ox, oy);
+    cairo_scale(cr_, k, k);
+    paint::shortcut_bar(cr_, theme_, bar, font_);
+    cairo_restore(cr_);
+
+    const auto centre = [&](const ShortcutBarView::Button& button) {
+        const auto& r = button.bounds;
+        return std::pair{ox + (r.x + r.width / 2) * k, oy + (r.y + r.height / 2) * k};
+    };
+    const std::pair rest{ox + (g.strip.x + g.strip.width * .8) * k, oy + 240 * k};
+    const auto on_first = centre(first), on_second = centre(second);
+    const auto between = [](std::pair<double, double> a, std::pair<double, double> b, double f) {
+        return std::pair{a.first + (b.first - a.first) * f, a.second + (b.second - a.second) * f};
+    };
+    auto at = between(rest, on_first, ease_in_out(phase(c, .2, shortcut_at - .4)));
+    at = between(at, on_second, ease_in_out(phase(c, macro_at - .8, .6)));
+    at = between(at, rest, ease_in_out(phase(c, macro_at + .6, .6)));
+    laser(s, at.first, at.second, phase(c, .1, .2) * (1 - phase(c, macro_at + 1, .3)));
 }
 
 // A game or application streamed from the PC with a text line open: the

@@ -183,6 +183,9 @@
         "installer.page.replace": "Replace the native keyboard?",
         "installer.page.replace.text":
             "With Yes, Full Keyboard opens wherever Steam's keyboard would, and starts with SteamOS. Where Full Keyboard can't be used, Steam's keyboard still opens. With No, you open Full Keyboard from the application menu each time.",
+        "installer.page.shortcuts": "Enable the shortcut bar?",
+        "installer.page.shortcuts.text":
+            "With Yes, a bar of your own buttons shows above the keyboard: shortcuts such as Ctrl+C, macros of keys and waits, and scripts. Each app can have its own profile. You can turn it on later in Settings → General.",
         "installer.page.streaming": "Enable streaming support?",
         "installer.page.streaming.needs-replace": "Needs Replace native keyboard.",
         "installer.page.streaming.text":

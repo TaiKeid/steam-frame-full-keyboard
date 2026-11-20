@@ -4,7 +4,7 @@ The shortcut bar is a row of your own buttons above the keyboard, like a dock. A
 
 ## Turning it on
 
-Turn on **Shortcut bar** in Settings → **General**, under Hide numpad, and press ✓. While you have no profiles, the bar first shows two empty slots, so its menu, and through it the editor, can be reached.
+Turn on **Shortcut bar** in Settings → **General**, under Hide numpad, and press ✓, or answer Yes on its page in the [installer](installer.md), which starts at No. While you have no profiles, the bar first shows two empty slots, so its menu, and through it the editor, can be reached.
 
 A shortcut bar button joins the toolbar, after Pull for Shift. It hides the bar, and the bar stays hidden everywhere until you press the button again; its icon is crossed out while nothing shows. Pressed while nothing shows, it brings back the profile for the app in front, or an empty bar if there is none, so the menu can be reached.
 

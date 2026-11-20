@@ -140,11 +140,12 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
             {{1.1, "page-4-pulling"}, {1.7, "page-4-pulled"}, {2.3, "page-4-typed"}},
             {{1.0, "page-5-numpad"}},
             {{1.0, "page-6-curve-reach"}, {2.0, "page-6-curving"}, {3.0, "page-6-curved"}},
-            {{1.6, "page-7-streaming"}, {3.6, "page-7-streamed"}},
+            {{1.2, "page-7-shortcut-pressed"}, {3.4, "page-7-macro-running"}},
+            {{1.6, "page-8-streaming"}, {3.6, "page-8-streamed"}},
         };
         for (int page = 0; page < installer.wizard_pages(); ++page) {
             double waited = page == 0 ? 1.0 : 0; // The first page came with the slide.
-            // By feature: an older release skips Curved keyboard's page.
+            // By feature: an older release skips the pages it lacks.
             for (const auto& [at, name] : moments[static_cast<std::size_t>(installer.feature(page))]) {
                 wait(std::max(0.0, at - waited));
                 waited = at;
@@ -165,6 +166,16 @@ int tour(in::Installer& installer, const fk::fs::path& directory) {
                 wait(.7);
                 save("page-5-no-numpad");
                 click(A::Choice, 0);
+            }
+            if (installer.feature(page) == in::Installer::shortcuts_feature) {
+                // It starts at No and plays lit; Yes, then No again, dims it.
+                save("page-7-default-no");
+                click(A::Choice, 0);
+                wait(.6);
+                save("page-7-yes");
+                click(A::Choice, 1);
+                wait(.6);
+                save("page-7-yes-then-no");
             }
             click(A::Next);
             if (page == 0) {
@@ -279,11 +290,12 @@ int main(int argc, char** argv) {
         fk::Localization localization;
         localization.load({}, {});
         localization.choose(fk::system_language(home ? home : ""), language);
-        const auto theme = fk::load_profiles({}, {}).themes.at("graphite");
+        const auto profiles = fk::load_profiles({}, {});
+        const auto& theme = profiles.themes.at("graphite");
         auto backend =
             simulate ? in::simulated_backend(simulated)
                      : in::system_backend(helper.empty() ? default_helper() : helper, local_packages);
-        in::Installer installer(*backend, theme, localization);
+        in::Installer installer(*backend, theme, profiles.layouts.at("en-us-full"), localization);
         if (!tour_dir.empty()) {
             // As fit_window does: the canvas takes the window's shape.
             const double scale = std::min(window_width / double(in::Installer::width),

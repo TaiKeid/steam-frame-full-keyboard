@@ -24,6 +24,23 @@
 #include <unistd.h>
 
 namespace framekeyboard::installer {
+
+void apply_choices(Settings& settings, const Choices& choices) {
+    settings.replace_native_keyboard = settings.start_with_steamos = choices.replace_native;
+    // Set up by Finish, once the other choices are safely saved.
+    settings.streaming_support = false;
+    settings.swipe_typing = choices.swipe;
+    settings.typing_suggestions = choices.suggestions;
+    settings.key_flicks = choices.pull_for_shift;
+    settings.hide_numpad = !choices.numpad;
+    // Off for a release without it, which ignores the setting anyway.
+    settings.curved_keyboard = choices.curved;
+    // Only Yes changes anything: No leaves the bar as it was, off unless
+    // turned on before.
+    if (choices.shortcuts) {
+        settings.shortcuts = true;
+    }
+}
 namespace {
 
 constexpr const char* unit = "framekeyboard-autostart.service";
@@ -365,15 +382,7 @@ class SystemBackend : public Backend {
             const auto config = default_config_dir();
             std::vector<std::string> errors;
             auto settings = load_settings(config, errors);
-            settings.replace_native_keyboard = settings.start_with_steamos = choices.replace_native;
-            // Set up below, once the other choices are safely saved.
-            settings.streaming_support = false;
-            settings.swipe_typing = choices.swipe;
-            settings.typing_suggestions = choices.suggestions;
-            settings.key_flicks = choices.pull_for_shift;
-            settings.hide_numpad = !choices.numpad;
-            // Off for a release without it, which ignores the setting anyway.
-            settings.curved_keyboard = choices.curved;
+            apply_choices(settings, choices);
             try {
                 save_preferences_with_startup(settings, install_root() / "current/bin/framekeyboard",
                                               config);

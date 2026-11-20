@@ -703,6 +703,17 @@ if(BUILD_TESTING)
     target_compile_options(shortcut-launch-tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME shortcut-launch COMMAND shortcut-launch-tests)
     if(NOT CMAKE_CROSSCOMPILING)
+        # The installer wizard's pages and what Finish saves, through its own
+        # controls with a recording backend: nothing is installed or written.
+        add_executable(installer-wizard-tests tests/installer_wizard_tests.cpp
+            src/installer/installer.cpp src/installer/system_backend.cpp "${INSTALLER_PICTURE}")
+        target_link_libraries(installer-wizard-tests PRIVATE keyboard_core)
+        target_compile_options(installer-wizard-tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_definitions(installer-wizard-tests PRIVATE
+            FRAMEKEYBOARD_VERSION="${PROJECT_VERSION}")
+        add_test(NAME installer-wizard COMMAND installer-wizard-tests)
+    endif()
+    if(NOT CMAKE_CROSSCOMPILING)
         if(FRAMEKEYBOARD_VR)
             add_test(NAME installer COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/installer_tests.py"

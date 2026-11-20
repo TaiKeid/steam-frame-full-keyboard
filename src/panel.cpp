@@ -7278,5 +7278,12 @@ void label(cairo_t* cr, const std::string& text, Rect r, double size, const std:
            Color color, PangoAlignment alignment, bool wrap) {
     interface_label(cr, text, r, size, family, color, false, alignment, wrap);
 }
+void shortcut_bar(cairo_t* cr, const Theme& theme, const ShortcutBarView& bar, const std::string& font) {
+    PanelView view;
+    view.theme = &theme;
+    view.interface_font = font;
+    view.shortcut_bar = bar;
+    draw_shortcut_bar(cr, view);
+}
 } // namespace paint
 } // namespace framekeyboard

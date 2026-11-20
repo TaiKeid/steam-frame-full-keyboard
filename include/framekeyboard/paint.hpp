@@ -8,6 +8,9 @@
 #include <pango/pango.h>
 #include <string>
 
+namespace framekeyboard {
+struct ShortcutBarView;
+}
 namespace framekeyboard::paint {
 void rounded(cairo_t* cr, Rect r, double radius);
 void source(cairo_t* cr, Color color);
@@ -32,4 +35,8 @@ Color shift_legend(const Theme& theme, bool latched, bool character = true);
 // `wrap` it wraps freely and shrinks only when the lines overflow.
 void label(cairo_t* cr, const std::string& text, Rect r, double size, const std::string& family,
            Color color, PangoAlignment alignment = PANGO_ALIGN_CENTER, bool wrap = false);
+// The shortcut bar as the keyboard draws it above its case: the plate, the
+// buttons as keys and the picker's tab, in panel coordinates, on an opaque
+// case, in `font`.
+void shortcut_bar(cairo_t* cr, const Theme& theme, const ShortcutBarView& bar, const std::string& font);
 } // namespace framekeyboard::paint
