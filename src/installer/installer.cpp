@@ -250,6 +250,16 @@ bool Installer::choice(int feature) const {
         return streaming_page() && choices_.streaming && streaming_blocked().key.empty();
     }
 }
+Choices Installer::shown_choices() const {
+    // The answers as shown: No where a page was not offered or could not be
+    // answered, as Finish lists them.
+    auto choices = choices_;
+    choices.curved = choice(curved_feature);
+    choices.shortcuts = choice(shortcuts_feature);
+    choices.shortcuts_asked = shortcuts_page();
+    choices.streaming = choice(streaming_feature);
+    return choices;
+}
 bool Installer::curved_page() const {
     return installing_.empty() || at_least(installing_, curved_release);
 }
@@ -446,10 +456,10 @@ void Installer::activate(const Hit& hit) {
         }
         break;
     case Action::FinishWithout: {
-        // The rest of the choices as they were; this one becomes No.
+        // The rest of the choices as shown; this one becomes No.
         choices_.streaming = false;
         finish_pressed_ = true;
-        backend_.finish(choices_, false);
+        backend_.finish(shown_choices(), false);
         break;
     }
     case Action::Back:
@@ -461,13 +471,7 @@ void Installer::activate(const Hit& hit) {
     case Action::Finish:
         finish_pressed_ = true;
         if (first_install_) {
-            // The answer as shown: No where the page could not be answered.
-            auto choices = choices_;
-            choices.curved = choice(curved_feature);
-            choices.shortcuts = choice(shortcuts_feature);
-            choices.shortcuts_asked = shortcuts_page();
-            choices.streaming = choice(streaming_feature);
-            backend_.finish(choices, restart_ && restart_offered());
+            backend_.finish(shown_choices(), restart_ && restart_offered());
         } else {
             quit_ = true;
         }

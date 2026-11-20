@@ -163,6 +163,9 @@ class Installer {
     Color dim() const;
     // A feature's answer, by its number (feature()).
     bool choice(int feature) const;
+    // Every answer as Finish saves it, narrowed to the pages offered; Finish
+    // and Finish without it both send these (R425).
+    Choices shown_choices() const;
     // Whether the release being installed has Curved keyboard, and so its page.
     bool curved_page() const;
     // Whether the release being installed has the shortcut bar, and so its page.

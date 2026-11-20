@@ -25,6 +25,7 @@ struct RecordingBackend : in::Backend {
     std::vector<std::string> versions;
     in::Status state;
     std::optional<in::Choices> finished;
+    bool fail_streaming{}; // Finish fails while Streaming support is chosen
     void releases() override {
         state = {};
         state.task = in::Task::Releases;
@@ -42,7 +43,8 @@ struct RecordingBackend : in::Backend {
     void finish(const in::Choices& choices, bool) override {
         finished = choices;
         state.task = in::Task::Finish;
-        state.state = in::State::Done;
+        state.state = fail_streaming && choices.streaming ? in::State::Failed : in::State::Done;
+        state.error = state.state == in::State::Failed ? fk::ui("installer.error.streaming") : fk::UiText{};
     }
     in::Status status() override { return state; }
 };
@@ -200,6 +202,20 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
     }
 }
 
+// R425: Finish without it, after Streaming support failed, saves the answers
+// as Finish lists them: a 0.18.x install, which has no Curved keyboard page,
+// leaves Curved keyboard off.
+void finish_without(const fk::Profiles& profiles, const fk::Localization& localization) {
+    Run run(profiles, localization, {"0.20.0", "0.18.0"}, 1);
+    run.backend.fail_streaming = true;
+    run.finish(0);
+    run.wait(.5);
+    run.click(A::FinishWithout);
+    const auto& choices = *run.backend.finished;
+    require(!choices.streaming && !choices.curved && !choices.shortcuts && !choices.shortcuts_asked &&
+                choices.replace_native && choices.swipe,
+            "Finish without it saves only the answers its pages showed");
+}
 // What Finish saves: the bar's answer either way when its page was offered,
 // as every other page's; without the page the setting stays as loaded (R423).
 void saved_settings() {
@@ -234,6 +250,7 @@ int main() {
         localization.choose(fk::SystemLanguage{"", "en_US.UTF-8"});
         saved_settings();
         shortcuts_page(profiles, localization);
+        finish_without(profiles, localization);
         std::cout << "Installer wizard pages and saved choices passed.\n";
         return 0;
     } catch (const std::exception& error) {
