@@ -117,7 +117,7 @@ With [Streaming support](streamed-games.md#through-steams-own-streaming-streamin
 
 - Labels, profile names, recorded keys, commands and script names are never logged.
 - For an app you assign, its ID (a Steam ID, a program's file name or a Desktop app's ID) and its name are saved in `shortcuts.json`.
-- Names found for Steam games and Desktop apps are kept, with their IDs, in `~/.cache/framekeyboard/app-names.json`, at most 256, also for apps you did not assign. They are never logged.
+- Names found for Steam games and Desktop apps are kept, with their IDs, in `~/.cache/framekeyboard/app-names.json`, at most 256, also for apps you did not assign. They are never logged, and an uninstall removes them.
 - The bar never uses window titles to tell apps apart. Nothing in a shell's protocol or the instance socket can add, change or press a button.
 
 ## Limits

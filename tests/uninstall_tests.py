@@ -47,6 +47,9 @@ def install(home, runtime):
     pictures.mkdir(parents=True)
     (pictures / "index.txt").write_text("Full Keyboard theme pictures\n")
     (pictures / "graphite.argb").write_bytes(b"picture")
+    # The shortcut bar's names for the apps it has seen, and a save's leftover temporary file (R429).
+    (home / ".cache/framekeyboard/app-names.json").write_text('{"names":[]}')
+    (home / ".cache/framekeyboard/app-names.json.tmp").write_text("{")
     (home / ".cache/other-app").mkdir(exist_ok=True)
     return root, release
 
@@ -84,8 +87,9 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
         require(not path.exists() and not path.is_symlink(), f"{path} must be removed")
     require((home / ".config/framekeyboard/config.json").exists(), "settings stay without --purge")
     require("--purge" in result.stdout, "the user is told how to delete settings")
+    require("app-names.json" in result.stdout, "the app names are listed with what is removed")
     require(not (home / ".cache/framekeyboard").exists() and (home / ".cache/other-app").exists(),
-            "the theme pictures go, other programs' cache stays")
+            "the theme pictures and the app names go, other programs' cache stays")
 
     # Running again finds nothing; --purge then removes the settings.
     result = run(home, runtime, "--yes")
@@ -108,6 +112,26 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
                  units / "framekeyboard-autostart.service"):
         require(path.exists(), f"foreign {path} must stay")
     require(not (home / ".local/share/framekeyboard").exists(), "the installation itself is removed")
+
+for purge in ((), ("--purge",)):
+    with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
+        # R429: the app names go with or without --purge; a file of anyone else's in the
+        # keyboard's cache folder stays, and the folder with it.
+        home, runtime = Path(directory) / "home", Path(directory) / "runtime"
+        install(home, runtime)
+        cache = home / ".cache/framekeyboard"
+        (cache / "notes.txt").write_text("not the keyboard's")
+        result = run(home, runtime, *purge, "--yes")
+        require(result.returncode == 0, "uninstall failed: " + result.stderr)
+        require(not (cache / "app-names.json").exists() and not (cache / "app-names.json.tmp").exists() and
+                not (cache / "theme-previews").exists(), "the keyboard's own cache files go")
+        require((cache / "notes.txt").exists(), "a file the keyboard didn't write stays, and its folder")
+        (cache / "notes.txt").unlink()
+        # Only the app names left, as after an earlier uninstall: they still go, and the folder.
+        (cache / "app-names.json").write_text("{}")
+        result = run(home, runtime, *purge, "--yes")
+        require(result.returncode == 0 and not cache.exists(),
+                "app names left alone are removed, and the empty folder with them")
 
 with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
     home, runtime = Path(directory) / "home", Path(directory) / "runtime"
@@ -135,6 +159,7 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     cache = Path(directory) / "cache"
     (cache / "framekeyboard/theme-previews").mkdir(parents=True)
     (cache / "framekeyboard/theme-previews/graphite.argb").write_bytes(b"picture")
+    (cache / "framekeyboard/app-names.json").write_text("{}")
     environment.update(HOME=str(home), XDG_DATA_HOME=str(data), XDG_CONFIG_HOME=str(home / ".config"),
                        XDG_CACHE_HOME=str(cache),
                        FRAMEKEYBOARD_INSTALL_RUNTIME_DIR=str(runtime), FRAMEKEYBOARD_UNINSTALL_SYSTEMCTL="0")
@@ -144,7 +169,8 @@ with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory
     require(str(models) in result.stdout, "the models are listed with what is removed")
     require(not (data / "framekeyboard").exists(), "models under XDG_DATA_HOME are removed too")
     require((data / "other-app").exists(), "other programs' data stays")
-    require(not (cache / "framekeyboard").exists(), "theme pictures under XDG_CACHE_HOME are removed too")
+    require(not (cache / "framekeyboard").exists(),
+            "theme pictures and app names under XDG_CACHE_HOME are removed too")
     require(not (home / ".local/share/framekeyboard").exists(), "the installation is removed")
 
 with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:

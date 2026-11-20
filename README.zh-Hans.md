@@ -94,7 +94,7 @@ Full Keyboard 专为 **设备端体验** 而设计：Frame 仪表板、Steam 自
 
 键盘每隔几小时检查一次新的稳定版本，有新版本时会在设置按钮上显示一个圆点。要更新，请打开“设置”，按下顶部中央的 **下载并安装更新**（Download and install update），或按同一位置的 **检查更新**（Check for updates）立即检查。键盘会验证压缩包、安装并重启，同时保留您的设置。旧的正式版本会一直保留，直到新版本确认正常启动后才会删除。启动失败时会自动回滚。参见 [更新](docs/updates.md)。
 
-要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、串流支持用于 Steam 启动的设置、启动器、菜单条目以及保存在缓存文件夹中的主题图片，并保留您的设置、快捷键栏的方案以及 `~/.config/framekeyboard/scripts/` 中的脚本，除非您加上 `--purge`，它会将这些全部删除。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。安装程序中的 **卸载** 也会执行同样的操作，并询问是否保留这些内容。
+要卸载，请运行 `bash ~/.local/share/framekeyboard/current/uninstall.sh`。它会停止键盘及其辅助程序，删除应用、启动服务、串流支持用于 Steam 启动的设置、启动器、菜单条目，以及保存在缓存文件夹中的主题图片和快捷键栏找到的应用名称，并保留您的设置、快捷键栏的方案以及 `~/.config/framekeyboard/scripts/` 中的脚本，除非您加上 `--purge`，它会将这些全部删除。之后将重新使用 Steam 的键盘。参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。安装程序中的 **卸载** 也会执行同样的操作，并询问是否保留这些内容。
 
 手动更新时，请先退出 Full Keyboard。如果已开启原生键盘替换，请使用“设置”→ **退出 Full Keyboard**（Quit Full Keyboard）。下载新的发布资源并重复安装步骤。`install.sh` 支持重新安装同一版本或安装较旧的版本，但在 Full Keyboard 运行时会拒绝安装。安装程序也可以更新、降级或重新安装，并保留您的设置，还会先关闭正在运行的 Full Keyboard。手动回滚即重新安装较旧的发布包；参见 [回滚与卸载](docs/runtime.md#update-rollback-and-removal)。
 

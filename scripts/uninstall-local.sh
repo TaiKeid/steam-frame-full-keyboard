@@ -49,8 +49,15 @@ else
     cache="$install_home/.cache/framekeyboard"
 fi
 pictures="$cache/theme-previews"
+# The shortcut bar's names for the apps and games it has seen, and the
+# temporary file its saves go through: always removed, by name (R429).
+# Anything else in the folder stays, and the folder with it.
+names="$cache/app-names.json"
 if [[ -L $pictures || -L $cache ]]; then
     pictures= # A link left for manual removal.
+fi
+if [[ -L $cache ]]; then
+    names=
 fi
 launcher="$install_home/.local/bin/framekeyboard"
 desktop="$install_home/.local/share/applications/framekeyboard.desktop"
@@ -115,6 +122,7 @@ echo 'This removes Full Keyboard from this user account:'
 [[ -e $install_root ]] && echo "  $install_root (the app, its helpers and every installed release)"
 [[ -n $models && -e $models ]] && echo "  $models (downloaded speech models)"
 [[ -n $pictures && -e $pictures ]] && echo "  $pictures (theme pictures, drawn again when needed)"
+[[ -n $names && -e $names ]] && echo "  $names (names of apps and games the shortcut bar has seen)"
 $ours_launcher && echo "  $launcher"
 $ours_desktop && echo "  $desktop"
 $ours_unit && echo "  $unit (Start with SteamOS) and its links"
@@ -126,7 +134,7 @@ else
 fi
 if [[ ! -e $install_root ]] && ! $ours_launcher && ! $ours_desktop && ! $ours_unit && ! $ours_stream &&
     ! ($purge && [[ -e $settings ]]) && ! [[ -n $models && -e $models ]] &&
-    ! [[ -n $pictures && -e $pictures ]]; then
+    ! [[ -n $pictures && -e $pictures ]] && ! [[ -n $names && -e $names ]]; then
     echo 'Nothing to remove: Full Keyboard is not installed for this user.'
     exit 0
 fi
@@ -234,6 +242,12 @@ if [[ -n $models && -d $models ]]; then
 fi
 if [[ -n $pictures && -d $pictures ]]; then
     rm -rf -- "$pictures"
+fi
+if [[ -n $names ]]; then
+    rm -f -- "$names" "$names.tmp"
+fi
+# Gone only when nothing else is left in it.
+if [[ -n $pictures || -n $names ]]; then
     rmdir -- "$cache" 2> /dev/null || true
 fi
 if [[ -n $runtime_dir && -d $runtime_dir && ! -L $runtime_dir ]]; then

@@ -294,7 +294,7 @@ A file that breaks any of these rules, has an unknown name, kind or field value,
 
 Scripts for Run buttons go in `scripts/` in the same folder, `~/.config/framekeyboard/scripts/`. The editor lists its regular files, up to 64, without folders, links or hidden files.
 
-Names found for Steam games and Desktop apps are kept in `~/.cache/framekeyboard/app-names.json` (under `$XDG_CACHE_HOME` when set), at most 256, the oldest dropped first, so a game streamed from your PC keeps its name. A damaged file reads as empty. It holds only IDs and names and can be deleted at any time.
+Names found for Steam games and Desktop apps are kept in `~/.cache/framekeyboard/app-names.json` (under `$XDG_CACHE_HOME` when set), at most 256, the oldest dropped first, so a game streamed from your PC keeps its name. A damaged file reads as empty. It holds only IDs and names and can be deleted at any time; an uninstall removes it.
 
 ## Updates
 
