@@ -5,10 +5,11 @@
     const VERSION = 1, LEASE_MS = 900, REQUEST_MS = 400, IDLE_INSPECT_MS = 100;
     const now = () => root.performance.now();
     // The store that holds Steam's shared VR keyboard state is module-private.
-    // Older Steam UIs (webpack) expose a registry that reaches it; current ones
-    // (Vite bundles, Steam Frame 0.5.10 and later) do not. There, the same state
-    // is mirrored from Steam's own status notification, which is what updates
-    // that store. Before the first notification the keyboard is treated as
+    // Both Steam interface builds are supported, picked here on every install.
+    // The older one (webpack) exposes a registry that reaches the store; the
+    // one a newer Steam client brings (Vite bundles, seen on Frames after the
+    // SteamOS 0.5.10 update) does not. There, the same state is mirrored from
+    // Steam's own status notification, which is what updates that store. Before the first notification the keyboard is treated as
     // closed, leaving any presentation Steam opened before this install native.
     // forceNotification, a developer switch, takes the notification path even
     // where the store exists, to try it on the older interface.
@@ -732,7 +733,7 @@
             if (!open && logical?.owner.manager === this) {
                 // Consume exactly the close reaction caused by this request's
                 // Hide. Keep acquisition pending if status arrives first.
-                // Without the shared store (Vite Steam UI) the status
+                // Without the shared store (the newer interface) the status
                 // notification arrives after this reaction, so the pending
                 // close is still ours when the mirror shows the keyboard open.
                 if (closingNative && expectedClose?.owner === owner &&

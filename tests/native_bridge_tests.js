@@ -318,14 +318,16 @@ function externalOwned(f, key = "gamescope.gamescope-0.window.62") {
     return s.request;
 }
 
-// Steam Frame 0.5.10 moved the Steam UI from webpack chunks to Vite modules.
-// The module registry that held Steam's shared VR keyboard store is gone, so
-// the bridge takes the same status from Steam's own keyboard notification, the
-// channel that updates that store. Only its metadata is kept.
+// A newer Steam client, seen on Frames after the SteamOS 0.5.10 update, builds
+// its interface from Vite modules instead of webpack chunks. The module
+// registry that held Steam's shared VR keyboard store is gone there, so the
+// bridge takes the same status from Steam's own keyboard notification, the
+// channel that updates that store. Only its metadata is kept. Both interface
+// builds are supported, picked at run time.
 {
     const f = fixture(false, false, false, false, false, false, 0, null, true);
-    assert.equal(f.root.webpackChunksteamui, undefined, "the Vite UI exposes no module registry");
-    assert(f.alive() && f.observing(), "a Vite Steam UI installs the bridge without the store");
+    assert.equal(f.root.webpackChunksteamui, undefined, "the newer interface exposes no module registry");
+    assert(f.alive() && f.observing(), "the newer interface installs the bridge without the store");
     const idle = f.bridge.diagnostics();
     assert(!idle.nativeOpen && idle.idle, "before the first notification the keyboard counts as closed");
     const request = owned(f);
@@ -1719,8 +1721,8 @@ function notReadyFor(f, ms) {
 // properties. Include the seed/trace on failure so every discovered sequence can
 // become a focused regression. No real endpoint or user text is involved.
 let deadlineChecks = 0, laterDeadlineChecks = 0;
-// The 128 original walks keep the webpack store path; 48 more use a Vite-style
-// UI without it. Both must satisfy the same safety properties.
+// The 128 original walks keep the older interface's store path; 48 more use
+// the newer interface without it. Both must satisfy the same safety properties.
 for (const statusOnly of [false, true])
 for (let seed = 1; seed <= (statusOnly ? 48 : 128); ++seed) {
     let random = seed, previousRequest = 0;
