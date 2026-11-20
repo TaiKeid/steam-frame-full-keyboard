@@ -7320,9 +7320,113 @@ void shortcut_save_too_large() {
     ShortcutStore store(path);
     require(store.load().state == ShortcutsLoad::State::Valid, "the file still loads");
     const auto refused = store.save(four);
-    require(refused && *refused == "the file would be larger than 512 KB" && file() == before &&
-                !fs::exists(path.string() + ".old") && !fs::exists(path.string() + ".bad"),
+    require(refused && *refused == "the file would be larger than 512 KB" && store.refused_too_large() &&
+                file() == before && !fs::exists(path.string() + ".old") &&
+                !fs::exists(path.string() + ".bad"),
             "the store refuses it, moving nothing aside");
+}
+// R410: within a few bytes of 512 KB, a change the store would refuse is
+// refused before the model changes: ✓ whose pick grows the picks, an
+// assign from the bar's menu, and a kept name longer than the tie's.
+// Nothing in memory differs from the file, and the status is translated.
+void shortcut_changes_near_the_cap() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity notes{AppIdentity::Kind::Desktop, "org.example.Notes"};
+    const AppIdentity other{AppIdentity::Kind::Desktop, "org.example.Other"};
+    ShortcutModel model;
+    const auto size = [](const ShortcutModel& m) { return serialize_shortcuts(m).size(); };
+    for (int i = 0; size(model) + 200000 < shortcut_limits::file_bytes; ++i) {
+        model.profiles.push_back({"m" + std::to_string(i), "Macros", {big_macro("M")}});
+    }
+    model.apps.push_back({notes, "Notes", "m0"});
+    model.free_profile = "m0";
+    const std::size_t target = shortcut_limits::file_bytes - 4;
+    // Coarse: buttons with empty labels; fine: their labels, a byte a letter.
+    while (size(model) + 400 < target) {
+        if (model.profiles.back().id[0] != 'f' || model.profiles.back().buttons.size() == 64) {
+            model.profiles.push_back({"f" + std::to_string(model.profiles.size()), "Fill", {}});
+        }
+        model.profiles.back().buttons.push_back(shortcut_button("", {{{}, "KeyA"}}));
+    }
+    for (auto& profile : model.profiles) {
+        for (auto& button : profile.buttons) {
+            while (profile.id[0] == 'f' && button.label.size() < 24 && size(model) < target) {
+                button.label += 'x';
+            }
+        }
+    }
+    require(size(model) == target && !validate_shortcuts(model), "a model 4 bytes under the cap");
+    write_shortcuts(directory.path, model);
+    const auto path = directory.path / "shortcuts.json";
+    const auto file = [&] {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    const auto before = file();
+    const auto record = directory.path / "cache" / "app-names.json";
+    fs::create_directories(record.parent_path());
+    std::ofstream(record) << serialize_app_name_record({{notes, "Example Notes Editor"}});
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = record;
+    options.app_names = [](const AppIdentity&) { return std::string(); };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, notes, "notes"};
+    double now = 1900;
+    App app(options, sink);
+    const auto settle = [&] {
+        for (int i = 0; i < 50; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        app.flush_settings();
+        app.tick(now += .01);
+    };
+    const std::string too_large =
+        "Shortcuts not saved: they would take more than 512 KB. Remove some buttons or steps.";
+    settle();
+    // The menu over Notes: its tie is saved as "Notes", the kept name longer.
+    tap_rect(app, app.view().shortcut_bar->picker);
+    settle();
+    auto at = middle(app.view().shortcut_bar->menu->rows[0].assign);
+    app.move(0, at.x, at.y);
+    require(app.view().bar_tooltip == "Stop showing Macros for Notes" && file() == before,
+            "a longer kept name that would pass the cap leaves the tie as it is");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    // An assign from the menu over another app.
+    sink.focus = {8, other, "other"};
+    settle();
+    tap_rect(app, app.view().shortcut_bar->picker);
+    at = middle(app.view().shortcut_bar->menu->rows[0].assign);
+    tap_at(app, at.x, at.y);
+    settle();
+    auto view = app.view();
+    require(view.status == too_large && view.shortcut_bar->menu &&
+                !view.shortcut_bar->menu->rows[0].assigned && file() == before,
+            "an assign that would pass the cap is refused, in the interface's words");
+    tap_rect(app, app.view().shortcut_bar->picker);
+    // ✓ with another profile selected, over the app without a tie: its pick
+    // makes that profile the free one and adds m0 to the earlier picks.
+    sink.focus = {8, other, "other"};
+    settle();
+    open_editor(app);
+    tap_control(app, "shortcuts-row-1");
+    tap_control(app, "shortcuts-save");
+    settle();
+    view = app.view();
+    require(view.status == too_large && view.shortcut_editor && file() == before,
+            "✓ whose pick would pass the cap keeps the editor open, nothing saved");
 }
 // Carrying a button to another profile (design, Settings and the editor):
 // the row under it lights up; dropped there, Move or Copy put it at that
@@ -7862,6 +7966,7 @@ int main() {
         run_buttons_preview();
         run_editor();
         shortcut_save_too_large();
+        shortcut_changes_near_the_cap();
         editor_resources_after_close();
         editor_survives_close_and_summon();
         used_for_chips_scroll();

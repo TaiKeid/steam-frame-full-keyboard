@@ -147,6 +147,9 @@ bool shortcut_modifier(const std::string& name);
 // The model as the file's JSON, and back. parse_shortcuts throws
 // std::runtime_error with a reason as above; it validates too.
 std::string serialize_shortcuts(const ShortcutModel& model);
+// Whether the model's file stays within shortcut_limits::file_bytes, which the
+// next start reads (R399, R410).
+bool shortcuts_fit(const ShortcutModel& model);
 ShortcutModel parse_shortcuts(const std::string& json);
 
 // shortcuts.json beside config.json, in the config folder (--config-dir).
@@ -174,6 +177,8 @@ class ShortcutStore {
     // was written in place but its folder's sync failed (R336).
     std::optional<std::string> save(const ShortcutModel& model);
     static constexpr std::string_view unsynced = "the file could not be synced to disk";
+    // Whether the last save was refused because the file would pass 512 KB (R410).
+    bool refused_too_large() const { return too_large_; }
     const std::filesystem::path& path() const { return path_; }
 
   private:
@@ -181,6 +186,7 @@ class ShortcutStore {
     // The file's bytes as this store last read (when valid) or wrote them;
     // none before.
     std::optional<std::string> known_;
+    bool too_large_{};
 };
 
 // Which profile shows (design, Toolbar button and Which profile shows). Pure state:

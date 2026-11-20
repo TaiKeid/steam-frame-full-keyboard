@@ -47,9 +47,14 @@ class SettingsWriter {
     // or written.
     ShortcutsLoad load_shortcuts();
     void save_shortcuts(ShortcutModel model);
-    // The newest finished shortcuts save, once nothing newer is queued: empty
-    // when it worked, else why it did not (never quoting the user's content).
-    std::optional<std::optional<std::string>> take_shortcuts_result();
+    // The newest finished shortcuts save, once nothing newer is queued: no
+    // problem when it worked, else why it did not (never quoting the user's
+    // content), and whether the file would have passed 512 KB (R410).
+    struct ShortcutsSaved {
+        std::optional<std::string> problem;
+        bool too_large{};
+    };
+    std::optional<ShortcutsSaved> take_shortcuts_result();
     // A small private file written whole on the worker, such as the record
     // of app names (R362), a newer text replacing one not yet written. Its
     // folder is made if missing. A failure leaves the old file, unreported.
@@ -72,7 +77,7 @@ class SettingsWriter {
     std::optional<Result> result_;
     bool writing_{}, stopping_{};
     std::optional<ShortcutModel> shortcuts_pending_;
-    std::optional<std::optional<std::string>> shortcuts_result_;
+    std::optional<ShortcutsSaved> shortcuts_result_;
     bool shortcuts_writing_{};
     std::optional<std::pair<fs::path, std::string>> private_pending_;
     bool private_writing_{};

@@ -864,13 +864,18 @@ ShortcutsLoad ShortcutStore::load() {
     }
     return result;
 }
+bool shortcuts_fit(const ShortcutModel& model) {
+    return serialize_shortcuts(model).size() <= limits::file_bytes;
+}
 std::optional<std::string> ShortcutStore::save(const ShortcutModel& model) {
+    too_large_ = false;
     if (auto problem = validate_shortcuts(model)) {
         return problem;
     }
     const auto text = serialize_shortcuts(model);
     // The next load would refuse it: the file on disk stays as it is (R399).
-    if (text.size() > limits::file_bytes) {
+    too_large_ = text.size() > limits::file_bytes;
+    if (too_large_) {
         return "the file would be larger than 512 KB";
     }
     // What is there now is the user's work: an invalid file, or a valid one

@@ -328,18 +328,28 @@ void App::close_shortcut_editor(bool save) {
             dirty = true;
             return;
         }
-        // Each item's limits allow a model larger than the file the next
-        // start reads: refused, and the editor stays open with its draft (R399).
-        if (serialize_shortcuts(model).size() > shortcut_limits::file_bytes) {
-            status_ = tr("status.shortcuts-too-large");
-            dirty = true;
-            return;
-        }
         // The profile selected in the editor shows, as if chosen in the
         // picker, and a free one becomes the free profile: a first profile shows as soon as
         // it is saved (R332).
         const auto* selected = shortcut_editor_->selected_profile();
         const std::string shown = selected ? selected->id : std::string();
+        // Each item's limits allow a model larger than the file the next
+        // start reads: refused, and the editor stays open with its draft
+        // (R399). Checked as it will be saved, the pick's changes to the
+        // picks included, on copies (R410).
+        {
+            auto saving = model;
+            auto choice = profile_choice_;
+            choice.model_changed(saving);
+            if (!shown.empty()) {
+                choice.pick(saving, shown);
+            }
+            if (!shortcuts_fit(saving)) {
+                status_ = tr("status.shortcuts-too-large");
+                dirty = true;
+                return;
+            }
+        }
         shortcuts_ = model;
         auto changes = profile_choice_.model_changed(shortcuts_);
         if (!shown.empty()) {

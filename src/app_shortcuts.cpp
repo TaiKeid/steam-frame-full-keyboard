@@ -739,11 +739,16 @@ void App::adopt_long_program_tie() {
     if (old == shortcuts_.apps.end()) {
         return;
     }
+    const auto before = shortcuts_;
     // The name saved with it was the same long line.
     if (old->name.starts_with(prefix) || old->name.empty()) {
         old->name = fallback_app_name(app);
     }
     old->app = app; // its profile shows at the focus that follows (tick_shortcut_bar)
+    if (!shortcuts_fit(shortcuts_)) {
+        shortcuts_ = before; // past 512 KB it stays as it was (R410)
+        return;
+    }
     save_shortcuts();
 }
 void App::adopt_remote_play_tie() {
@@ -757,25 +762,36 @@ void App::adopt_remote_play_tie() {
     if (old == shortcuts_.apps.end()) {
         return;
     }
+    const auto before = shortcuts_;
     if (shortcuts_.tie(pc_stream_identity())) {
         shortcuts_.apps.erase(old); // the stream's own tie stands
     } else {
         old->app = pc_stream_identity();
         old->name = tr("shortcuts.app.stream");
     }
+    if (!shortcuts_fit(shortcuts_)) {
+        shortcuts_ = before; // past 512 KB it stays as it was (R410)
+        return;
+    }
     save_shortcuts(); // its profile shows at the focus that follows (tick_shortcut_bar)
 }
 bool App::rename_ties(const AppIdentity& app, const std::string& name) {
     // Only a name that differs is a change: the same one kept again would
     // rewrite the file at every menu open (R406).
+    auto renamed_model = shortcuts_;
     bool renamed = false;
-    for (auto& each : shortcuts_.apps) {
+    for (auto& each : renamed_model.apps) {
         if (each.app == app && each.name != name) {
             each.name = name;
             renamed = true;
         }
     }
-    return renamed;
+    // A longer name that would take the file past 512 KB stays out (R410).
+    if (!renamed || !shortcuts_fit(renamed_model)) {
+        return false;
+    }
+    shortcuts_ = std::move(renamed_model);
+    return true;
 }
 void App::look_up_focused_name() {
     if (!bar_focus_.app || bar_focus_.app->kind == AppIdentity::Kind::Stream) {
@@ -810,7 +826,14 @@ void App::take_app_names() {
         return;
     }
     bool renamed = false;
+    std::optional<ShortcutModel> before; // the model before the first rename, kept until checked
+    const auto keep = [&] {
+        if (!before) {
+            before = shortcuts_;
+        }
+    };
     while (auto result = app_names_.take()) {
+        keep();
         // A name found is kept, in place of one kept before; none found falls
         // back on that one. A tie that took the old kept name takes the new.
         if (!result->name.empty()) {
@@ -855,6 +878,11 @@ void App::take_app_names() {
             }
             fix = name_fixes_.erase(fix);
         }
+    }
+    // Names that would take the file past 512 KB stay out (R410).
+    if (renamed && before && !shortcuts_fit(shortcuts_)) {
+        shortcuts_ = std::move(*before);
+        renamed = false;
     }
     if (renamed) {
         save_shortcuts();
@@ -909,6 +937,22 @@ void App::assign_profile(std::size_t row) {
         const bool stream = app.kind == AppIdentity::Kind::Stream;
         const bool known = stream || (tie && !tie->name.empty()) || (app_name_ && app_name_->app == app);
         const auto name = stream ? tr("shortcuts.app.stream") : focused_app_name();
+        // Tried on copies first: a tie that would take the file past what
+        // the next start reads changes nothing (R410).
+        {
+            auto saving = shortcuts_;
+            auto choice = profile_choice_;
+            if (!saving.assign(app, name, id)) {
+                return;
+            }
+            choice.model_changed(saving);
+            choice.pick(saving, id);
+            if (!shortcuts_fit(saving)) {
+                status_ = tr("status.shortcuts-too-large");
+                dirty = true;
+                return;
+            }
+        }
         if (!shortcuts_.assign(app, name, id)) {
             return;
         }
@@ -934,10 +978,14 @@ void App::take_shortcuts_result() {
     }
     // The file is in place whether or not its folder's sync worked: only a
     // power loss soon after could still lose it (R336).
-    const bool saved = !*result || **result == ShortcutStore::unsynced;
-    if (*result) {
+    const auto& problem = result->problem;
+    const bool saved = !problem || *problem == ShortcutStore::unsynced;
+    if (result->too_large) {
+        status_ = tr("status.shortcuts-too-large"); // in the interface's words (R410)
+        dirty = true;
+    } else if (problem) {
         status_ = tr(saved ? "status.shortcuts-unsynced" : "status.shortcuts-not-saved",
-                     {{"error", **result}});
+                     {{"error", *problem}});
         dirty = true;
     }
     if (saved && !shortcuts_invalid_.empty()) {

@@ -84,7 +84,7 @@ void SettingsWriter::save_shortcuts(ShortcutModel model) {
     }
     changed_.notify_all();
 }
-std::optional<std::optional<std::string>> SettingsWriter::take_shortcuts_result() {
+std::optional<SettingsWriter::ShortcutsSaved> SettingsWriter::take_shortcuts_result() {
     std::lock_guard lock(mutex_);
     if (shortcuts_pending_ || shortcuts_writing_) {
         return {};
@@ -118,9 +118,10 @@ void SettingsWriter::run() {
             } catch (const std::exception& error) {
                 problem = error.what();
             }
+            const bool too_large = problem && shortcuts_store_.refused_too_large();
             lock.lock();
             shortcuts_writing_ = false;
-            shortcuts_result_ = std::move(problem);
+            shortcuts_result_ = ShortcutsSaved{std::move(problem), too_large};
             changed_.notify_all();
             continue;
         }
