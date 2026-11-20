@@ -146,7 +146,9 @@ function fixture(open = false, production = false, external = false, sharedApi =
             else { calls.push(text); this.m_fnVROnTextEnteredOverride(text); }
         }};
     const reactions = [];
-    function update(values, notify = true) {
+    // Steam's own handler for one notification: its store, then the reactions
+    // the change causes.
+    function steamHandles(values) {
         Object.assign(status, values); raw();
         // Steam's MobX reaction runs only when this owner's computed value changes.
         for (const reaction of reactions) {
@@ -157,6 +159,28 @@ function fixture(open = false, production = false, external = false, sharedApi =
                 pendingCloses.push(() => reaction.manager.SetVRKeyboardOpenForThisInstance(false));
             else reaction.manager.SetVRKeyboardOpenForThisInstance(open);
         }
+    }
+    const argumentsOf = s => [s.bIsOpen, s.bMinimal ? 13 : 0, initialText, 0, s.bDispatchEventsToSteamVR, s.sOverlayKey];
+    function update(values, notify = true) {
+        if (notify && bridgeFirst) {
+            // Our callback gets each notification before Steam's handler does.
+            // A notification caused meanwhile, as by our own Hide, waits for
+            // this one to reach both, as Steam queues it.
+            turns.push(values);
+            if (turning) return;
+            turning = true;
+            try {
+                while (turns.length) {
+                    const next = turns.shift();
+                    observer?.(...argumentsOf({...status, ...next}));
+                    steamHandles(next);
+                    // The bridge's timer can run only after the whole dispatch.
+                    tick?.();
+                }
+            } finally { turning = false; }
+            return;
+        }
+        steamHandles(values);
         if (notify) {
             const args = [status.bIsOpen, status.bMinimal ? 13 : 0, initialText, 0,
                 status.bDispatchEventsToSteamVR, status.sOverlayKey];
@@ -166,8 +190,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
             else { observer?.(...args); tick?.(); }
         }
     }
-    let queueing = false;
-    const queued = [];
+    let queueing = false, bridgeFirst = false, turning = false;
+    const queued = [], turns = [];
     const keyboard = {
         Show() { calls.push("native-show"); if (showKey) update({bIsOpen: true, sOverlayKey: showKey}); },
         Hide() { calls.push("native-hide"); if (!deferHide) update({bIsOpen: false}); },
@@ -282,6 +306,8 @@ function fixture(open = false, production = false, external = false, sharedApi =
         // Delivery per subscriber: notifications wait for deliver(), Steam's
         // own handler and reactions having run for all of them.
         perSubscriber(on) { queueing = on; },
+        // Delivery with our callback first, then Steam's handler and reactions.
+        bridgeFirst(on) { bridgeFirst = on; },
         deliver() { while (queued.length) { observer?.(...queued.shift()); tick?.(); } checkOwnership(); },
         notify(open, flags, dispatch, key, count = 6) {
             const args = [open, flags, initialText, 0, dispatch, key, ...Array(Math.max(0, count - 6)).fill(0)];
@@ -557,6 +583,57 @@ for (const [name, flags, dispatch, key, count] of [
     assert(statusCodes(s).includes("status-differs-open") && !f.nativeOpen() && f.alive() && !s.eligible,
         "a notification overtaken by the store is a difference, not a change");
     f.bridge.dispose();
+}
+
+// Our callback can also get a notification before Steam's handler does; the
+// owner's Frame logs this order on the older interface. Both paths keep the
+// named behaviors: a session is acquired and typed into, the close our Hide
+// causes keeps Steam's field, a Show is held back for a session and left alone
+// for a request that stays native, the keyboard button toggles the panel off,
+// and an open flag that is not a boolean still ends replacement.
+for (const statusOnly of [false, true]) {
+    const path = statusOnly ? "notification path" : "store path";
+    const bridgeFirst = () => {
+        const f = fixture(false, !statusOnly, false, false, false, false, 0, null, statusOnly);
+        f.bridgeFirst(true);
+        return f;
+    };
+    {
+        const f = bridgeFirst();
+        f.newTarget();
+        const request = owned(f);
+        assert(f.manager.logicalOpen && f.manager.m_currentVirtualKeyboardRef,
+            `${path}: the close our Hide caused keeps Steam's field`);
+        assert(f.bridge.send(request, "a") && f.step(request).active && f.deliveries.includes("a"),
+            `${path}: the session types`);
+        f.api.ShowWindow();
+        assert(!f.calls.includes("window-show"), `${path}: Steam's Show is held back during the session`);
+        f.status({bIsOpen: true});
+        const s = f.step();
+        assert(s.events.at(-1).code === "button-toggle" && !s.active && !f.nativeOpen(),
+            `${path}: the keyboard button toggles the panel off`);
+        f.bridge.dispose();
+    }
+    {
+        const f = bridgeFirst();
+        f.newTarget(); f.step();
+        f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+        f.api.ShowWindow();
+        const s = f.step();
+        assert(!s.eligible && f.nativeOpen() && f.calls.includes("window-show"),
+            `${path}: a request left native shows Steam's keyboard`);
+        f.bridge.dispose();
+    }
+}
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    f.bridgeFirst(true);
+    f.newTarget(); f.step();
+    f.notify(1, 13, false, MAIN);
+    f.status({bIsOpen: true}, false);
+    f.api.ShowWindow();
+    assert(f.step().unavailable && f.nativeOpen() && f.manager.logicalOpen && f.calls.includes("window-show"),
+        "bridge first: an open flag that is not a boolean ends replacement and leaves Steam's keyboard working");
 }
 
 // Steam's external and stream targets need exactly typed values: a key that
@@ -1844,16 +1921,19 @@ function notReadyFor(f, ms) {
 let deadlineChecks = 0, laterDeadlineChecks = 0;
 // The 128 original walks keep the older interface's store path; 48 more use
 // the newer interface without it. Both must satisfy the same safety properties,
-// also when Steam delivers notifications per subscriber: its own handler takes
-// all those an action causes before ours gets the first (32 walks each).
-for (const [statusOnly, perSubscriber, walks] of [[false, false, 128], [true, false, 48], [true, true, 32],
-    [false, true, 32]])
+// also when Steam delivers notifications per subscriber, its own handler taking
+// all those an action causes before ours gets the first, and when ours gets
+// each notification before Steam's handler does (32 walks each).
+for (const [statusOnly, delivery, walks] of [[false, "interleaved", 128], [true, "interleaved", 48],
+    [true, "per-subscriber", 32], [false, "per-subscriber", 32], [true, "bridge-first", 32],
+    [false, "bridge-first", 32]])
 for (let seed = 1; seed <= walks; ++seed) {
     let random = seed, previousRequest = 0;
     const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
     const f = fixture(false, seed % 2 === 0, true, seed % 3 === 0, false, false, 0, null, statusOnly),
         trace = [];
-    f.perSubscriber(perSubscriber);
+    f.perSubscriber(delivery === "per-subscriber");
+    f.bridgeFirst(delivery === "bridge-first");
     const opened = key => f.status({bIsOpen: true, sOverlayKey: key,
         bMinimal: true, bDispatchEventsToSteamVR: false});
     // Keep the deadline in the test, independently of the bridge's timer. A new
@@ -1951,8 +2031,9 @@ for (let seed = 1; seed <= walks; ++seed) {
         assert.equal(f.api.ShowWindow, f.oldShow);
         assert.equal(f.api.BringToFront, f.oldFront);
     } catch (error) {
-        throw new Error(`seed ${seed}, events ${trace.join(",")}: ${error.message}`, {cause: error});
+        throw new Error(`${statusOnly ? "notification" : "store"} path, ${delivery}, seed ${seed}, ` +
+            `events ${trace.join(",")}: ${error.message}`, {cause: error});
     } finally { f.bridge.dispose(); }
 }
 assert(laterDeadlineChecks > 0, "random walks must exercise deadlines after their initial request");
-console.log(`Native bridge: lifecycle regressions, 240 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
+console.log(`Native bridge: lifecycle regressions, 304 seeded event sequences and ${deadlineChecks} request deadlines (${laterDeadlineChecks} after initial setup) passed.`);
