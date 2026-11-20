@@ -4045,12 +4045,18 @@ void draw_bar_button(cairo_t* cr, const PanelView& view, const ShortcutBarView::
     cairo_translate(cr, r.x, r.y);
     cairo_scale(cr, scale, scale);
     cairo_new_path(cr);
+    // A long run's progress: a stroke clockwise around the border from the top center, as a
+    // modifier's lock ring is drawn (R372). On a neon theme the running button's tube fills with it,
+    // as a locked modifier's does with its ring: the share it has reached stays lit and the rest dims
+    // to a quarter, so the stroke shows (R422).
+    const double progress =
+        button.progress_px >= 0 ? std::min(1.0, button.progress_px / bar_border_pixels(r)) : 0;
+    const bool filling =
+        button.progress_px >= 0 && fill == KeyFace::Latched && t.latched_finish == "neon";
     const auto cap = draw_keycap(cr, t, tone, {0, 0, r.width / scale, r.height / scale}, amount, lift,
-                                 fill, lift > 0 || amount > 0);
+                                 fill, lift > 0 || amount > 0, filling ? progress : 1, filling ? .25 : 1);
     if (button.progress_px >= 0) {
-        // A long run's progress: a stroke clockwise around the border from the top center, as a
-        // modifier's lock ring is drawn (R372).
-        draw_lock_ring(cr, t, cap, std::min(1.0, button.progress_px / bar_border_pixels(r)), 1);
+        draw_lock_ring(cr, t, cap, progress, 1);
     }
     cairo_new_path(cr);
     cairo_restore(cr);

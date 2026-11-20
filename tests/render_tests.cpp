@@ -1597,6 +1597,34 @@ void shortcut_bar(const char* theme_id, double opacity) {
         if (compare.incremental.rgba() == before) {
             throw std::runtime_error(phase("a long run's progress is drawn"));
         }
+        // R422: the upper part of the button's left edge, which a stroke 200 px of the way round
+        // hasn't reached: the sum of its colors, with the stroke and without it.
+        const auto& shown = running.buttons[1].bounds;
+        const auto unreached = [&] {
+            const auto pixels = compare.incremental.rgba();
+            long sum = 0;
+            for (int y = static_cast<int>(shown.y) + 8; y < static_cast<int>(shown.y) + 25; ++y) {
+                for (int x = static_cast<int>(shown.x) + 1; x < static_cast<int>(shown.x) + 7; ++x) {
+                    const auto at = (static_cast<std::size_t>(y + popup_margin) * panel_width +
+                                     static_cast<std::size_t>(x)) *
+                                    4;
+                    sum += pixels[at] + pixels[at + 1] + pixels[at + 2];
+                }
+            }
+            return sum;
+        };
+        const long stroked = unreached();
+        running.buttons[1].progress_px = -1;
+        view.shortcut_bar = running;
+        compare.frame(view, phase("a running button between progress steps").c_str());
+        const long plain = unreached();
+        // On a neon theme the stroke shows against a tube dimmed under it, as a locked modifier's
+        // ring does; elsewhere the rest of the face stays as it was.
+        if (theme.latched_finish == "neon" ? stroked > plain * 6 / 10 : stroked != plain) {
+            throw std::runtime_error(phase(theme.latched_finish == "neon"
+                                               ? "the running button's tube dims under the stroke"
+                                               : "the stroke leaves the rest of the face alone"));
+        }
         view.shortcut_bar = bar({});
         compare.frame(view, phase("the run ends").c_str());
     }
@@ -2543,6 +2571,8 @@ int main() {
         shortcut_bar("graphite", .5);
         shortcut_bar("porcelain", 0);
         shortcut_bar("graphite", 0); // Invisible and Disabled draw alike
+        shortcut_bar("neon", 1);
+        shortcut_bar("aurora", 1);
         no_stray_lines();
         candidate_menu_resize();
         candidate_scrolling();
