@@ -1406,6 +1406,18 @@ void run_editing() {
 }
 } // namespace
 
+// R407: a numpad key's chip reads as its key cap does, "Num" and its sign.
+void numpad_chips() {
+    const std::vector<std::pair<std::string, std::string>> names{
+        {"Numpad7", "Num 7"},   {"NumpadAdd", "Num +"},      {"NumpadSubtract", "Num -"},
+        {"NumpadMultiply", "Num *"}, {"NumpadDivide", "Num /"}, {"NumpadDecimal", "Num ."},
+        {"NumpadComma", "Num ,"}, {"NumpadEnter", "Num Enter"}};
+    for (const auto& [key, text] : names) {
+        require(chord_text({{}, key}) == text, key + " reads " + text);
+    }
+    require(chord_text({{"ControlLeft"}, "NumpadAdd"}) == "Ctrl + Num +", "with a modifier");
+}
+
 int main() {
     try {
         example_file();
@@ -1424,6 +1436,7 @@ int main() {
         ties();
         stream_apps();
         run_editing();
+        numpad_chips();
         repeat_editing();
         app_names();
         app_name_record();

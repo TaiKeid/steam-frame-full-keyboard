@@ -83,7 +83,13 @@ std::string chord_text(const ShortcutChord& chord) {
                                                          {"Comma", ","},
                                                          {"Period", "."},
                                                          {"Slash", "/"},
-                                                         {"NumpadEnter", "Num Enter"}};
+                                                         {"NumpadEnter", "Num Enter"},
+                                                         {"NumpadAdd", "Num +"},
+                                                         {"NumpadSubtract", "Num -"},
+                                                         {"NumpadMultiply", "Num *"},
+                                                         {"NumpadDivide", "Num /"},
+                                                         {"NumpadDecimal", "Num ."},
+                                                         {"NumpadComma", "Num ,"}};
     std::string text;
     for (const auto& name : chord.modifiers) {
         const auto found = modifiers.find(name);
