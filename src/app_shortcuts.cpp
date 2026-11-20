@@ -551,12 +551,7 @@ void App::track_stream_session() {
                         .second) {
                     app_names_.request(*stream_app_);
                 }
-            } else if (tie && unnamed && !shortcut_editor_) {
-                for (auto& each : shortcuts_.apps) {
-                    if (each.app == *stream_app_) {
-                        each.name = kept;
-                    }
-                }
+            } else if (tie && unnamed && !shortcut_editor_ && rename_ties(*stream_app_, kept)) {
                 save_shortcuts();
             }
         }
@@ -768,6 +763,18 @@ void App::adopt_remote_play_tie() {
     }
     save_shortcuts(); // its profile shows at the focus that follows (tick_shortcut_bar)
 }
+bool App::rename_ties(const AppIdentity& app, const std::string& name) {
+    // Only a name that differs is a change: the same one kept again would
+    // rewrite the file at every menu open (R406).
+    bool renamed = false;
+    for (auto& each : shortcuts_.apps) {
+        if (each.app == app && each.name != name) {
+            each.name = name;
+            renamed = true;
+        }
+    }
+    return renamed;
+}
 void App::look_up_focused_name() {
     if (!bar_focus_.app || bar_focus_.app->kind == AppIdentity::Kind::Stream) {
         return;
@@ -783,12 +790,7 @@ void App::look_up_focused_name() {
     // A name kept before shows at once (focused_app_name), and a tie still
     // under its identity's name takes it.
     if (const auto kept = recorded_app_name(name_record_, app);
-        !kept.empty() && tie && !shortcut_editor_) {
-        for (auto& each : shortcuts_.apps) {
-            if (each.app == app) {
-                each.name = kept;
-            }
-        }
+        !kept.empty() && tie && !shortcut_editor_ && rename_ties(app, kept)) {
         save_shortcuts();
         dirty = true;
     }

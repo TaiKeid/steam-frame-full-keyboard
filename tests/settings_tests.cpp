@@ -5967,6 +5967,64 @@ void shortcut_window_class_name() {
                 "a name kept before shows, and is looked up once in this run (R376)");
     }
 }
+// R406: a tie under its identity's own name whose kept name is that same
+// name is no rename: opening the menu over it again and again saves nothing.
+void shortcut_same_kept_name() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    save_settings(directory.path, settings);
+    const AppIdentity notes{AppIdentity::Kind::Desktop, "org.example.Notes"};
+    ShortcutModel model;
+    model.profiles.push_back({"a", "Free", {shortcut_button("A", {{{"ControlLeft"}, "KeyA"}})}});
+    model.profiles.push_back({"n", "Notes", {shortcut_button("N", {{{"ControlLeft"}, "KeyN"}})}});
+    model.apps.push_back({notes, "Notes", "n"});
+    model.free_profile = "a";
+    write_shortcuts(directory.path, model);
+    const auto record = directory.path / "cache" / "app-names.json";
+    fs::create_directories(record.parent_path());
+    std::ofstream(record) << serialize_app_name_record({{notes, "Notes"}});
+    std::atomic<int> lookups{};
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    options.app_name_record = record;
+    options.app_names = [&](const AppIdentity&) -> std::string {
+        ++lookups;
+        return "Notes";
+    };
+    struct FocusSink : CaptureSink {
+        FocusedApp focus;
+        std::uint32_t focused_window() const override { return focus.window; }
+        FocusedApp focused_app() const override { return focus; }
+    } sink;
+    sink.focus = {7, notes, "notes"};
+    const auto file = directory.path / "shortcuts.json";
+    const auto identity = [&] {
+        struct stat info{};
+        require(stat(file.c_str(), &info) == 0, "shortcuts.json is there");
+        return std::pair{info.st_ino, info.st_mtim.tv_nsec + info.st_mtim.tv_sec * 1000000000L};
+    };
+    const auto before = identity();
+    double now = 1850;
+    App app(options, sink);
+    for (int open = 0; open < 2; ++open) {
+        app.tick(now += .01);
+        tap_rect(app, app.view().shortcut_bar->picker); // opens the menu
+        for (int i = 0; i < 50; ++i) {
+            usleep(1000);
+            app.tick(now += .01);
+        }
+        tap_rect(app, app.view().shortcut_bar->picker); // and closes it
+    }
+    app.flush_settings();
+    require(lookups == 1, "looked up once");
+    require(identity() == before && saved_shortcuts(app).tie(notes)->name == "Notes",
+            "the menu opened twice saves nothing: the kept name is the tie's already");
+}
 // R376: a kept name shows until a lookup answers; a name found replaces it, and none found keeps
 // it. An app is looked up once per run, however often its menu opens or it comes back to the front.
 void shortcut_kept_name_refresh() {
@@ -7361,6 +7419,7 @@ int main() {
         shortcut_fkeys_from_file();
         shortcut_stream_focus_held();
         shortcut_stream_bar_off();
+        shortcut_same_kept_name();
         shortcut_remote_play_tie();
         shortcut_window_class_name();
         shortcut_kept_name_refresh();

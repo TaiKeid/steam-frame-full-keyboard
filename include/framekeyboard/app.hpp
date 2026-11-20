@@ -1900,6 +1900,8 @@ class App {
     // identity's own; empty without an identity.
     std::string focused_app_name() const;
     void look_up_focused_name();
+    // Gives the app's ties this name; true when one had another.
+    bool rename_ties(const AppIdentity& app, const std::string& name);
     // R361: a program's identity once held its arguments where they run on
     // in one string. The focused program's old tie, whose ID is its name and
     // a space, is moved to its name alone and saved, as an assign is.
