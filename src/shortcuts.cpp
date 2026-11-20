@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <system_error>
 
 namespace framekeyboard {
@@ -763,6 +764,77 @@ FileRead read_shortcuts_file(const fs::path& path, std::string& data) {
     data.resize(static_cast<std::size_t>(file.gcount()));
     return FileRead::Read;
 }
+// Whether a valid file holds members this version doesn't read, as a newer
+// version's file may: the parser ignores them, so a save would drop them.
+// Each object is checked against the members its place in the file may have.
+bool has_unknown_members(const std::string& json) {
+    Json document(json_tokener_parse(json.c_str()), json_object_put);
+    using Names = std::initializer_list<std::string_view>;
+    const auto unknown = [](json_object* object, Names names) {
+        if (!json_object_is_type(object, json_type_object)) {
+            return false;
+        }
+        json_object_object_foreach(object, name, value) {
+            (void)value;
+            if (std::find(names.begin(), names.end(), std::string_view(name)) == names.end()) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // Each item of `object`'s array member `name`, empty for none.
+    const auto items = [](json_object* object, const char* name) {
+        std::vector<json_object*> result;
+        json_object* array = nullptr;
+        if (json_object_object_get_ex(object, name, &array) &&
+            json_object_is_type(array, json_type_array)) {
+            for (std::size_t i = 0; i < json_object_array_length(array); ++i) {
+                result.push_back(json_object_array_get_idx(array, i));
+            }
+        }
+        return result;
+    };
+    const auto chords = [&](json_object* object, const char* name) {
+        const auto list = items(object, name);
+        return std::any_of(list.begin(), list.end(),
+                           [&](json_object* chord) { return unknown(chord, {"modifiers", "key"}); });
+    };
+    auto* root = document.get();
+    if (!root ||
+        unknown(root, {"schema_version", "profiles", "apps", "free_profile", "earlier_picks"})) {
+        return root != nullptr;
+    }
+    for (auto* profile : items(root, "profiles")) {
+        if (unknown(profile, {"id", "name", "buttons"})) {
+            return true;
+        }
+        for (auto* button : items(profile, "buttons")) {
+            json_object* action = nullptr;
+            if (unknown(button, {"label", "action"}) ||
+                (json_object_object_get_ex(button, "action", &action) &&
+                 unknown(action, {"kind", "chords", "steps", "repeat", "script", "command"}))) {
+                return true;
+            }
+            if (!action) {
+                continue;
+            }
+            json_object* repeat = nullptr;
+            if (chords(action, "chords") || (json_object_object_get_ex(action, "repeat", &repeat) &&
+                                             unknown(repeat, {"mode", "count"}))) {
+                return true;
+            }
+            for (auto* step : items(action, "steps")) {
+                if (unknown(step, {"keys", "wait_ms"}) || chords(step, "keys")) {
+                    return true;
+                }
+            }
+        }
+    }
+    const auto apps = items(root, "apps");
+    return std::any_of(apps.begin(), apps.end(), [&](json_object* tie) {
+        return unknown(tie, {"kind", "id", "name", "profile"});
+    });
+}
 } // namespace
 ShortcutsLoad ShortcutStore::load() {
     ShortcutsLoad result;
@@ -780,7 +852,12 @@ ShortcutsLoad ShortcutStore::load() {
     try {
         result.model = parse_shortcuts(data);
         result.state = ShortcutsLoad::State::Valid;
-        known_ = data; // Only a valid file: an invalid one is always kept aside.
+        // Only a valid file: an invalid one is always kept aside. So is one
+        // with members this version doesn't know, as a newer version's may
+        // have: they are kept in shortcuts.json.old, not lost (R407).
+        if (!has_unknown_members(data)) {
+            known_ = data;
+        }
     } catch (const std::exception& problem) {
         result.model = {};
         result.reason = problem.what();

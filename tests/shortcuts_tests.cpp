@@ -1406,12 +1406,56 @@ void run_editing() {
 }
 } // namespace
 
+// R407: a file with members this version doesn't know, as a newer
+// version's may have, loads; the first save keeps it as shortcuts.json.old,
+// so going back to an older version loses nothing.
+void unknown_members() {
+    const std::string button = R"("profiles":[{"id":"a","name":"A","buttons":[{"label":"L",)";
+    const std::vector<std::string> files{
+        R"("future":true,)",
+        R"("profiles":[{"id":"a","name":"A","color":"red","buttons":[]}],)",
+        button + R"("hint":"x","action":{"kind":"keys","chords":[]}}]}],)",
+        button + R"("action":{"kind":"keys","delay":5,"chords":[]}}]}],)",
+        button + R"("action":{"kind":"keys","chords":[{"key":"KeyA","side":"left"}]}}]}],)",
+        button + R"("action":{"kind":"macro","steps":[{"wait_ms":100,"note":"x"}]}}]}],)",
+        button + R"("action":{"kind":"macro","steps":[{"keys":[{"key":"KeyA","side":1}]}]}}]}],)",
+        button + R"("action":{"kind":"macro","steps":[],"repeat":{"mode":"once","speed":2}}}]}],)",
+        R"("profiles":[{"id":"a","name":"A","buttons":[]}],)"
+        R"("apps":[{"kind":"steam","id":"10","profile":"a","icon":"x"}],)"};
+    for (const auto& unknown : files) {
+        TemporaryDirectory directory;
+        const auto path = shortcuts_path(directory.path);
+        const auto old = path.string() + ".old";
+        std::string text = "{" + unknown + R"("schema_version":1)";
+        if (unknown.find("\"profiles\"") == std::string::npos) {
+            text += R"(,"profiles":[])";
+        }
+        text += "}";
+        write(path, text);
+        ShortcutStore store(path);
+        const auto loaded = store.load();
+        require(loaded.state == ShortcutsLoad::State::Valid,
+                "a file with unknown members loads: " + text);
+        require(!store.save(loaded.model) && read(old) == text,
+                "the first save keeps it as shortcuts.json.old: " + text);
+        write(old, "kept");
+        require(!store.save(loaded.model) && read(old) == "kept", "later saves leave it alone");
+    }
+    // Every member this version knows: no copy.
+    TemporaryDirectory directory;
+    const auto path = shortcuts_path(directory.path);
+    write(path, example);
+    ShortcutStore store(path);
+    require(store.load().state == ShortcutsLoad::State::Valid && !store.save(parse_shortcuts(example)) &&
+                !fs::exists(path.string() + ".old"),
+            "a file of known members only is replaced, not kept");
+}
 // R407: a numpad key's chip reads as its key cap does, "Num" and its sign.
 void numpad_chips() {
     const std::vector<std::pair<std::string, std::string>> names{
-        {"Numpad7", "Num 7"},   {"NumpadAdd", "Num +"},      {"NumpadSubtract", "Num -"},
-        {"NumpadMultiply", "Num *"}, {"NumpadDivide", "Num /"}, {"NumpadDecimal", "Num ."},
-        {"NumpadComma", "Num ,"}, {"NumpadEnter", "Num Enter"}};
+        {"Numpad7", "Num 7"},        {"NumpadAdd", "Num +"},      {"NumpadSubtract", "Num -"},
+        {"NumpadMultiply", "Num *"}, {"NumpadDivide", "Num /"},   {"NumpadDecimal", "Num ."},
+        {"NumpadComma", "Num ,"},    {"NumpadEnter", "Num Enter"}};
     for (const auto& [key, text] : names) {
         require(chord_text({{}, key}) == text, key + " reads " + text);
     }
@@ -1437,6 +1481,7 @@ int main() {
         stream_apps();
         run_editing();
         numpad_chips();
+        unknown_members();
         repeat_editing();
         app_names();
         app_name_record();
