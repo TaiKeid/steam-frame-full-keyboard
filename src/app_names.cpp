@@ -2,17 +2,21 @@
 #include "framekeyboard/shortcuts.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cerrno>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <exception>
+#include <fcntl.h>
 #include <fstream>
 #include <glib.h>
 #include <json-c/json.h>
 #include <mutex>
 #include <thread>
+#include <unistd.h>
 
 namespace framekeyboard {
 namespace fs = std::filesystem;
@@ -103,11 +107,19 @@ constexpr std::uint32_t appinfo_magic = 0x07564429;
 constexpr std::uintmax_t appinfo_bytes = 64ull * 1024 * 1024;
 class AppInfo {
   public:
-    explicit AppInfo(const fs::path& path) : file_(path, std::ios::binary) {
+    explicit AppInfo(const fs::path& path)
+        : file_(path, std::ios::binary), fd_(::open(path.c_str(), O_RDONLY | O_CLOEXEC)) {
         std::error_code error;
         size_ = fs::file_size(path, error);
-        ok_ = !error && file_ && size_ >= 16 && size_ <= appinfo_bytes;
+        ok_ = !error && file_ && fd_ >= 0 && size_ >= 16 && size_ <= appinfo_bytes;
     }
+    ~AppInfo() {
+        if (fd_ >= 0) {
+            ::close(fd_);
+        }
+    }
+    AppInfo(const AppInfo&) = delete;
+    AppInfo& operator=(const AppInfo&) = delete;
     // `id`'s appinfo/common/name, or empty.
     std::string name(std::uint32_t id) {
         std::uint32_t magic = 0;
@@ -117,19 +129,21 @@ class AppInfo {
             !find_keys(static_cast<std::uint64_t>(table))) {
             return {};
         }
+        // Each entry's header in one read straight from the file, then a jump
+        // past its body: no buffer refilled per entry (R404).
         for (std::uint64_t at = 16; at + 8 <= static_cast<std::uint64_t>(table);) {
-            std::uint32_t app = 0, bytes = 0;
-            if (!read_at(at, app) || !read_at(at + 4, bytes) || app == 0) {
+            std::array<std::uint32_t, 2> header{}; // app ID, size
+            if (!read_at(at, header) || header[0] == 0) {
                 return {};
             }
+            const auto [app, bytes] = header;
             const std::uint64_t end = at + 8 + bytes;
             if (bytes < 60 || end > static_cast<std::uint64_t>(table)) {
                 return {}; // a size that points outside the entries
             }
             if (app == id) {
                 std::string data(bytes - 60, '\0');
-                file_.seekg(static_cast<std::streamoff>(at + 8 + 60));
-                if (!file_.read(data.data(), static_cast<std::streamsize>(data.size()))) {
+                if (!read_bytes(at + 8 + 60, data.data(), data.size())) {
                     return {};
                 }
                 return find_name(data);
@@ -140,13 +154,25 @@ class AppInfo {
     }
 
   private:
-    template <class T> bool read_at(std::uint64_t at, T& value) {
-        if (at + sizeof value > size_) {
+    // `size` bytes at `at`, read whole; false past the file's end or on a short read.
+    bool read_bytes(std::uint64_t at, char* data, std::size_t size) const {
+        if (at + size > size_) {
             return false;
         }
-        file_.clear();
-        file_.seekg(static_cast<std::streamoff>(at));
-        return static_cast<bool>(file_.read(reinterpret_cast<char*>(&value), sizeof value));
+        for (std::size_t done = 0; done < size;) {
+            const auto got = ::pread(fd_, data + done, size - done, static_cast<off_t>(at + done));
+            if (got < 0 && errno == EINTR) {
+                continue;
+            }
+            if (got <= 0) {
+                return false;
+            }
+            done += static_cast<std::size_t>(got);
+        }
+        return true;
+    }
+    template <class T> bool read_at(std::uint64_t at, T& value) const {
+        return read_bytes(at, reinterpret_cast<char*>(&value), sizeof value);
     }
     // The string table's indices of the three keys, compared without case. Every spelling is kept,
     // a few at most, as the table may hold "name" and "Name" both, each used by other entries (R407).
@@ -260,7 +286,8 @@ class AppInfo {
         }
         return found;
     }
-    std::ifstream file_;
+    std::ifstream file_; // the string table, read in order
+    int fd_ = -1;        // everything else, read where it lies
     std::uintmax_t size_{};
     bool ok_{};
     // Spellings kept per key: the few case variants a table could hold.
