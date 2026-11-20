@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Swipe typing and typing suggestions in Spanish typed "El" for the article "el": the word list ranked the sentence-initial capital one step above the lowercase word, and both swipe alternatives and suggestions keep one case variant, so "el" was never offered. The list now folds "El" into "el"; "él" stays an alternative and names such as "Cruz" stay capitalised.
+
 ## 0.19.1: Small polishing and bugfixes
 
 - Shift, Ctrl, Alt, AltGr and the left Frame icon now lock after half a second held instead of a second: the ring shows from 0.15 s, is fully in by 0.25 s and closes at 0.6 s. A double tap still locks within 0.3 s.

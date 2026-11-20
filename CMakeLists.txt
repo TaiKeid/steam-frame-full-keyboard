@@ -485,6 +485,9 @@ if(BUILD_TESTING)
         add_test(NAME locales-tool COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_locales_tests.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py")
+        add_test(NAME swipe-lexicons COMMAND "${Python3_EXECUTABLE}" -I
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/swipe_lexicon_tests.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_swipe_lexicon.py")
     endif()
     add_executable(word-suggestions-tests tests/word_suggestions_tests.cpp)
     target_link_libraries(word-suggestions-tests PRIVATE keyboard_core)

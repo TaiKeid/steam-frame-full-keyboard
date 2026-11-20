@@ -105,7 +105,13 @@ For `pl-pl.tsv`, `nl-nl.tsv` and `sv-se.tsv`, a capitalised word is also folded
 into its lowercase form when both exist and the capitalised one is at most 20
 steps (about 4.6 times) more frequent, so sentence-initial capitals such as
 Polish "Po" do not replace "po"; names such as "Warszawa" stay capitalised
-(`--fold-initial-capitals`).
+(`--fold-initial-capitals`). `es-es.tsv` uses the same fold with one step
+(`--fold-initial-capitals --fold-initial-capitals-steps 1`): its article "El"
+(213) sits one step above "el" (212), while names such as "Cruz" (145) sit 15
+steps above "cruz" (130), and the 20-step threshold would fold those too. The
+shipped file was folded with this rule rather than rebuilt: a full rebuild from
+its sources also shifts every blended frequency by one step, and that is left
+for a separate change.
 
 `pt-br.tsv` is built directly from the Leipzig Corpora Collection corpus
 `por-br_newscrawl_2011_1M`

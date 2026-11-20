@@ -17,6 +17,10 @@ Formats:
 subtitles), so everyday chat words that news text rarely uses rank as they
 are spoken.
 
+--fold-initial-capitals folds a sentence-initial capital into its lowercase
+word; --fold-initial-capitals-steps sets how many frequency steps above the
+lowercase still count as sentence-initial (default 20).
+
 --turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
 --script keeps only words in one script, as Bulgarian, Macedonian, Greek,
 Arabic and Hebrew sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
@@ -117,22 +121,23 @@ def from_combined(path):
 
 # A capitalised form at most this many steps (about 4.6x) above its lowercase
 # form is taken as sentence-initial; further above, it is a name (Warszawa 129,
-# warszawa 75).
-CAPITAL_FOLD_STEPS = 20
+# warszawa 75). Lists tune it with --fold-initial-capitals-steps.
+DEFAULT_CAPITAL_FOLD_STEPS = 20
 
 
-def fold_initial_capitals(entries):
+def fold_initial_capitals(entries, steps=DEFAULT_CAPITAL_FOLD_STEPS):
     """Fold "Po" into "po" when both exist, keeping the higher frequency.
 
     Sentence-initial capitals can outrank the lowercase word (Polish Po 199,
     po 183), and the runtime offers one case variant per word, so a swipe
-    mid-sentence would type "Po". Names stay capitalised. Not for German,
-    whose nouns are capitalised (Zeit 187, zeit 86).
+    mid-sentence would type "Po". A capitalised form more than `steps` above
+    its lowercase is a name and stays capitalised. Not for German, whose nouns
+    are capitalised (Zeit 187, zeit 86).
     """
     folded = dict(entries)
     for word, frequency in entries.items():
         lower = lower_initial(word)
-        if lower != word and lower in entries and frequency <= entries[lower] + CAPITAL_FOLD_STEPS:
+        if lower != word and lower in entries and frequency <= entries[lower] + steps:
             folded[lower] = max(folded[lower], frequency)
             del folded[word]
     return folded
@@ -182,7 +187,8 @@ def from_tsv(path):
 BLEND_CALIBRATION_WORDS = 5000
 
 
-def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None):
+def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None,
+                    steps=DEFAULT_CAPITAL_FOLD_STEPS):
     """Raise words to their film-subtitle frequency; add the missing ones.
 
     Subtitle counts go on the same 0-255 log scale, shifted by the median
@@ -223,7 +229,7 @@ def blend_subtitles(entries, path, lowercase_capitals=False, transliterate=None)
             lowercase_capitals
             and listed != word
             and lower_initial(listed) == word
-            and frequency + CAPITAL_FOLD_STEPS >= blended[listed]
+            and frequency + steps >= blended[listed]
         ):
             blended[word] = max(frequency, blended.pop(listed))
             spellings[fold_case(word)] = word  # Greek ας and ασ fold alike.
@@ -286,6 +292,13 @@ def main():
         action="store_true",
         help="fold a capitalised word into its lowercase form when both exist",
     )
+    parser.add_argument(
+        "--fold-initial-capitals-steps",
+        type=int,
+        default=DEFAULT_CAPITAL_FOLD_STEPS,
+        metavar="N",
+        help="frequency steps above the lowercase that still count as sentence-initial (default 20)",
+    )
     parser.add_argument("--turkic-case", action="store_true", help="lowercase I to ı and İ to i")
     parser.add_argument("--respell", action="append", default=[], metavar="FROM=TO", help="replace a letter")
     parser.add_argument("--script", choices=sorted(SCRIPTS), help="keep only words in this script")
@@ -295,6 +308,8 @@ def main():
         help="keep Cyrillic words and convert Serbian Latin subtitle words to Cyrillic",
     )
     args = parser.parse_args()
+    if args.fold_initial_capitals_steps < 0:
+        parser.error("--fold-initial-capitals-steps must be zero or more")
     global TURKIC_CASE
     TURKIC_CASE = args.turkic_case
 
@@ -309,13 +324,16 @@ def main():
     script = "cyrillic" if args.serbian_cyrillic else args.script
     if args.blend:
         transliterate = serbian_cyrillic if args.serbian_cyrillic else None
-        entries = blend_subtitles(entries, args.blend, args.fold_initial_capitals, transliterate)
+        entries = blend_subtitles(
+            entries, args.blend, args.fold_initial_capitals, transliterate,
+            args.fold_initial_capitals_steps
+        )
     if args.respell:
         entries = respelled(entries, args.respell)
     if script:
         entries = {word: f for word, f in entries.items() if in_script(word, script)}
     if args.fold_initial_capitals:
-        entries = fold_initial_capitals(entries)
+        entries = fold_initial_capitals(entries, args.fold_initial_capitals_steps)
     ranked = sorted(entries.items(), key=lambda item: (-item[1], item[0]))[: args.limit]
     with open(args.output, "w", encoding="utf-8") as output:
         output.write("# Full Keyboard swipe lexicon: word<TAB>log-frequency 0-255\n")
