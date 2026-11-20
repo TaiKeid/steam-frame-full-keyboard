@@ -1215,8 +1215,9 @@ class SceneCursors {
             dot.placed = world;
         }
         if (!dot.visible) {
-            vr_overlay()->ShowOverlay(dot.handle);
+            // Recorded first: a stall's hide between the two still reads hidden (R411).
             dot.visible = true;
+            vr_overlay()->ShowOverlay(dot.handle);
         }
     }
     void hide(std::size_t hand) {
@@ -1610,8 +1611,9 @@ class SideOverlays {
             slot.shown_alpha = alpha;
         }
         if (!slot.visible) {
-            overlay->ShowOverlay(slot.handle);
+            // Recorded first: a stall's hide between the two still reads hidden (R411).
             slot.visible = true;
+            overlay->ShowOverlay(slot.handle);
         }
         set_native_input(slot, preferred_native_input_);
     }
