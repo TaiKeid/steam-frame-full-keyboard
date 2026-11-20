@@ -134,7 +134,7 @@
     let restoringOwner = null, restoreTimer;
     let logical = null, closingNative = false, deadline = 0, request = 1, acknowledged = 0;
     let expectedClose = null;
-    let eventSequence = 0;
+    let eventSequence = 0, statusMismatch = false;
     const events = [];
     function record(code) {
         events.push({id: ++eventSequence, request, code});
@@ -814,6 +814,19 @@
             (open, flags, _text, _appID, dispatch, key) => {
                 const valid = validStatus(open, flags, dispatch, key);
                 if (!fromStore) mirroredStatus = valid ? {open, flags, dispatch, key} : CHANGED;
+                // Diagnostic only. Steam's own handler has updated its store by
+                // now, so on the old interface the notification must match it:
+                // every such Frame proves the notification's shape for the new
+                // interface. The first difference is recorded once, without values.
+                else if (!statusMismatch) {
+                    let s = null;
+                    try { s = nativeStatus(); } catch (_) { /* A changed store is inspect()'s to handle. */ }
+                    if (s && (!valid || s.open !== open || s.flags !== flags || s.dispatch !== dispatch ||
+                        s.key !== key)) {
+                        statusMismatch = true;
+                        record("status-mismatch");
+                    }
+                }
                 // A Show that Steam made for this notification ran before it, so
                 // it was judged on the previous status and may be held back.
                 // A malformed one ends replacement and gives that Show back,

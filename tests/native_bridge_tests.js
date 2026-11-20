@@ -7,7 +7,7 @@ const MAIN = "valve.steam.gamepadui.main";
 const EVENT_CODES = new Set(["begin", "acknowledged", "release-dismissed", "release-fallback",
     "competing-owner", "target-changed", "target-cleared", "lease-expired", "request-timeout",
     "steam-closed", "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-    "button-summon", "update-native-close"]);
+    "button-summon", "update-native-close", "status-mismatch"]);
 const nativeSource = fs.readFileSync(require("node:path").join(__dirname, "../src/native_replacement.cpp"), "utf8");
 const sessionCodes = nativeSource.match(/const char\* session_code\([\s\S]*?\n\}/)?.[0];
 assert(sessionCodes, "native session-code parser anchor must match the production function");
@@ -381,6 +381,32 @@ function seesUnnotifiedOpen(f) {
     assert(!seesUnnotifiedOpen(f), "registry without the store: the notification is the source");
     f.notify(true, 13, false, MAIN);
     assert(f.step().eligible, "registry without the store: the notification opens a session");
+    f.bridge.dispose();
+}
+
+// On the old interface, the notification is compared with the store Steam's
+// handler has just updated. The first difference is recorded once, without
+// values, and changes nothing: the store stays the source.
+{
+    const f = fixture(false, true);
+    const request = owned(f);
+    f.bridge.send(request, "a");
+    f.status({bIsOpen: false});
+    f.status({bIsOpen: true, sOverlayKey: "some.other.overlay"});
+    assert(!f.bridge.diagnostics().events.some(e => e.code === "status-mismatch"),
+        "a notification that matches the store records nothing");
+    f.notify(false, 13, false, MAIN);
+    f.notify(true, 0, undefined, MAIN);
+    const s = f.step();
+    assert.equal(s.events.filter(e => e.code === "status-mismatch").length, 1, "the first difference is recorded once");
+    assert(f.alive() && !s.unavailable && f.nativeOpen(), "a difference changes nothing on the old interface");
+    f.bridge.dispose();
+}
+{
+    const f = fixture(false, false, false, false, false, false, 0, null, true);
+    owned(f);
+    f.notify(true, 0, true, "some.other.overlay");
+    assert(!f.step().events.some(e => e.code === "status-mismatch"), "the new interface has no store to compare");
     f.bridge.dispose();
 }
 

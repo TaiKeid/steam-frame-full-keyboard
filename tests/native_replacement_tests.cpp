@@ -705,6 +705,9 @@ void sanitized_diagnostics() {
     require(output.str() == first, "repeated event sequences log each transition once");
     state(100.1, R"([null,42,"PRIVATE_SENTINEL",{"id":6,"request":4,"code":"PRIVATE_SENTINEL"}])");
     require(output.str() == first, "unknown and malformed diagnostic events are ignored");
+    state(100.1, R"([{"id":7,"request":4,"code":"status-mismatch"}])");
+    require(output.str() == first + "[native-replacement] status-mismatch\n",
+            "a status code describes the interface and is logged without a request");
     for (int i = 0; i < 3; ++i) {
         put(peer, R"({"op":"unavailable","reason":"debugger-unavailable","text":"PRIVATE_SENTINEL"})");
         replacement.poll(100.2);
@@ -743,7 +746,7 @@ void sanitized_diagnostics() {
         require(prefix == "[native-replacement]" &&
                     std::set<std::string>{"helper-start", "available", "begin", "acknowledged",
                                           "owner-changed", "owner-hidden", "debugger-unavailable",
-                                          "helper-unavailable"}
+                                          "helper-unavailable", "status-mismatch"}
                         .contains(code),
                 "every logged code belongs to the fixed diagnostic set");
         ++count;

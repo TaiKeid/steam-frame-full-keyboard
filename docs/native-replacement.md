@@ -18,7 +18,12 @@ reply timeouts have distinct codes. Field values, typed keys, input packets and
 helper stderr are never forwarded. The bridge retains the latest 32 sequenced
 transitions so multiple changes between polls can be reported once. Output is
 limited to eight lines per second. An unchanged failure and retry delay is
-reported at most once per minute.
+reported at most once per minute. Where Steam's interface still has the
+keyboard store, the bridge also compares each status notification with the
+store Steam's handler has just updated, and logs `status-mismatch`, without
+values, the first time they differ in an install; nothing else changes. A Frame
+on that interface thereby proves the notification's shape the newer interface
+depends on.
 
 ## When it runs
 

@@ -69,7 +69,7 @@ const char* session_code(const char* code) {
              {"begin", "acknowledged", "release-dismissed", "release-fallback", "competing-owner",
               "target-changed", "target-cleared", "lease-expired", "request-timeout", "steam-closed",
               "restore-complete", "restore-failed", "owner-changed", "owner-hidden", "button-toggle",
-              "button-summon", "update-native-close"}) {
+              "button-summon", "update-native-close", "status-mismatch"}) {
             if (std::string_view(code) == allowed) {
                 return allowed;
             }
@@ -452,7 +452,9 @@ void NativeReplacement::poll(double now) {
                         json_object_get_int64(request) <= 0) {
                         continue;
                     }
-                    diagnostic(code, now, json_object_get_uint64(request));
+                    // Status codes describe the bridge's Steam interface, not a request.
+                    const bool status = std::string_view(code).starts_with("status-");
+                    diagnostic(code, now, status ? 0 : json_object_get_uint64(request));
                     if (std::string_view(code) == "button-toggle") {
                         button_.toggle = json_object_get_uint64(request);
                     } else if (std::string_view(code) == "button-summon") {
