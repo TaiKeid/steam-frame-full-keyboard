@@ -28,6 +28,9 @@ raises the lowercase word (English "He" over "he"). --fold-written-floor F and
 its own right: listed at F or above, or given S or above by the subtitles on
 the written scale. Without them every such capital folds.
 
+--always-fold LIST folds, before the blend, the capitals named for that list in
+ALWAYS_FOLD into their lowercase words, however far above them they are.
+
 --turkic-case lowercases I to ı and İ to i (Turkish, Azerbaijani).
 --script keeps only words in one script, as Bulgarian, Macedonian, Greek,
 Arabic and Hebrew sources carry Latin words. --serbian-cyrillic implies --script cyrillic and
@@ -173,6 +176,25 @@ def fold_written_capitals(entries, steps, common=None):
                 (common is None or common(lower)):
             folded[lower] = frequency
             del folded[word]
+    return folded
+
+
+# Per list, capitals that always fold into their lowercase words: ordinary
+# words their capital outranks by far, beyond any window (British "Hi" 158,
+# "hi" 77; American "Sir" 167, "sir" 92), and only those no rule reaches.
+ALWAYS_FOLD = {
+    "en-gb": ("Hi",),
+    "en-us": ("Sir",),
+}
+
+
+def always_fold(entries, words):
+    """Fold each named capital into its lowercase word, which takes the higher frequency."""
+    folded = dict(entries)
+    for word in words:
+        lower = lower_initial(word)
+        if word in folded and lower != word:
+            folded[lower] = max(folded.pop(word), folded.get(lower, 0))
     return folded
 
 
@@ -370,6 +392,12 @@ def main():
         metavar="S",
         help="with --fold-written-capitals: or if the subtitles give it S or above on the written scale",
     )
+    parser.add_argument(
+        "--always-fold",
+        choices=sorted(ALWAYS_FOLD),
+        metavar="LIST",
+        help="fold the capitals ALWAYS_FOLD names for this list into their lowercase words",
+    )
     parser.add_argument("--turkic-case", action="store_true", help="lowercase I to ı and İ to i")
     parser.add_argument("--respell", action="append", default=[], metavar="FROM=TO", help="replace a letter")
     parser.add_argument("--script", choices=sorted(SCRIPTS), help="keep only words in this script")
@@ -398,6 +426,8 @@ def main():
     else:
         entries = from_jieba(args.source, args.minimum_count)
     script = "cyrillic" if args.serbian_cyrillic else args.script
+    if args.always_fold:
+        entries = always_fold(entries, ALWAYS_FOLD[args.always_fold])
     if args.blend:
         transliterate = serbian_cyrillic if args.serbian_cyrillic else None
         written_fold = None if args.fold_written_capitals is None else (

@@ -128,14 +128,18 @@ in its own right: listed at 80 or above (`--fold-written-floor 80`), or given
 spoken 157) and "darling". These floors lie above the lowercase twins of names
 such as "Wikipedia", "Bianca", "Lakshmi", "Seine" and "Petra", and below the
 contractions "he's" (122) and "here's" (114), which the subtitle list doesn't
-count. Each list is built in two steps, and its offensive list is built again
-from the result:
+count. A few ordinary words sit so far below their capital that no window
+reaches them: British "Hi" (158) over "hi" (77) and American "Sir" (167) over
+"sir" (92). `ALWAYS_FOLD` in the builder names them per list, and
+`--always-fold <id>` folds them before the blend whatever the gap; each list
+names only words its own rule doesn't fold. Each list is built in two steps, and
+its offensive list is built again from the result:
 
 ```sh
 python3 -I tools/build_swipe_lexicon.py main_en_US__experimental.combined en-us.written.tsv
 python3 -I tools/build_swipe_lexicon.py en-us.written.tsv en-us.tsv --format tsv \
     --blend en_50k.txt --fold-written-capitals 26 --fold-written-floor 80 \
-    --fold-written-spoken-floor 110 --header …
+    --fold-written-spoken-floor 110 --always-fold en-us --header …
 ```
 
 Without `--fold-written-capitals`, the same two steps rebuild the earlier

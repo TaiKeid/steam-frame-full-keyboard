@@ -262,8 +262,8 @@ void english_case() {
                     std::string(language) + " keeps " + spelling + " capitalized");
         }
     };
-    check("en-us", {"he", "no", "so"}, "seine", "Seine");
-    check("en-gb", {"how", "our"}, "wikipedia", "Wikipedia");
+    check("en-us", {"he", "no", "so", "sir"}, "seine", "Seine");
+    check("en-gb", {"how", "our", "hi"}, "wikipedia", "Wikipedia");
 }
 
 void features() {

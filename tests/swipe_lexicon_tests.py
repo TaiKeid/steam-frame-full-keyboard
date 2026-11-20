@@ -116,6 +116,14 @@ with tempfile.TemporaryDirectory() as folder:
     everything = floors()
     expect(not {'He', 'Hi', 'Bianca'} & set(everything), 'without floors every capital in the window folds')
 
+# A list's always-fold words fold however far their capital is above them;
+# without the option nothing changes.
+expect(tool.always_fold({'Hi': 158, 'hi': 77, 'Hill': 138}, ('Hi',)) == {'hi': 158, 'Hill': 138},
+       'a named capital folds into its lowercase word, which takes its frequency')
+expect(tool.always_fold({'Sir': 92, 'sir': 167}, ('Sir',)) == {'sir': 167}, 'the lowercase word keeps a higher one')
+expect(tool.always_fold({'Hi': 158}, ()) == {'Hi': 158}, 'nothing named, nothing folded')
+expect(set(tool.ALWAYS_FOLD) == {'en-us', 'en-gb'}, 'only the English lists use it so far')
+
 # The shipped Spanish list carries the fold, and keeps the accented pronoun and
 # names. The runtime keeps one spelling per key, the commonest, so "Cruz" wins
 # over "cruz" only while it is still listed.
@@ -148,9 +156,9 @@ def offered(name):
 # The shipped English lists offer common words in lowercase mid-sentence,
 # and names capitalized.
 for name, lowercase, names in (
-        ('en-us.tsv', "he no so he's here's new may",
+        ('en-us.tsv', "he no so he's here's new may hi sir",
          'John York American English August Trump Wikipedia Bianca Hanuman Seine Scrabble Petra Pasteur'),
-        ('en-gb.tsv', 'how our new may',
+        ('en-gb.tsv', 'how our new may hi sir',
          'John York American English August Wikipedia Bianca Lakshmi Scrabble Petra Pasteur')):
     spellings = offered(name)
     for word in lowercase.split():
