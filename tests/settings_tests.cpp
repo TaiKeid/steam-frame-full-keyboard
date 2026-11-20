@@ -6863,6 +6863,57 @@ void unsynced_save() {
     require(app.view().shortcut_editor->notice.empty() && saved_shortcuts(app).profiles.size() == 1,
             "the file was replaced: the unreadable-file note goes");
 }
+// R403: with replacement on, closing the panel (the keyboard button, the
+// dashboard closing) and summoning it again resumes the editor with its
+// unsaved change. An open popup ends as Cancel, as at any hide.
+void editor_survives_close_and_summon() {
+    TemporaryDirectory directory;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.replace_native_keyboard = true;
+    save_settings(directory.path, settings);
+    ShortcutModel model;
+    model.profiles.push_back({"p",
+                              "P",
+                              {shortcut_button("Go", {{{"ControlLeft"}, "KeyG"}}),
+                               shortcut_button("One", {{{"ControlLeft"}, "KeyO"}})}});
+    model.free_profile = "p";
+    write_shortcuts(directory.path, model);
+    Options options;
+    options.config_dir = directory.path;
+    options.mode = Mode::Vr;
+    options.input = InputBackend::Uinput;
+    options.start_enabled = true;
+    options.target_language = "en-us";
+    CaptureSink sink;
+    App app(options, sink);
+    double now = 5400;
+    app.tick(now);
+    require(app.resident_replacement(), "replacement keeps the keyboard resident");
+    open_editor(app);
+    tap_control(app, "shortcuts-button-1");
+    tap_control(app, "shortcuts-kind-1"); // unsaved: One becomes a macro
+    tap_control(app, "shortcuts-label");
+    tap_mini(app, "KeyX");
+    const auto before = app.view();
+    require(before.shortcut_editor && before.shortcut_editor->popup &&
+                before.shortcut_editor->popup->text == "Onex" &&
+                control(before, "shortcuts-kind-1").selected,
+            "an unsaved change and the Label popup, half typed");
+    app.close_panel();
+    require(app.take_dismissal(), "the panel closes, resident");
+    app.tick(now += .1);
+    app.summon();
+    app.tick(now += .1);
+    const auto after = app.view();
+    require(after.shortcut_editor && !after.shortcut_editor->popup,
+            "summoned again: the editor, its popup ended as Cancel");
+    require(control(after, "shortcuts-button-1").selected &&
+                control(after, "shortcuts-kind-1").selected &&
+                strip_labels(after) == std::vector<std::string>{"Go", "One"} &&
+                saved_shortcuts(app).profiles[0].buttons[1].action.kind == ShortcutAction::Kind::Keys,
+            "the draft keeps its change, still unsaved; the label as before the popup");
+}
 // R407: what only the editor uses goes when it closes, and comes back with
 // it: the Label popup's mini keyboard, and the Run list read again.
 void editor_resources_after_close() {
@@ -7537,6 +7588,7 @@ int main() {
         run_editor();
         shortcut_save_too_large();
         editor_resources_after_close();
+        editor_survives_close_and_summon();
         run_script_past_list();
         dashboard_unknown_keeps_focus();
         macro_first_row_scrolls();
