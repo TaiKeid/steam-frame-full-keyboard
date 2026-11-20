@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <fstream>
 #include <glib.h>
 #include <json-c/json.h>
@@ -667,9 +668,16 @@ void AppNameLookup::request(const AppIdentity& app) {
     state_->waiting.push_back(app);
     if (!state_->started) {
         // Started at the first lookup, and detached with its own share of
-        // the state: a slow read never holds up the keyboard's exit.
-        state_->started = true;
-        std::thread([state = state_] { look_up(state); }).detach();
+        // the state: a slow read never holds up the keyboard's exit. Without
+        // a thread none is found, and the next lookup tries again (R407).
+        try {
+            std::thread([state = state_] { look_up(state); }).detach();
+            state_->started = true;
+        } catch (const std::exception&) {
+            state_->waiting.pop_back();
+            state_->done.push_back({app, {}});
+            return;
+        }
     }
     state_->wake.notify_one();
 }

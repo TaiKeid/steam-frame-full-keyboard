@@ -1,6 +1,7 @@
 #include "framekeyboard/stream_app.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -130,11 +131,17 @@ void StreamAppFinder::request(std::uint64_t session) {
     // One read per stream session, detached with its own share of the
     // state: a slow /proc never holds up the keyboard's exit. Only the
     // identity leaves the thread; the arguments end with it.
-    std::thread([state = state_, session] {
-        auto app = stream_identity(state->source());
-        std::lock_guard lock(state->mutex);
-        state->done.push_back({session, std::move(app)});
-    }).detach();
+    try {
+        std::thread([state = state_, session] {
+            auto app = stream_identity(state->source());
+            std::lock_guard lock(state->mutex);
+            state->done.push_back({session, std::move(app)});
+        }).detach();
+    } catch (const std::exception&) {
+        // No thread: answered as a list that couldn't be read (R407).
+        std::lock_guard lock(state_->mutex);
+        state_->done.push_back({session, stream_identity({})});
+    }
 }
 std::optional<StreamAppFinder::Result> StreamAppFinder::take() {
     std::lock_guard lock(state_->mutex);

@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <csignal>
 #include <deque>
+#include <exception>
 #include <fcntl.h>
 #include <mutex>
 #include <sched.h>
@@ -413,9 +414,17 @@ void ShortcutLauncher::start(std::uint64_t id, LaunchRequest request) {
     state_->waiting.emplace_back(id, std::move(request));
     if (!state_->started) {
         // Detached with its own share of the state: a start under way never
-        // holds up the keyboard's exit.
-        state_->started = true;
-        std::thread([state = state_] { run_starts(state); }).detach();
+        // holds up the keyboard's exit. Marked started only once it exists:
+        // without a thread this start fails as the system's, never through
+        // the VR loop, and the next press tries again (R407).
+        try {
+            std::thread([state = state_] { run_starts(state); }).detach();
+            state_->started = true;
+        } catch (const std::exception&) {
+            state_->waiting.pop_back();
+            state_->done.push_back({id, LaunchFailure::System});
+            return;
+        }
     }
     state_->wake.notify_one();
 }
@@ -480,8 +489,15 @@ void ScriptLister::read(const fs::path& folder, std::vector<std::string> chosen)
     std::lock_guard lock(state_->mutex);
     state_->waiting = State::Request{folder, std::move(chosen)};
     if (!state_->started) {
-        state_->started = true;
-        std::thread([state = state_] { run_reads(state); }).detach();
+        // Without a thread the list is empty, and the next read tries again (R407).
+        try {
+            std::thread([state = state_] { run_reads(state); }).detach();
+            state_->started = true;
+        } catch (const std::exception&) {
+            state_->waiting.reset();
+            state_->done = ScriptList{};
+            return;
+        }
     }
     state_->wake.notify_one();
 }

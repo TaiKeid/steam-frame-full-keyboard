@@ -1,7 +1,9 @@
 // Run's launcher (docs/shortcut-bar-design.md, Run), in a temporary home and
 // scripts folder only. The programs started write marker files there or
 // sleep briefly; none touches anything else.
+#include "framekeyboard/app_names.hpp"
 #include "framekeyboard/shortcut_launch.hpp"
+#include "framekeyboard/stream_app.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -13,6 +15,7 @@
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
@@ -338,6 +341,93 @@ void worker() {
 }
 } // namespace
 
+// R407: a worker whose thread can't start answers at once, as a failure,
+// with no exception for the caller, and the next request starts it. Run in a
+// child of its own, where RLIMIT_NPROC at 0 refuses every new thread.
+void without_threads() {
+    TemporaryDirectory home;
+    const auto folder = home.path / "scripts";
+    fs::create_directories(folder);
+    const pid_t child = fork();
+    if (child == 0) {
+        rlimit old{};
+        getrlimit(RLIMIT_NPROC, &old);
+        const rlimit none{0, old.rlim_max};
+        bool refused = false;
+        if (setrlimit(RLIMIT_NPROC, &none) == 0) {
+            try {
+                std::thread([] {}).join();
+            } catch (const std::exception&) {
+                refused = true;
+            }
+        }
+        if (!refused) {
+            _exit(77); // as root, or a limit that can't be set: nothing to check
+        }
+        const AppIdentity app{AppIdentity::Kind::Steam, "4000020"};
+        ShortcutLauncher launcher;
+        ScriptLister lister([](const fs::path&) { return std::vector<std::string>{"a.sh"}; });
+        AppNameLookup lookup([](const AppIdentity&) { return std::string("Example Game"); });
+        StreamAppFinder finder([]() -> std::optional<std::vector<std::vector<std::string>>> {
+            return std::vector<std::vector<std::string>>{
+                {"/usr/bin/streaming_client", "--appid", "4000020"}};
+        });
+        auto r = request(home.path, folder);
+        r.script = "gone";
+        bool ok = true;
+        try {
+            launcher.start(1, r);
+            lister.read(folder, {});
+            lookup.request(app);
+            finder.request(5);
+        } catch (...) {
+            _exit(2);
+        }
+        const auto started = launcher.take();
+        ok &= started && started->id == 1 && started->failure == LaunchFailure::System;
+        const auto listed = lister.take();
+        ok &= listed && listed->names.empty();
+        const auto named = lookup.take();
+        ok &= named && named->app == app && named->name.empty();
+        const auto found = finder.take();
+        ok &= found && found->session == 5 && found->app == pc_stream_identity();
+        if (!ok) {
+            _exit(3);
+        }
+        // Threads again: the next requests start their workers.
+        setrlimit(RLIMIT_NPROC, &old);
+        launcher.start(2, r);
+        lister.read(folder, {});
+        lookup.request(app);
+        finder.request(6);
+        std::optional<ShortcutLauncher::Result> later;
+        std::optional<ScriptList> list;
+        std::optional<AppNameLookup::Result> name;
+        std::optional<StreamAppFinder::Result> stream;
+        for (int i = 0; i < 300 && !(later && list && name && stream); ++i) {
+            std::this_thread::sleep_for(10ms);
+            later = later ? later : launcher.take();
+            list = list ? list : lister.take();
+            name = name ? name : lookup.take();
+            stream = stream ? stream : finder.take();
+        }
+        ok = later && later->id == 2 && later->failure == LaunchFailure::Missing && list &&
+             list->names == std::vector<std::string>{"a.sh"} && name && name->name == "Example Game" &&
+             stream && stream->session == 6 && stream->app == app;
+        _exit(ok ? 0 : 4);
+    }
+    int status = 0;
+    require(child > 0 && waitpid(child, &status, 0) == child && WIFEXITED(status),
+            "the child without threads exits");
+    if (WEXITSTATUS(status) == 77) {
+        std::cout << "Without threads: skipped, the limit can't refuse them here.\n";
+        return;
+    }
+    require(WEXITSTATUS(status) != 2, "no exception reaches the caller");
+    require(WEXITSTATUS(status) != 3, "each request is answered at once, as a failure");
+    require(WEXITSTATUS(status) == 0, "with threads again, later requests work");
+}
+
 int main() {
     try {
         name_rules();
@@ -348,6 +438,7 @@ int main() {
         child_state();
         nothing_to_wait_for();
         worker();
+        without_threads();
         std::cout << "Run's launcher passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
