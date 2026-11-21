@@ -37,6 +37,14 @@ bool stream_paced_key(int code, bool num_lock);
 // than that (R420, stream_paced_key), so its taps never pile up inside the stream, where nothing of
 // ours can take them back.
 inline constexpr double stream_key_on_the_way = .14;
+// The library's own pacing (R432), which keys_through() follows for the shortcut bar: a key-down
+// holds the way kKeyOnTheWayMs, the same key again stream_key_on_the_way while the one before may
+// still be on its way, and a text that follows keys waits for them and the library's default
+// "text-after-key" more. stream_relay_slack covers the helper's relay and the streaming client's
+// next event pump before the library counts a burst from its first key.
+inline constexpr double stream_other_key_on_the_way = .075;
+inline constexpr double stream_text_after_keys = .15;
+inline constexpr double stream_relay_slack = .03;
 // How often a held key repeats into any other target, and a key that types a character everywhere.
 inline constexpr double key_repeat_gap = .04;
 // The sink receives Linux evdev codes. No renderer or profile can bypass this boundary.

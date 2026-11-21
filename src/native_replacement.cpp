@@ -33,6 +33,51 @@ double stream_typed_downs(const std::string& text) {
     }
     return downs;
 }
+// The key the stream library types an ASCII character with on a US layout (ascii_key in
+// stream/openvr_passthrough.c), as its Linux key code, and whether with Shift; 0 for a character it
+// doesn't type as a key.
+int stream_typed_key(unsigned char c, bool& shift) {
+    static const std::string plain = "-=[]\\;'`,./", shifted = "_+{}|:\"~<>?";
+    static const char* const names[] = {"Minus",     "Equal",     "BracketLeft", "BracketRight",
+                                        "Backslash", "Semicolon", "Quote",       "Backquote",
+                                        "Comma",     "Period",    "Slash"};
+    static const std::string digits_shifted = "!@#$%^&*()";
+    shift = false;
+    if (c >= 'a' && c <= 'z') {
+        return key_code(std::string("Key") + static_cast<char>(c - 'a' + 'A'));
+    }
+    if (c >= 'A' && c <= 'Z') {
+        shift = true;
+        return key_code(std::string("Key") + static_cast<char>(c));
+    }
+    if (c >= '0' && c <= '9') {
+        return key_code(std::string("Digit") + static_cast<char>(c));
+    }
+    if (const auto at = digits_shifted.find(static_cast<char>(c)); at != std::string::npos) {
+        shift = true;
+        return key_code("Digit" + std::to_string((at + 1) % 10));
+    }
+    if (const auto at = plain.find(static_cast<char>(c)); at != std::string::npos) {
+        return key_code(names[at]);
+    }
+    if (const auto at = shifted.find(static_cast<char>(c)); at != std::string::npos) {
+        shift = true;
+        return key_code(names[at]);
+    }
+    switch (c) {
+    case ' ':
+        return KEY_SPACE;
+    case '\n':
+    case '\r':
+        return KEY_ENTER;
+    case '\b':
+        return KEY_BACKSPACE;
+    case '\t':
+        return KEY_TAB;
+    default:
+        return 0;
+    }
+}
 using Json = std::unique_ptr<json_object, decltype(&json_object_put)>;
 std::string encoded(const std::string& text) {
     Json value(json_object_new_string_len(text.data(), static_cast<int>(text.size())), json_object_put);
@@ -603,11 +648,47 @@ bool NativeReplacement::take_unsupported_control() {
 NativeReplacement::ButtonPress NativeReplacement::take_button_press() {
     return std::exchange(button_, {});
 }
+void NativeReplacement::pace_stream_down(int code) {
+    // As key_pushed_at in the library: the same key again waits for the one before only while that
+    // can still be on its way; a burst starts after the relay to the library.
+    const bool queued = stream_paced_through_ > now_;
+    stream_paced_through_ =
+        (queued ? stream_paced_through_ : now_ + stream_relay_slack) +
+        (queued && code == stream_last_down_ ? stream_key_on_the_way : stream_other_key_on_the_way);
+    stream_last_down_ = code;
+}
+void NativeReplacement::pace_stream_text(const std::string& text) {
+    for (std::size_t i = 0; i < text.size();) {
+        const auto c = static_cast<unsigned char>(text[i]);
+        if (c < 0x80) {
+            bool shift = false;
+            if (const int key = stream_typed_key(c, shift)) {
+                if (shift) {
+                    pace_stream_down(KEY_LEFTSHIFT);
+                }
+                pace_stream_down(key);
+            }
+            ++i;
+            continue;
+        }
+        // A run of other characters is one text, which waits until the keys before it are through
+        // and the library's default text-after-key more; the next key then starts afresh. With the
+        // library's developer switches (a longer text-after-key, or unicode-keys typing each
+        // character as key presses) it takes longer than this.
+        while (i < text.size() && static_cast<unsigned char>(text[i]) >= 0x80) {
+            ++i;
+        }
+        stream_paced_through_ =
+            std::max(stream_paced_through_, now_ + stream_relay_slack) + stream_text_after_keys;
+        stream_last_down_ = -1;
+    }
+}
 bool NativeReplacement::stream_key(std::uint64_t request, int code, int value) {
     if (value != 0) {
         // A press or a repeat's fresh press: on the way to the PC a while (R369).
         stream_keys_through_ =
             (stream_keys_through_ > now_ ? stream_keys_through_ : now_) + stream_key_on_the_way;
+        pace_stream_down(code);
     }
     return packet("{\"op\":\"stream-key\",\"request\":" + std::to_string(request) +
                   ",\"code\":" + std::to_string(code) + ",\"value\":" + std::to_string(value) + "}");
@@ -802,6 +883,7 @@ bool NativeReplacement::commit_text(const std::string& text) {
         const double taps = stream_key_on_the_way * stream_typed_downs(text);
         stream_keys_through_ = (stream_keys_through_ > now_ ? stream_keys_through_ : now_) + taps;
         keys_wait = lead + taps;
+        pace_stream_text(text);
     }
     pending_limit_ = state_.stream ? 3.5 + .1 * static_cast<double>(text.size()) + keys_wait : 1.0;
     pending_text_ = text;

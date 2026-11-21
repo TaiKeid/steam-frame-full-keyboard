@@ -50,7 +50,8 @@ class NativeReplacement : public KeySink {
     // The routed request is a stream session, whose keys go out as presses
     // and releases (send's stream_key), not one of Steam's fields.
     bool stream_session_target() const override { return remote_ && state_.active && state_.stream; }
-    double keys_through() const override { return stream_session_target() ? stream_keys_through_ : 0; }
+    // By the library's own pacing (R432), which a bar run waits for; never shorter than it.
+    double keys_through() const override { return stream_session_target() ? stream_paced_through_ : 0; }
     // A Steam field is no window of Gamescope's.
     std::uint32_t focused_window() const override { return remote_ ? 0 : local_.focused_window(); }
     // On Steam's route each request is a target of its own: another stream,
@@ -69,6 +70,8 @@ class NativeReplacement : public KeySink {
     bool stream_focused() const override { return !remote_ && local_.stream_focused(); }
     // When the stream keys sent are estimated through to the PC (R369), in the clock poll() was given.
     double stream_keys_through() const { return stream_keys_through_; }
+    // The same by the library's own pacing (keys_through), whatever is routed.
+    double stream_paced_through() const { return stream_paced_through_; }
     // A Steam field is never a terminal, whatever app Gamescope has focused.
     EditKeys edit_keys() const override { return remote_ ? EditKeys::Standard : local_.edit_keys(); }
     bool edit_keys_known() const override { return remote_ || local_.edit_keys_known(); }
@@ -172,6 +175,18 @@ class NativeReplacement : public KeySink {
     // When the stream keys sent are estimated through to the PC (R369): the library holds a text back
     // until then, so a text's wait grows by that time, as the helper's does.
     double stream_keys_through_{};
+    // When the stream keys sent are through by the library's own rule (R432): 75 ms a key-down, 140
+    // for the same key again while the one before may be on its way, and a text's ASCII as the keys it
+    // is typed with. A bar run waits for this one; a text's deadline keeps the longer one above.
+    double stream_paced_through_{};
+    int stream_last_down_{-1}; // the last key-down counted, as the library compares them
+    // The helper's number for the streaming client connected now, 0 for none: a change is another
+    // stream, or the library gone, and its queue with it, so both estimates start again (R433).
+    std::uint64_t stream_client_{};
+    // Counts one key-down into the stream in stream_paced_through_.
+    void pace_stream_down(int code);
+    // Counts what the library types a text with.
+    void pace_stream_text(const std::string& text);
     double retry_delay_{5};
     double log_window_{-1}, last_failure_log_{-60}, logged_retry_{};
     unsigned log_lines_{};

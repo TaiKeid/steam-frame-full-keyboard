@@ -654,6 +654,110 @@ void stream_run_replay() {
                     std::string::npos,
             "the journal says when the run started, into what, and why it ended");
 }
+// R432: a bar run waits for what the stream really holds, by the library's own pacing (75 ms a key,
+// 140 ms for the same key again), not by the longer estimate a text's deadline keeps. A long text
+// before a macro delays its second combination only as long as the library takes for the text.
+void stream_run_after_text() {
+    const char* stream_state =
+        R"({"op":"state","version":1,"request":2,"open":true,"eligible":true,"active":true,)"
+        R"("stream":true})";
+    // Every stream-key press waiting on the helper's end, by key code, at `now`.
+    const auto take_downs = [](int fd, double now, std::vector<std::pair<int, double>>& downs) {
+        char data[4096];
+        for (ssize_t size; (size = recv(fd, data, sizeof(data), MSG_DONTWAIT)) > 0;) {
+            auto* message =
+                json_tokener_parse(std::string(data, static_cast<std::size_t>(size)).c_str());
+            if (message &&
+                std::string(json_object_get_string(json_object_object_get(message, "op"))) ==
+                    "stream-key" &&
+                json_object_get_int(json_object_object_get(message, "value")) == 1) {
+                downs.emplace_back(json_object_get_int(json_object_object_get(message, "code")), now);
+            }
+            json_object_put(message);
+        }
+    };
+    const auto macro = [](std::vector<std::string> keys, int times) {
+        ShortcutAction action;
+        action.kind = ShortcutAction::Kind::Macro;
+        for (auto& key : keys) {
+            action.steps.push_back({MacroStep::Kind::Keys, {{{}, std::move(key)}}, 0});
+        }
+        action.repeat = {MacroRepeat::Mode::Times, times};
+        return action;
+    };
+    for (const bool same_key : {false, true}) {
+        Local local;
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "text socketpair");
+        {
+            NativeReplacement replacement(local, pair[0]);
+            double now = 10, answered = 10;
+            put(pair[1], stream_state);
+            replacement.poll(now);
+            replacement.route(true);
+            OutputController output(replacement);
+            output.set_enabled(true);
+            QueuedShortcutOutput shortcuts(output, [] { return true; });
+            ShortcutRunner runner(shortcuts);
+            std::vector<std::pair<int, double>> downs;
+            const auto frame = [&] {
+                now += .011;
+                if (now - answered >= .1) {
+                    put(pair[1], stream_state);
+                    answered = now;
+                }
+                replacement.poll(now);
+                output.tick(now);
+                runner.tick(now);
+                take_downs(pair[1], now, downs);
+            };
+            // 200 characters of lowercase words: 200 different keys in a row, so 200 x 75 ms by the
+            // library's rule against 200 x 140 ms for the text's deadline.
+            std::string text;
+            while (text.size() < 200) {
+                text += "the quick brown fox jumps over the lazy dog ";
+            }
+            text.resize(200);
+            require(!replacement.commit_text(text), "a long text goes to the stream");
+            const double sent = now;
+            require(std::abs(replacement.stream_paced_through() - sent -
+                             (stream_relay_slack + 200 * stream_other_key_on_the_way)) < 1e-6,
+                    "the library's estimate counts 75 ms a key for the text");
+            require(replacement.stream_keys_through() - sent > 200 * stream_key_on_the_way - 1e-6,
+                    "the text's deadline keeps the longer one");
+            frame();
+            const auto action = same_key ? macro({"KeyJ"}, 4) : macro({"KeyJ", "KeyL"}, 3);
+            require(runner.start(action, now), "a macro starts right after the text");
+            double worst_lead = 0;
+            for (int i = 0; i < 2600 && runner.running(); ++i) {
+                frame();
+                // After its first combination, which the text's keys hold back anyway, nothing of
+                // the run is more than one combination ahead of the stream.
+                if (downs.size() >= 2) {
+                    worst_lead = std::max(worst_lead, replacement.stream_paced_through() - now);
+                }
+            }
+            require(!runner.running() && runner.end() == ShortcutRunner::End::Finished,
+                    "the macro runs to its end");
+            const auto expected = static_cast<std::size_t>(same_key ? 4 : 6);
+            require(downs.size() == expected, "every combination went to the stream");
+            // The second combination follows when the text and the first are through by the
+            // library's rule: about 15 s after the text, not the 28 s its deadline counts.
+            const double second = downs[1].second - sent;
+            require(second > 200 * stream_other_key_on_the_way && second < 16,
+                    "the second combination follows by the library's estimate");
+            for (std::size_t i = 2; i < downs.size(); ++i) {
+                const double gap = downs[i].second - downs[i - 1].second;
+                require(gap >= (same_key ? stream_key_on_the_way : stream_other_key_on_the_way) - 1e-9,
+                        same_key ? "one key again waits 140 ms a tap"
+                                 : "a different key waits the library's 75 ms");
+            }
+            require(worst_lead <= stream_key_on_the_way + stream_relay_slack + 1e-6,
+                    "a stop leaves at most one combination on its way");
+        }
+        close(pair[1]);
+    }
+}
 // One frame's packet, as update() sends it.
 std::string take_frame(NativeReplacement& replacement, int fd, double now) {
     replacement.update(true, true, 2, false, now, true);
@@ -2102,6 +2206,7 @@ int main(int argc, char** argv) {
         stream_run_target_change();
         stream_repeat_pace();
         stream_run_replay();
+        stream_run_after_text();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();

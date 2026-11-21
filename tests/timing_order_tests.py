@@ -44,6 +44,13 @@ SPECS = (
     ("library key on the way", LIBRARY, r"\bkSameKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
     ("stream key on the way", PY, r"\bSTREAM_KEY_ON_THE_WAY\s*=\s*" + NUMBER, 1, 1),
     ("app stream key on the way", INPUT, r"\bstream_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
+    # R432: the library's pacing for another key and its default wait after keys before a text, and
+    # the app's copies a bar run waits by, which must never be shorter.
+    ("library other key on the way", LIBRARY, r"\bkKeyOnTheWayMs\s*=\s*" + NUMBER, 1, .001),
+    ("app other key on the way", INPUT, r"\bstream_other_key_on_the_way\s*=\s*" + NUMBER, 1, 1),
+    ("library text after keys", LIBRARY,
+     r'switch_milliseconds\("text-after-key",\s*' + PLAIN + r"(?=\s*,)", 1, .001),
+    ("app text after keys", INPUT, r"\bstream_text_after_keys\s*=\s*" + NUMBER, 1, 1),
     # The app's stream text wait is base + per byte * size, from the same send time.
     ("app stream text wait", CPP, r"pending_limit_\s*=\s*state_\.stream\s*\?\s*" + PLAIN + r"(?=\s*\+)", 1, 1),
     ("app stream text per byte", CPP,
@@ -110,6 +117,12 @@ def check_ordering(sources):
         if values[allowance][0] < values["library key on the way"][0]:
             raise AssertionError(f"timing rule broken: library key on the way <= {allowance}; got "
                                  f"{values['library key on the way'][0]} and {values[allowance][0]} seconds")
+    # A bar run waits by the app's copy of the library's own pacing, never shorter than it (R432).
+    for library, app in (("library other key on the way", "app other key on the way"),
+                         ("library text after keys", "app text after keys")):
+        if values[app][0] < values[library][0]:
+            raise AssertionError(f"timing rule broken: {library} <= {app}; got "
+                                 f"{values[library][0]} and {values[app][0]} seconds")
     if values["stream text per byte"][0] > values["app stream text per byte"][0]:
         raise AssertionError("timing rule broken: stream text per byte <= app stream text per byte; got "
                              f"{values['stream text per byte'][0]} and {values['app stream text per byte'][0]}")
@@ -157,6 +170,18 @@ class TimingOrdering(unittest.TestCase):
         sources[PY] = re.sub(r"(STREAM_KEY_ON_THE_WAY\s*=\s*)" + NUMBER,
                              lambda match: match[1] + "0.1", sources[PY], flags=re.MULTILINE)
         with self.assertRaisesRegex(AssertionError, "library key on the way <= stream key on the way"):
+            check_ordering(sources)
+
+    def test_bar_pacing_shorter_than_the_library_is_rejected(self):
+        # R432: a bar run waits by the app's copy of the library's pacing; a slower library breaks it.
+        sources = dict(self.sources)
+        sources[LIBRARY] = re.sub(r"(kKeyOnTheWayMs\s*=\s*)" + NUMBER,
+                                  lambda match: match[1] + "100", sources[LIBRARY], flags=re.MULTILINE)
+        with self.assertRaisesRegex(AssertionError, "library other key on the way <= app other key"):
+            check_ordering(sources)
+        sources = dict(self.sources)
+        sources[LIBRARY] = sources[LIBRARY].replace('"text-after-key", 150', '"text-after-key", 300')
+        with self.assertRaisesRegex(AssertionError, "library text after keys <= app text after keys"):
             check_ordering(sources)
 
     def test_delivery_outliving_the_lease_is_rejected(self):
