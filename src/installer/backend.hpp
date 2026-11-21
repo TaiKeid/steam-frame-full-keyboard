@@ -53,12 +53,12 @@ struct Release {
 // The wizard's answers, Yes by default: the installer shows off what the
 // keyboard can do, while features new in an update stay opt-in. The
 // shortcut bar, a niche feature, is the one page that starts at No: it
-// only tells that the bar exists (owner's decision).
+// only tells that the bar exists.
 //
 // The pages only some versions have hold an optional answer: empty when the
 // version being installed has no page for it. Not asked, not changed: its
 // setting then stays exactly as loaded, true or false, so a later update finds
-// it as it was (owner's rule, R435).
+// it as it was (R435).
 struct Choices {
     bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true};
     std::optional<bool> curved{true}, shortcuts{false}, streaming{true};

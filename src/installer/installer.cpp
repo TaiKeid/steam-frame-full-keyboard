@@ -2242,7 +2242,7 @@ void Installer::paint_curve_demo(const Rect& s, double t) {
 // own (paint::shortcut_bar) where the full layout places it: the laser
 // presses a shortcut, then a macro, whose run goes round its button. The
 // labels are a photo editor's functions, as a user would name their own
-// buttons, the same in every language (owner's choice).
+// buttons, the same in every language.
 void Installer::paint_shortcuts_demo(const Rect& s, double t) {
     static constexpr std::array<const char*, 5> labels{"Brush", "Eraser", "Undo", "New\nLayer",
                                                        "Export\nLayers"};
