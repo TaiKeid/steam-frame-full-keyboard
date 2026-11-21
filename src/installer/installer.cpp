@@ -281,21 +281,25 @@ bool Installer::choice(int feature) const {
     case 4:
         return choices_.numpad;
     case curved_feature:
-        return curved_page() && choices_.curved;
+        return curved_page() && choices_.curved.value_or(false);
     case shortcuts_feature:
-        return shortcuts_page() && choices_.shortcuts;
+        return shortcuts_page() && choices_.shortcuts.value_or(false);
     default:
-        return streaming_page() && choices_.streaming && streaming_blocked().key.empty();
+        return streaming_page() && choices_.streaming.value_or(false) && streaming_blocked().key.empty();
     }
 }
 Choices Installer::shown_choices() const {
     // The answers as shown: No where a page was not offered or could not be
     // answered, as Finish lists them.
     auto choices = choices_;
-    choices.curved = choice(curved_feature);
-    choices.shortcuts = choice(shortcuts_feature);
-    choices.shortcuts_asked = shortcuts_page();
-    choices.streaming = choice(streaming_feature);
+    // A page the version doesn't offer sends no answer, so its setting stays
+    // as loaded (R435).
+    const auto asked = [&](bool offered, int feature) {
+        return offered ? std::optional<bool>(choice(feature)) : std::nullopt;
+    };
+    choices.curved = asked(curved_page(), curved_feature);
+    choices.shortcuts = asked(shortcuts_page(), shortcuts_feature);
+    choices.streaming = asked(streaming_page(), streaming_feature);
     return choices;
 }
 bool Installer::curved_page() const {

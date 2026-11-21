@@ -54,16 +54,22 @@ struct Release {
 // keyboard can do, while features new in an update stay opt-in. The
 // shortcut bar, a niche feature, is the one page that starts at No: it
 // only tells that the bar exists (owner's decision).
+//
+// The pages only some versions have hold an optional answer: empty when the
+// version being installed has no page for it. Not asked, not changed: its
+// setting then stays exactly as loaded, true or false, so a later update finds
+// it as it was (owner's rule, R435).
 struct Choices {
-    bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true},
-        curved{true}, shortcuts{false}, streaming{true};
-    // Whether the shortcut bar's page was offered, so its answer is saved:
-    // a version without the bar asks nothing, and its setting stays as loaded.
-    bool shortcuts_asked{};
+    bool replace_native{true}, swipe{true}, suggestions{true}, pull_for_shift{true}, numpad{true};
+    std::optional<bool> curved{true}, shortcuts{false}, streaming{true};
 };
 // Sets the answers into the keyboard's settings, as Finish saves them.
-// Streaming support is left for Finish, which sets it up after saving.
+// Streaming support's answer is left for Finish, which sets it up after saving.
 void apply_choices(Settings& settings, const Choices& choices);
+// Whether Finish sets Streaming support up for Steam's start: only for a Yes
+// with replacement on. Otherwise it is taken away, also when the version has
+// no page for it, which neither uses nor removes it; its saved choice stays.
+bool streaming_set_up(const Choices& choices);
 
 enum class Task { None, Releases, Install, Uninstall, Finish };
 enum class State { Idle, Running, Done, Failed };

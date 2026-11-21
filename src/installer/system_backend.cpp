@@ -27,20 +27,27 @@ namespace framekeyboard::installer {
 
 void apply_choices(Settings& settings, const Choices& choices) {
     settings.replace_native_keyboard = settings.start_with_steamos = choices.replace_native;
-    // Set up by Finish, once the other choices are safely saved.
-    settings.streaming_support = false;
     settings.swipe_typing = choices.swipe;
     settings.typing_suggestions = choices.suggestions;
     settings.key_flicks = choices.pull_for_shift;
     settings.hide_numpad = !choices.numpad;
-    // Off for a release without it, which ignores the setting anyway.
-    settings.curved_keyboard = choices.curved;
-    // Its answer either way, as Finish lists it, when its page was offered:
-    // a kept config's bar goes off with a No. Without the page the setting
-    // stays as loaded. The profiles in shortcuts.json are never touched.
-    if (choices.shortcuts_asked) {
-        settings.shortcuts = choices.shortcuts;
+    // A page the version offered saves its answer either way, as Finish lists
+    // it; one it doesn't have leaves its setting as loaded (R423, R435). The
+    // shortcut bar's profiles in shortcuts.json are never touched.
+    const auto answer = [](bool& setting, const std::optional<bool>& asked) {
+        if (asked) {
+            setting = *asked;
+        }
+    };
+    answer(settings.curved_keyboard, choices.curved);
+    answer(settings.shortcuts, choices.shortcuts);
+    // Asked, it starts off: Finish turns it on once it is set up for Steam.
+    if (choices.streaming) {
+        settings.streaming_support = false;
     }
+}
+bool streaming_set_up(const Choices& choices) {
+    return choices.replace_native && choices.streaming.value_or(false);
 }
 namespace {
 
@@ -390,10 +397,12 @@ class SystemBackend : public Backend {
             } catch (const std::exception&) {
                 throw UiError(ui("installer.error.settings"));
             }
-            if (!choices.replace_native || !choices.streaming) {
+            if (!streaming_set_up(choices)) {
                 // A setting for Steam's start left by an earlier install would
-                // otherwise go on using the library against this answer. Best
-                // effort: no answer here depends on it.
+                // otherwise go on using the library against this answer, or in
+                // a version without Streaming support, which neither uses nor
+                // removes it; a choice saved before stays for a later update
+                // (R435). Best effort: no answer here depends on it.
                 try {
                     configure_stream_support(false, stream_support_paths_in(install_root()));
                 } catch (const std::exception&) {
@@ -402,7 +411,7 @@ class SystemBackend : public Backend {
             if (!choices.replace_native) {
                 return;
             }
-            if (choices.streaming) {
+            if (streaming_set_up(choices)) {
                 // Its own failure, so the user can go back and answer No.
                 try {
                     configure_stream_support(true, stream_support_paths_in(install_root()));

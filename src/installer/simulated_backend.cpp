@@ -33,7 +33,7 @@ class SimulatedBackend : public Backend {
     void uninstall(bool) override { start(Task::Uninstall); }
     void finish(const Choices& choices, bool) override {
         if (start(Task::Finish)) {
-            streaming_ = choices.streaming;
+            streaming_ = streaming_set_up(choices);
         }
     }
 

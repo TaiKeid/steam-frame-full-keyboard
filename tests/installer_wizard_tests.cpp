@@ -52,7 +52,8 @@ struct RecordingBackend : in::Backend {
     void finish(const in::Choices& choices, bool) override {
         finished = choices;
         state.task = in::Task::Finish;
-        state.state = fail_streaming && choices.streaming ? in::State::Failed : in::State::Done;
+        state.state =
+            fail_streaming && choices.streaming.value_or(false) ? in::State::Failed : in::State::Done;
         state.error =
             state.state == in::State::Failed ? fk::ui("installer.error.streaming") : fk::UiText{};
     }
@@ -155,10 +156,10 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         }
         // Untouched: No for the bar, Yes for every other page.
         const auto choices = run.finish(0);
-        require(!choices.shortcuts && choices.shortcuts_asked,
-                "the shortcut bar's page starts at No, and its No is saved");
+        require(choices.shortcuts == false, "the shortcut bar's page starts at No, and its No is saved");
         require(choices.replace_native && choices.swipe && choices.suggestions &&
-                    choices.pull_for_shift && choices.numpad && choices.curved && choices.streaming,
+                    choices.pull_for_shift && choices.numpad && choices.curved == true &&
+                    choices.streaming == true,
                 "every other page keeps Yes");
     }
     // Yes saves it; the picture plays lit at the default and after Yes, and dims only
@@ -179,7 +180,7 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
                 "at its default No the picture plays as lit as after Yes");
         require(declined < yes * 7 / 10, "Yes turned back to No dims it");
         run.click(A::Choice, 0);
-        require(run.finish(page).shortcuts, "Yes reaches Finish's choices");
+        require(run.finish(page).shortcuts == true, "Yes reaches Finish's choices");
     }
     {
         Run run(profiles, localization, {"0.20.0"});
@@ -187,7 +188,7 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         run.to_page(page, 0);
         run.click(A::Choice, 0);
         run.click(A::Choice, 1);
-        require(!run.finish(page).shortcuts, "Yes then No saves No");
+        require(run.finish(page).shortcuts == false, "Yes then No saves No");
     }
     // An older version chosen has no page for it, and Finish leaves it off.
     {
@@ -196,7 +197,7 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
                     run.installer.feature(6) == I::streaming_feature,
                 "0.19.0 skips the shortcut bar's page");
         const auto choices = run.finish(0);
-        require(!choices.shortcuts && !choices.shortcuts_asked,
+        require(!choices.shortcuts.has_value() && choices.curved == true,
                 "and Finish saves nothing for it, leaving the setting as loaded");
     }
     // 0.18.x has Streaming support only; 0.17.x and 0.16.x no optional page.
@@ -206,7 +207,8 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
                     run.page_of(I::curved_feature) < 0 && run.page_of(I::shortcuts_feature) < 0,
                 "0.18.0 offers Streaming support's page alone");
         const auto choices = run.finish(0);
-        require(!choices.curved && !choices.shortcuts_asked && choices.streaming,
+        require(!choices.curved.has_value() && !choices.shortcuts.has_value() &&
+                    choices.streaming == true,
                 "and saves only the answers its pages asked");
     }
     for (const char* older : {"0.17.0", "0.16.0"}) {
@@ -215,7 +217,8 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
                     run.page_of(I::shortcuts_feature) < 0 && run.page_of(I::streaming_feature) < 0,
                 std::string(older) + " offers no optional page");
         const auto choices = run.finish(0);
-        require(!choices.curved && !choices.shortcuts_asked && !choices.streaming,
+        require(!choices.curved.has_value() && !choices.shortcuts.has_value() &&
+                    !choices.streaming.has_value(),
                 std::string(older) + " saves none of their answers");
     }
     // Streaming support still needs Replace native keyboard.
@@ -227,7 +230,7 @@ void shortcuts_page(const fk::Profiles& profiles, const fk::Localization& locali
         require(!run.installer.enabled(A::Choice, 0),
                 "Streaming support can't be answered Yes without replacement");
         const auto choices = run.finish(page);
-        require(!choices.replace_native && !choices.streaming && !choices.shortcuts,
+        require(!choices.replace_native && choices.streaming == false && choices.shortcuts == false,
                 "and Finish saves it off");
     }
 }
@@ -242,8 +245,8 @@ void finish_without(const fk::Profiles& profiles, const fk::Localization& locali
     run.wait(.5);
     run.click(A::FinishWithout);
     const auto& choices = *run.backend.finished;
-    require(!choices.streaming && !choices.curved && !choices.shortcuts && !choices.shortcuts_asked &&
-                choices.replace_native && choices.swipe,
+    require(choices.streaming == false && !choices.curved.has_value() &&
+                !choices.shortcuts.has_value() && choices.replace_native && choices.swipe,
             "Finish without it saves only the answers its pages showed");
 }
 // R424: Finish's eight answers stay inside the stage in every language, with
@@ -318,29 +321,54 @@ void picture_geometry(const fk::Profiles& profiles) {
     }
     cairo_surface_destroy(picture);
 }
-// What Finish saves: the bar's answer either way when its page was offered,
-// as every other page's; without the page the setting stays as loaded (R423).
+// What Finish saves (R423, R435): a page the version offered saves its answer
+// either way; one it doesn't have leaves its setting exactly as loaded, true or
+// false, and nothing of Streaming support is set up for Steam then.
 void saved_settings() {
-    in::Choices choices;
-    choices.shortcuts_asked = true;
+    // 0.20.0 offers every page: each answer is saved, No turning off what a kept
+    // configuration had on.
+    in::Choices all;
     fk::Settings settings;
-    in::apply_choices(settings, choices);
-    require(!settings.shortcuts && settings.curved_keyboard && settings.swipe_typing,
-            "the default choices leave the bar off and turn the others on");
-    settings.shortcuts = true;
-    in::apply_choices(settings, choices);
-    require(!settings.shortcuts, "No turns off a bar a kept config had on");
-    choices.shortcuts = true;
-    in::apply_choices(settings, choices);
+    in::apply_choices(settings, all);
+    require(!settings.shortcuts && settings.curved_keyboard && settings.swipe_typing &&
+                !settings.streaming_support && in::streaming_set_up(all),
+            "the default answers: the bar off, the others on, Streaming support set up by Finish");
+    settings.shortcuts = settings.curved_keyboard = settings.streaming_support = true;
+    all.curved = all.streaming = false;
+    in::apply_choices(settings, all);
+    require(!settings.shortcuts && !settings.curved_keyboard && !settings.streaming_support &&
+                !in::streaming_set_up(all),
+            "each No turns off what a kept configuration had on");
+    all.shortcuts = true;
+    in::apply_choices(settings, all);
     require(settings.shortcuts, "Yes turns the bar on");
-    // A version without the page asked nothing: neither on nor off is written.
-    in::Choices unasked;
+    // 0.18.x has no Curved keyboard or shortcut bar page.
+    in::Choices older;
+    older.curved.reset();
+    older.shortcuts.reset();
     for (const bool kept : {true, false}) {
         fk::Settings loaded;
-        loaded.shortcuts = kept;
-        in::apply_choices(loaded, unasked);
-        require(loaded.shortcuts == kept, "without its page the bar stays as loaded");
+        loaded.curved_keyboard = loaded.shortcuts = kept;
+        in::apply_choices(loaded, older);
+        require(loaded.curved_keyboard == kept && loaded.shortcuts == kept,
+                "0.18.x keeps Curved keyboard and the bar as loaded");
     }
+    // 0.17.x and 0.16.x have none of the three: all stay as loaded, on or off, and
+    // Streaming support is not set up for a version that can't use it.
+    in::Choices oldest = older;
+    oldest.streaming.reset();
+    for (const bool kept : {true, false}) {
+        fk::Settings loaded;
+        loaded.curved_keyboard = loaded.shortcuts = loaded.streaming_support = kept;
+        in::apply_choices(loaded, oldest);
+        require(loaded.curved_keyboard == kept && loaded.shortcuts == kept &&
+                    loaded.streaming_support == kept && !in::streaming_set_up(oldest),
+                "an older version keeps every setting it has no page for, and sets none of it up");
+    }
+    // A Yes for Streaming support without replacement is not set up.
+    in::Choices manual;
+    manual.replace_native = false;
+    require(!in::streaming_set_up(manual), "Streaming support still needs Replace native keyboard");
 }
 } // namespace
 
