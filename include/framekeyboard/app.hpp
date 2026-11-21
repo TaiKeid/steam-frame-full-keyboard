@@ -2002,8 +2002,11 @@ class App {
     std::uint64_t next_start_{};
     void start_run_button(const std::string& profile, std::size_t index, const ShortcutButton& button);
     void take_started();
-    // The Debug card's sample bars, while there are none.
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+    // The Debug card's sample bars, while there are none. Debug builds only,
+    // so no release carries them (scripts/package.sh checks).
     void add_sample_shortcuts();
+#endif
 
     // The shortcut editor (docs/shortcut-bar-design.md, Settings and the
     // editor), in app_shortcut_editor.cpp: a screen of its own over the

@@ -24,6 +24,8 @@ std::optional<std::size_t> target_index(const std::string& target, std::string_v
         return {};
     }
 }
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
+// Builders for the Debug card's sample bars (App::add_sample_shortcuts).
 ShortcutChord chord(std::vector<std::string> modifiers, std::string key) {
     return {std::move(modifiers), std::move(key)};
 }
@@ -54,6 +56,7 @@ ShortcutButton macro(std::string label, std::vector<MacroStep> steps, MacroRepea
     button.action.repeat = repeat;
     return button;
 }
+#endif
 } // namespace
 
 bool App::bar_shown() const {
@@ -1140,6 +1143,7 @@ void App::stop_shortcut_run(const char* reason) {
         dirty = true;
     }
 }
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
 void App::add_sample_shortcuts() {
     if (!shortcuts_.profiles.empty()) {
         return;
@@ -1190,4 +1194,5 @@ void App::add_sample_shortcuts() {
     // Shown at once, in place of the empty bar the toolbar may have opened.
     configure_bar();
 }
+#endif
 } // namespace framekeyboard

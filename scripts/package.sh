@@ -15,7 +15,7 @@ package_dir="$project_dir/out/framekeyboard-$version-aarch64"
 rm -rf -- "$package_dir"
 mkdir -p "$package_dir"
 cmake --install build/frame-arm64-release --prefix "$package_dir" --strip
-if grep -q -a -e 'Display key collision' -e 'Mark Anthy suggestions' "$package_dir/bin/framekeyboard"; then
+if grep -q -a -e 'Display key collision' -e 'Mark Anthy suggestions' -e 'Sample editing' "$package_dir/bin/framekeyboard"; then
     echo 'The release contains debug mode: build it with FRAMEKEYBOARD_DEBUG_MODE=OFF.' >&2
     exit 1
 fi

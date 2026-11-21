@@ -5590,9 +5590,11 @@ void App::action(const ControlAction& command) {
         editor_action(command);
     } else if (kind == ControlKind::FieldAction) {
         field_action(command);
+#ifdef FRAMEKEYBOARD_DEBUG_MODE
     } else if (kind == ControlKind::DebugSampleShortcuts) {
         add_sample_shortcuts();
         update_settings_ui();
+#endif
     } else if (kind == ControlKind::KeyFlicks) {
         pending_key_flicks_ = !pending_key_flicks_;
         update_settings_ui();
