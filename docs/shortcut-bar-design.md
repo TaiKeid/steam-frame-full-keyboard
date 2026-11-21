@@ -151,7 +151,7 @@ Up to 32 steps, run in order. A macro presses keys; it does not type text.
 `ShortcutRunner` feeds the output queue one combination at a time, each after the one before it was delivered, and is the only code that sends a button's keys. A running button stays lit. A run planned to take longer than 0.5 s also shows its progress: a stroke that runs clockwise around the button's border from the top center, once over the whole run for Once and for a count, once per pass for While held. It is drawn as a locked modifier's border is, in the theme's colors, and goes with the run however it ends. A run stops, sending nothing more and retrying nothing, when:
 
 - its button is pressed again, or anything else on the keyboard or the bar is pressed: a key, another button, the picker, a row or an assign button of its menu;
-- another window takes the keys, or the target goes away; on Steam's route, where there is no window, when the typing request changes or ends: another stream, a Steam field after a stream; over a stream, when the dashboard opens and SteamVR's laser leaves the stream for it, though the session lasts a moment longer;
+- another window takes the keys, or the target goes away; on Steam's route, where there is no window, when the typing request changes or ends: another stream, a Steam field after a stream; over a stream, when the dashboard opens or Stay open over apps ends and SteamVR's laser takes the scene back, though the session lasts a moment longer;
 - the keyboard hides, Settings or dictation opens, or the headset sleeps;
 - a step fails to deliver.
 

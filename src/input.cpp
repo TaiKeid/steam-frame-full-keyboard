@@ -669,11 +669,14 @@ bool KeyboardState::continue_native(unsigned pointer, int code, double now) {
     auto& press = found->second;
     press.codes = {code};
     press.repeat_code = code;
-    press.repeat_at = now + .04;
+    // It goes on repeating at once, as the key it continues was already repeating; into a stream
+    // session an editing key's first repeat waits the paced gap too (R434).
+    const bool paced = stream_paced_key(code, num_);
+    const double first = paced && sink_.stream_session_target() ? stream_key_on_the_way : key_repeat_gap;
+    press.repeat_at = now + first;
     acquire(code);
     if (output_) {
-        output_->native_press(pointer, press.codes, press.repeat_code, now, .04,
-                              stream_paced_key(code, num_));
+        output_->native_press(pointer, press.codes, press.repeat_code, now, first, paced);
     }
     return true;
 }

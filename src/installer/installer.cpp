@@ -193,6 +193,9 @@ PictureGeometry picture_geometry(const Layout& layout, const Theme& theme) {
         }
     }
     g.tenkeyless_width = g.numpad_left + theme.padding;
+    const auto seven = at("Numpad7");
+    g.numpad_column = seven.x + seven.width / 2;
+    g.numpad_pitch = at("Numpad8").x - seven.x;
     return g;
 }
 
@@ -1536,43 +1539,21 @@ void Installer::paint_finish_page() {
     // rows drawn tighter too: once the names are as small as they go, the
     // chips shrink and the rows close up. Eight with a long note, as
     // Ukrainian's for a restart, also need the note smaller (R424).
+    // Measured once for each note and set of pages, not every frame while the install runs (R434).
     constexpr double gap = 20, chip_width = 96, pitch = 1.12, smallest = 16;
-    double chip_height = 36, row_pad = 14, note_size = 22;
     const double label_width = column_width - chip_width - 16;
-    const auto note_height = [&] {
-        return block(value, {0, 0, column_width, 130}, note_size, ink, PANGO_WEIGHT_NORMAL, false);
-    };
-    double h = note_height();
     const Color label_ink = paint::mix(theme_.legend, theme_.surface, .2);
-    std::array<double, pages> labels{};
-    double size = 19, list_height = 0;
-    for (;; size -= 1) {
-        list_height = 0;
-        for (std::size_t page = 0; page < static_cast<std::size_t>(wizard_pages()); ++page) {
-            const auto asks = static_cast<std::size_t>(feature(static_cast<int>(page)));
-            labels[page] = block(tr(summary_keys[asks]), {0, 0, label_width, height}, size, label_ink,
-                                 PANGO_WEIGHT_NORMAL, false, PANGO_ALIGN_LEFT, pitch);
-            list_height += std::max(chip_height, labels[page]) + row_pad;
-        }
-        if (h + gap + list_height <= stage.height) {
-            break;
-        }
-        if (size <= smallest) {
-            if (row_pad > 6) {
-                chip_height = 30;
-                row_pad = 6;
-            } else if (note_size > smallest) {
-                note_size -= 1;
-                h = note_height();
-            } else {
-                break;
-            }
-            size = smallest + 1; // Measured again at the smallest.
-        }
+    auto& fit = finish_fit_;
+    if (fit.note != note || fit.pages != wizard_pages()) {
+        fit = {note, wizard_pages()};
+        measure_finish_list(fit, value, ink, label_ink, label_width, gap, pitch, smallest);
     }
+    const double h = fit.h, list_height = fit.list_height, size = fit.size,
+                 chip_height = fit.chip_height, row_pad = fit.row_pad, note_size = fit.note_size;
+    const auto& labels = fit.labels;
     double y = stage.y + std::max(0.0, (stage.height - h - gap - list_height) * .45);
-    block(value, {column_x, y, column_width, 130}, note_size, ink);
-    y += h + gap;
+    // The list follows the note as drawn, so a fit measured for another note would show.
+    y += block(value, {column_x, y, column_width, 130}, note_size, ink) + gap;
     const Color card_fill = paint::mix(theme_.surface, theme_.bottom, .45);
     for (int page = 0; page < wizard_pages(); ++page) {
         const double label = labels[static_cast<std::size_t>(page)];
@@ -1600,6 +1581,41 @@ void Installer::paint_finish_page() {
     }
     // The last row's padding is space below it, inside the stage too.
     list_room_ = stage.y + stage.height - y;
+}
+
+void Installer::measure_finish_list(FinishFit& fit, const std::string& value, Color ink, Color label_ink,
+                                    double label_width, double gap, double pitch, double smallest) {
+    auto &size = fit.size, &chip_height = fit.chip_height, &row_pad = fit.row_pad,
+         &note_size = fit.note_size, &h = fit.h, &list_height = fit.list_height;
+    auto& labels = fit.labels;
+    const auto note_height = [&] {
+        return block(value, {0, 0, column_width, 130}, note_size, ink, PANGO_WEIGHT_NORMAL, false);
+    };
+    h = note_height();
+    for (;; size -= 1) {
+        list_height = 0;
+        for (std::size_t page = 0; page < static_cast<std::size_t>(wizard_pages()); ++page) {
+            const auto asks = static_cast<std::size_t>(feature(static_cast<int>(page)));
+            labels[page] = block(tr(summary_keys[asks]), {0, 0, label_width, height}, size, label_ink,
+                                 PANGO_WEIGHT_NORMAL, false, PANGO_ALIGN_LEFT, pitch);
+            list_height += std::max(chip_height, labels[page]) + row_pad;
+        }
+        if (h + gap + list_height <= stage.height) {
+            break;
+        }
+        if (size <= smallest) {
+            if (row_pad > 6) {
+                chip_height = 30;
+                row_pad = 6;
+            } else if (note_size > smallest) {
+                note_size -= 1;
+                h = note_height();
+            } else {
+                break;
+            }
+            size = smallest + 1; // Measured again at the smallest.
+        }
+    }
 }
 
 void Installer::paint_finish_badge(double x, double y, double radius) {
@@ -2106,15 +2122,16 @@ void Installer::paint_numpad_demo(const Rect& s, double t) {
     cairo_mask(cr_, run_off);
     cairo_pattern_destroy(run_off);
 
-    // 7 8 9, 4 5 6 and 1 2 3: the numpad's columns are 63 pixels apart from
-    // 1362, its rows the main block's from the second down.
+    // 7 8 9, 4 5 6 and 1 2 3: the numpad's columns from its 7 key's middle,
+    // its rows the main block's from the second down.
     constexpr double cycle = 5.2, typing = .8, step = .34;
     constexpr std::size_t digits = 9;
     const double c = std::fmod(std::max(0.0, std::min(t, now_ - choice_changed_ - .4)), cycle);
     const auto at = [&](std::size_t i) {
         i = std::min(i, digits - 1);
-        return std::pair{x + (1362 + 63.0 * static_cast<double>(i % 3)) * scale,
-                         y + picture_.row_middle[1 + i / 3] * scale};
+        return std::pair{
+            x + (picture_.numpad_column + picture_.numpad_pitch * static_cast<double>(i % 3)) * scale,
+            y + picture_.row_middle[1 + i / 3] * scale};
     };
     const double hop = std::max(0.0, (c - typing) / step);
     const auto from = at(static_cast<std::size_t>(hop)), to = at(static_cast<std::size_t>(hop) + 1);

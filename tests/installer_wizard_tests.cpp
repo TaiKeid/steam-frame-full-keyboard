@@ -311,6 +311,11 @@ void picture_geometry(const fk::Profiles& profiles) {
     for (const double y : g.row_middle) {
         require(light(x, y) > gap + 30, "a key lies where the derived rows put it");
     }
+    // The numpad's columns, from its 7 key (R434): 7, 8 and 9 are key faces.
+    for (int column = 0; column < 3; ++column) {
+        require(light(g.numpad_column + column * g.numpad_pitch, g.row_middle[1]) > gap + 30,
+                "a numpad key lies where the derived columns put it");
+    }
     cairo_surface_destroy(picture);
 }
 // What Finish saves: the bar's answer either way when its page was offered,

@@ -472,6 +472,44 @@ void stream_repeat_pace() {
         }
         close(pair[1]);
     }
+    // R434: a held key going on as Backspace (continue_native, a held ↶ past its reading) repeats at
+    // once, its first repeat into a stream after the paced gap as any Backspace's.
+    {
+        Local local;
+        int pair[2];
+        require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0,
+                "continue socketpair");
+        {
+            NativeReplacement replacement(local, pair[0]);
+            put(pair[1], stream_state);
+            replacement.poll(10);
+            replacement.route(true);
+            OutputController output(replacement);
+            output.set_enabled(true);
+            KeyboardState keyboard(output);
+            double now = 10, answered = 10;
+            require(keyboard.down(1, key("Backspace"), now, true), "a key held for a local reading");
+            require(keyboard.continue_native(1, KEY_BACKSPACE, now), "goes on as Backspace");
+            std::vector<double> downs, repeats;
+            int ups = 0;
+            for (const double until = now + 1; now < until;) {
+                now += .011;
+                if (now - answered >= .1) {
+                    put(pair[1], stream_state);
+                    answered = now;
+                }
+                replacement.poll(now);
+                keyboard.tick(now);
+                output.tick(now);
+                take_keys(pair[1], now, downs, repeats, ups);
+            }
+            keyboard.up(1);
+            require(downs.size() == 1 && !repeats.empty() &&
+                        repeats.front() - downs.front() >= stream_key_on_the_way - .011,
+                    "its first repeat into a stream waits the paced gap");
+        }
+        close(pair[1]);
+    }
     // Any other target: every key every 40 ms, after the same half second.
     for (const char* action : {"Backspace", "ArrowLeft"}) {
         Local local;
@@ -503,7 +541,9 @@ void stream_repeat_pace() {
 // active) and then one of Steam's fields. The run ends with the dashboard taking over, it never
 // sends a combination while one before it is still estimated on the way, and nothing of it reaches
 // the field.
-void stream_run_replay() {
+// R434: the same with Stay open over apps ending instead of the dashboard opening, which ends the
+// run as well, its journal line saying so.
+void stream_run_replay(bool dashboard_opens) {
     const auto directory =
         fs::temp_directory_path() / ("framekeyboard-run-replay-tests-" + std::to_string(getpid()));
     fs::remove_all(directory);
@@ -615,10 +655,11 @@ void stream_run_replay() {
         // key-down's time on the way.
         require(worst_lead <= stream_key_on_the_way + 1e-6,
                 "a combination never follows one still on the way");
-        // The dashboard opens over the stream: SteamVR's laser takes over (vr.cpp: release_input).
-        dashboard = true;
+        // The dashboard opens over the stream, or Stay open over apps ends: SteamVR's laser takes
+        // over (vr.cpp: release_input).
+        dashboard = dashboard_opens;
         app.release_input(false);
-        app.dashboard_opened();
+        app.scene_pointer_ended(dashboard_opens);
         const int downs_before_dashboard = stream_downs;
         for (int i = 0; i < 45; ++i) {
             frame();
@@ -648,11 +689,14 @@ void stream_run_replay() {
     fs::remove_all(directory);
     // R421: a run's start and end, with fixed words only.
     const auto lines = journal.str();
-    require(lines.find("Shortcut bar run started: macro, 10 times, into a stream session.\n") !=
-                    std::string::npos &&
-                lines.find("Shortcut bar run stopped: the dashboard opened over the stream.\n") !=
-                    std::string::npos,
-            "the journal says when the run started, into what, and why it ended");
+    require(
+        lines.find("Shortcut bar run started: macro, 10 times, into a stream session.\n") !=
+                std::string::npos &&
+            lines.find(dashboard_opens
+                           ? "Shortcut bar run stopped: the dashboard opened over the stream.\n"
+                           : "Shortcut bar run stopped: Stay open over apps ended over the stream.\n") !=
+                std::string::npos,
+        "the journal says when the run started, into what, and why it ended");
 }
 // R432: a bar run waits for what the stream really holds, by the library's own pacing (75 ms a key,
 // 140 ms for the same key again), not by the longer estimate a text's deadline keeps. A long text
@@ -2247,7 +2291,8 @@ int main(int argc, char** argv) {
         stream_keys();
         stream_run_target_change();
         stream_repeat_pace();
-        stream_run_replay();
+        stream_run_replay(true);
+        stream_run_replay(false);
         stream_run_after_text();
         stream_estimates_follow_the_client();
         ordered_transport();

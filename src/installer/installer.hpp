@@ -26,6 +26,8 @@ struct PictureGeometry {
     double case_bottom{}, keys_left{}, key_pitch{};
     std::array<double, 5> row_middle{}; // the digits' row down to Space's
     double numpad_left{}, tenkeyless_width{};
+    // The numpad's 7 key's middle and the pitch of its columns (R434).
+    double numpad_column{}, numpad_pitch{};
 };
 PictureGeometry picture_geometry(const Layout& layout, const Theme& theme);
 
@@ -118,6 +120,16 @@ class Installer {
     void paint_page(int page, double shift);
     void paint_wizard_page(int page);
     void paint_finish_page();
+    // How Finish's list fits under its note: the sizes the fit loop settled on and each label's
+    // height, kept for the note and the set of pages it was measured for (R434).
+    struct FinishFit {
+        std::string note;
+        int pages{-1};
+        double size{19}, chip_height{36}, row_pad{14}, note_size{22}, h{}, list_height{};
+        std::array<double, Installer::pages> labels{};
+    };
+    void measure_finish_list(FinishFit& fit, const std::string& value, Color ink, Color label_ink,
+                             double label_width, double gap, double pitch, double smallest);
     void paint_footer(double turned);
     void paint_versions();
     void paint_confirm();
@@ -272,6 +284,7 @@ class Installer {
     bool restart_{};
     bool quit_{};
     double list_room_{}; // finish_list_room()
+    FinishFit finish_fit_;
 };
 
 } // namespace framekeyboard::installer

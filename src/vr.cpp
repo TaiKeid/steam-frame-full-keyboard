@@ -3827,7 +3827,7 @@ int run_vr(App& app, VrInstance& instance, NativeReplacement& replacement, doubl
             stop_drag();
             app.release_input(false);
             if (!scene) {
-                app.dashboard_opened();
+                app.scene_pointer_ended(dashboard_visible);
             }
             clear_sound_pointers(now);
             hovered_devices.fill(false);

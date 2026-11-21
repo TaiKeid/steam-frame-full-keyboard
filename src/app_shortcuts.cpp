@@ -1124,9 +1124,10 @@ void App::take_started() {
         pending_starts_.erase(start);
     }
 }
-void App::dashboard_opened() {
+void App::scene_pointer_ended(bool dashboard) {
     if (output_.stream_session_target()) {
-        stop_shortcut_run("the dashboard opened over the stream");
+        stop_shortcut_run(dashboard ? "the dashboard opened over the stream"
+                                    : "Stay open over apps ended over the stream");
     }
 }
 void App::stop_shortcut_run(const char* reason) {

@@ -122,7 +122,7 @@ echo 'This removes Full Keyboard from this user account:'
 [[ -e $install_root ]] && echo "  $install_root (the app, its helpers and every installed release)"
 [[ -n $models && -e $models ]] && echo "  $models (downloaded speech models)"
 [[ -n $pictures && -e $pictures ]] && echo "  $pictures (theme pictures, drawn again when needed)"
-[[ -n $names && -e $names ]] && echo "  $names (names of apps and games the shortcut bar has seen)"
+[[ -n $names && -e $names && ! -d $names ]] && echo "  $names (names of apps and games the shortcut bar has seen)"
 $ours_launcher && echo "  $launcher"
 $ours_desktop && echo "  $desktop"
 $ours_unit && echo "  $unit (Start with SteamOS) and its links"
@@ -134,7 +134,7 @@ else
 fi
 if [[ ! -e $install_root ]] && ! $ours_launcher && ! $ours_desktop && ! $ours_unit && ! $ours_stream &&
     ! ($purge && [[ -e $settings ]]) && ! [[ -n $models && -e $models ]] &&
-    ! [[ -n $pictures && -e $pictures ]] && ! [[ -n $names && -e $names ]]; then
+    ! [[ -n $pictures && -e $pictures ]] && ! [[ -n $names && -e $names && ! -d $names ]]; then
     echo 'Nothing to remove: Full Keyboard is not installed for this user.'
     exit 0
 fi
@@ -244,7 +244,10 @@ if [[ -n $pictures && -d $pictures ]]; then
     rm -rf -- "$pictures"
 fi
 if [[ -n $names ]]; then
-    rm -f -- "$names" "$names.tmp"
+    # Files only: a folder by either name isn't the keyboard's and stays (R434).
+    for file in "$names" "$names.tmp"; do
+        [[ -d $file && ! -L $file ]] || rm -f -- "$file"
+    done
 fi
 # Gone only when nothing else is left in it.
 if [[ -n $pictures || -n $names ]]; then

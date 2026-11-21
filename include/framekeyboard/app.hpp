@@ -214,11 +214,13 @@ class App {
     }
     // `run_end`: why a shortcut bar run ends with it, for the journal (R421).
     void cancel(bool discard_composition = true, const char* run_end = "input canceled");
-    // SteamVR's laser left the scene for the dashboard. Over a stream the
-    // dashboard takes the user's keys though the session goes on a while, so
-    // a shortcut bar run into the stream ends (R421); anywhere else the
+    // The keyboard's own pointer gave the scene back to SteamVR's laser: the
+    // dashboard opened, or Stay open over apps ended without it (`dashboard`
+    // false). Over a stream the user has left typing into it though the
+    // session goes on a while, so a shortcut bar run into the stream ends
+    // (R421), its journal line saying which (R434); anywhere else the
     // dashboard's focus, once known, ends it.
-    void dashboard_opened();
+    void scene_pointer_ended(bool dashboard);
     // As cancel(), for a change of pointer, view or placement that keeps the
     // target: presses end, but text and keys already accepted still arrive,
     // and a held tap or flick types as if let go.

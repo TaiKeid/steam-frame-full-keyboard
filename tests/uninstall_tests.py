@@ -134,6 +134,23 @@ for purge in ((), ("--purge",)):
                 "app names left alone are removed, and the empty folder with them")
 
 with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
+    # R434: a folder named like the record, or its temporary file, is no file of the keyboard's: it
+    # stays, with the cache folder, and the uninstall still finishes.
+    home, runtime = Path(directory) / "home", Path(directory) / "runtime"
+    install(home, runtime)
+    cache = home / ".cache/framekeyboard"
+    (cache / "app-names.json").unlink()
+    (cache / "app-names.json").mkdir()
+    (cache / "app-names.json.tmp").unlink()
+    (cache / "app-names.json.tmp").mkdir()
+    result = run(home, runtime, "--purge", "--yes")
+    require(result.returncode == 0, "uninstall with a folder named like the record failed: " + result.stderr)
+    require((cache / "app-names.json").is_dir() and (cache / "app-names.json.tmp").is_dir(),
+            "a folder by the record's name stays")
+    require(not (home / ".local/share/framekeyboard").exists() and not runtime.exists() and
+            not (home / ".config/framekeyboard").exists(), "and the rest of the uninstall still happens")
+
+with tempfile.TemporaryDirectory(prefix="full-keyboard-uninstall-") as directory:
     home, runtime = Path(directory) / "home", Path(directory) / "runtime"
     root, _ = install(home, runtime)
     # A symlinked installation is left for manual removal, and nothing else is touched.
