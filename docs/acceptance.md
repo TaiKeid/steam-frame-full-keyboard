@@ -143,6 +143,8 @@ See [emoji picker](emoji.md#acceptance) for the full list. In the headset:
 
 Run these in order on a release candidate, with a fresh `shortcuts.json` unless a step says otherwise, Replace native keyboard on, and a harmless text editor in SteamOS's Desktop as the target. See [the shortcut bar](shortcut-bar.md).
 
+On-device report, 2026-11-20, release candidates of 0.20.0: the tester reported that every step below passed in the headset. These are user-reported headset results, not inferred from automation.
+
 1. **Turning it on.** In Settings → General, turn on Shortcut bar and press ✓. An empty bar of two slots with the menu's tab shows above the case, centered on it, and a shortcut bar button joins the toolbar after Pull for Shift. Turn it off and press ✓: the bar and the toolbar button go.
 2. **First profile.** Open the tab, then Manage. Add a profile with New profile, type its name on the mini keyboard, press +, type a label, choose Shortcut and record Ctrl+A. Press ✓: the editor closes and the bar shows the new profile with its button.
 3. **A shortcut.** In the text editor, type a line, then press the Ctrl+A button: the line is selected. The button presses like a key, with hover, travel, vibration and its sound, and acts on release over it; letting go off it sends nothing.
