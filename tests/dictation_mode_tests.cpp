@@ -1,4 +1,4 @@
-#include "bundled_profiles.hpp"
+#include "framekeyboard/bundled.hpp"
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/cjk.hpp"
 #include "framekeyboard/dictation_mode.hpp"
@@ -4255,14 +4255,10 @@ void reload_tests() {
     options.start_enabled = true;
     write_config(directory.path, R"(,"dictation":"server","dictation_server":"127.0.0.1")");
     use_fake_helper(options, directory.path, "silent");
-    const auto bundled =
-        std::find_if(std::begin(bundled::profiles), std::end(bundled::profiles),
-                     [](const bundled::Resource& resource) {
-                         return resource.kind == "layouts" &&
-                                resource.json.find(R"("id": "en-us-full")") != std::string_view::npos;
-                     });
-    require(bundled != std::end(bundled::profiles), "the bundled layout to edit");
-    std::string json(bundled->json);
+    const auto* bundled = bundled::find("layouts", "en-us");
+    require(bundled, "the bundled layout to edit");
+    std::string json = bundled::text(*bundled);
+    require(json.find(R"("id": "en-us-full")") != std::string::npos, "the US layout's file");
     const std::string escape = R"("id": "Escape", "label": "Esc")";
     require(json.find(escape) != std::string::npos, "the layout names its Escape key Esc");
     fs::create_directories(directory.path / "layouts");

@@ -1,7 +1,6 @@
 // R380: Background Disabled lets the laser through between key groups. Every
 // hit test uses pointer_bounds(); these check, in the App's own views, what
 // it gives for every bundled layout and the views over it.
-#include "bundled_profiles.hpp"
 #include "framekeyboard/app.hpp"
 #include "framekeyboard/japanese.hpp"
 #include "framekeyboard/shortcuts.hpp"

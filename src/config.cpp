@@ -1,5 +1,5 @@
 #include "framekeyboard/config.hpp"
-#include "bundled_profiles.hpp"
+#include "framekeyboard/bundled.hpp"
 #include "framekeyboard/input.hpp"
 
 #include <algorithm>
@@ -564,8 +564,12 @@ fs::path default_config_dir() {
 }
 Profiles load_profiles(const fs::path& data_dir, const fs::path& user_dir, const Profiles* previous) {
     Profiles p;
-    for (const auto& resource : bundled::profiles) {
-        const std::string json(resource.json);
+    // Each bundled file unzipped as it is parsed; only the parsed profile stays (R436).
+    for (const auto& resource : bundled::resources()) {
+        if (resource.kind != "layouts" && resource.kind != "languages" && resource.kind != "themes") {
+            continue;
+        }
+        const std::string json = bundled::text(resource);
         if (resource.kind == "layouts") {
             auto v = parse_layout(json);
             p.layouts[v.id] = std::move(v);

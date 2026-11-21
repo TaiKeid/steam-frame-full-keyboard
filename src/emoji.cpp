@@ -1,5 +1,5 @@
 #include "framekeyboard/emoji.hpp"
-#include "bundled_profiles.hpp"
+#include "framekeyboard/bundled.hpp"
 #include "framekeyboard/localization.hpp"
 
 #include <algorithm>
@@ -91,7 +91,9 @@ EmojiCatalog parse_emoji_table(std::string_view table) {
     return catalog;
 }
 const EmojiCatalog& bundled_emoji() {
-    static const EmojiCatalog catalog = parse_emoji_table(bundled::emoji_table);
+    // Unzipped when the picker first needs it; the catalog copies what it
+    // keeps, so the text goes once it is parsed (R436).
+    static const EmojiCatalog catalog = parse_emoji_table(bundled::text(*bundled::find("emoji", "emoji")));
     return catalog;
 }
 

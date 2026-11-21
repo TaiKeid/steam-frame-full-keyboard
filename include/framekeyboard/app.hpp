@@ -392,6 +392,8 @@ class App {
     // Reload immediately when storage is idle, otherwise coalesce the request
     // and complete it from tick() after the newest pending snapshot is saved.
     void reload();
+    // The interface language's tables, for tests: which language, its texts.
+    const Localization& localization() const { return localization_; }
     void flush_settings();
     // Only explicit profile/storage work gets extra time. The deadline stays
     // fixed until a complete VR frame, even across nested or repeated work.

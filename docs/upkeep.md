@@ -53,6 +53,7 @@ These are linked or used as the Frame provides them, never bundled:
 - libsqlite3 and the `cangjie5` and `quick5` tables in `/usr/share/ibus-table/tables` (Cangjie and Quick);
 - Cairo, Pango, HarfBuzz and GLib;
 - json-c, xkbcommon, XCB and the Wayland client;
+- zlib (`libz.so.1`), which unzips the resources built into the keyboard, the installer and the simulator;
 - Vulkan, SDL2 and SteamVR's `libopenvr_api.so`;
 - FUSE 3 (the installer's AppImage);
 - bubblewrap (`bwrap`), Mozc's sandbox where it is installed;

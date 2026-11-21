@@ -59,23 +59,26 @@ add_custom_command(OUTPUT "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}"
     COMMAND "${WAYLAND_SCANNER}" private-code "${DATA_CONTROL_XML}" "${DATA_CONTROL_CODE}"
     DEPENDS "${DATA_CONTROL_XML}" VERBATIM)
 pkg_check_modules(SDL REQUIRED IMPORTED_TARGET sdl2)
+pkg_check_modules(ZLIB REQUIRED IMPORTED_TARGET zlib)
 if(FRAMEKEYBOARD_VR)
     pkg_check_modules(VULKAN REQUIRED IMPORTED_TARGET vulkan)
 endif()
 
 file(GLOB LAYOUT_FILES CONFIGURE_DEPENDS layouts/*.json)
 file(GLOB PROFILE_FILES CONFIGURE_DEPENDS layouts/*.json languages/*.json themes/*.json locales/*.json)
-set(PROFILE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/bundled_profiles.hpp")
-add_custom_command(OUTPUT "${PROFILE_HEADER}"
+# The bundled resources, zlib-compressed into byte arrays and unzipped when
+# used (src/bundled.cpp, R436).
+set(PROFILE_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/bundled_resources.cpp")
+add_custom_command(OUTPUT "${PROFILE_SOURCE}"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_layout.py"
             ${LAYOUT_FILES}
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_defaults.py"
-            "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_HEADER}"
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${PROFILE_SOURCE}"
     DEPENDS ${PROFILE_FILES} emoji/emoji.tsv tools/embed_defaults.py tools/validate_layout.py
     VERBATIM)
-add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/stream_support.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/app_themes.cpp src/app_shortcuts.cpp src/app_shortcut_editor.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/curve_bars.cpp src/theme_previews.cpp src/emoji.cpp src/shortcuts.cpp src/shortcut_runner.cpp src/shortcut_launch.cpp src/shortcut_editor.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/app_names.cpp src/stream_app.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_HEADER}")
+add_library(keyboard_core src/vr_lifecycle.cpp src/vr_runtime.cpp src/config.cpp src/input.cpp src/output.cpp src/panel.cpp src/settings_ui.cpp src/settings_writer.cpp src/key_sounds.cpp src/startup.cpp src/stream_support.cpp src/session_environment.cpp src/app.cpp src/app_table_context.cpp src/app_languages.cpp src/app_themes.cpp src/app_shortcuts.cpp src/app_shortcut_editor.cpp src/localization.cpp src/key_areas.cpp src/table_engine.cpp src/instance.cpp src/placement.cpp src/placement_store.cpp src/resizer.cpp src/curve_bars.cpp src/theme_previews.cpp src/emoji.cpp src/shortcuts.cpp src/shortcut_runner.cpp src/shortcut_launch.cpp src/shortcut_editor.cpp src/glide.cpp src/candidates.cpp src/emoji_glyphs.cpp src/grip.cpp src/ei_input.cpp src/japanese.cpp src/japanese_candidates.cpp src/chinese_candidates.cpp src/japanese_worker.cpp src/mozc.cpp src/next_words.cpp src/private_file.cpp src/word_suggestions.cpp src/emoji_words.cpp src/cjk.cpp src/swipe.cpp src/text_input.cpp src/native_replacement.cpp src/updates.cpp src/dictation.cpp src/dictation_editor.cpp src/dictation_mode.cpp src/dictation_send.cpp src/clipboard.cpp src/desktop_focus.cpp src/desktop_terminal.cpp src/app_names.cpp src/stream_app.cpp src/terminal_keys.cpp src/shell_protocol.cpp src/shell_sink.cpp src/app_host.cpp src/shell_host.cpp src/bundled.cpp "${IME_HEADER}" "${IME_CODE}" "${DATA_CONTROL_HEADER}" "${DATA_CONTROL_CODE}" "${EXT_DATA_CONTROL_HEADER}" "${EXT_DATA_CONTROL_CODE}" "${PROFILE_SOURCE}")
 target_include_directories(keyboard_core PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(keyboard_core PUBLIC PkgConfig::NATIVE PkgConfig::ZLIB framekeyboard_ei PkgConfig::WAYLAND_CLIENT PkgConfig::XCB ${CMAKE_DL_LIBS} Threads::Threads)
 target_compile_options(keyboard_core PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 # The theme picker's cached previews are drawn again when the version changes
 # (theme_preview_key); only that file needs to know it.
@@ -481,6 +484,11 @@ if(BUILD_TESTING)
     add_executable(localization-tests tests/localization_tests.cpp)
     target_link_libraries(localization-tests PRIVATE keyboard_core)
     add_test(NAME localization COMMAND localization-tests)
+    # Every bundled resource unzips whole, and a start unzips only what it uses (R436).
+    add_executable(bundled-tests tests/bundled_tests.cpp)
+    target_link_libraries(bundled-tests PRIVATE keyboard_core)
+    target_compile_options(bundled-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME bundled COMMAND bundled-tests "${CMAKE_CURRENT_SOURCE_DIR}")
     if(NOT CMAKE_CROSSCOMPILING)
         add_test(NAME locales COMMAND "${Python3_EXECUTABLE}" -I
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_locales.py" "${CMAKE_CURRENT_SOURCE_DIR}")

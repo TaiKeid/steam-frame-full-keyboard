@@ -1,5 +1,5 @@
 #include "framekeyboard/localization.hpp"
-#include "bundled_profiles.hpp"
+#include "framekeyboard/bundled.hpp"
 
 #include <algorithm>
 #include <array>
@@ -483,8 +483,8 @@ void Localization::apply(Locale& locale, json_object* root, bool with_strings) {
     }
 }
 std::string Localization::source_text(const Source& source) {
-    if (source.path.empty()) {
-        return std::string(source.bundled);
+    if (source.bundled) {
+        return bundled::text(*source.bundled); // unzipped only now (R436)
     }
     std::ifstream file(source.path, std::ios::binary);
     if (!file) {
@@ -514,9 +514,17 @@ void Localization::load(const fs::path& data_dir, const fs::path& user_dir) {
             errors_.push_back(origin + ": " + error.what());
         }
     };
-    for (const auto& resource : bundled::profiles) {
-        if (resource.kind == "locales") {
-            add({resource.json, {}}, "bundled language file");
+    // A bundled language is learned from its head, its fields without its
+    // strings; its texts are unzipped only when it is chosen (R436).
+    for (const auto& head : bundled::locale_heads()) {
+        try {
+            const auto root = parse(std::string(head.json));
+            Locale checked;
+            apply(checked, root.get(), false);
+            apply(info_[checked.tag], root.get(), false);
+            sources_[checked.tag].push_back({&bundled::resources()[head.resource], {}});
+        } catch (const std::exception& error) {
+            errors_.push_back(std::string("bundled language file: ") + error.what());
         }
     }
     for (const auto& directory : {data_dir, user_dir}) {
@@ -546,7 +554,11 @@ Localization::Locale Localization::full(const std::string& tag) const {
             apply(checked, root.get(), false);
             apply(locale, root.get(), true);
         } catch (const std::exception&) {
-            // Changed since loading and damaged now: the others still count.
+            // A file changed since loading and damaged now: the others still
+            // count. A bundled text that doesn't unzip is a damaged binary.
+            if (source.bundled) {
+                throw;
+            }
         }
     }
     return locale;

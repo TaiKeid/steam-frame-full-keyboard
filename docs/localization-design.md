@@ -20,7 +20,7 @@ First languages, by Steam's language survey of October 2026 (about 97% of Steam 
 <config dir>/locales/*.json        a user's own files: added languages, or overrides
 ```
 
-Translator notes per key are kept with the translation work outside the repository; the app never loads them. A user file with the same `locale` as a bundled one replaces it key by key. Reload config reloads them.
+The bundled files are also built into the keyboard, compressed and without their `sources` section; it unzips English and the language in use only. Translator notes per key are kept with the translation work outside the repository; the app never loads them. A user file with the same `locale` as a bundled one replaces it key by key. Reload config reloads them.
 
 ```json
 {

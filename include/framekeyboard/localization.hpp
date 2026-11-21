@@ -15,6 +15,9 @@
 struct json_object;
 
 namespace framekeyboard {
+namespace bundled {
+struct Resource;
+}
 namespace fs = std::filesystem;
 
 // A template argument: a count chooses plural forms and is written with the
@@ -139,10 +142,10 @@ class Localization {
         std::vector<std::pair<std::string, std::string>> plural; // category, CLDR rule
         std::unordered_map<std::string, Node> strings;
     };
-    // A language's files, lowest priority first: bundled text, or a path read
-    // again when that language is chosen.
+    // A language's files, lowest priority first: a bundled resource, unzipped
+    // when that language is chosen, or a path read again then.
     struct Source {
-        std::string_view bundled;
+        const bundled::Resource* bundled{};
         fs::path path;
     };
     static Node node(json_object* value, const std::string& key, int depth);

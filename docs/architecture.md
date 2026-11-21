@@ -58,6 +58,8 @@ Global pin, Num Lock and numpad visibility preferences live beside the active se
 
 The language model validates required physical keys. The normal Frame path composes characters locally and sends Unicode. Only physical uinput and external JIS use an explicit `--target-language` declaration. Derived legends must match the symbols actually delivered. Locale names alone do not establish language support. Keep IME/composition and UI translation separate from physical key geometry.
 
+The bundled profiles, interface languages and emoji table are zlib-compressed in the binary (`src/bundled.cpp`) and unzipped when used: profiles at load, as before; of the interface languages only English and the one in use, picked from small uncompressed heads; the emoji table when the picker first needs it. Files in the data and config folders still override them.
+
 Settings geometry and scrolling live in `SettingsUi`. App supplies data-defined cards for Languages and Layouts, General, Typing, Dictation and Integration, plus a Debug card in builds with [debug mode](building.md#debug-mode), whose switches are never saved; the same model accepts extra cards and fields in tests. Card and field clips are shared with control hit testing. An open dropdown owns clicks and scroll input; outside dismissal consumes its click. Scroll changes invalidate pressed controls, and cancellation clears scrollbar ownership and menus.
 
 Pointer targets distinguish keyboard keys from UI controls. Their hover sets are also separate in the renderer, so a custom key ID can match a control ID without activating or highlighting that control. A control press activates only when released over the same control target.
@@ -296,7 +298,7 @@ The picker is a second view of the same panel. `emoji_layout()` derives its keys
 
 | Area | Files |
 | --- | --- |
-| Configuration and validation | `src/config.cpp`, `include/framekeyboard/config.hpp` |
+| Configuration and validation | `src/config.cpp`, `include/framekeyboard/config.hpp`; built-in resources `src/bundled.cpp` from `tools/embed_defaults.py` |
 | Pointer/key ownership, XKB legends, uinput | `src/input.cpp` |
 | Output queue, gate, delivered holds, retries and repeat | `src/output.cpp`, `include/framekeyboard/output.hpp` |
 | Compositor key and text delivery | `src/ei_input.cpp`, `src/text_input.cpp` |
