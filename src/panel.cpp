@@ -2520,6 +2520,20 @@ bool takes_pointer(const PanelView& view, double x, double y) {
     const auto areas = pointer_bounds(view);
     return std::any_of(areas.begin(), areas.end(), [&](const Rect& r) { return r.contains(x, y); });
 }
+namespace {
+// The layers drawn over the shortcut editor and the Profiles menu that their
+// partial paths don't compare: a question, Settings' popups, a dropdown and
+// the status card. Their passes repaint only what changed in the editor or
+// the menu, so a question coming or going would leave its card half drawn,
+// or half erased (R439). While one shows, or when one comes or goes, they
+// repaint whole.
+bool no_layer_over(const PanelView& before, const PanelView& now) {
+    const auto none = [](const PanelView& v) {
+        return !v.confirm && !v.address && !v.languages && !v.themes && !v.popup;
+    };
+    return none(before) && none(now) && before.status_card == now.status_card;
+}
+} // namespace
 std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& now, bool menu_apart) {
     if (!before.shortcut_bar || !now.shortcut_bar || before.shortcut_bar == now.shortcut_bar ||
         before.settings || now.settings) {
@@ -2576,7 +2590,7 @@ std::vector<Rect> shortcut_bar_damage(const PanelView& before, const PanelView& 
 }
 std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, const PanelView& now) {
     if (!before.shortcut_bar || !now.shortcut_bar || !before.shortcut_bar->menu ||
-        !now.shortcut_bar->menu || before.settings || now.settings) {
+        !now.shortcut_bar->menu || before.settings || now.settings || !no_layer_over(before, now)) {
         return {};
     }
     const auto& a = *before.shortcut_bar->menu;
@@ -2635,7 +2649,7 @@ std::optional<std::vector<Rect>> shortcut_menu_damage(const PanelView& before, c
 }
 std::optional<std::vector<Rect>> shortcut_editor_damage(const PanelView& before, const PanelView& now) {
     if (!before.shortcut_editor || !now.shortcut_editor || before.settings || now.settings ||
-        before.shortcut_field || now.shortcut_field) {
+        before.shortcut_field || now.shortcut_field || !no_layer_over(before, now)) {
         return {};
     }
     const auto& a = *before.shortcut_editor;
@@ -5419,7 +5433,14 @@ bool PanelRenderer::paint(const PanelView& view, double now, bool force_full) {
         // The shortcut editor repaints whole but for its own damage, its fields always.
         ((view.shortcut_editor || previous_->view.shortcut_editor) && !editor_damage) ||
         previous_->view.shortcut_field != view.shortcut_field || previous_->view.status != view.status ||
-        previous_->view.settings != view.settings || previous_->view.reading_room != view.reading_room ||
+        // A layer over everything comes, goes or changes (R439); the languages
+        // and theme popups' own changes are Settings' to repaint.
+        previous_->view.confirm != view.confirm || previous_->view.address != view.address ||
+        previous_->view.popup != view.popup ||
+        previous_->view.languages.has_value() != view.languages.has_value() ||
+        previous_->view.themes.has_value() != view.themes.has_value() ||
+        previous_->view.status_card != view.status_card || previous_->view.settings != view.settings ||
+        previous_->view.reading_room != view.reading_room ||
         // The message card moves to clear the tooltip.
         (!view.status.empty() && shown_tooltip(previous_->view) != shown_tooltip(view)) ||
         previous_->view.composing != view.composing || previous_->view.ime_band != view.ime_band ||

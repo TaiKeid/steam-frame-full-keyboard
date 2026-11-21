@@ -9,6 +9,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
@@ -2334,6 +2335,166 @@ void shortcut_menu_repaints(const char* theme) {
         partial("the menu scrolls " + std::to_string(i));
     }
 }
+// R439: a question over the shortcut editor is painted whole and stays
+// whole, whatever the laser hovers under or beside it, and the editor is
+// whole again when it closes; the same for every other layer the editor's
+// and the Profiles menu's partial paths don't compare, laid over them here.
+// Each frame matches a full paint pixel for pixel.
+void layers_over_editor_repaint(const char* theme) {
+    ConfigFolder folder;
+    Settings settings;
+    settings.shortcuts = true;
+    settings.active.theme = theme;
+    save_settings(folder.path, settings);
+    ShortcutModel model;
+    ShortcutProfile games{"g", "Games", {}};
+    for (int i = 0; i < 2; ++i) {
+        ShortcutButton button;
+        button.label = "Key " + std::to_string(i);
+        button.action.chords = {{{"ControlLeft"}, "KeyA"}};
+        games.buttons.push_back(button);
+    }
+    model.profiles.push_back(games);
+    for (int i = 1; i < 6; ++i) {
+        model.profiles.push_back({"p" + std::to_string(i), "Profile " + std::to_string(i), {}});
+    }
+    model.free_profile = "g";
+    std::ofstream(shortcuts_path(folder.path)) << serialize_shortcuts(model);
+    Options options;
+    options.config_dir = folder.path;
+    options.mode = Mode::Render;
+    NullSink sink;
+    App app(options, sink);
+    double now = 10;
+    const auto tap = [&](const Rect& r) {
+        const double x = r.x + r.width / 2, y = r.y + r.height / 2;
+        app.move(0, x, y);
+        app.down(0, x, y, now += .1);
+        app.up(0, x, y);
+    };
+    const auto tap_control = [&](const std::string& id) { tap(control_named(app.view(), id).bounds); };
+    const auto over = [&](const Rect& r) { app.move(0, r.x + r.width / 2, r.y + r.height / 2); };
+    tap(app.view().shortcut_bar->picker);
+    tap(app.view().shortcut_bar->menu->manage);
+    Comparison compare;
+    compare.frame(app.view(), "the editor opens");
+    // The editor's controls the card covers, and some beside it.
+    const auto under_and_beside = [&] {
+        std::vector<Rect> under, beside;
+        for (const auto& c : app.view().controls) {
+            if (!c.id.starts_with(shortcut_editor_prefix)) {
+                continue;
+            }
+            const auto& r = c.bounds;
+            const auto& q = confirm_popup_bounds;
+            const bool covered = r.x < q.x + q.width && q.x < r.x + r.width && r.y < q.y + q.height &&
+                                 q.y < r.y + r.height;
+            auto& list = covered ? under : beside;
+            if (list.size() < 3) {
+                list.push_back(c.bounds);
+            }
+        }
+        if (under.empty() || beside.empty()) {
+            std::string ids;
+            for (const auto& c : app.view().controls) {
+                ids += c.id + " ";
+            }
+            throw std::runtime_error("no editor control under or beside the question: " + ids);
+        }
+        under.insert(under.end(), beside.begin(), beside.end());
+        return under;
+    };
+    // A question asked by the editor: it opens, the laser crosses its buttons
+    // and the editor's controls under and beside it, and Cancel closes it.
+    const auto question = [&](const std::string& name, const std::string& opener) {
+        tap_control(opener);
+        if (!app.view().confirm) {
+            throw std::runtime_error(name + ": no question");
+        }
+        compare.frame(app.view(), (name + " opens").c_str());
+        for (const char* id : {"confirm-cancel", "confirm-accept"}) {
+            over(control_named(app.view(), id).bounds);
+            compare.frame(app.view(), (name + ": the laser over " + id).c_str());
+        }
+        for (const auto& r : under_and_beside()) {
+            over(r);
+            compare.frame(app.view(), (name + ": the laser over the editor").c_str());
+        }
+        tap_control("confirm-cancel");
+        compare.frame(app.view(), (name + " closed by Cancel").c_str());
+    };
+    question("Delete profile", "shortcuts-delete");
+    if (!app.view().shortcut_editor) {
+        throw std::runtime_error("Cancel left the editor");
+    }
+    // The layers App may show over the editor or the menu, which their
+    // partial paths don't compare: each comes, the laser moves under it,
+    // and it goes.
+    const std::vector<std::pair<std::string, std::function<void(PanelView&)>>> layers{
+        {"another question",
+         [](PanelView& v) {
+             v.confirm =
+                 PanelView::ConfirmView{confirm_popup_bounds, "A question", "And what it asks about."};
+         }},
+        {"a dropdown", [](PanelView& v) { v.popup = Rect{600, 200, 320, 220}; }},
+        {"a server address popup",
+         [](PanelView& v) {
+             PanelView::AddressView address;
+             address.panel = {420, 130, 760, 330};
+             address.field = {450, 190, 700, 64};
+             address.hint = {450, 270, 700, 30};
+             address.title = "Server";
+             v.address = address;
+         }},
+        {"the status card", [](PanelView& v) { v.status_card = true; }},
+    };
+    const auto laid = [&](const std::string& where, const std::vector<Rect>& under) {
+        for (const auto& [name, add] : layers) {
+            const auto phase = where + ", " + name;
+            auto base = app.view();
+            if (name == "the status card") {
+                base.status = "Stopped"; // the line alone shows nothing over the editor
+                compare.frame(base, (phase + ": its status").c_str());
+            }
+            auto shown = base;
+            add(shown);
+            compare.frame(shown, (phase + " comes").c_str());
+            for (const auto& r : under) {
+                over(r);
+                auto moved = app.view();
+                moved.status = base.status;
+                add(moved);
+                compare.frame(moved, (phase + ": the laser under it").c_str());
+            }
+            compare.frame(app.view(), (phase + " goes").c_str());
+        }
+    };
+    laid("over the editor", under_and_beside());
+    // An unsaved change, then Back: the Leave question; its Cancel discards.
+    // An empty profile goes without asking.
+    tap_control("shortcuts-row-1");
+    tap_control("shortcuts-delete");
+    if (app.view().confirm || app.view().shortcut_editor->popup) {
+        throw std::runtime_error("an empty profile's Delete asked");
+    }
+    compare.frame(app.view(), "an empty profile deleted");
+    tap_control("shortcuts-row-0"); // its buttons under the question
+    compare.frame(app.view(), "Games again");
+    question("Leave with unsaved changes", "shortcuts-back");
+    if (app.view().shortcut_editor) {
+        throw std::runtime_error("Discard kept the editor");
+    }
+    // The Profiles menu, with each layer over its rows.
+    tap(app.view().shortcut_bar->picker);
+    compare.frame(app.view(), "the menu opens");
+    std::vector<Rect> rows;
+    for (const auto& row : app.view().shortcut_bar->menu->rows) {
+        if (rows.size() < 3) {
+            rows.push_back({row.bounds.x, row.bounds.y, 80, row.bounds.height});
+        }
+    }
+    laid("over the menu", rows);
+}
 // R331: four combinations of four keys each at the no-numpad width draw
 // nothing outside the case, in the editor or in its popup.
 void long_combinations_drawn() {
@@ -2555,6 +2716,7 @@ int main() {
                 shortcut_menu_repaints(theme);
                 shortcut_editor_repaints(theme);
                 shortcut_menu_repaints(theme);
+                layers_over_editor_repaint(theme);
             } catch (const std::exception& error) {
                 throw std::runtime_error(std::string(theme) + ": " + error.what());
             }
