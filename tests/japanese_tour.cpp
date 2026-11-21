@@ -2,6 +2,9 @@
 //   japanese-tour OUTPUT_DIR
 // It types into a capture sink only. With Anthy loadable (LD_LIBRARY_PATH,
 // FRAMEKEYBOARD_TEST_ANTHY_DICTIONARY as for the tests) candidates are real.
+// Without it the keyboard offers kana alone, too few for the candidate list,
+// so those scenes are skipped, saying so, and the tour still runs to its end
+// (R431). It also runs once as the japanese-tour test.
 #include "framekeyboard/app.hpp"
 #include <dlfcn.h>
 #include <fstream>
@@ -16,6 +19,7 @@ struct Sink : KeySink {
     bool commit_text(const std::string&) override { return true; }
 };
 fs::path output;
+bool converter = false; // Anthy loaded: conversion offers more than a row holds
 std::pair<double, double> centre(App& app, const std::string& id) {
     const auto view = app.view();
     double left = 1e9, right = -1, top = 1e9, bottom = -1;
@@ -127,6 +131,7 @@ int main(int argc, char** argv) {
                 if (auto* set = reinterpret_cast<void (*)(const char*, const char*)>(
                         dlsym(anthy, "anthy_conf_override"))) {
                     set_anthy_dictionary(dictionary);
+                    converter = true;
                 }
             }
         }
@@ -238,14 +243,21 @@ int main(int argc, char** argv) {
             flicks(*app, nihongo);
             shot(*app, name);
         }
-        // かい has many candidates; ∨ opens them all over the keys.
+        // かい has many candidates; ∨ opens them all over the keys. Only a
+        // converter offers them: without one these scenes are skipped.
         const std::vector<std::pair<std::string, int>> kai{{"ka", 0}, {"a", 1}};
-        for (const auto& [theme, extra, name] :
-             std::vector<std::tuple<std::string, std::string, std::string>>{
-                 {"graphite", "", "22-candidate-list"},
-                 {"porcelain", "", "24-candidate-list-light"},
-                 {"graphite", R"(,"background_surface":"invisible")",
-                  "25-candidate-list-see-through"}}) {
+        if (!converter) {
+            std::cerr << "Skipped 22 to 25, the candidate list: they need Anthy "
+                         "(FRAMEKEYBOARD_TEST_ANTHY_DICTIONARY).\n";
+        }
+        using Scene = std::tuple<std::string, std::string, std::string>;
+        const auto lists = converter
+                               ? std::vector<Scene>{{"graphite", "", "22-candidate-list"},
+                                                    {"porcelain", "", "24-candidate-list-light"},
+                                                    {"graphite", R"(,"background_surface":"invisible")",
+                                                     "25-candidate-list-see-through"}}
+                               : std::vector<Scene>{};
+        for (const auto& [theme, extra, name] : lists) {
             auto app = keyboard(root / name, extra, Mode::Vr, sink, theme);
             flicks(*app, kai);
             tick(*app, .3);

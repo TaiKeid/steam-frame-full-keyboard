@@ -771,9 +771,15 @@ if(BUILD_TESTING)
     pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
     add_executable(unicode-target-probe tests/unicode_target_probe.cpp)
     target_link_libraries(unicode-target-probe PRIVATE keyboard_core PkgConfig::X11)
-    # Renders the Japanese keyboard's states for review; not a test.
+    # Renders the Japanese keyboard's states for review, the README image's
+    # first. Run once as a test too, into a folder of its own, so a scene the
+    # keyboard no longer has fails here rather than the next picture refresh
+    # (R431); without Anthy it skips the scenes that need a converter.
     add_executable(japanese-tour tests/japanese_tour.cpp)
     target_link_libraries(japanese-tour PRIVATE keyboard_core)
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME japanese-tour COMMAND japanese-tour "${CMAKE_CURRENT_BINARY_DIR}/japanese-tour-test")
+    endif()
     add_executable(japanese-target-probe tests/japanese_target_probe.cpp)
     target_link_libraries(japanese-target-probe PRIVATE keyboard_core PkgConfig::X11)
     add_executable(ei-target-probe tests/ei_target_probe.cpp)

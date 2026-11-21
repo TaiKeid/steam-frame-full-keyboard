@@ -256,11 +256,13 @@ Repeat with the same headset/dashboard state for a candidate build. A changed pr
 
 ## Refresh the README image
 
-The README image is the first scene of the Japanese render tour: the default US QWERTY profile with every toolbar button showing but the shortcut bar's, which shows only with **Shortcut bar** on. That takes an additional language, Replace native keyboard, Swipe typing, Haptic sounds and Pull for Shift, and Self-hosted dictation for the mic key; On device would hide it until the model is downloaded. Only the VR mode draws the Focus mode button, so a plain `--render` can't. The tour builds with the host preset, swipe typing included (`FRAMEKEYBOARD_EXECUTORCH_HOST`), and its dictation address is a placeholder that appears nowhere in the image:
+The README image is the first scene of the Japanese render tour: the default US QWERTY profile with every toolbar button showing but the shortcut bar's, which shows only with **Shortcut bar** on. That takes an additional language, Replace native keyboard, Swipe typing, Haptic sounds and Pull for Shift, and Self-hosted dictation for the mic key; On device would hide it until the model is downloaded. Only the VR mode draws the Focus mode button, so a plain `--render` can't. The tour builds with the host preset, swipe typing included (`FRAMEKEYBOARD_EXECUTORCH_HOST`), and its dictation address is a placeholder that appears nowhere in the image. Anthy, loaded as for the tests, gives its conversion scenes real candidates; without it the tour skips the candidate list, saying so, and the README image is the same either way. The `japanese-tour` test runs the whole tour once into the build tree, so a scene that no longer works fails there:
 
 ```sh
+A=/path/to/unpacked/anthy
 tour=$(mktemp -d)
-./build/host/japanese-tour "$tour"
+LD_LIBRARY_PATH=$A/usr/lib FRAMEKEYBOARD_TEST_ANTHY_DICTIONARY=$A/usr/share/anthy/anthy.dic \
+    ./build/host/japanese-tour "$tour"
 cp "$tour/00-readme.png" docs/images/keyboard-graphite.png
 rm -r "$tour"
 python3 tools/make_social_card.py
