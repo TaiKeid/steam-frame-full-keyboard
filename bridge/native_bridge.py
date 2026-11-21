@@ -198,6 +198,9 @@ class StreamChannel:
         # When the keys sent are estimated through to the PC (R369, STREAM_KEY_ON_THE_WAY), and for the
         # last text sent: how long the keys before it still had, and its own typed keys' time.
         self.keys_through = 0.0
+        # Counts the clients accepted; the app hears the current one's number with each state, 0 while
+        # none is connected, so a new stream or a library gone starts its estimates again (R433).
+        self.generation = 0
         self.last_text_lead = 0.0
         self.last_text_taps = 0.0
         # A text of this session found no room: its later keys must not arrive without it.
@@ -240,6 +243,10 @@ class StreamChannel:
     def connected(self):
         return self.client is not None
 
+    def client_number(self):
+        """The current client's number, 0 while none is connected (R433)."""
+        return self.generation if self.client is not None else 0
+
     def _drop(self):
         self.modifiers = 0
         if self.client is not None:
@@ -247,7 +254,8 @@ class StreamChannel:
             self.client = None
             self.client_pid = None
             self.lost = True
-        # What the client had not typed yet went with it.
+        # What the client had not typed yet went with it, and its keys with their time (R433).
+        self.keys_through = 0.0
         self.results.extend((token, False) for token in self.texts)
         self.texts.clear()
         self.packets.clear()
@@ -389,6 +397,7 @@ class StreamChannel:
                 pass
             self.client = incoming
             self.client_pid = pid
+            self.generation += 1
             self.text_failed = False
             self._send(b"Q")  # Ask it to answer each commit; an older library ignores this.
         self._read()
@@ -1298,7 +1307,8 @@ def run(parent, client_factory=CDP, parent_pid=None, guard_factory=NativeGuard, 
                 if stream and previous_stream is not None and stream_request != previous_stream:
                     stream.release()  # Nothing stays held on the PC after its session.
                     stream.take_lost()  # A hang-up there takes nothing from the next session.
-                state = {"op": "state", **result}
+                state = {"op": "state", **result,
+                         "streamClient": stream.client_number() if stream else 0}
                 if not announced:
                     # The parent's startup deadline counts when this was sent,
                     # not when a slow frame of its own reads it.

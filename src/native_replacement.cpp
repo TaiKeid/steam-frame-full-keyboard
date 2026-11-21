@@ -476,6 +476,18 @@ void NativeReplacement::poll(double now) {
                       json_object_get_boolean(field("multiline")) != 0,
                       json_object_get_boolean(field("steam")) != 0,
                       json_object_get_boolean(field("stream")) != 0};
+            // Another streaming client, or none: the library's queue went with the last one, so
+            // nothing sent before is still on its way (R433). A panel reopened in the same stream
+            // keeps its client, and the estimates. A helper without the number sends none.
+            const auto* client = field("streamClient");
+            const std::uint64_t stream_client = client && json_object_get_type(client) == json_type_int
+                                                    ? json_object_get_uint64(client)
+                                                    : 0;
+            if (stream_client != stream_client_) {
+                stream_client_ = stream_client;
+                stream_keys_through_ = stream_paced_through_ = 0;
+                stream_last_down_ = -1;
+            }
             last_reply_ = now;
             install_until_ = 0;
             failure_ = Failure::None;

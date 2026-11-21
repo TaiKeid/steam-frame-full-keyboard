@@ -758,6 +758,48 @@ void stream_run_after_text() {
         close(pair[1]);
     }
 }
+// R433: the stream estimates belong to the streaming client the helper reports: a panel reopened
+// in the same stream keeps them, and another client, or none, starts them again.
+void stream_estimates_follow_the_client() {
+    const auto state = [](int request, int client) {
+        return R"({"op":"state","version":1,"request":)" + std::to_string(request) +
+               R"(,"open":true,"eligible":true,"active":true,"stream":true,"streamClient":)" +
+               std::to_string(client) + "}";
+    };
+    Local local;
+    int pair[2];
+    require(socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, pair) == 0, "client socketpair");
+    {
+        NativeReplacement replacement(local, pair[0]);
+        put(pair[1], state(2, 1));
+        replacement.poll(10);
+        replacement.route(true);
+        require(!replacement.commit_text("a long enough text") &&
+                    replacement.stream_keys_through() > 12 && replacement.stream_paced_through() > 11,
+                "a text in the stream moves both estimates ahead");
+        // The panel closed and opened again in the same stream: the same client, another request.
+        put(pair[1], state(3, 1));
+        replacement.poll(10.1);
+        require(replacement.stream_keys_through() > 12 && replacement.stream_paced_through() > 11,
+                "the same stream keeps them: its keys are still on their way");
+        // Another stream: another client, with nothing of the last one's queue.
+        put(pair[1], state(4, 2));
+        replacement.poll(10.2);
+        require(replacement.stream_keys_through() == 0 && replacement.stream_paced_through() == 0,
+                "another stream starts them again");
+        replacement.send(KEY_A, 1);
+        replacement.send(KEY_A, 0);
+        require(replacement.stream_paced_through() > 10.2, "and its own keys count from there");
+        // The client gone, as when the stream ends: nothing of it is on its way any more.
+        put(pair[1],
+            R"({"op":"state","version":1,"request":5,"open":false,"eligible":true,"active":false,)"
+            R"("streamClient":0})");
+        replacement.poll(10.3);
+        require(replacement.stream_keys_through() == 0 && replacement.stream_paced_through() == 0,
+                "a client gone takes them with it");
+    }
+    close(pair[1]);
+}
 // One frame's packet, as update() sends it.
 std::string take_frame(NativeReplacement& replacement, int fd, double now) {
     replacement.update(true, true, 2, false, now, true);
@@ -2207,6 +2249,7 @@ int main(int argc, char** argv) {
         stream_repeat_pace();
         stream_run_replay();
         stream_run_after_text();
+        stream_estimates_follow_the_client();
         ordered_transport();
         delivered_local_route();
         helper_retry_backoff();
